@@ -169,33 +169,39 @@ export function AuditReport({ demoCase, connectedAddress }: Props) {
         </div>
       </div>
 
-      {/* Block 4 — Compliance Officer Agent report products */}
-      <div className="mt-4 rounded-[28px] border border-white/15 bg-[#2A2A2A] p-8 md:p-10">
+      {/* Block 4 — Compliance Officer Agent (violet bridge between blue + pink) */}
+      <div
+        className="mt-4 rounded-[28px] border border-[#5B4A8A]/45 p-8 shadow-[0_0_40px_rgba(167,139,250,0.1)] md:p-10"
+        style={{
+          background:
+            "linear-gradient(145deg, #1c1633 0%, #120e22 45%, #0a0814 100%)",
+        }}
+      >
         <div className="w-full">
-          <div className="mb-2 flex items-center justify-center gap-2 text-sm font-medium text-white/70">
+          <div className="mb-2 flex items-center justify-center gap-2 text-sm font-medium text-[#C4B5FD]">
             <span aria-hidden>✦</span>
             <span>Compliance Officer Agent · AI</span>
           </div>
-          <h3 className="text-center text-2xl font-bold text-white md:text-3xl">
+          <h3 className="text-center text-2xl font-bold text-[#EDE9FE] md:text-3xl">
             {demoCase.agent.status}
           </h3>
-          <p className="mt-3 w-full text-sm leading-relaxed text-white/70">
+          <p className="mt-3 w-full text-sm leading-relaxed text-[#C4B5FD]/80">
             Regulatory report package for the pool Compliance Officer (
-            <span className="text-white">task-regulatory-report</span>). Internal evidence
+            <span className="text-[#EDE9FE]">task-regulatory-report</span>). Internal evidence
             only — the agent never files with any authority.
           </p>
           <div className="mt-5 flex w-full flex-wrap gap-2">
-            <span className="rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white">
+            <span className="rounded-full border border-[#A78BFA]/45 bg-[#A78BFA]/15 px-3 py-1.5 text-xs font-semibold text-[#DDD6FE]">
               {demoCase.agent.hookOutput}
             </span>
-            <span className="rounded-full border border-white/25 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/90">
+            <span className="rounded-full border border-[#A78BFA]/30 bg-[#A78BFA]/8 px-3 py-1.5 text-xs font-semibold text-[#C4B5FD]">
               {demoCase.agent.documentType}
             </span>
-            <span className="rounded-full border border-white/25 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/90">
+            <span className="rounded-full border border-[#A78BFA]/30 bg-[#A78BFA]/8 px-3 py-1.5 text-xs font-semibold text-[#C4B5FD]">
               Confidence {demoCase.agent.confidence}
             </span>
             {demoCase.agent.humanReview && (
-              <span className="rounded-full border border-white/40 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white">
+              <span className="rounded-full border border-[#A78BFA]/50 bg-[#A78BFA]/15 px-3 py-1.5 text-xs font-semibold text-[#EDE9FE]">
                 Human review required
               </span>
             )}
@@ -358,7 +364,7 @@ export function AuditReport({ demoCase, connectedAddress }: Props) {
           </p>
         </ReportSection>
 
-        <p className="mt-8 border-t border-white/10 pt-6 text-sm leading-relaxed text-white/60">
+        <p className="mt-8 border-t border-[#A78BFA]/20 pt-6 text-sm leading-relaxed text-[#C4B5FD]/65">
           {demoCase.agent.note}
         </p>
       </div>
@@ -367,7 +373,7 @@ export function AuditReport({ demoCase, connectedAddress }: Props) {
 }
 
 /**
- * Small labeled value cell used inside the gray agent report card.
+ * Small labeled value cell used inside the violet agent report card.
  */
 function MetaCell({
   label,
@@ -379,11 +385,11 @@ function MetaCell({
   mono?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5">
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-white/45">
+    <div className="rounded-2xl border border-[#A78BFA]/20 bg-[#A78BFA]/8 px-4 py-3.5">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-[#A78BFA]/75">
         {label}
       </div>
-      <div className={`mt-1.5 text-sm text-white ${mono ? "font-mono" : ""}`}>{value}</div>
+      <div className={`mt-1.5 text-sm text-[#EDE9FE] ${mono ? "font-mono" : ""}`}>{value}</div>
     </div>
   );
 }
@@ -399,8 +405,11 @@ function ReportSection({
   children: ReactNode;
 }) {
   return (
-    <div className="mt-8 rounded-2xl border border-white/10 bg-[#333333] p-6 md:p-7">
-      <h4 className="mb-4 text-sm font-semibold uppercase tracking-[0.14em] text-white">
+    <div
+      className="mt-8 rounded-2xl border border-[#A78BFA]/18 p-6 md:p-7"
+      style={{ background: "rgba(167, 139, 250, 0.06)" }}
+    >
+      <h4 className="mb-4 text-sm font-semibold uppercase tracking-[0.14em] text-[#DDD6FE]">
         {title}
       </h4>
       {children}
@@ -414,10 +423,10 @@ function ReportSection({
 function OpinionRow({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-white/45">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-[#A78BFA]/70">
         {label}
       </div>
-      <p className="mt-1.5 text-sm leading-relaxed text-white/90">{value}</p>
+      <p className="mt-1.5 text-sm leading-relaxed text-[#EDE9FE]/90">{value}</p>
     </div>
   );
 }
