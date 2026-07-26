@@ -111,69 +111,71 @@ export default function HomePage() {
         </div>
       </div>
 
-      <NavBar
-        connected={connected}
-        address={address}
-        onConnectClick={() => setModalOpen(true)}
-      />
+      <div className="relative z-10 mx-auto w-full px-5 sm:px-8 md:px-12 lg:px-16">
+        <NavBar
+          connected={connected}
+          address={address}
+          onConnectClick={() => setModalOpen(true)}
+        />
 
-      <section className="relative z-10 pb-10 pt-8 md:pt-14">
-        <div className="mx-auto mb-8 max-w-3xl px-4 text-center">
-          <h1 className="text-balance text-4xl font-extrabold tracking-tight md:text-5xl">
-            AML Hook
-          </h1>
-          <p className="mt-3 text-sm text-uni-muted md:text-base">
-            Uniswap Hook Incubator 10
-          </p>
-        </div>
-
-        <div className="relative">
-          {connected && (
-            <div className="absolute left-3 top-0 z-20 md:left-5">
-              <CaseSwitcher active={caseId} onChange={handleCaseChange} />
-            </div>
-          )}
-          <div className="mx-auto w-full max-w-[480px] px-4">
-            <SwapWidget
-              demoCase={demoCase}
-              connected={connected}
-              onConnectClick={() => setModalOpen(true)}
-              onSimulate={handleSimulate}
-            />
+        <section className="relative pb-10 pt-8 md:pt-14">
+          <div className="mx-auto mb-8 max-w-3xl text-center">
+            <h1 className="text-balance text-4xl font-extrabold tracking-tight md:text-5xl">
+              AML Hook
+            </h1>
+            <p className="mt-3 text-sm text-uni-muted md:text-base">
+              Uniswap Hook Incubator 10
+            </p>
           </div>
-        </div>
-      </section>
 
-      {connected && (
-        <>
-          <div id="flow" className="relative z-10 py-16">
-            <div className="mb-12 px-4 pb-6 pt-10 text-center md:mb-16 md:pb-10 md:pt-14">
-              <p className="text-sm font-semibold uppercase tracking-[0.22em] text-uni-pink">
-                Case
-              </p>
-              <h2 className="mt-4 text-balance text-4xl font-extrabold tracking-tight md:text-5xl">
-                Simulator
-              </h2>
-            </div>
-            <div className="mx-auto w-full max-w-[1400px] px-4">
-              <FlowSimulator
+          <div className="relative">
+            {connected && (
+              <div className="absolute left-0 top-0 z-20">
+                <CaseSwitcher active={caseId} onChange={handleCaseChange} />
+              </div>
+            )}
+            <div className="mx-auto w-full max-w-[480px]">
+              <SwapWidget
                 demoCase={demoCase}
-                running={running}
-                onComplete={handleFlowComplete}
-              />
-              <FeeSummary
-                demoCase={demoCase}
-                swapCount={liveStats.count}
-                tradedUsd={liveStats.tradedUsd}
+                connected={connected}
+                onConnectClick={() => setModalOpen(true)}
+                onSimulate={handleSimulate}
               />
             </div>
           </div>
+        </section>
 
-          <div id="audit" className="relative z-10 pt-4">
-            <AuditReport demoCase={demoCase} connectedAddress={address} />
-          </div>
-        </>
-      )}
+        {connected && (
+          <>
+            <div id="flow" className="relative py-16">
+              <div className="mb-12 pb-6 pt-10 text-center md:mb-16 md:pb-10 md:pt-14">
+                <p className="text-sm font-semibold uppercase tracking-[0.22em] text-uni-pink">
+                  Case
+                </p>
+                <h2 className="mt-4 text-balance text-4xl font-extrabold tracking-tight md:text-5xl">
+                  Simulator
+                </h2>
+              </div>
+              <div className="mx-auto w-full max-w-[1400px]">
+                <FlowSimulator
+                  demoCase={demoCase}
+                  running={running}
+                  onComplete={handleFlowComplete}
+                />
+                <FeeSummary
+                  demoCase={demoCase}
+                  swapCount={liveStats.count}
+                  tradedUsd={liveStats.tradedUsd}
+                />
+              </div>
+            </div>
+
+            <div id="audit" className="relative pt-4">
+              <AuditReport demoCase={demoCase} connectedAddress={address} />
+            </div>
+          </>
+        )}
+      </div>
 
       <ConnectModal
         open={modalOpen}

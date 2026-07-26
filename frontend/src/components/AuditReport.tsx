@@ -33,7 +33,7 @@ export function AuditReport({ demoCase, connectedAddress }: Props) {
     gaugeTone === "ok" ? "#4DB6FF" : gaugeTone === "warn" ? "#F0B90B" : "#FF5370";
 
   return (
-    <section className="relative mx-auto w-full max-w-5xl animate-fadeUp px-4 pb-24 pt-8">
+    <section className="relative mx-auto w-full max-w-[1400px] animate-fadeUp pb-24 pt-8">
       <div className="mb-12 px-2 pb-4 pt-8 text-center md:mb-16 md:pt-12">
         <p className="text-sm font-semibold uppercase tracking-[0.22em] text-uni-pink">
           Audit report

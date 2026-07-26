@@ -22,7 +22,7 @@ function shorten(addr: string) {
  */
 export function NavBar({ connected, address, onConnectClick }: Props) {
   return (
-    <header className="relative z-20 flex min-h-16 items-center gap-4 px-4 py-5 md:min-h-[4.5rem] md:px-6 md:py-6">
+    <header className="relative z-20 flex min-h-16 items-center gap-4 py-5 md:min-h-[4.5rem] md:py-6">
       <div className="flex shrink-0 items-center gap-2">
         <span className="text-2xl" aria-hidden>
           🦄
