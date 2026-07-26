@@ -1,0 +1,92 @@
+/**
+ * Global styles for the AML Hook demo.
+ * - Uniswap-like dark theme tokens via Tailwind (`uni-*`)
+ * - Bokeh orbs behind the hero
+ * - Dot-grid canvas for the flow simulator
+ * - Conic gauge used in the audit score ring
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #000000;
+  --foreground: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  min-height: 100vh;
+}
+
+.bokeh {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.bokeh span {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(80px);
+  opacity: 0.55;
+}
+
+.bokeh .orb-1 {
+  width: 420px;
+  height: 420px;
+  background: #fc72ff;
+  top: -80px;
+  left: 8%;
+}
+
+.bokeh .orb-2 {
+  width: 360px;
+  height: 360px;
+  background: #4a6cff;
+  top: 120px;
+  right: 6%;
+}
+
+.bokeh .orb-3 {
+  width: 300px;
+  height: 300px;
+  background: #ffd166;
+  bottom: 10%;
+  left: 28%;
+  opacity: 0.35;
+}
+
+.bokeh .orb-4 {
+  width: 280px;
+  height: 280px;
+  background: #40b66b;
+  bottom: -40px;
+  right: 22%;
+  opacity: 0.3;
+}
+
+.dot-grid {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+.gauge {
+  background: conic-gradient(var(--gauge-color) calc(var(--gauge-pct) * 1%), #2b2b2b 0);
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
