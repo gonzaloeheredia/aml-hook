@@ -18,6 +18,11 @@ const TONE: Record<
     text: "text-uni-ok",
     soft: "bg-uni-ok/15",
   },
+  clean2: {
+    ring: "border-uni-ok shadow-[0_0_0_4px_rgba(64,182,107,0.18)]",
+    text: "text-uni-ok",
+    soft: "bg-uni-ok/15",
+  },
   structuring: {
     ring: "border-uni-warn shadow-[0_0_0_4px_rgba(240,185,11,0.18)]",
     text: "text-uni-warn",
@@ -31,7 +36,7 @@ const TONE: Record<
 };
 
 /**
- * Vertical stack of three circular case selectors (left of the simulator).
+ * Vertical stack of circular case selectors (left of the swap widget).
  * Shown only after a wallet is connected; each circle maps to one demo address.
  */
 export function CaseSwitcher({ active, onChange }: Props) {

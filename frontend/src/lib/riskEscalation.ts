@@ -33,7 +33,8 @@ function asMedium(base: DemoCase, tradedUsd: number, swapCount: number): DemoCas
   return {
     ...base,
     label: "Volume threshold — differential fee",
-    shortLabel: base.id === "clean" ? "Elevated risk" : base.shortLabel,
+    shortLabel:
+      base.id === "clean" || base.id === "clean2" ? "Elevated risk" : base.shortLabel,
     score: 54,
     riskLabel: "Medium Risk",
     decision: "surcharge",

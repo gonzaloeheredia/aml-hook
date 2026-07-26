@@ -25,6 +25,7 @@ type SwapStats = { count: number; tradedUsd: number };
 
 const EMPTY_STATS: Record<DemoCaseId, SwapStats> = {
   clean: { count: 0, tradedUsd: 0 },
+  clean2: { count: 0, tradedUsd: 0 },
   structuring: { count: 0, tradedUsd: 0 },
   ofac: { count: 0, tradedUsd: 0 },
 };
@@ -39,12 +40,24 @@ export default function HomePage() {
   const [swapStats, setSwapStats] = useState<Record<DemoCaseId, SwapStats>>(EMPTY_STATS);
 
   const liveStats = swapStats[caseId];
+  const baseCase = DEMO_CASES[caseId];
   /** Base case + live 24h volume escalation (USD 3,000 threshold). */
   const demoCase = withVolumeEscalation(
-    DEMO_CASES[caseId],
+    baseCase,
     liveStats.tradedUsd,
     liveStats.count,
   );
+  /** Score as it was before the latest completed swap (for the on-chain event panel). */
+  const tradedBefore = Math.max(
+    0,
+    liveStats.tradedUsd -
+      (liveStats.count > 0 ? baseCase.structuring.amountUsd : 0),
+  );
+  const previousScore = withVolumeEscalation(
+    baseCase,
+    tradedBefore,
+    Math.max(0, liveStats.count - 1),
+  ).score;
 
   /**
    * Connects a demo wallet: stores its address, selects the matching case,
@@ -171,7 +184,13 @@ export default function HomePage() {
             </div>
 
             <div id="audit" className="relative pt-4">
-              <AuditReport demoCase={demoCase} connectedAddress={address} />
+              <AuditReport
+                demoCase={demoCase}
+                connectedAddress={address}
+                baseScore={previousScore}
+                swapCount={liveStats.count}
+                tradedUsd={liveStats.tradedUsd}
+              />
             </div>
           </>
         )}

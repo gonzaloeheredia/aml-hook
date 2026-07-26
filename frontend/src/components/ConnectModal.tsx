@@ -6,7 +6,7 @@ import { CASE_ORDER, DEMO_CASES, type DemoCaseId } from "@/data/cases";
 type Props = {
   open: boolean;
   onClose: () => void;
-  /** Called when the user picks one of the three demo accounts */
+  /** Called when the user picks one of the demo accounts */
   onConnect: (caseId: DemoCaseId) => void;
 };
 
@@ -20,6 +20,7 @@ function shorten(addr: string) {
 /** Border / text tone per risk case in the account list */
 const TONE: Record<DemoCaseId, string> = {
   clean: "text-uni-ok border-uni-ok/40 bg-uni-ok/10",
+  clean2: "text-uni-ok border-uni-ok/40 bg-uni-ok/10",
   structuring: "text-uni-warn border-uni-warn/40 bg-uni-warn/10",
   ofac: "text-uni-bad border-uni-bad/40 bg-uni-bad/10",
 };
@@ -27,7 +28,7 @@ const TONE: Record<DemoCaseId, string> = {
 /**
  * Hardcoded Uniswap-style wallet connect modal.
  * Step 1: pick MetaMask (fake). Step 2: pick one of three demo addresses,
- * each mapped to a risk case (clean / structuring / OFAC).
+ * each mapped to a risk case (clean ×2 / structuring / OFAC).
  */
 export function ConnectModal({ open, onClose, onConnect }: Props) {
   const [step, setStep] = useState<"wallet" | "accounts">("wallet");
@@ -111,13 +112,13 @@ export function ConnectModal({ open, onClose, onConnect }: Props) {
             </div>
 
             <p className="mt-5 text-center text-xs leading-relaxed text-uni-muted">
-              Hardcoded hackathon demo. MetaMask opens three fake addresses — one per AML case.
+              Hardcoded hackathon demo. MetaMask opens four fake addresses — two clean, one risky, one OFAC.
             </p>
           </>
         ) : (
           <>
             <p className="mb-3 text-sm text-uni-muted">
-              Select one of the three demo accounts:
+              Select one of the four demo accounts:
             </p>
             <div className="space-y-2">
               {CASE_ORDER.map((id, index) => {

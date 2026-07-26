@@ -2,10 +2,17 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import type { DemoCase } from "@/data/cases";
+import { OnChainAccumulator } from "@/components/OnChainAccumulator";
 
 type Props = {
   demoCase: DemoCase;
   connectedAddress: string | null;
+  /** Baseline score before live volume escalation */
+  baseScore: number;
+  /** Completed demo swaps for this wallet */
+  swapCount: number;
+  /** Cumulative USD traded in the 24h demo window */
+  tradedUsd: number;
 };
 
 /**
@@ -19,13 +26,20 @@ function shorten(addr: string) {
 /**
  * Audit / compliance report section shown after the user connects a wallet.
  *
- * Layout (4 blocks):
+ * Layout (5 blocks):
  * 1. Metadata strip (subject, chain, address, audit time)
  * 2. Report Overview — blue Uniswap-style card (score + summary)
  * 3. Detection Data — pink card (structuring signals / tags)
- * 4. Compliance Officer Agent — gray card with regulatory-report products (A–E)
+ * 4. Compliance Officer Agent — violet card with regulatory-report products (A–E)
+ * 5. On-chain accumulator — pink card (24h volume + ScoreUpdated event)
  */
-export function AuditReport({ demoCase, connectedAddress }: Props) {
+export function AuditReport({
+  demoCase,
+  connectedAddress,
+  baseScore,
+  swapCount,
+  tradedUsd,
+}: Props) {
   const address = connectedAddress ?? demoCase.wallet;
   const gaugeTone =
     demoCase.decision === "block" ? "bad" : demoCase.decision === "surcharge" ? "warn" : "ok";
@@ -44,7 +58,7 @@ export function AuditReport({ demoCase, connectedAddress }: Props) {
       </div>
 
       {/* Block 1 — subject metadata */}
-      <div className="mb-10 grid gap-4 rounded-3xl border border-uni-border bg-uni-card/80 p-5 md:mb-14 md:grid-cols-4 md:p-6">
+      <div className="mb-10 grid gap-4 rounded-3xl border border-uni-border bg-uni-card/80 px-12 py-6 md:mb-14 md:grid-cols-4 md:px-20 md:py-8 lg:px-28">
         <div>
           <div className="text-[11px] uppercase tracking-wider text-uni-muted">Subject</div>
           <div className="mt-1 font-semibold">{demoCase.walletLabel}</div>
@@ -68,7 +82,7 @@ export function AuditReport({ demoCase, connectedAddress }: Props) {
       <div className="grid gap-4 md:grid-cols-2">
         {/* Block 2 — Report Overview (blue) */}
         <div
-          className="rounded-[28px] border border-[#1B4F7A]/50 p-6 shadow-[0_0_40px_rgba(77,182,255,0.08)]"
+          className="rounded-[28px] border border-[#1B4F7A]/50 px-12 py-8 shadow-[0_0_40px_rgba(77,182,255,0.08)] md:px-16 md:py-10 lg:px-20"
           style={{
             background:
               "linear-gradient(145deg, #13263d 0%, #0a1522 45%, #050a12 100%)",
@@ -115,7 +129,7 @@ export function AuditReport({ demoCase, connectedAddress }: Props) {
 
         {/* Block 3 — Detection Data (pink) */}
         <div
-          className="rounded-[28px] border border-[#7A1B5A]/45 p-6 shadow-[0_0_40px_rgba(252,114,255,0.1)]"
+          className="rounded-[28px] border border-[#7A1B5A]/45 px-12 py-8 shadow-[0_0_40px_rgba(252,114,255,0.1)] md:px-16 md:py-10 lg:px-20"
           style={{
             background:
               "linear-gradient(145deg, #2a0b21 0%, #1a0714 45%, #12040e 100%)",
@@ -171,7 +185,7 @@ export function AuditReport({ demoCase, connectedAddress }: Props) {
 
       {/* Block 4 — Compliance Officer Agent (violet bridge between blue + pink) */}
       <div
-        className="mt-4 rounded-[28px] border border-[#5B4A8A]/45 p-8 shadow-[0_0_40px_rgba(167,139,250,0.1)] md:p-10"
+        className="mt-4 rounded-[28px] border border-[#5B4A8A]/45 px-12 py-10 shadow-[0_0_40px_rgba(167,139,250,0.1)] md:px-20 md:py-14 lg:px-28 lg:py-16"
         style={{
           background:
             "linear-gradient(145deg, #1c1633 0%, #120e22 45%, #0a0814 100%)",
@@ -255,10 +269,45 @@ export function AuditReport({ demoCase, connectedAddress }: Props) {
               />
             </div>
           ) : (
-            <p className="text-sm leading-relaxed text-white/75">
-              Full technical opinion not required for this event. A short decision record was
-              issued instead (score below REVERT / reasonable-suspicion thresholds).
-            </p>
+            <div className="space-y-4">
+              <p className="text-sm leading-relaxed text-[#EDE9FE]/85">
+                Full technical opinion not required for this event. A short decision record was
+                issued instead because the score remains below REVERT and reasonable-suspicion
+                thresholds under the pool’s permissive policy.
+              </p>
+              <OpinionRow
+                label="Scope note"
+                value={demoCase.agent.technicalOpinion.objectAndScope}
+              />
+              <OpinionRow
+                label="Risk level & scoring"
+                value={demoCase.agent.technicalOpinion.riskAndScoring}
+              />
+              <OpinionRow
+                label="Typologies"
+                value={demoCase.agent.technicalOpinion.typologies}
+              />
+              <OpinionRow
+                label="Sanctions verification"
+                value={demoCase.agent.technicalOpinion.sanctionsCheck}
+              />
+              <OpinionRow
+                label="Decision executed"
+                value={demoCase.agent.technicalOpinion.decisionExecuted}
+              />
+              <OpinionRow
+                label="Legal basis"
+                value={demoCase.agent.technicalOpinion.legalBasis}
+              />
+              <OpinionRow
+                label="Recommendations"
+                value={demoCase.agent.technicalOpinion.recommendations}
+              />
+              <OpinionRow
+                label="Traceability"
+                value={demoCase.agent.technicalOpinion.traceability}
+              />
+            </div>
           )}
         </ReportSection>
 
@@ -295,13 +344,13 @@ export function AuditReport({ demoCase, connectedAddress }: Props) {
                 value={demoCase.agent.sarAnnex.narrativeConclusion}
               />
               <div>
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-white/50">
+                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[#A78BFA]">
                   Filing warnings
                 </div>
-                <ul className="space-y-2 text-sm text-white/80">
+                <ul className="space-y-2 text-sm text-[#EDE9FE]/85">
                   {demoCase.agent.sarAnnex.warnings.map((w) => (
                     <li key={w} className="flex gap-2">
-                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-white/60" />
+                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#A78BFA]" />
                       <span>{w}</span>
                     </li>
                   ))}
@@ -309,10 +358,22 @@ export function AuditReport({ demoCase, connectedAddress }: Props) {
               </div>
             </div>
           ) : (
-            <p className="text-sm leading-relaxed text-white/75">
-              Not produced. SAR-support annex is only drafted when reasonable suspicion is
-              reached and protocol-obligations indicates the operator is likely BSA-covered.
-            </p>
+            <div className="space-y-4">
+              <p className="text-sm leading-relaxed text-[#EDE9FE]/85">
+                Not produced for this wallet. The SAR-support annex is only drafted when
+                reasonable suspicion is reached and protocol-obligations indicates the operator
+                is likely BSA-covered. No behavioral red flags crossed the drafting gate on this
+                evaluation.
+              </p>
+              <OpinionRow
+                label="Drafting gate"
+                value="Reasonable suspicion = false · BSA-covered likelihood not triggered · no annex file opened."
+              />
+              <OpinionRow
+                label="Monitoring stance"
+                value="Continue ordinary SwapObserved logging. Re-open annex workflow if 24h volume or structuring counter enters the FEE_DIFERENCIAL / REVERT bands."
+              />
+            </div>
           )}
         </ReportSection>
 
@@ -356,24 +417,49 @@ export function AuditReport({ demoCase, connectedAddress }: Props) {
 
         {/* E. Authority-request rule */}
         <ReportSection title="E. Authority request compilation">
-          <p className="text-sm leading-relaxed text-white/80">
-            If the operator receives an authority request, the agent only compiles the
-            requested material (file index, <span className="text-white">audit_hash</span>,
-            on-chain events, sources). It does not draft or send the response. Recipient:
-            operator legal / Compliance Officer.
-          </p>
+          <div className="space-y-4">
+            <p className="text-sm leading-relaxed text-[#EDE9FE]/85">
+              If the operator receives an authority request, the agent only compiles the
+              requested material (file index,{" "}
+              <span className="text-[#C4B5FD]">audit_hash</span>, on-chain events, and
+              source timestamps). It does not draft, sign, or send the response to any
+              authority.
+            </p>
+            <OpinionRow
+              label="Compilation scope"
+              value="Decision record, optional technical opinion / SAR-support annex (if any), SwapObserved / ScoreUpdated / WalletBlocked event list, sanctions oracle query receipts, and retention metadata."
+            />
+            <OpinionRow
+              label="Recipient"
+              value="Operator legal counsel / pool Compliance Officer — never FinCEN, OFAC, or other authorities directly."
+            />
+            <OpinionRow
+              label="Hard limits"
+              value="No tip-off to the evaluated subject. No autonomous filing. No alteration of on-chain evidence. Human custody of the outbound package remains mandatory."
+            />
+          </div>
         </ReportSection>
 
         <p className="mt-8 border-t border-[#A78BFA]/20 pt-6 text-sm leading-relaxed text-[#C4B5FD]/65">
           {demoCase.agent.note}
         </p>
       </div>
+
+      {/* Block 5 — On-chain accumulator / score event (after Compliance Officer Agent) */}
+      <OnChainAccumulator
+        demoCase={demoCase}
+        baseScore={baseScore}
+        connectedAddress={connectedAddress}
+        swapCount={swapCount}
+        tradedUsd={tradedUsd}
+      />
     </section>
   );
 }
 
 /**
  * Small labeled value cell used inside the violet agent report card.
+ * Transparent fill — only a soft violet border so it never reads as a white card.
  */
 function MetaCell({
   label,
@@ -385,8 +471,8 @@ function MetaCell({
   mono?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-[#A78BFA]/20 bg-[#A78BFA]/8 px-4 py-3.5">
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-[#A78BFA]/75">
+    <div className="rounded-2xl border border-[#A78BFA]/25 bg-transparent px-5 py-4">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-[#A78BFA]">
         {label}
       </div>
       <div className={`mt-1.5 text-sm text-[#EDE9FE] ${mono ? "font-mono" : ""}`}>{value}</div>
@@ -396,6 +482,7 @@ function MetaCell({
 
 /**
  * Section wrapper with extra padding for each regulatory-report product (A–E).
+ * Title uses the same violet as MetaCell labels (RECIPIENT / AUDIT HASH).
  */
 function ReportSection({
   title,
@@ -405,11 +492,8 @@ function ReportSection({
   children: ReactNode;
 }) {
   return (
-    <div
-      className="mt-8 rounded-2xl border border-[#A78BFA]/18 p-6 md:p-7"
-      style={{ background: "rgba(167, 139, 250, 0.06)" }}
-    >
-      <h4 className="mb-4 text-sm font-semibold uppercase tracking-[0.14em] text-[#DDD6FE]">
+    <div className="mt-10 rounded-2xl border border-[#A78BFA]/25 bg-transparent p-7 md:p-9">
+      <h4 className="mb-5 text-sm font-semibold uppercase tracking-[0.14em] text-[#A78BFA]">
         {title}
       </h4>
       {children}
@@ -423,7 +507,7 @@ function ReportSection({
 function OpinionRow({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-[#A78BFA]/70">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-[#A78BFA]">
         {label}
       </div>
       <p className="mt-1.5 text-sm leading-relaxed text-[#EDE9FE]/90">{value}</p>
