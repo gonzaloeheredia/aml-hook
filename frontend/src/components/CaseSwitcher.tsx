@@ -4,31 +4,25 @@ import { CASE_ORDER, DEMO_CASES, type DemoCaseId } from "@/data/cases";
 
 type Props = {
   active: DemoCaseId;
-  /** Switches the active demo case and connected address */
   onChange: (id: DemoCaseId) => void;
 };
 
-/** Visual accent styles for each case circle (active state) */
+/** Static accents by role: A/B clean · C exploit source */
 const TONE: Record<
   DemoCaseId,
   { ring: string; text: string; soft: string }
 > = {
-  clean: {
+  A: {
     ring: "border-uni-ok shadow-[0_0_0_4px_rgba(64,182,107,0.18)]",
     text: "text-uni-ok",
     soft: "bg-uni-ok/15",
   },
-  clean2: {
+  B: {
     ring: "border-uni-ok shadow-[0_0_0_4px_rgba(64,182,107,0.18)]",
     text: "text-uni-ok",
     soft: "bg-uni-ok/15",
   },
-  structuring: {
-    ring: "border-uni-warn shadow-[0_0_0_4px_rgba(240,185,11,0.18)]",
-    text: "text-uni-warn",
-    soft: "bg-uni-warn/15",
-  },
-  ofac: {
+  C: {
     ring: "border-uni-bad shadow-[0_0_0_4px_rgba(255,83,112,0.18)]",
     text: "text-uni-bad",
     soft: "bg-uni-bad/15",
@@ -36,13 +30,12 @@ const TONE: Record<
 };
 
 /**
- * Vertical stack of circular case selectors (left of the swap widget).
- * Shown only after a wallet is connected; each circle maps to one demo address.
+ * Vertical stack of A/B/C selectors (A·B clean, C exploit).
  */
 export function CaseSwitcher({ active, onChange }: Props) {
   return (
     <aside className="flex flex-col items-start gap-5">
-      {CASE_ORDER.map((id, index) => {
+      {CASE_ORDER.map((id) => {
         const c = DEMO_CASES[id];
         const tone = TONE[id];
         const isActive = active === id;
@@ -63,7 +56,7 @@ export function CaseSwitcher({ active, onChange }: Props) {
                   : "border-uni-border bg-uni-surface text-uni-muted group-hover:border-white/30 group-hover:text-white"
               }`}
             >
-              {index + 1}
+              {id}
             </span>
             <span className="flex flex-col items-start text-left">
               <span
@@ -71,14 +64,14 @@ export function CaseSwitcher({ active, onChange }: Props) {
                   isActive ? tone.text : "text-uni-muted"
                 }`}
               >
-                Case {index + 1}
+                Wallet {id}
               </span>
               <span
-                className={`max-w-[7.5rem] text-xs font-semibold leading-tight ${
+                className={`max-w-[8.5rem] text-xs font-semibold leading-tight ${
                   isActive ? "text-white" : "text-uni-muted group-hover:text-white"
                 }`}
               >
-                {c.shortLabel}
+                {c.shortLabel.replace(/^Wallet [ABC] · /, "")}
               </span>
             </span>
           </button>

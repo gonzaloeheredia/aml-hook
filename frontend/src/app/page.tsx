@@ -6,111 +6,144 @@ import { CaseSwitcher } from "@/components/CaseSwitcher";
 import { ConnectModal } from "@/components/ConnectModal";
 import { FeeSummary } from "@/components/FeeSummary";
 import { FlowSimulator } from "@/components/FlowSimulator";
+import { MetaMaskPanel } from "@/components/MetaMaskPanel";
 import { NavBar } from "@/components/NavBar";
 import { SwapWidget } from "@/components/SwapWidget";
 import { DEMO_CASES, type DemoCaseId } from "@/data/cases";
-import { withVolumeEscalation } from "@/lib/riskEscalation";
+import {
+  applyPoolSwap,
+  caseIdForSimWallet,
+  initialSimWallets,
+  type SimWalletId,
+  type TransferRecord,
+} from "@/lib/hopScoring";
+import { buildHookChainEvent, type HookChainEvent } from "@/lib/hookEvents";
+import { withHopOverlay } from "@/lib/withHopOverlay";
 
 /**
- * Root demo page for the AML Hook Uniswap v4 hackathon UI.
- *
- * Flow:
- * 1. User opens the connect modal and picks one of three hardcoded wallets.
- * 2. Case switcher, flow simulator, fee metrics, and audit report appear.
- * 3. "Get started" animates the beforeSwap → decision → result pipeline.
- * 4. After USD 3,000 traded in the 24h window, that wallet’s risk band
- *    upgrades one step (Low→Medium→High).
+ * Demo page — A/B clean until C transfers; then N-hop fee overrides.
  */
 type SwapStats = { count: number; tradedUsd: number };
 
 const EMPTY_STATS: Record<DemoCaseId, SwapStats> = {
-  clean: { count: 0, tradedUsd: 0 },
-  clean2: { count: 0, tradedUsd: 0 },
-  structuring: { count: 0, tradedUsd: 0 },
-  ofac: { count: 0, tradedUsd: 0 },
+  A: { count: 0, tradedUsd: 0 },
+  B: { count: 0, tradedUsd: 0 },
+  C: { count: 0, tradedUsd: 0 },
 };
 
 export default function HomePage() {
-  const [caseId, setCaseId] = useState<DemoCaseId>("clean");
+  const [caseId, setCaseId] = useState<DemoCaseId>("A");
   const [modalOpen, setModalOpen] = useState(false);
+  const [metaMaskOpen, setMetaMaskOpen] = useState(false);
   const [connected, setConnected] = useState(false);
   const [address, setAddress] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
-  /** Per-wallet live counters updated when the n8n circuit finishes */
   const [swapStats, setSwapStats] = useState<Record<DemoCaseId, SwapStats>>(EMPTY_STATS);
+
+  const [simWallets, setSimWallets] = useState(() => initialSimWallets());
+  const [simActiveId, setSimActiveId] = useState<SimWalletId>("A");
+  const [transfers, setTransfers] = useState<TransferRecord[]>([]);
+  /** Audit trail of afterSwap SwapObserved / beforeSwap WalletBlocked emits */
+  const [chainEvents, setChainEvents] = useState<HookChainEvent[]>([]);
+  /** AML analysis only reveals after the node simulator finishes */
+  const [auditReady, setAuditReady] = useState(false);
+  const [auditRevealKey, setAuditRevealKey] = useState(0);
 
   const liveStats = swapStats[caseId];
   const baseCase = DEMO_CASES[caseId];
-  /** Base case + live 24h volume escalation (USD 3,000 threshold). */
-  const demoCase = withVolumeEscalation(
-    baseCase,
-    liveStats.tradedUsd,
-    liveStats.count,
-  );
-  /** Score as it was before the latest completed swap (for the on-chain event panel). */
-  const tradedBefore = Math.max(
-    0,
-    liveStats.tradedUsd -
-      (liveStats.count > 0 ? baseCase.structuring.amountUsd : 0),
-  );
-  const previousScore = withVolumeEscalation(
-    baseCase,
-    tradedBefore,
-    Math.max(0, liveStats.count - 1),
-  ).score;
+  /** Always reflect live MetaMask hop state for the selected wallet. */
+  const demoCase = withHopOverlay(baseCase, simWallets[caseId]);
 
-  /**
-   * Connects a demo wallet: stores its address, selects the matching case,
-   * and reveals the simulator / audit sections.
-   */
   const handleConnect = (id: DemoCaseId) => {
-    const selected = DEMO_CASES[id];
+    const wallet = simWallets[id];
     setCaseId(id);
-    setAddress(selected.wallet);
+    setSimActiveId(id);
+    setAddress(wallet.address);
     setConnected(true);
     setRunning(false);
+    setAuditReady(false);
     setModalOpen(false);
   };
 
-  /**
-   * Starts the flow animation and scrolls the simulator into view.
-   * No-op until a wallet is connected or while an animation is already running.
-   */
-  const handleSimulate = () => {
-    if (!connected || running) return;
-    setRunning(true);
-    const el = document.getElementById("flow");
-    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const handleUseInUniswap = (id: SimWalletId) => {
+    const mapped = caseIdForSimWallet(id);
+    const wallet = simWallets[id];
+    setSimActiveId(id);
+    setCaseId(mapped);
+    setAddress(wallet.address);
+    setConnected(true);
+    setRunning(false);
+    setAuditReady(false);
+    setMetaMaskOpen(false);
   };
 
-  /**
-   * Called by FlowSimulator when the step animation finishes.
-   * Bumps the swap counter by 1 and adds this swap's USD amount to the total.
-   */
+  const handleSimulate = () => {
+    if (!connected || running) return;
+    if (demoCase.decision !== "block" && demoCase.activity.amountUsd <= 0) return;
+    if (demoCase.decision !== "block" && simWallets[caseId].usdc < demoCase.activity.amountUsd) {
+      return;
+    }
+    setAuditReady(false);
+    setRunning(true);
+    document.getElementById("flow")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   const handleFlowComplete = useCallback(() => {
     setRunning(false);
+    const liveCase = withHopOverlay(DEMO_CASES[caseId], simWallets[caseId]);
+    const amount = liveCase.activity.amountUsd;
+    const walletAddress = address ?? liveCase.wallet;
+
+    // Settle USDC→ETH against MetaMask ledger when the hook allows the swap
+    if (liveCase.decision !== "block") {
+      const nextWallets = applyPoolSwap(
+        simWallets,
+        caseId,
+        amount,
+        liveCase.appliedFeeBps,
+        liveCase.decision,
+      );
+      if (nextWallets) {
+        setSimWallets(nextWallets);
+      }
+    }
+
     setSwapStats((prev) => {
       const current = prev[caseId];
-      const amount = DEMO_CASES[caseId].structuring.amountUsd;
       return {
         ...prev,
         [caseId]: {
           count: current.count + 1,
-          tradedUsd: current.tradedUsd + amount,
+          tradedUsd: current.tradedUsd + (liveCase.decision === "block" ? 0 : amount),
         },
       };
     });
-  }, [caseId]);
 
-  /**
-   * Switches the active case from the left-hand circles and updates the
-   * connected address to the wallet that belongs to that case.
-   */
+    setChainEvents((events) => [
+      ...events,
+      buildHookChainEvent({
+        demoCase: liveCase,
+        walletId: caseId,
+        address: walletAddress,
+        eventIndex: events.length + 1,
+      }),
+    ]);
+
+    setAuditRevealKey((k) => k + 1);
+    setAuditReady(true);
+    // Bring the AML title into view; remaining blocks reveal as the user scrolls
+    window.setTimeout(() => {
+      document.getElementById("audit")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 220);
+  }, [address, caseId, simWallets]);
+
   const handleCaseChange = (id: DemoCaseId) => {
     if (!connected) return;
     setCaseId(id);
-    setAddress(DEMO_CASES[id].wallet);
+    setSimActiveId(id);
+    setAddress(simWallets[id].address);
     setRunning(false);
+    setAuditReady(false);
   };
 
   return (
@@ -129,6 +162,7 @@ export default function HomePage() {
           connected={connected}
           address={address}
           onConnectClick={() => setModalOpen(true)}
+          onMetaMaskClick={() => setMetaMaskOpen(true)}
         />
 
         <section className="relative pb-10 pt-8 md:pt-14">
@@ -137,7 +171,7 @@ export default function HomePage() {
               AML Hook
             </h1>
             <p className="mt-3 text-sm text-uni-muted md:text-base">
-              Uniswap Hook Incubator 10
+              A/B clean until C transfers · then N-hop decay
             </p>
           </div>
 
@@ -151,6 +185,8 @@ export default function HomePage() {
               <SwapWidget
                 demoCase={demoCase}
                 connected={connected}
+                walletUsdc={simWallets[caseId].usdc}
+                walletEth={simWallets[caseId].eth}
                 onConnectClick={() => setModalOpen(true)}
                 onSimulate={handleSimulate}
               />
@@ -160,7 +196,7 @@ export default function HomePage() {
 
         {connected && (
           <>
-            <div id="flow" className="relative py-16">
+            <div id="flow" className="relative px-4 py-16 sm:px-8 md:px-14 lg:px-24">
               <div className="mb-12 pb-6 pt-10 text-center md:mb-16 md:pb-10 md:pt-14">
                 <p className="text-sm font-semibold uppercase tracking-[0.22em] text-uni-pink">
                   Case
@@ -169,7 +205,7 @@ export default function HomePage() {
                   Simulator
                 </h2>
               </div>
-              <div className="mx-auto w-full max-w-[1400px]">
+              <div className="mx-auto w-full max-w-[1200px]">
                 <FlowSimulator
                   demoCase={demoCase}
                   running={running}
@@ -183,15 +219,19 @@ export default function HomePage() {
               </div>
             </div>
 
-            <div id="audit" className="relative pt-4">
-              <AuditReport
-                demoCase={demoCase}
-                connectedAddress={address}
-                baseScore={previousScore}
-                swapCount={liveStats.count}
-                tradedUsd={liveStats.tradedUsd}
-              />
-            </div>
+            {auditReady && (
+              <div
+                id="audit"
+                key={auditRevealKey}
+                className="relative px-4 pt-4 sm:px-8 md:px-14 lg:px-24"
+              >
+                <AuditReport
+                  demoCase={demoCase}
+                  connectedAddress={address}
+                  chainEvents={chainEvents}
+                />
+              </div>
+            )}
           </>
         )}
       </div>
@@ -200,6 +240,18 @@ export default function HomePage() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onConnect={handleConnect}
+      />
+
+      <MetaMaskPanel
+        open={metaMaskOpen}
+        onClose={() => setMetaMaskOpen(false)}
+        wallets={simWallets}
+        transfers={transfers}
+        activeId={simActiveId}
+        onActiveChange={setSimActiveId}
+        onWalletsChange={setSimWallets}
+        onTransfer={(record) => setTransfers((prev) => [...prev, record])}
+        onUseInUniswap={handleUseInUniswap}
       />
     </main>
   );

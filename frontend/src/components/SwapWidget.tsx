@@ -5,26 +5,28 @@ import type { DemoCase } from "@/data/cases";
 type Props = {
   demoCase: DemoCase;
   connected: boolean;
-  /** Opens connect modal when the user is not connected */
+  /** Live MetaMask USDC balance for the connected account */
+  walletUsdc: number;
+  /** Live MetaMask ETH balance for the connected account */
+  walletEth: number;
   onConnectClick: () => void;
-  /** Starts the on-chain flow simulation when connected */
   onSimulate: () => void;
 };
 
 /**
- * Uniswap-style swap card used as the demo entry point.
- * Amounts and risk badges come from the active hardcoded case.
- * The CTA always reads "Get started" (Uniswap copy); it either opens
- * the wallet modal or runs the simulator depending on connection state.
+ * Uniswap-style swap card — USDC→ETH amounts stay in sync with MetaMask balances.
  */
 export function SwapWidget({
   demoCase,
   connected,
+  walletUsdc,
+  walletEth,
   onConnectClick,
   onSimulate,
 }: Props) {
   const blocked = demoCase.decision === "block";
-  const surcharge = demoCase.decision === "surcharge";
+  const feeOverride = demoCase.decision === "fee_override";
+  const insufficient = connected && !blocked && walletUsdc < demoCase.activity.amountUsd;
 
   return (
     <div className="mx-auto w-full max-w-[480px] animate-fadeUp">
@@ -36,7 +38,7 @@ export function SwapWidget({
               className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
                 blocked
                   ? "bg-uni-bad/15 text-uni-bad"
-                  : surcharge
+                  : feeOverride
                     ? "bg-uni-warn/15 text-uni-warn"
                     : "bg-uni-ok/15 text-uni-ok"
               }`}
@@ -47,7 +49,14 @@ export function SwapWidget({
         </div>
 
         <div className="rounded-[20px] bg-uni-card p-4">
-          <div className="mb-2 text-sm text-uni-muted">Sell</div>
+          <div className="mb-2 flex items-center justify-between text-sm text-uni-muted">
+            <span>Sell</span>
+            {connected && (
+              <span className="text-xs">
+                Balance {walletUsdc.toLocaleString("en-US")} USDC
+              </span>
+            )}
+          </div>
           <div className="flex items-center justify-between gap-3">
             <div className="text-4xl font-semibold tracking-tight">
               {connected ? demoCase.swapSell : "0"}
@@ -65,7 +74,7 @@ export function SwapWidget({
           </div>
           <div className="mt-2 flex justify-between text-sm text-uni-muted">
             <span>
-              ${connected ? demoCase.structuring.amountUsd.toLocaleString("en-US") : "0"}
+              ${connected ? demoCase.activity.amountUsd.toLocaleString("en-US") : "0"}
             </span>
             <span>{demoCase.sellToken}</span>
           </div>
@@ -78,7 +87,14 @@ export function SwapWidget({
         </div>
 
         <div className="rounded-[20px] bg-uni-card p-4">
-          <div className="mb-2 text-sm text-uni-muted">Buy</div>
+          <div className="mb-2 flex items-center justify-between text-sm text-uni-muted">
+            <span>Buy</span>
+            {connected && (
+              <span className="text-xs">
+                Balance {walletEth.toLocaleString("en-US", { maximumFractionDigits: 4 })} ETH
+              </span>
+            )}
+          </div>
           <div className="flex items-center justify-between gap-3">
             <div className="text-4xl font-semibold tracking-tight text-white/90">
               {connected ? demoCase.swapBuy : "0"}
@@ -93,24 +109,32 @@ export function SwapWidget({
           </div>
         </div>
 
-        {connected && surcharge && (
+        {connected && feeOverride && (
           <div className="mt-2 rounded-2xl border border-uni-warn/30 bg-uni-warn/10 px-4 py-3 text-sm text-uni-warn">
-            Warning: structuring pattern detected. A compliance differential fee (AML Hook) will
-            apply.
+            N-hop contamination detected. AML Hook applies{" "}
+            <span className="font-semibold">lpFeeOverride</span> (
+            {(demoCase.appliedFeeBps / 100).toFixed(2)}%) as EDD friction.
           </div>
         )}
 
         {connected && blocked && (
           <div className="mt-2 rounded-2xl border border-uni-bad/30 bg-uni-bad/10 px-4 py-3 text-sm text-uni-bad">
-            Restricted address: this wallet appears on the OFAC sanctions list. The swap reverts in{" "}
-            <span className="font-semibold">beforeSwap</span>.
+            Exploit cash-out / confirmed exposure. The swap reverts in{" "}
+            <span className="font-semibold">beforeSwap</span> (fail-closed).
+          </div>
+        )}
+
+        {insufficient && (
+          <div className="mt-2 rounded-2xl border border-uni-warn/30 bg-uni-warn/10 px-4 py-3 text-sm text-uni-warn">
+            Insufficient USDC in MetaMask for this swap.
           </div>
         )}
 
         <button
           type="button"
           onClick={connected ? onSimulate : onConnectClick}
-          className="mt-2 w-full rounded-[20px] bg-[#2A1240] py-4 text-center text-lg font-semibold text-uni-pink transition hover:brightness-125"
+          disabled={connected && (insufficient || (blocked === false && demoCase.activity.amountUsd <= 0))}
+          className="mt-2 w-full rounded-[20px] bg-[#2A1240] py-4 text-center text-lg font-semibold text-uni-pink transition hover:brightness-125 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Get started
         </button>

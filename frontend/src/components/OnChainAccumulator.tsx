@@ -1,99 +1,69 @@
 "use client";
 
-import type { DemoCase } from "@/data/cases";
-import { VOLUME_THRESHOLD_USD } from "@/lib/riskEscalation";
+import type { HookChainEvent } from "@/lib/hookEvents";
+import { formatEventPayload } from "@/lib/hookEvents";
+import { DECAY_FACTOR } from "@/lib/hopScoring";
 
 type Props = {
-  demoCase: DemoCase;
-  /** Baseline score before live volume escalation */
-  baseScore: number;
-  connectedAddress: string | null;
-  /** Completed demo swaps for this wallet */
-  swapCount: number;
-  /** Cumulative USD traded in the 24h demo window */
-  tradedUsd: number;
+  /** Chronological list of hook emits (afterSwap SwapObserved / beforeSwap WalletBlocked) */
+  events: HookChainEvent[];
 };
 
-/**
- * Formats a USD amount for the accumulator metrics.
- */
 function formatUsd(amount: number) {
   return `$${amount.toLocaleString("en-US")}`;
 }
 
-/**
- * Builds a deterministic fake tx hash from wallet + swap index (demo only).
- */
-function fakeTxHash(address: string, swapCount: number) {
-  const seed = `${address}-${swapCount}`.replace(/[^a-fA-F0-9]/g, "");
-  const hex = (seed + "c0ffeeabad1dea").slice(0, 16).padEnd(16, "0");
-  return `0x${hex}…${hex.slice(-4)}`;
+function shorten(addr: string) {
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
 /**
- * Pink on-chain panel: wallet 24h accumulator + last ScoreUpdated event payload.
- * Visual language matches the Detection Data card (magenta / deep rose).
+ * On-chain accumulator bound to the hook audit trail.
+ * Shows the latest afterSwap (or beforeSwap REVERT) event payload
+ * exactly as the use-case documents the emit.
  */
-export function OnChainAccumulator({
-  demoCase,
-  baseScore,
-  connectedAddress,
-  swapCount,
-  tradedUsd,
-}: Props) {
-  const address = connectedAddress ?? demoCase.wallet;
-  const windowUsd = demoCase.structuring.totalUsd;
-  const scoreDelta = demoCase.score - baseScore;
-  const lastAmount = swapCount > 0 ? demoCase.structuring.amountUsd : 0;
-  const eventName =
-    demoCase.decision === "block"
-      ? "WalletBlocked"
-      : scoreDelta !== 0
-        ? "ScoreUpdated"
-        : "SwapObserved";
+export function OnChainAccumulator({ events }: Props) {
+  const last = events.length > 0 ? events[events.length - 1] : null;
+  const afterSwapCount = events.filter((e) => e.hookPhase === "afterSwap").length;
+  const totalTraded = events
+    .filter((e) => e.eventName === "SwapObserved")
+    .reduce((sum, e) => sum + e.amountUsd, 0);
 
-  const tags = [
-    { label: `${swapCount} live swaps` },
-    { label: `24h ≥ ${formatUsd(VOLUME_THRESHOLD_USD)} → escalate` },
-    {
-      label:
-        demoCase.agent.hookOutput === "ALLOW"
-          ? "Standard fee"
-          : demoCase.agent.hookOutput === "FEE_DIFERENCIAL"
-            ? "Differential fee"
-            : "Fail-closed",
-    },
-  ];
+  const tags = last
+    ? [
+        { label: last.hookPhase },
+        { label: last.eventName },
+        { label: last.decision },
+        {
+          label:
+            last.hopDistance == null
+              ? "Clean path"
+              : last.hopDistance === 0
+                ? "Exploit source"
+                : `${last.hopDistance}-hop · decay ${DECAY_FACTOR}`,
+        },
+      ]
+    : [{ label: "No emits yet" }];
 
-  const rows: { label: string; value: string }[] = [
-    { label: "Event", value: eventName },
-    { label: "Wallet", value: `${address.slice(0, 6)}…${address.slice(-4)}` },
-    { label: "Amount (last swap)", value: swapCount ? formatUsd(lastAmount) : "—" },
-    { label: "24h accumulated", value: formatUsd(windowUsd) },
-    {
-      label: "Score (prev → new)",
-      value:
-        swapCount > 0
-          ? `${baseScore} → ${demoCase.score}${scoreDelta ? ` (${scoreDelta > 0 ? "+" : ""}${scoreDelta})` : ""}`
-          : `${demoCase.score} (unchanged)`,
-    },
-    { label: "Hook output", value: demoCase.agent.hookOutput },
-    {
-      label: "Applied fee",
-      value:
-        demoCase.decision === "block"
-          ? "— (revert)"
-          : `${(demoCase.appliedFeeBps / 100).toFixed(2)}%`,
-    },
-    {
-      label: "Tx hash",
-      value: swapCount > 0 ? fakeTxHash(address, swapCount) : "— pending",
-    },
-    {
-      label: "Block",
-      value: swapCount > 0 ? String(22_814_500 + swapCount * 17) : "—",
-    },
-  ];
+  const rows = last
+    ? [
+        { label: "Hook phase", value: last.hookPhase },
+        { label: "Event", value: last.eventName },
+        { label: "Wallet", value: `${last.walletId} · ${shorten(last.address)}` },
+        { label: "Score", value: String(last.score) },
+        { label: "Decision", value: last.decision },
+        { label: "Fee", value: last.fee },
+        { label: "Amount", value: formatUsd(last.amountUsd) },
+        {
+          label: "Hop distance",
+          value: last.hopDistance == null ? "—" : String(last.hopDistance),
+        },
+        { label: "Origin", value: last.origin },
+        { label: "Timestamp", value: last.timestamp },
+        { label: "Tx hash", value: shorten(last.txHash) },
+        { label: "Block", value: String(last.blockNumber) },
+      ]
+    : [];
 
   return (
     <div
@@ -105,34 +75,46 @@ export function OnChainAccumulator({
     >
       <div className="mb-4 flex items-center gap-2 text-sm font-medium text-uni-pink">
         <span aria-hidden>◈</span>
-        <span>On-chain accumulator · Score event</span>
+        <span>On-chain accumulator · afterSwap event</span>
       </div>
+
+      <p className="mb-5 max-w-3xl text-sm leading-relaxed text-[#F5A3FF]/75">
+        Audit trail from the hook emit. Successful swaps write{" "}
+        <span className="text-uni-pink">SwapObserved</span> in{" "}
+        <span className="text-uni-pink">afterSwap</span>. REVERT writes{" "}
+        <span className="text-uni-pink">WalletBlocked</span> in{" "}
+        <span className="text-uni-pink">beforeSwap</span> (afterSwap never runs).
+      </p>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <div>
           <div className="text-3xl font-bold text-uni-pink tabular-nums">
-            {formatUsd(tradedUsd)}
+            {events.length}
           </div>
-          <div className="text-sm text-[#F5A3FF]/80">Live traded (24h)</div>
-        </div>
-        <div>
-          <div className="text-3xl font-bold text-uni-pink tabular-nums">{swapCount}</div>
-          <div className="text-sm text-[#F5A3FF]/80">Swaps completed</div>
+          <div className="text-sm text-[#F5A3FF]/80">Events emitted</div>
         </div>
         <div>
           <div className="text-3xl font-bold text-uni-pink tabular-nums">
-            {formatUsd(windowUsd)}
+            {afterSwapCount}
           </div>
-          <div className="text-sm text-[#F5A3FF]/80">Window total on-chain</div>
+          <div className="text-sm text-[#F5A3FF]/80">afterSwap emits</div>
         </div>
         <div>
-          <div className="text-3xl font-bold text-uni-pink tabular-nums">{demoCase.score}</div>
-          <div className="text-sm text-[#F5A3FF]/80">Current score</div>
+          <div className="text-3xl font-bold text-uni-pink tabular-nums">
+            {formatUsd(totalTraded)}
+          </div>
+          <div className="text-sm text-[#F5A3FF]/80">Observed volume</div>
+        </div>
+        <div>
+          <div className="text-3xl font-bold text-uni-pink tabular-nums">
+            {last ? last.score : "—"}
+          </div>
+          <div className="text-sm text-[#F5A3FF]/80">Last event score</div>
         </div>
       </div>
 
       <div className="mt-5">
-        <div className="mb-2 text-sm text-[#F5A3FF]/70">Event tags</div>
+        <div className="mb-2 text-sm text-[#F5A3FF]/70">Last emit tags</div>
         <div className="flex flex-wrap gap-2">
           {tags.map((tag) => (
             <span
@@ -145,22 +127,59 @@ export function OnChainAccumulator({
         </div>
       </div>
 
-      <div className="mt-5 space-y-2">
-        <div className="mb-1 text-sm text-[#F5A3FF]/70">
-          Last blockchain event (updates scoring)
-        </div>
-        {rows.map((row) => (
-          <div
-            key={row.label}
-            className="flex items-center justify-between gap-3 rounded-xl border border-uni-pink/20 bg-black/25 px-3 py-2 text-sm"
-          >
-            <span className="shrink-0 text-[#F5A3FF]/75">{row.label}</span>
-            <span className="truncate text-right font-medium text-uni-pink">
-              {row.value}
-            </span>
+      {last ? (
+        <>
+          <div className="mt-5 space-y-2">
+            <div className="mb-1 text-sm text-[#F5A3FF]/70">
+              Last emit fields
+            </div>
+            {rows.map((row) => (
+              <div
+                key={row.label}
+                className="flex items-center justify-between gap-3 rounded-xl border border-uni-pink/20 bg-black/25 px-3 py-2 text-sm"
+              >
+                <span className="shrink-0 text-[#F5A3FF]/75">{row.label}</span>
+                <span className="truncate text-right font-medium text-uni-pink">
+                  {row.value}
+                </span>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+
+          <div className="mt-5">
+            <div className="mb-2 text-sm text-[#F5A3FF]/70">
+              Payload ({last.hookPhase} · {last.eventName})
+            </div>
+            <pre className="overflow-x-auto rounded-2xl border border-uni-pink/20 bg-black/40 p-4 font-mono text-xs leading-relaxed text-[#F5A3FF]">
+              {formatEventPayload(last)}
+            </pre>
+          </div>
+
+          {events.length > 1 && (
+            <div className="mt-5">
+              <div className="mb-2 text-sm text-[#F5A3FF]/70">Emit history</div>
+              <div className="space-y-2">
+                {[...events].reverse().map((e) => (
+                  <div
+                    key={e.id}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-uni-pink/15 bg-black/20 px-3 py-2 text-xs"
+                  >
+                    <span className="text-[#F5A3FF]/80">
+                      {e.hookPhase} · {e.eventName} · {e.walletId} · score {e.score}
+                    </span>
+                    <span className="font-medium text-uni-pink">{e.decision}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <p className="mt-6 text-sm text-[#F5A3FF]/65">
+          Run <span className="text-uni-pink">Get started</span> on the simulator to
+          emit the first afterSwap / beforeSwap audit event.
+        </p>
+      )}
     </div>
   );
 }

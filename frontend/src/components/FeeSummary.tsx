@@ -38,7 +38,7 @@ function formatUsd(amount: number) {
  */
 export function FeeSummary({ demoCase, swapCount, tradedUsd }: Props) {
   const blocked = demoCase.decision === "block";
-  const surcharge = demoCase.decision === "surcharge";
+  const feeOverride = demoCase.decision === "fee_override";
 
   return (
     <div className="mx-auto mt-6 grid w-full max-w-3xl grid-cols-1 gap-4 animate-fadeUp sm:grid-cols-2">
@@ -52,7 +52,7 @@ export function FeeSummary({ demoCase, swapCount, tradedUsd }: Props) {
           <span>AML fee (hook)</span>
           <span
             className={
-              surcharge
+              feeOverride
                 ? "font-semibold text-uni-warn"
                 : blocked
                   ? "text-uni-bad"
@@ -61,8 +61,8 @@ export function FeeSummary({ demoCase, swapCount, tradedUsd }: Props) {
           >
             {blocked
               ? "—"
-              : surcharge
-                ? `${feeLabel(demoCase.appliedFeeBps)} · ${demoCase.feeMultiplier}x`
+              : feeOverride
+                ? `${feeLabel(demoCase.appliedFeeBps)} · override`
                 : feeLabel(demoCase.appliedFeeBps)}
           </span>
         </div>

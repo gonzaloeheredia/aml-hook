@@ -85,6 +85,36 @@ body {
   background: conic-gradient(var(--gauge-color) calc(var(--gauge-pct) * 1%), #2b2b2b 0);
 }
 
+/**
+ * Scroll-driven AML analysis reveal — slow fade + rise + deblur as the
+ * user scrolls each block into view.
+ */
+.scroll-reveal {
+  opacity: 0;
+  transform: translateY(56px);
+  filter: blur(10px);
+  transition:
+    opacity 1.55s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 1.55s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 1.55s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform, filter;
+}
+
+.scroll-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-reveal {
+    opacity: 1;
+    transform: none;
+    filter: none;
+    transition: none;
+  }
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;

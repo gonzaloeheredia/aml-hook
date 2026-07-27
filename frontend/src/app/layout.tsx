@@ -14,7 +14,7 @@ const jakarta = Plus_Jakarta_Sans({
 export const metadata: Metadata = {
   title: "AML Hook · Uniswap Demo",
   description:
-    "Visual demo of the AML Hook for Uniswap v4 — structuring detection, differential fees, and OFAC blocking.",
+    "Visual demo of the AML Hook for Uniswap v4 — exploit cash-out detection, N-hop decay fees, and ternary ALLOW / FEE_OVERRIDE / REVERT.",
 };
 
 /**

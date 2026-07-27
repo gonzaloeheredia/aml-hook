@@ -34,6 +34,18 @@ export default {
           "0%": { opacity: "0", transform: "translateY(24px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
+        auditReveal: {
+          "0%": {
+            opacity: "0",
+            transform: "translateY(40px) scale(0.98)",
+            filter: "blur(6px)",
+          },
+          "100%": {
+            opacity: "1",
+            transform: "translateY(0) scale(1)",
+            filter: "blur(0)",
+          },
+        },
         pulseNode: {
           "0%, 100%": { boxShadow: "0 0 0 0 rgba(252, 114, 255, 0.45)" },
           "50%": { boxShadow: "0 0 0 10px rgba(252, 114, 255, 0)" },
@@ -44,6 +56,7 @@ export default {
       },
       animation: {
         fadeUp: "fadeUp 0.7s ease-out both",
+        auditReveal: "auditReveal 0.95s cubic-bezier(0.22, 1, 0.36, 1) both",
         pulseNode: "pulseNode 1.8s ease-in-out infinite",
         flowDash: "flowDash 1s linear infinite",
       },

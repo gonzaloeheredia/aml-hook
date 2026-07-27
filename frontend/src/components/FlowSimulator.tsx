@@ -44,43 +44,55 @@ const BASE_NODES: NodeDef[] = [
   {
     id: "l1",
     title: "Layer 1 · Sanctions",
-    subtitle: "OFAC on-chain",
+    subtitle: "Sanctions / exploit screen",
     kind: "process",
   },
   {
     id: "l2",
-    title: "Layer 2 · Agent score",
-    subtitle: "Compliance Oracle",
+    title: "Layer 2 · Keeper score",
+    subtitle: "N-hop oracle",
     kind: "process",
   },
   {
     id: "decide",
     title: "Layer 3 · Decision",
-    subtitle: "Allow / Fee / Block",
+    subtitle: "Allow / Fee override / Revert",
     kind: "decision",
   },
 ];
 
-const NODE_W = 180;
-const NODE_H = 124;
-const GAP_X = 96;
-const GAP_Y = 88;
-const START_X = 48;
-const START_Y = 56;
+const NODE_W = 188;
+/** Base card height (decision card is taller — reserved space for branches) */
+const NODE_H = 118;
+const DECIDE_H = 178;
+const GAP_X = 72;
+const GAP_Y = 96;
+const START_X = 28;
+const START_Y = 36;
+const PAD_R = 28;
+const PAD_B = 36;
 
 /**
- * Default grid slots: steps 1–4 on the top row, steps 5–7 on the bottom row
- * so orthogonal connectors do not cross.
+ * Snake grid like the n8n reference:
+ * Row 0 → 1 2 3 4
+ * Row 1 → 5 6 7  (wrap under, left-to-right — lines never cross)
  */
 const DEFAULT_SLOTS: Record<string, { col: number; row: number }> = {
   sign: { col: 0, row: 0 },
   unlock: { col: 1, row: 0 },
   before: { col: 2, row: 0 },
   l1: { col: 3, row: 0 },
-  l2: { col: 2, row: 1 },
-  decide: { col: 3, row: 1 },
-  out: { col: 4, row: 1 },
+  l2: { col: 0, row: 1 },
+  decide: { col: 1, row: 1 },
+  out: { col: 2, row: 1 },
 };
+
+/**
+ * Returns the rendered height for a node (decision reserves branch list space).
+ */
+function nodeHeight(id: string): number {
+  return id === "decide" ? DECIDE_H : NODE_H;
+}
 
 /**
  * Converts a grid column/row slot into canvas pixel coordinates.
@@ -105,37 +117,59 @@ function initialPositions(ids: string[]): Record<string, Point> {
 }
 
 /**
- * Builds an orthogonal SVG path between two nodes so edges stay readable
- * and do not overlap when the default layout is used.
+ * Orthogonal (Manhattan) connector that prefers side/bottom ports so edges
+ * stay in gutters and do not cross nodes on the default snake layout.
  */
-function connectorPath(from: Point, to: Point): string {
+function connectorPath(
+  fromId: string,
+  toId: string,
+  from: Point,
+  to: Point,
+): string {
+  const fromH = nodeHeight(fromId);
+  const toH = nodeHeight(toId);
+  const fromMidY = from.y + fromH / 2;
+  const toMidY = to.y + toH / 2;
   const sameRow = Math.abs(from.y - to.y) < 8;
-  const sameCol = Math.abs(from.x - to.x) < 8;
 
-  if (sameRow) {
-    const y = from.y + NODE_H / 2;
-    const x1 = from.x < to.x ? from.x + NODE_W : from.x;
-    const x2 = from.x < to.x ? to.x : to.x + NODE_W;
-    return `M ${x1} ${y} L ${x2} ${y}`;
+  // Same row, left → right: right-center → left-center
+  if (sameRow && to.x > from.x) {
+    return `M ${from.x + NODE_W} ${fromMidY} L ${to.x} ${toMidY}`;
   }
 
-  if (sameCol || to.y > from.y) {
-    // Exit bottom → enter top
-    const x1 = from.x + NODE_W / 2;
-    const y1 = from.y + NODE_H;
-    const x2 = to.x + NODE_W / 2;
-    const y2 = to.y;
-    const midY = y1 + (y2 - y1) / 2;
-    return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
+  // Same row, right → left (rare after reorder)
+  if (sameRow && to.x < from.x) {
+    return `M ${from.x} ${fromMidY} L ${to.x + NODE_W} ${toMidY}`;
   }
 
-  // Destination above: exit top → enter bottom
-  const x1 = from.x + NODE_W / 2;
-  const y1 = from.y;
-  const x2 = to.x + NODE_W / 2;
-  const y2 = to.y + NODE_H;
-  const midY = y2 + (y1 - y2) / 2;
-  return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
+  // Snake wrap: top-row node down into bottom-row node to the left
+  // Exit bottom → gutter → left → enter left-center (matches reference photo)
+  if (to.y > from.y && to.x < from.x) {
+    const exitX = from.x + NODE_W / 2;
+    const exitY = from.y + fromH;
+    const midY = from.y + fromH + (to.y - (from.y + fromH)) / 2;
+    const enterX = to.x;
+    const enterY = toMidY;
+    return `M ${exitX} ${exitY} L ${exitX} ${midY} L ${enterX} ${midY} L ${enterX} ${enterY}`;
+  }
+
+  // Downward, destination under or to the right: bottom → gutter → top
+  if (to.y > from.y) {
+    const exitX = from.x + NODE_W / 2;
+    const exitY = from.y + fromH;
+    const enterX = to.x + NODE_W / 2;
+    const enterY = to.y;
+    const midY = exitY + (enterY - exitY) / 2;
+    return `M ${exitX} ${exitY} L ${exitX} ${midY} L ${enterX} ${midY} L ${enterX} ${enterY}`;
+  }
+
+  // Upward: top → gutter → bottom
+  const exitX = from.x + NODE_W / 2;
+  const exitY = from.y;
+  const enterX = to.x + NODE_W / 2;
+  const enterY = to.y + toH;
+  const midY = enterY + (exitY - enterY) / 2;
+  return `M ${exitX} ${exitY} L ${exitX} ${midY} L ${enterX} ${midY} L ${enterX} ${enterY}`;
 }
 
 /**
@@ -183,22 +217,22 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
       return {
         id: "out",
         title: "Result · Blocked",
-        subtitle: "OFAC match · revert",
+        subtitle: "Exploit · REVERT",
         kind: "action",
       };
     }
-    if (demoCase.flowPath === "surcharge") {
+    if (demoCase.flowPath === "fee_override") {
       return {
         id: "out",
-        title: "Result · 3x fee",
-        subtitle: "Structuring · surcharge",
+        title: "Result · Fee override",
+        subtitle: "N-hop · lpFeeOverride",
         kind: "action",
       };
     }
     return {
       id: "out",
       title: "Result · Allowed",
-      subtitle: "Standard fee",
+      subtitle: "Standard fee 0.30%",
       kind: "action",
     };
   }, [demoCase.flowPath]);
@@ -291,7 +325,7 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const maxX = Math.max(0, canvas.scrollWidth - NODE_W - 16);
-    const maxY = Math.max(0, canvas.clientHeight - NODE_H - 16);
+    const maxY = Math.max(0, canvas.scrollHeight - NODE_H - 16);
     const x = Math.min(
       maxX,
       Math.max(0, e.clientX - rect.left - dragOffset.current.x + canvas.scrollLeft),
@@ -317,13 +351,14 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
     setDropTargetId(null);
   };
 
-  const canvasWidth = START_X + 5 * NODE_W + 4 * GAP_X + 64;
-  const canvasHeight = Math.max(560, START_Y + 2 * NODE_H + GAP_Y + 96);
+  // 4 columns × 2 rows — fits viewport; out node (col 2) always on-screen
+  const canvasWidth = START_X + 4 * NODE_W + 3 * GAP_X + PAD_R;
+  const canvasHeight = START_Y + NODE_H + GAP_Y + DECIDE_H + PAD_B;
 
   const resultTone =
     demoCase.flowPath === "block"
       ? "bad"
-      : demoCase.flowPath === "surcharge"
+      : demoCase.flowPath === "fee_override"
         ? "warn"
         : "ok";
 
@@ -332,26 +367,32 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
       <div className="rounded-3xl border border-uni-border bg-uni-surface/80 p-4 md:p-6">
         <div
           ref={canvasRef}
-          className="relative overflow-hidden rounded-2xl border border-uni-border/70 dot-grid select-none"
-          style={{ height: canvasHeight }}
+          className="relative overflow-x-auto overflow-y-hidden rounded-2xl border border-uni-border/70 dot-grid select-none"
+          style={{ minHeight: canvasHeight }}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerLeave={onPointerUp}
         >
           <div
-            className="relative mx-auto h-full"
-            style={{ width: "100%", maxWidth: canvasWidth, minWidth: canvasWidth }}
+            className="relative mx-auto"
+            style={{ width: canvasWidth, height: canvasHeight }}
           >
-            <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
+            <svg
+              className="pointer-events-none absolute inset-0 overflow-visible"
+              width={canvasWidth}
+              height={canvasHeight}
+              viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}
+            >
               {order.slice(0, -1).map((id, index) => {
+                const nextId = order[index + 1];
                 const from = positions[id];
-                const to = positions[order[index + 1]];
+                const to = positions[nextId];
                 if (!from || !to) return null;
                 const active = activeIndex > index || (done && activeIndex >= index);
                 return (
                   <path
-                    key={`${id}-${order[index + 1]}`}
-                    d={connectorPath(from, to)}
+                    key={`${id}-${nextId}`}
+                    d={connectorPath(id, nextId, from, to)}
                     fill="none"
                     stroke={active ? "#40B66B" : "#3a3a3a"}
                     strokeWidth="2.5"
@@ -370,6 +411,7 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
               const isDragging = draggingId === node.id;
               const isDropTarget = dropTargetId === node.id;
               const isResult = node.id === "out";
+              const height = nodeHeight(node.id);
 
               let borderClass = "border-uni-border";
               if (isActive) {
@@ -395,14 +437,14 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
                   key={node.id}
                   data-node-id={node.id}
                   onPointerDown={(e) => onPointerDown(e, node.id)}
-                  className={`absolute rounded-2xl border-2 bg-uni-card/95 p-3 shadow-lg transition-all duration-300 ${borderClass} ${
+                  className={`absolute rounded-2xl border-2 bg-uni-card/95 p-3 shadow-lg transition-[border-color,box-shadow,opacity,transform] duration-300 ${borderClass} ${
                     isDragging ? "z-20 cursor-grabbing scale-[1.03] shadow-glow" : "z-10 cursor-grab"
                   } ${isDropTarget ? "ring-2 ring-uni-pink" : ""} ${
                     running ? "cursor-default" : ""
                   } ${!running && !done ? "opacity-80" : "opacity-100"}`}
                   style={{
                     width: NODE_W,
-                    minHeight: NODE_H,
+                    height,
                     left: pos.x,
                     top: pos.y,
                     touchAction: "none",
@@ -450,27 +492,34 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
                     ).toFixed(2)}
                     s
                   </div>
-                  {node.id === "decide" && (isActive || completed || done) && (
+                  {node.id === "decide" && (
                     <div className="mt-3 space-y-1 text-[11px]">
                       <div
                         className={
-                          demoCase.flowPath === "allow" ? "text-uni-ok" : "text-uni-muted"
+                          (isActive || completed || done) &&
+                          demoCase.flowPath === "allow"
+                            ? "text-uni-ok"
+                            : "text-uni-muted"
                         }
                       >
                         → Allow
                       </div>
                       <div
                         className={
-                          demoCase.flowPath === "surcharge"
+                          (isActive || completed || done) &&
+                          demoCase.flowPath === "fee_override"
                             ? "text-uni-warn"
                             : "text-uni-muted"
                         }
                       >
-                        → Surcharge 3x
+                        → Fee override
                       </div>
                       <div
                         className={
-                          demoCase.flowPath === "block" ? "text-uni-bad" : "text-uni-muted"
+                          (isActive || completed || done) &&
+                          demoCase.flowPath === "block"
+                            ? "text-uni-bad"
+                            : "text-uni-muted"
                         }
                       >
                         → Block / revert
@@ -478,7 +527,7 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
                     </div>
                   )}
                   {isActive && (
-                    <div className="mt-3 text-[11px] font-medium text-uni-ok">Running…</div>
+                    <div className="mt-2 text-[11px] font-medium text-uni-ok">Running…</div>
                   )}
                 </div>
               );
@@ -495,8 +544,8 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
             {done &&
               (demoCase.flowPath === "block"
                 ? "Flow complete · blocked"
-                : demoCase.flowPath === "surcharge"
-                  ? "Flow complete · differential fee"
+                : demoCase.flowPath === "fee_override"
+                  ? "Flow complete · fee override"
                   : "Flow complete · allowed")}
             {!running && !done && 'Click "Get started" to run the flow'}
           </span>
