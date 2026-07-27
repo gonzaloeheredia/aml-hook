@@ -19,12 +19,12 @@ Uniswap-styled demo of the AML Hook use case: **exploit cash-out detection**, **
 
 ### The three use-case wallets
 
-1. **Wallet C (clean)** — score 0 · `ALLOW` · fee 0.30%
-2. **Wallet B (1-hop)** — score 65 · `FEE_OVERRIDE` · fee 8%
-3. **Wallet A (exploit)** — score 100 · `REVERT`
+1. **Wallet C (clean baseline)** — score 0 · `ALLOW` · fee 0.30%
+2. **Wallet A (exploit)** — score 100 · `REVERT`
+3. **Wallet B (intermediary)** — starts clean; after A→B → score ≈ 65 · `FEE_OVERRIDE` · 8%
 
 N-hop formula: `derived_score = origin_score × (0.65 ^ hops) × exposed_proportion`  
-(After B→C contamination, C moves to score ≈ 42 · fee 3%.)
+(After B→C, Wallet C moves to score ≈ 42 · fee 3%.)
 
 ## Run locally
 
@@ -38,11 +38,11 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Demo walkthrough
 
-1. Open **MetaMask** (navbar right) → Send USDC A→B, then B→C
-2. **Use in Uniswap** on the account you want to test
-3. Or **Connect** → pick A / B / C directly
-4. **Get started** animates beforeSwap → decision → result
-5. Review **Audit** + on-chain score event trail
+1. Connect **Wallet C** → swap → ALLOW 0.30% (baseline)
+2. Connect **Wallet A** → swap → REVERT
+3. Open **MetaMask Simulator** → Send USDC **A→B**, then **B→C**
+4. Swap with **B** → FEE_OVERRIDE 8%; with **C** → FEE_OVERRIDE 3%
+5. Review **AML analysis** + on-chain event trail
 
 ## Data source
 
@@ -55,5 +55,5 @@ Later wire to:
 
 ## Related docs (repo root)
 
-- `docs/Whitepaper.pdf`
-- `docs/AML-Hook Use of Case.pdf`
+- `docs/Whitepaper.txt`
+- `docs/AML-Hook_Use_of_Case.txt`

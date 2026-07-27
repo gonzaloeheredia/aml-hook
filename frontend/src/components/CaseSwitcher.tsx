@@ -7,30 +7,30 @@ type Props = {
   onChange: (id: DemoCaseId) => void;
 };
 
-/** Static accents by role: A/B clean · C exploit source */
+/** Static accents by role: C clean · A exploit · B intermediary */
 const TONE: Record<
   DemoCaseId,
   { ring: string; text: string; soft: string }
 > = {
-  A: {
-    ring: "border-uni-ok shadow-[0_0_0_4px_rgba(64,182,107,0.18)]",
-    text: "text-uni-ok",
-    soft: "bg-uni-ok/15",
-  },
-  B: {
-    ring: "border-uni-ok shadow-[0_0_0_4px_rgba(64,182,107,0.18)]",
-    text: "text-uni-ok",
-    soft: "bg-uni-ok/15",
-  },
   C: {
+    ring: "border-uni-ok shadow-[0_0_0_4px_rgba(64,182,107,0.18)]",
+    text: "text-uni-ok",
+    soft: "bg-uni-ok/15",
+  },
+  A: {
     ring: "border-uni-bad shadow-[0_0_0_4px_rgba(255,83,112,0.18)]",
     text: "text-uni-bad",
     soft: "bg-uni-bad/15",
   },
+  B: {
+    ring: "border-uni-warn shadow-[0_0_0_4px_rgba(240,185,11,0.18)]",
+    text: "text-uni-warn",
+    soft: "bg-uni-warn/15",
+  },
 };
 
 /**
- * Vertical stack of A/B/C selectors (A·B clean, C exploit).
+ * Vertical stack of A/B/C selectors (use-case roles: A exploit · B hop · C clean).
  */
 export function CaseSwitcher({ active, onChange }: Props) {
   return (

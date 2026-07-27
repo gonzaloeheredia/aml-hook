@@ -18,9 +18,9 @@ function shorten(addr: string) {
 
 /** Border / text tone per use-case wallet */
 const TONE: Record<DemoCaseId, string> = {
-  A: "text-uni-ok border-uni-ok/40 bg-uni-ok/10",
-  B: "text-uni-ok border-uni-ok/40 bg-uni-ok/10",
-  C: "text-uni-bad border-uni-bad/40 bg-uni-bad/10",
+  C: "text-uni-ok border-uni-ok/40 bg-uni-ok/10",
+  A: "text-uni-bad border-uni-bad/40 bg-uni-bad/10",
+  B: "text-uni-warn border-uni-warn/40 bg-uni-warn/10",
 };
 
 /**

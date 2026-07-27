@@ -40,13 +40,13 @@ function buildLiveTechnicalOpinion(
   auditHash: string,
 ): DemoCase["agent"]["technicalOpinion"] {
   const hop = wallet.hopDistance;
-  const origin = wallet.originId ?? "C";
+  const origin = wallet.originId ?? "A";
   const feePct = (appliedFeeBps / 100).toFixed(2);
 
   if (wallet.exploitConfirmed || decision === "block") {
     return {
       issued: true,
-      objectAndScope: `${wallet.accountLabel} is treated as the exploit / contamination origin (or score ≥ 71). Pool cash-out attempts REVERT; outbound P2P can still contaminate A/B.`,
+      objectAndScope: `${wallet.accountLabel} is treated as the exploit / contamination origin (or score ≥ 71). Pool cash-out attempts REVERT; outbound P2P can still contaminate B/C.`,
       riskAndScoring: `Score ${score} / 100 · REVERT band (71–100). Hop ${hop ?? 0} · origin ${origin}.`,
       typologies:
         "Exploit cash-out. Confirmed exposure — fail-closed; no discretion to settle on-pool.",
@@ -87,7 +87,7 @@ function buildLiveTechnicalOpinion(
         "FATF risk-based approach · proportional fee friction on intermediate hop exposure.",
       recommendations:
         hop === 1
-          ? "Treat as elevated EDD. If this wallet sends to another clean account, expect 2-hop score ≈ 42 and 3% fee."
+          ? "Treat as elevated EDD. If Wallet B sends to clean Wallet C, expect 2-hop score ≈ 42 and 3% fee."
           : "Proportional friction applied. Continue monitoring further downstream hops; score decays toward ALLOW.",
       traceability: `audit_hash ${auditHash} · retention 5 years · hop=${hop} · origin=${origin}.`,
     };
@@ -98,7 +98,7 @@ function buildLiveTechnicalOpinion(
     issued: false,
     objectAndScope:
       hop == null
-        ? `${wallet.accountLabel} has no inbound contamination from exploit source C. Full dictamen not required.`
+        ? `${wallet.accountLabel} has no inbound contamination from exploit source A. Full dictamen not required.`
         : `${wallet.accountLabel} previously showed hop exposure, but live score ${score} sits in the ALLOW band. Short decision record only.`,
     riskAndScoring: `Score ${score} / 100 · ALLOW band (0–30)${
       hop != null ? ` · hop ${hop} from ${origin}` : ""
@@ -123,7 +123,7 @@ function buildLiveTechnicalOpinion(
     legalBasis: "FATF risk-based approach · permissive RWA pool policy.",
     recommendations:
       hop == null
-        ? "Monitor for inbound P2P from Wallet C. If received, expect 1-hop score ≈ 65 and 8% fee override."
+        ? "Monitor for inbound P2P from Wallet A (or contaminated B). If received, expect N-hop decay fees."
         : "Keep ordinary monitoring. Re-open full opinion if an inbound tainted transfer raises score into FEE_OVERRIDE or REVERT.",
     traceability: `audit_hash ${auditHash} · retention 5 years.`,
   };
@@ -170,7 +170,7 @@ function buildLiveSarAnnex(
     activityPeriod: "post-contamination window",
     amountInvolved: `USD ${wallet.usdc.toLocaleString("en-US")} USDC on ledger`,
     operationState: "FEE_OVERRIDE",
-    narrativeDescription: `${wallet.accountLabel} shows ${wallet.hopDistance}-hop contamination from origin ${wallet.originId ?? "C"} (score ${score}).`,
+    narrativeDescription: `${wallet.accountLabel} shows ${wallet.hopDistance}-hop contamination from origin ${wallet.originId ?? "A"} (score ${score}).`,
     narrativeAnalysis:
       "Intermediate hop exposure warrants proportional fee friction and an internal evidence pack — not an autonomous filing.",
     narrativeEvidence: `P2P graph · keeper oracle score ${score} · lpFeeOverride ${(feeBpsFromHop(score, wallet.hopDistance) / 100).toFixed(2)}%.`,
@@ -271,10 +271,10 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
     swapBuy: formatEthBuy(ethOut),
     summary: [
       wallet.exploitConfirmed
-        ? "Keeper confirmed exploit source — REVERT on pool swaps. P2P outflows contaminate A/B."
+        ? "Keeper confirmed exploit source — REVERT on pool swaps. P2P outflows contaminate B/C."
         : wallet.hopDistance
-          ? `Contamination at ${wallet.hopDistance} hop(s) from origin ${wallet.originId ?? "C"} · score ${score}.`
-          : "Clean wallet. No contamination from C yet — ALLOW at standard fee.",
+          ? `Contamination at ${wallet.hopDistance} hop(s) from origin ${wallet.originId ?? "A"} · score ${score}.`
+          : "Clean wallet. No contamination from A yet — ALLOW at standard fee.",
       decision === "fee_override"
         ? `lpFeeOverride ${(appliedFeeBps / 100).toFixed(2)}% applied as EDD friction.`
         : decision === "block"
@@ -340,7 +340,7 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
             ? "Immediate human review · watch outbound P2P"
             : decision === "fee_override"
               ? "On further hop transfer or score band change"
-              : "On inbound transfer from C or other tainted wallet",
+              : "On inbound transfer from A or other tainted wallet",
       },
     },
   };

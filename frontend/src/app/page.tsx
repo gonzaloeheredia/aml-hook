@@ -21,7 +21,7 @@ import { buildHookChainEvent, type HookChainEvent } from "@/lib/hookEvents";
 import { withHopOverlay } from "@/lib/withHopOverlay";
 
 /**
- * Demo page — A/B clean until C transfers; then N-hop fee overrides.
+ * Demo page — C clean baseline; A exploit REVERT; A→B→C N-hop fee overrides.
  */
 type SwapStats = { count: number; tradedUsd: number };
 
@@ -32,7 +32,7 @@ const EMPTY_STATS: Record<DemoCaseId, SwapStats> = {
 };
 
 export default function HomePage() {
-  const [caseId, setCaseId] = useState<DemoCaseId>("A");
+  const [caseId, setCaseId] = useState<DemoCaseId>("C");
   const [modalOpen, setModalOpen] = useState(false);
   const [metaMaskOpen, setMetaMaskOpen] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -41,7 +41,7 @@ export default function HomePage() {
   const [swapStats, setSwapStats] = useState<Record<DemoCaseId, SwapStats>>(EMPTY_STATS);
 
   const [simWallets, setSimWallets] = useState(() => initialSimWallets());
-  const [simActiveId, setSimActiveId] = useState<SimWalletId>("A");
+  const [simActiveId, setSimActiveId] = useState<SimWalletId>("C");
   const [transfers, setTransfers] = useState<TransferRecord[]>([]);
   /** Audit trail of afterSwap SwapObserved / beforeSwap WalletBlocked emits */
   const [chainEvents, setChainEvents] = useState<HookChainEvent[]>([]);
@@ -171,7 +171,7 @@ export default function HomePage() {
               AML Hook
             </h1>
             <p className="mt-3 text-sm text-uni-muted md:text-base">
-              A/B clean until C transfers · then N-hop decay
+              C clean · A exploit REVERT · A→B→C N-hop decay
             </p>
           </div>
 
