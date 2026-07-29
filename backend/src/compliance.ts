@@ -1,44 +1,42 @@
-import type { DemoCase } from "@/data/cases";
+/**
+ * Live compliance pack (dictamen) derived from current wallet state.
+ * Replaces frontend `withHopOverlay` agent / technical opinion logic for the API.
+ */
+
 import {
   decisionFromScore,
   ethOutFromSwap,
   feeBpsFromHop,
   hopScore,
   swapUsdcAmount,
-  type SimWallet,
-} from "@/lib/hopScoring";
+  toHookOutput,
+} from "./scoring.js";
+import type {
+  CompliancePack,
+  Decision,
+  SarAnnex,
+  SwapQuote,
+  TechnicalOpinion,
+  Wallet,
+} from "./types.js";
+
+const AUDIT_HASH: Record<string, string> = {
+  A: "0xae01…xplt",
+  B: "0xb0c1…000b",
+  C: "0xc0c1…000c",
+};
 
 /**
- * Formats USDC sell amount for the swap card (thousands separators).
+ * Builds the Technical compliance opinion fields from live wallet risk state.
+ * Content changes with ALLOW / FEE_OVERRIDE / REVERT bands.
  */
-function formatUsdcSell(n: number): string {
-  return n.toLocaleString("en-US");
-}
-
-/**
- * Formats ETH buy amount for the swap card.
- */
-function formatEthBuy(n: number): string {
-  if (n <= 0) return "0";
-  return n.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 4,
-  });
-}
-
-type Decision = "allow" | "fee_override" | "block";
-
-/**
- * Rebuilds the full Technical compliance opinion from the live MetaMask /
- * N-hop wallet state so the dictamen tracks contamination changes.
- */
-function buildLiveTechnicalOpinion(
-  wallet: SimWallet,
+function buildTechnicalOpinion(
+  wallet: Wallet,
   score: number,
   decision: Decision,
   appliedFeeBps: number,
   auditHash: string,
-): DemoCase["agent"]["technicalOpinion"] {
+): TechnicalOpinion {
   const hop = wallet.hopDistance;
   const origin = wallet.originId ?? "A";
   const feePct = (appliedFeeBps / 100).toFixed(2);
@@ -93,7 +91,6 @@ function buildLiveTechnicalOpinion(
     };
   }
 
-  // ALLOW — clean or decayed below threshold
   return {
     issued: false,
     objectAndScope:
@@ -106,7 +103,7 @@ function buildLiveTechnicalOpinion(
     typologies:
       hop == null
         ? "None. No exploit link, no hop exposure."
-        : `Prior N-hop link noted; current score below FEE_OVERRIDE threshold.`,
+        : "Prior N-hop link noted; current score below FEE_OVERRIDE threshold.",
     sanctionsCheck: "Layer-1 screen clear.",
     sourcesConsulted: [
       "Layer-1 on-chain sanctions screen (OFAC SDN / UN / EU mirrors)",
@@ -130,40 +127,37 @@ function buildLiveTechnicalOpinion(
 }
 
 /**
- * Live SAR annex only when FEE_OVERRIDE or REVERT warrants support drafting.
+ * Builds an optional SAR-support annex when FEE_OVERRIDE or REVERT applies.
+ * Returns null for clean ALLOW wallets.
  */
-function buildLiveSarAnnex(
-  wallet: SimWallet,
+function buildSarAnnex(
+  wallet: Wallet,
   score: number,
   decision: Decision,
-  base: DemoCase,
-): DemoCase["agent"]["sarAnnex"] {
+): SarAnnex {
   if (decision === "allow") return null;
 
   if (decision === "block" || wallet.exploitConfirmed) {
-    return (
-      base.agent.sarAnnex ?? {
-        produced: true,
-        status: "support-draft (not filed)",
-        activityPeriod: "exploit window",
-        amountInvolved: `USD ${wallet.usdc.toLocaleString("en-US")} (ledger)`,
-        operationState: "REVERTED",
-        narrativeDescription:
-          "Exploit source / REVERT-band wallet blocked from pool swaps; may still move funds P2P.",
-        narrativeAnalysis:
-          "Direct exploit cash-out or score ≥ 71 is dispositive for REVERT.",
-        narrativeEvidence: `Keeper detection · score ${score} · beforeSwap revert.`,
-        narrativeConclusion:
-          "Reasonable basis for immediate REVERT. Hop fees apply only after outbound transfers.",
-        warnings: [
-          "Confidentiality — no tip-off",
-          "Document status: support draft — not submitted",
-        ],
-      }
-    );
+    return {
+      produced: true,
+      status: "support-draft (not filed)",
+      activityPeriod: "exploit window",
+      amountInvolved: `USD ${wallet.usdc.toLocaleString("en-US")} (ledger)`,
+      operationState: "REVERTED",
+      narrativeDescription:
+        "Exploit source / REVERT-band wallet blocked from pool swaps; may still move funds P2P.",
+      narrativeAnalysis:
+        "Direct exploit cash-out or score ≥ 71 is dispositive for REVERT.",
+      narrativeEvidence: `Keeper detection · score ${score} · beforeSwap revert.`,
+      narrativeConclusion:
+        "Reasonable basis for immediate REVERT. Hop fees apply only after outbound transfers.",
+      warnings: [
+        "Confidentiality — no tip-off",
+        "Document status: support draft — not submitted",
+      ],
+    };
   }
 
-  // fee_override
   return {
     produced: true,
     status: "support-draft (not filed)",
@@ -184,20 +178,15 @@ function buildLiveSarAnnex(
 }
 
 /**
- * Overlays live MetaMask / N-hop simulation state onto a demo case
- * so Swap / Flow / Audit (including Technical compliance opinion) track
- * contamination changes.
+ * Builds the full live compliance pack (dictamen) for a wallet:
+ * risk summary, technical opinion, SAR annex, and decision record.
  */
-export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
+export function buildCompliancePack(wallet: Wallet): CompliancePack {
   const score = hopScore(wallet);
   const decision = decisionFromScore(score);
   const appliedFeeBps = feeBpsFromHop(score, wallet.hopDistance);
-  const feeMultiplier =
-    decision === "block" ? 0 : decision === "allow" ? 1 : appliedFeeBps / base.baseFeeBps;
-
-  const usdcIn = swapUsdcAmount(wallet, base.activity.amountUsd);
-  const ethOut =
-    decision === "block" ? 0 : ethOutFromSwap(usdcIn, appliedFeeBps);
+  const hookOutput = toHookOutput(decision);
+  const auditHash = AUDIT_HASH[wallet.id] ?? "0xdemo…0000";
 
   const riskLabel =
     decision === "block"
@@ -210,9 +199,6 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
             : "Medium Risk"
         : "Low Risk";
 
-  const decisionLabel =
-    decision === "block" ? "Block" : decision === "fee_override" ? "Fee override" : "Allow";
-
   const hopTag =
     wallet.hopDistance == null
       ? "Clean path"
@@ -220,55 +206,21 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
         ? "Exploit source"
         : `${wallet.hopDistance}-hop decay`;
 
-  const hookOutput =
-    decision === "block" ? "REVERT" : decision === "fee_override" ? "FEE_OVERRIDE" : "ALLOW";
-
-  const technicalOpinion = buildLiveTechnicalOpinion(
-    wallet,
-    score,
-    decision,
-    appliedFeeBps,
-    base.agent.auditHash,
-  );
-
-  const agentStatus =
-    decision === "block"
-      ? "Technical opinion · REVERT"
-      : decision === "fee_override"
-        ? `Technical opinion · ${wallet.hopDistance}-hop FEE_OVERRIDE`
-        : "Decision record issued";
-
-  const documentType =
-    decision === "allow" ? "decision-record" : "opinion + sar-annex";
-
   return {
-    ...base,
-    wallet: wallet.address,
-    walletLabel: wallet.accountLabel,
+    walletId: wallet.id,
+    address: wallet.address,
+    accountLabel: wallet.accountLabel,
     score,
-    riskLabel,
     decision,
-    decisionLabel,
+    hookOutput,
     appliedFeeBps,
-    feeMultiplier: Number.isFinite(feeMultiplier) ? Number(feeMultiplier.toFixed(2)) : 1,
+    feePercent: Number((appliedFeeBps / 100).toFixed(2)),
+    hopDistance: wallet.hopDistance,
+    originId: wallet.originId,
     exploitConfirmed: wallet.exploitConfirmed,
-    activity: {
-      ...base.activity,
-      hopDistance: wallet.hopDistance,
-      origin: wallet.originId ?? "—",
-      totalUsd: wallet.usdc,
-      amountUsd: usdcIn,
-    },
-    typology: wallet.exploitConfirmed
-      ? "Exploit cash-out"
-      : wallet.hopDistance
-        ? "N-hop propagation"
-        : "None",
-    flowPath: decision,
-    sellToken: "USDC",
-    buyToken: "ETH",
-    swapSell: formatUsdcSell(usdcIn),
-    swapBuy: formatEthBuy(ethOut),
+    usdc: wallet.usdc,
+    eth: wallet.eth,
+    riskLabel,
     summary: [
       wallet.exploitConfirmed
         ? "Keeper confirmed exploit source — REVERT on pool swaps. P2P outflows contaminate B/C."
@@ -282,50 +234,29 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
           : "Standard pool fee 0.30%.",
       hopTag,
     ],
-    signals: [
-      {
-        label: "Exploit / sanctions",
-        value: wallet.exploitConfirmed ? "Exploit cluster" : "Clear",
-        tone: wallet.exploitConfirmed ? "bad" : "ok",
-      },
-      {
-        label: "Keeper score",
-        value: `${score} / 100`,
-        tone: decision === "block" ? "bad" : decision === "fee_override" ? "warn" : "ok",
-      },
-      {
-        label: "Hop distance",
-        value: wallet.hopDistance == null ? "—" : String(wallet.hopDistance),
-        tone: decision === "allow" ? "ok" : "warn",
-      },
-      {
-        label: "Applied fee",
-        value:
-          decision === "block" ? "— (revert)" : `${(appliedFeeBps / 100).toFixed(2)}%`,
-        tone: decision === "allow" ? "ok" : "warn",
-      },
-    ],
-    tags: [
-      {
-        label: hopTag,
-        tone: decision === "block" ? "bad" : decision === "fee_override" ? "warn" : "ok",
-      },
-      {
-        label: hookOutput,
-        tone: decision === "block" ? "bad" : decision === "fee_override" ? "warn" : "ok",
-      },
-    ],
     agent: {
-      ...base.agent,
-      status: agentStatus,
-      hookOutput,
-      documentType,
-      confidence: decision === "allow" ? "HIGH" : decision === "fee_override" ? "MEDIUM" : "HIGH",
+      status:
+        decision === "block"
+          ? "Technical opinion · REVERT"
+          : decision === "fee_override"
+            ? `Technical opinion · ${wallet.hopDistance}-hop FEE_OVERRIDE`
+            : "Decision record issued",
+      documentType:
+        decision === "allow" ? "decision-record" : "opinion + sar-annex",
+      confidence:
+        decision === "allow" ? "HIGH" : decision === "fee_override" ? "MEDIUM" : "HIGH",
       humanReview: decision !== "allow",
-      technicalOpinion,
-      sarAnnex: buildLiveSarAnnex(wallet, score, decision, base),
+      retentionYears: 5,
+      auditHash,
+      technicalOpinion: buildTechnicalOpinion(
+        wallet,
+        score,
+        decision,
+        appliedFeeBps,
+        auditHash,
+      ),
+      sarAnnex: buildSarAnnex(wallet, score, decision),
       decisionRecord: {
-        ...base.agent.decisionRecord,
         score: String(score),
         output: hookOutput,
         mainFacts: `${wallet.accountLabel}; hop=${wallet.hopDistance ?? "none"}; origin=${wallet.originId ?? "—"}; USDC=${wallet.usdc.toLocaleString("en-US")}; ETH=${wallet.eth}.`,
@@ -342,6 +273,30 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
               ? "On further hop transfer or score band change"
               : "On inbound transfer from A or other tainted wallet",
       },
+      note: "Internal operator documentation. The agent never files with any authority.",
     },
+  };
+}
+
+/**
+ * Preview a USDC→ETH swap against current wallet state (no mutation).
+ */
+export function buildSwapQuote(wallet: Wallet, preferredUsdc?: number): SwapQuote {
+  const score = hopScore(wallet);
+  const decision = decisionFromScore(score);
+  const feeBps = feeBpsFromHop(score, wallet.hopDistance);
+  const usdcIn = swapUsdcAmount(wallet, preferredUsdc);
+  const ethOut = decision === "block" ? 0 : ethOutFromSwap(usdcIn, feeBps);
+
+  return {
+    walletId: wallet.id,
+    usdcIn,
+    ethOut: Math.round(ethOut * 10_000) / 10_000,
+    feeBps,
+    feePercent: Number((feeBps / 100).toFixed(2)),
+    decision,
+    hookOutput: toHookOutput(decision),
+    score,
+    canSettle: decision !== "block" && usdcIn > 0 && wallet.usdc >= usdcIn,
   };
 }

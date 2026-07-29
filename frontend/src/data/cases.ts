@@ -3,8 +3,8 @@
  *
  * Use case (`docs/AML-Hook_Use_of_Case.txt`):
  * - A = exploit attacker → REVERT
- * - B starts clean; after A→B → 1-hop · 8%
- * - C starts clean (ALLOW); after B→C → 2-hop · 3%
+ * - B and C both start clean (ALLOW)
+ * - A→B or A→C → 1-hop · ~65 · 8%; tainted peer → 2-hop · ~42 · 3%
  * Live hop state comes from MetaMask simulation (`hopScoring` + `withHopOverlay`).
  */
 
@@ -104,7 +104,7 @@ export interface DemoCase {
   };
 }
 
-/** Display order matches use-case sequence: C baseline → A exploit → B intermediary */
+/** Display order: C baseline → A exploit → B (demo walkthrough order) */
 export const CASE_ORDER: DemoCaseId[] = ["C", "A", "B"];
 
 const CLEAN_AGENT_NOTE =
@@ -228,7 +228,7 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
         output: "REVERT",
         mainFacts: "Exploit source A; pool blocked; origin for B/C contamination via P2P.",
         basis: "EXPLOIT_CASH_OUT_FAIL_CLOSED",
-        nextReview: "Track outbound P2P hops to B then C",
+        nextReview: "Track outbound P2P hops to B and/or C",
       },
       poolReport: { ...SHARED_POOL_REPORT },
       note: "Internal evidence file. The agent never responds to authorities or files SARs.",
@@ -236,7 +236,7 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
   },
   B: {
     id: "B",
-    label: "First-hop intermediary — clean until A transfers",
+    label: "Clean wallet — same rules as C",
     shortLabel: "Wallet B · Clean",
     wallet: "0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD",
     walletLabel: "Wallet B · Clean",
@@ -258,8 +258,8 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
     },
     typology: "None",
     summary: [
-      "Keeper score 0 — clean. No fee override yet.",
-      "After A → B P2P, expect score ≈ 65 and punitive 8% fee.",
+      "Keeper score 0 — clean. Same baseline as C.",
+      "After A → B: score ≈ 65 · 8%. After tainted C → B: score ≈ 42 · 3%.",
       "ALLOW · standard pool fee 0.30% until contaminated.",
     ],
     signals: [
@@ -307,14 +307,14 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
         sourcesConsulted: [
           "Layer-1 on-chain sanctions screen (OFAC SDN / UN / EU mirrors)",
           "Off-chain keeper score oracle (N-hop decay cache)",
-          "P2P transfer graph for Wallet B (inbound edges from A)",
+          "P2P transfer graph for Wallet B (inbound from A or C)",
           "Pool SwapObserved / WalletBlocked event log",
           "RWA pool policy bands (ALLOW 0–30 · FEE_OVERRIDE 31–70 · REVERT 71–100)",
         ],
         decisionExecuted: "ALLOW · standard pool fee 0.30%.",
         legalBasis: "FATF risk-based approach · permissive RWA pool policy.",
         recommendations:
-          "Monitor for inbound P2P from Wallet A. If received, expect 1-hop score ≈ 65 and 8% fee override.",
+          "Monitor inbound from A (1-hop ≈ 65 / 8%) or tainted C (2-hop ≈ 42 / 3%). Closer hop wins if both occur.",
         traceability: "Retention 5 years.",
       },
       sarAnnex: null,
@@ -323,7 +323,7 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
         output: "ALLOW",
         mainFacts: "Wallet B clean; no hop from A; standard fee.",
         basis: "SCORE_BELOW_FEE_OVERRIDE_THRESHOLD",
-        nextReview: "On inbound transfer from A",
+        nextReview: "On inbound from A (1-hop) or tainted C (2-hop)",
       },
       poolReport: { ...SHARED_POOL_REPORT },
       note: CLEAN_AGENT_NOTE,
@@ -331,7 +331,7 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
   },
   C: {
     id: "C",
-    label: "Clean baseline — standard fee",
+    label: "Clean wallet — same rules as B",
     shortLabel: "Wallet C · Clean",
     wallet: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
     walletLabel: "Wallet C · Clean",
@@ -353,8 +353,8 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
     },
     typology: "None",
     summary: [
-      "Keeper score 0 — clean baseline (Step 0 of the use case).",
-      "After B → C P2P, expect score ≈ 42 and proportional 3% fee.",
+      "Keeper score 0 — clean baseline (same rules as B).",
+      "After A → C: score ≈ 65 · 8%. After tainted B → C: score ≈ 42 · 3%.",
       "ALLOW · standard pool fee 0.30%.",
     ],
     signals: [
@@ -395,21 +395,21 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
       technicalOpinion: {
         issued: false,
         objectAndScope:
-          "Clean Wallet C with no inbound contamination. Full dictamen not required until B transfers.",
+          "Clean Wallet C with no inbound contamination. Full dictamen not required until A or a tainted peer transfers.",
         riskAndScoring: "Score 0 / 100 · ALLOW band (0–30).",
         typologies: "None. No exploit link, no hop exposure.",
         sanctionsCheck: "Layer-1 screen clear.",
         sourcesConsulted: [
           "Layer-1 on-chain sanctions screen (OFAC SDN / UN / EU mirrors)",
           "Off-chain keeper score oracle (N-hop decay cache)",
-          "P2P transfer graph for Wallet C (inbound edges from B)",
+          "P2P transfer graph for Wallet C (inbound from A or B)",
           "Pool SwapObserved / WalletBlocked event log",
           "RWA pool policy bands (ALLOW 0–30 · FEE_OVERRIDE 31–70 · REVERT 71–100)",
         ],
         decisionExecuted: "ALLOW · standard pool fee 0.30%.",
         legalBasis: "FATF risk-based approach · permissive RWA pool policy.",
         recommendations:
-          "Monitor for inbound P2P from Wallet B after A→B contamination. Expect 2-hop score ≈ 42 and 3% fee.",
+          "Monitor inbound from A (1-hop ≈ 65 / 8%) or tainted B (2-hop ≈ 42 / 3%). Closer hop wins if both occur.",
         traceability: "Retention 5 years.",
       },
       sarAnnex: null,
@@ -418,7 +418,7 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
         output: "ALLOW",
         mainFacts: "Wallet C clean baseline; no hop from A; standard fee.",
         basis: "SCORE_BELOW_FEE_OVERRIDE_THRESHOLD",
-        nextReview: "On inbound transfer from B (post A→B)",
+        nextReview: "On inbound from A (1-hop) or tainted B (2-hop)",
       },
       poolReport: { ...SHARED_POOL_REPORT },
       note: CLEAN_AGENT_NOTE,

@@ -7,7 +7,7 @@ type Props = {
   onChange: (id: DemoCaseId) => void;
 };
 
-/** Static accents by role: C clean · A exploit · B intermediary */
+/** Static accents by role: C/B clean · A exploit */
 const TONE: Record<
   DemoCaseId,
   { ring: string; text: string; soft: string }

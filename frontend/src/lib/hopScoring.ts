@@ -3,8 +3,10 @@
  *
  * Use case (`docs/AML-Hook_Use_of_Case.txt`):
  * - Wallet A = exploit attacker → REVERT on pool swaps.
- * - Wallet B starts clean; after A→B P2P → 1-hop score 65 → FEE_OVERRIDE 8%.
- * - Wallet C starts clean (ALLOW 0.30%); after B→C P2P → 2-hop score 42 → FEE_OVERRIDE 3%.
+ * - Wallets B and C both start clean (ALLOW 0.30%).
+ * - Receive from A → 1-hop score ≈ 65 → FEE_OVERRIDE 8%.
+ * - Receive from the other after it was tainted by A → 2-hop ≈ 42 → FEE_OVERRIDE 3%.
+ * - Closer hop wins if a wallet is contaminated more than once.
  *
  * Formula: derived_score = origin_score × (decay_factor ^ hops) × exposed_proportion
  */
@@ -85,7 +87,7 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
     A: {
       id: "A",
       accountLabel: "Account A · Exploit",
-      role: "Exploit attacker — REVERT on pool; contaminates B via P2P",
+      role: "Exploit attacker — REVERT on pool; contaminates B or C via P2P",
       address: "0x8576aCC5C05D6Ce88f4e49bf65BdF0C62F91353C",
       usdc: 10_000_000,
       eth: 5,
@@ -96,7 +98,7 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
     B: {
       id: "B",
       accountLabel: "Account B · Clean",
-      role: "First-hop intermediary — clean until A transfers",
+      role: "Clean wallet — A→B = 1-hop (~65); tainted C→B = 2-hop (~42)",
       address: "0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD",
       usdc: 25_000,
       eth: 4,
@@ -107,7 +109,7 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
     C: {
       id: "C",
       accountLabel: "Account C · Clean",
-      role: "Baseline clean wallet — ALLOW until B transfers (2-hop)",
+      role: "Clean wallet — A→C = 1-hop (~65); tainted B→C = 2-hop (~42)",
       address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
       usdc: 50_000,
       eth: 8,
@@ -120,8 +122,13 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
 
 /**
  * P2P USDC transfer between demo addresses.
- * Debits sender and credits recipient (round whole USDC), then propagates
- * N-hop contamination only when the sender is already tainted.
+ * Debits sender and credits recipient (round whole USDC).
+ *
+ * Contamination rules (B and C both start clean):
+ * - Receive from exploit A → hop 1 → score ≈ 65 (FEE_OVERRIDE 8%)
+ * - Receive from a tainted peer (B↔C after either got from A) → hop = sender.hop + 1
+ *   → score = 100 × 0.65^hops (e.g. 2-hop ≈ 42 → FEE_OVERRIDE 3%)
+ * - If a wallet already has a hop, keep the closer (smaller) hop distance.
  */
 export function applyTransfer(
   wallets: Record<SimWalletId, SimWallet>,
@@ -139,7 +146,7 @@ export function applyTransfer(
   if (sender.usdc < amount) return null;
 
   const senderIsTainted = sender.exploitConfirmed || sender.hopDistance != null;
-  const nextHop = senderIsTainted ? (sender.hopDistance ?? 0) + 1 : null;
+  const incomingHop = senderIsTainted ? (sender.hopDistance ?? 0) + 1 : null;
   const origin =
     sender.originId ?? (sender.exploitConfirmed ? sender.id : null);
 
@@ -148,32 +155,36 @@ export function applyTransfer(
     usdc: sender.usdc - amount,
   };
 
+  // Closer hop wins (lower hop count = higher score / more contamination)
+  const resolvedHop = recipient.exploitConfirmed
+    ? recipient.hopDistance
+    : incomingHop == null
+      ? recipient.hopDistance
+      : recipient.hopDistance == null
+        ? incomingHop
+        : Math.min(recipient.hopDistance, incomingHop);
+
+  const resolvedOrigin = recipient.exploitConfirmed
+    ? recipient.originId
+    : incomingHop == null
+      ? recipient.originId
+      : (origin ?? recipient.originId);
+
   const nextRecipient: SimWallet = {
     ...recipient,
     usdc: recipient.usdc + amount,
-    // Never overwrite the exploit source flag on A; only contaminate clean recipients
-    hopDistance: recipient.exploitConfirmed
-      ? recipient.hopDistance
-      : nextHop == null
-        ? recipient.hopDistance
-        : recipient.hopDistance == null
-          ? nextHop
-          : Math.min(recipient.hopDistance, nextHop),
-    originId: recipient.exploitConfirmed
-      ? recipient.originId
-      : nextHop == null
-        ? recipient.originId
-        : (origin ?? recipient.originId),
+    hopDistance: resolvedHop,
+    originId: resolvedOrigin,
     accountLabel: recipient.exploitConfirmed
       ? recipient.accountLabel
-      : nextHop == null
-        ? recipient.accountLabel
-        : `Account ${recipient.id} · ${nextHop}-hop`,
+      : resolvedHop == null
+        ? `Account ${recipient.id} · Clean`
+        : `Account ${recipient.id} · ${resolvedHop}-hop`,
     role: recipient.exploitConfirmed
       ? recipient.role
-      : nextHop == null
-        ? recipient.role
-        : `${nextHop}-hop intermediary from origin ${origin ?? EXPLOIT_SOURCE}`,
+      : resolvedHop == null
+        ? `Clean wallet — ALLOW until contaminated by A or a tainted peer`
+        : `${resolvedHop}-hop from origin ${resolvedOrigin ?? EXPLOIT_SOURCE}`,
   };
 
   const next: Record<SimWalletId, SimWallet> = {

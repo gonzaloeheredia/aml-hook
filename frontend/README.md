@@ -3,7 +3,8 @@
 Hackathon UI for **Uniswap Hook Incubator 10 (UHI10)**.  
 Uniswap-styled demo of the AML Hook use case: **exploit cash-out detection**, **N-hop decay**, and ternary **ALLOW / FEE_OVERRIDE / REVERT**.
 
-> All data is mocked. Smart contracts and the Compliance Officer Agent backend will be wired later.
+> All data is mocked. Smart contracts and the Compliance Officer Agent backend will be wired later.  
+> Scores and sanctions checks are **simulated** from the N-hop ledger — no live OpenSanctions / Etherscan / GoPlus (or OFAC) API calls.
 
 ## What it shows
 
@@ -19,12 +20,12 @@ Uniswap-styled demo of the AML Hook use case: **exploit cash-out detection**, **
 
 ### The three use-case wallets
 
-1. **Wallet C (clean baseline)** — score 0 · `ALLOW` · fee 0.30%
-2. **Wallet A (exploit)** — score 100 · `REVERT`
-3. **Wallet B (intermediary)** — starts clean; after A→B → score ≈ 65 · `FEE_OVERRIDE` · 8%
+1. **Wallet A (exploit)** — score 100 · `REVERT`
+2. **Wallet B (clean)** — same rules as C: A→B ≈ 65 / 8%; tainted C→B ≈ 42 / 3%
+3. **Wallet C (clean)** — same rules as B: A→C ≈ 65 / 8%; tainted B→C ≈ 42 / 3%
 
 N-hop formula: `derived_score = origin_score × (0.65 ^ hops) × exposed_proportion`  
-(After B→C, Wallet C moves to score ≈ 42 · fee 3%.)
+Closer hop wins if a wallet is contaminated more than once.
 
 ## Run locally
 

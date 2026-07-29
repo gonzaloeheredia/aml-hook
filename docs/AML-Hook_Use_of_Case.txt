@@ -17,10 +17,12 @@ Actors
 
   Wallet A    Exploit attacker. Drains an external lending protocol and attempts to use the pool to convert stolen USDC into ETH.        100 (exploit confirmed)
 
-  Wallet B    First-hop intermediary. Receives stolen funds directly from Wallet A via a peer-to-peer (P2P) transfer outside the pool.   65 (1-hop decay)
+  Wallet B    Starts clean (same rules as C). Receives from A → 1-hop (~65). Receives from tainted C → 2-hop (~42). Closer hop wins.     0 (clean)
 
-  Wallet C    Second-hop intermediary. Starts with a clean history, later receives a portion of funds from Wallet B.                     0 → 42 (2-hop decay)
+  Wallet C    Starts clean (same rules as B). Receives from A → 1-hop (~65). Receives from tainted B → 2-hop (~42). Closer hop wins.     0 (clean)
   ----------- -------------------------------------------------------------------------------------------------------------------------- -------------------------
+
+The walkthrough below uses one propagation path (A → B → C) to exercise all three hook outputs in a single run. The scoring engine treats B and C symmetrically for any P2P path.
 
 The pool is configured as a Real World Asset (RWA) pool on Uniswap v4, with AML Hook attached and dynamic fee permissions enabled. The off-chain scoring keeper monitors transfer events continuously and writes updated scores on-chain before any swap is attempted.
 
