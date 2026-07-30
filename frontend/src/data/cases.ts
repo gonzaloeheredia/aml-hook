@@ -104,8 +104,8 @@ export interface DemoCase {
   };
 }
 
-/** Display order: C baseline → A exploit → B (demo walkthrough order) */
-export const CASE_ORDER: DemoCaseId[] = ["C", "A", "B"];
+/** Display order: alphabetical A → B → C */
+export const CASE_ORDER: DemoCaseId[] = ["A", "B", "C"];
 
 const CLEAN_AGENT_NOTE =
   "Internal operator documentation. The agent never files with any authority.";
@@ -289,18 +289,18 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
       out: 0.48,
     },
     agent: {
-      status: "Decision record issued",
+      status: "Legal opinion · ALLOW",
       hookOutput: "ALLOW",
-      documentType: "decision-record",
+      documentType: "legal-opinion",
       recipient: "Pool operator Compliance Officer",
       confidence: "HIGH",
       humanReview: false,
       retentionYears: 5,
       auditHash: "0xb0c1…000b",
       technicalOpinion: {
-        issued: false,
+        issued: true,
         objectAndScope:
-          "Clean Wallet B with no inbound contamination from exploit source A. Full dictamen not required.",
+          "Clean Wallet B with no inbound contamination from exploit source A. Legal opinion issued for the ALLOW path.",
         riskAndScoring: "Score 0 / 100 · ALLOW band (0–30).",
         typologies: "None. No exploit link, no hop exposure.",
         sanctionsCheck: "Layer-1 screen clear.",
@@ -384,18 +384,18 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
       out: 0.48,
     },
     agent: {
-      status: "Decision record issued",
+      status: "Legal opinion · ALLOW",
       hookOutput: "ALLOW",
-      documentType: "decision-record",
+      documentType: "legal-opinion",
       recipient: "Pool operator Compliance Officer",
       confidence: "HIGH",
       humanReview: false,
       retentionYears: 5,
       auditHash: "0xc0c1…000c",
       technicalOpinion: {
-        issued: false,
+        issued: true,
         objectAndScope:
-          "Clean Wallet C with no inbound contamination. Full dictamen not required until A or a tainted peer transfers.",
+          "Clean Wallet C with no inbound contamination. Legal opinion issued for the ALLOW path.",
         riskAndScoring: "Score 0 / 100 · ALLOW band (0–30).",
         typologies: "None. No exploit link, no hop exposure.",
         sanctionsCheck: "Layer-1 screen clear.",

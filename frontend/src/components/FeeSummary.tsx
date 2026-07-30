@@ -6,8 +6,10 @@ type Props = {
   demoCase: DemoCase;
   /** Live swap counter — increments +1 after each completed node circuit */
   swapCount: number;
-  /** Cumulative USD traded across completed circuits for this wallet */
+  /** Cumulative USDC sold across completed circuits for this wallet */
   tradedUsd: number;
+  /** Cumulative ETH bought across completed circuits for this wallet */
+  tradedEth: number;
 };
 
 /**
@@ -25,18 +27,25 @@ function formatGas(gas: number) {
 }
 
 /**
- * Formats a USD amount for the traded-volume line.
+ * Formats ETH amounts for the traded-volume line.
  */
-function formatUsd(amount: number) {
-  return `$${amount.toLocaleString("en-US")}`;
+function formatEth(amount: number) {
+  if (amount <= 0) return "0 ETH";
+  const rounded = Math.round(amount * 10_000) / 10_000;
+  return `${rounded.toLocaleString("en-US", { maximumFractionDigits: 4 })} ETH`;
 }
 
 /**
  * Two equal cards under the simulator:
  * - Left: fee / gas / time metrics from the active demo case
- * - Right: live swap counter (+1 per completed flow) and cumulative USD traded
+ * - Right: live swap counter + USDC sold / ETH bought
  */
-export function FeeSummary({ demoCase, swapCount, tradedUsd }: Props) {
+export function FeeSummary({
+  demoCase,
+  swapCount,
+  tradedUsd,
+  tradedEth,
+}: Props) {
   const blocked = demoCase.decision === "block";
   const feeOverride = demoCase.decision === "fee_override";
 
@@ -78,15 +87,23 @@ export function FeeSummary({ demoCase, swapCount, tradedUsd }: Props) {
         </div>
       </div>
 
-      {/* Right — live swap counter + traded volume */}
+      {/* Right — live swap counter + both legs of the swap */}
       <div className="flex min-h-[168px] flex-col items-center justify-center rounded-[20px] border border-uni-border/80 bg-uni-card/90 px-5 py-4 text-sm shadow-glow">
-        <div className="text-uni-muted">Swap counter</div>
+        <div className="text-uni-muted">Swaps settled</div>
         <div className="mt-1 text-5xl font-bold tracking-tight text-white tabular-nums">
           {swapCount}
         </div>
-        <div className="mt-4 flex w-full justify-between text-uni-muted">
-          <span>Amount traded</span>
-          <span className="text-white">{formatUsd(tradedUsd)}</span>
+        <div className="mt-3 w-full space-y-2">
+          <div className="flex justify-between text-uni-muted">
+            <span>Sold (USDC)</span>
+            <span className="text-white">
+              {tradedUsd.toLocaleString("en-US")} USDC
+            </span>
+          </div>
+          <div className="flex justify-between text-uni-muted">
+            <span>Bought (ETH)</span>
+            <span className="text-white">{formatEth(tradedEth)}</span>
+          </div>
         </div>
       </div>
     </div>

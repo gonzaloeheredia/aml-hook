@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Plus_Jakarta_Sans } from "next/font/google";
+import { IgnoreMetaMaskNoise } from "@/components/IgnoreMetaMaskNoise";
 import "./globals.css";
 
 /**
@@ -28,6 +30,25 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${jakarta.variable} font-sans antialiased bg-uni-bg text-white`}>
+        <Script id="ignore-metamask-noise" strategy="beforeInteractive">{`
+(function () {
+  function isNoise(reason) {
+    var m = (reason && reason.message) ? String(reason.message) : String(reason || "");
+    return /Failed to connect to MetaMask/i.test(m);
+  }
+  window.addEventListener("unhandledrejection", function (e) {
+    if (!isNoise(e.reason)) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }, true);
+  window.addEventListener("error", function (e) {
+    if (!isNoise(e.error || e.message)) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }, true);
+})();
+        `}</Script>
+        <IgnoreMetaMaskNoise />
         {children}
       </body>
     </html>

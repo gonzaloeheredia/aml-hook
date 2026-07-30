@@ -2,24 +2,31 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  applyTransfer,
   ETH_USD,
   type SimWallet,
   type SimWalletId,
-  type TransferRecord,
 } from "@/lib/hopScoring";
+import { walletTone } from "@/components/WalletTag";
 
 type Props = {
   open: boolean;
   onClose: () => void;
   wallets: Record<SimWalletId, SimWallet>;
-  transfers: TransferRecord[];
   activeId: SimWalletId;
   onActiveChange: (id: SimWalletId) => void;
-  onWalletsChange: (wallets: Record<SimWalletId, SimWallet>) => void;
-  onTransfer: (record: TransferRecord) => void;
+  /**
+   * Posts a P2P transfer to the backend and updates local ledger state.
+   * Returns an error message on failure.
+   */
+  onSendTransfer: (
+    from: SimWalletId,
+    to: SimWalletId,
+    amountUsd: number,
+  ) => Promise<string | null>;
   /** Connects the active MetaMask account into the Uniswap demo */
   onUseInUniswap: (id: SimWalletId) => void;
+  /** Optional API connectivity hint shown in the panel header */
+  apiLabel?: string | null;
 };
 
 type View = "home" | "accounts" | "send";
@@ -59,14 +66,15 @@ export function MetaMaskPanel({
   wallets,
   activeId,
   onActiveChange,
-  onWalletsChange,
-  onTransfer,
+  onSendTransfer,
   onUseInUniswap,
+  apiLabel,
 }: Props) {
   const [view, setView] = useState<View>("home");
   const [toId, setToId] = useState<SimWalletId>("B");
   const [amount, setAmount] = useState("10000");
   const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
   const [lastMove, setLastMove] = useState<{
     from: SimWalletId;
     to: SimWalletId;
@@ -103,9 +111,9 @@ export function MetaMaskPanel({
     !!wallets[toId];
 
   /**
-   * Confirms a simulated USDC transfer: sender −amount, recipient +amount.
+   * Confirms a USDC transfer via the backend API ledger.
    */
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!amountOk) {
       setError("Enter a valid whole-USDC amount");
       return;
@@ -114,16 +122,16 @@ export function MetaMaskPanel({
       setError(`Insufficient USDC — available ${formatUsdc(active.usdc)}`);
       return;
     }
-    const result = applyTransfer(wallets, activeId, toId, parsedAmount);
-    if (!result) {
-      setError("Transfer failed — check amount and recipient");
+    setSending(true);
+    setError(null);
+    const err = await onSendTransfer(activeId, toId, parsedAmount);
+    setSending(false);
+    if (err) {
+      setError(err);
       return;
     }
-    onWalletsChange(result.wallets);
-    onTransfer(result.record);
     setLastMove({ from: activeId, to: toId, amount: parsedAmount });
-    setError(null);
-    setAmount(String(Math.min(10_000, result.wallets[activeId].usdc)));
+    setAmount("10000");
     setView("home");
   };
 
@@ -148,25 +156,32 @@ export function MetaMaskPanel({
       >
         <div className="flex h-full w-full flex-col overflow-hidden border-l border-white/10 bg-[#0B0B0C] shadow-[-24px_0_80px_rgba(0,0,0,0.55)] sm:m-3 sm:h-[calc(100%-1.5rem)] sm:max-w-[380px] sm:rounded-[28px] sm:border">
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-            <button
-              type="button"
-              onClick={() => setView(view === "accounts" ? "home" : "accounts")}
-              className="flex items-center gap-2 rounded-full px-2 py-1 text-sm font-semibold text-white hover:bg-white/5"
-            >
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#E2761B]/25 text-sm">
-                🦊
+          <div className="border-b border-white/10 px-4 py-3">
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setView(view === "accounts" ? "home" : "accounts")}
+                className="flex items-center gap-2 rounded-full px-2 py-1 text-sm font-semibold text-white hover:bg-white/5"
+              >
+              <span
+                className={`flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold ${walletTone(active).badge}`}
+              >
+                {activeId}
               </span>
-              <span className="max-w-[9rem] truncate">{active.accountLabel}</span>
-              <span className="text-white/40">▾</span>
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-full px-2 py-1 text-white/50 hover:bg-white/5 hover:text-white"
-            >
-              ✕
-            </button>
+                <span className="max-w-[9rem] truncate">{active.accountLabel}</span>
+                <span className="text-white/40">▾</span>
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-full px-2 py-1 text-white/50 hover:bg-white/5 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            {apiLabel && (
+              <p className="mt-1 truncate px-2 text-[10px] text-white/35">{apiLabel}</p>
+            )}
           </div>
 
           {view === "accounts" ? (
@@ -177,6 +192,7 @@ export function MetaMaskPanel({
               <div className="space-y-2">
                 {(Object.keys(wallets) as SimWalletId[]).map((id) => {
                   const w = wallets[id];
+                  const tone = walletTone(w);
                   return (
                     <button
                       key={id}
@@ -187,16 +203,21 @@ export function MetaMaskPanel({
                       }}
                       className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left transition ${
                         id === activeId
-                          ? "border-[#E2761B]/50 bg-[#E2761B]/10"
+                          ? `${tone.border} ${tone.bg}`
                           : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"
                       }`}
                     >
-                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-sm font-bold">
+                      <span
+                        className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold ${tone.badge}`}
+                      >
                         {id}
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-semibold text-white">
                           {w.accountLabel}
+                        </span>
+                        <span className={`block text-[11px] ${tone.text}`}>
+                          {tone.label}
                         </span>
                         <span className="block truncate font-mono text-[11px] text-white/45">
                           {shorten(w.address)}
@@ -304,11 +325,11 @@ export function MetaMaskPanel({
 
               <button
                 type="button"
-                onClick={handleSend}
-                disabled={!canSend}
+                onClick={() => void handleSend()}
+                disabled={!canSend || sending}
                 className="mt-6 w-full rounded-full bg-[#037DD6] py-3.5 text-sm font-semibold text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Confirm transfer
+                {sending ? "Sending…" : "Confirm transfer"}
               </button>
             </div>
           ) : (

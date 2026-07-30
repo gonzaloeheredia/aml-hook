@@ -37,7 +37,7 @@ Default: [http://localhost:4000](http://localhost:4000)
 | `POST` | `/transfers` | P2P USDC `{ "from":"A", "to":"B", "amountUsd":10000 }` |
 | `POST` | `/swaps` | Settle pool swap `{ "walletId":"C", "amountUsd":1000 }` |
 | `GET` | `/transfers` | Transfer history |
-| `GET` | `/events` | Hook event trail (`SwapObserved` / `WalletBlocked`) |
+| `GET` | `/events` | Simulated hook trail (`SwapObserved` in afterSwap; `WalletBlocked` when REVERT blocks beforeSwap) |
 | `POST` | `/reset` | Reseed A/B/C to use-case baseline |
 
 ### Example — compliance dictamen
@@ -83,4 +83,4 @@ curl http://localhost:4000/wallets/C/compliance
 
 ## Next step (later)
 
-Wire `frontend/` to these endpoints, then optionally swap the in-memory store for Postgres.
+Wire `frontend/` already uses these endpoints (`NEXT_PUBLIC_API_URL`). Optionally swap the in-memory store for Postgres later.

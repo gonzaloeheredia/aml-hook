@@ -76,21 +76,62 @@ export function buildHookChainEvent(args: {
 }
 
 /**
- * Pretty-print the event as the JSON-ish payload from the use-case PDF.
+ * Maps a backend HookEvent into the frontend audit-trail shape.
+ */
+export function hookEventFromApi(
+  event: {
+    id: string;
+    walletId: DemoCaseId;
+    address: string;
+    score: number;
+    decision: "ALLOW" | "FEE_OVERRIDE" | "REVERT";
+    feeBps: number;
+    amountUsd: number;
+    hopDistance: number | null;
+    origin: string;
+    at: string;
+    kind: "SwapObserved" | "WalletBlocked";
+  },
+  eventIndex: number,
+): HookChainEvent {
+  const blocked = event.kind === "WalletBlocked";
+  return {
+    id: event.id,
+    hookPhase: blocked ? "beforeSwap" : "afterSwap",
+    eventName: event.kind,
+    walletId: event.walletId,
+    address: event.address,
+    score: event.score,
+    decision: event.decision,
+    fee: blocked ? "—" : `${(event.feeBps / 100).toFixed(2)}%`,
+    feeBps: event.feeBps,
+    amountUsd: event.amountUsd,
+    hopDistance: event.hopDistance,
+    origin: event.origin,
+    timestamp: event.at,
+    txHash: fakeTxHash(event.address, eventIndex),
+    blockNumber: 22_814_500 + eventIndex * 17,
+  };
+}
+
+/**
+ * Pretty-print the afterSwap payload (use-case fields).
+ * `amount_usdc` is the swap notional in USDC.
  */
 export function formatEventPayload(event: HookChainEvent): string {
-  const hop =
-    event.hopDistance == null ? "" : `,\n  hop_distance: ${event.hopDistance}`;
-  const origin =
-    !event.origin || event.origin === "—"
-      ? ""
-      : `,\n  origin: ${event.origin}`;
-  return `{
-  address: ${event.address.slice(0, 6)}…${event.address.slice(-4)},
-  score: ${event.score},
-  decision: ${event.decision},
-  fee: ${event.fee},
-  amount: ${event.amountUsd}${hop}${origin},
-  timestamp: ${event.timestamp}
-}`;
+  const lines = [
+    `  address: ${event.address}`,
+    `  score: ${event.score}`,
+    `  decision: ${event.decision}`,
+    `  fee: ${event.fee}`,
+    `  amount_usdc: ${event.amountUsd}`,
+  ];
+  if (event.hopDistance != null) {
+    lines.push(`  hop_distance: ${event.hopDistance}`);
+  }
+  if (event.origin && event.origin !== "—") {
+    lines.push(`  origin: ${event.origin}`);
+  }
+  lines.push(`  timestamp: ${event.timestamp}`);
+  return `{\n${lines.join(",\n")}\n}`;
 }

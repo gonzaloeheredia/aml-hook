@@ -1,6 +1,6 @@
 # AML Hook
 
-Compliance layer for **Uniswap v4** (UHI10): a hook that intercepts swaps in `beforeSwap` / `afterSwap` and returns a ternary decision from an off-chain risk score —
+Compliance layer for **Uniswap v4** (UHI10): a hook that intercepts swaps in `beforeSwap` / `afterSwap` and returns a ternary decision from an off-chain risk score.
 
 | Score | Output | Effect |
 |---|---|---|
@@ -34,6 +34,34 @@ Exercises all three hook outputs in one run (other paths like A→C or A→C→B
 4. **B → C** P2P → keeper writes score **42**
 5. **C** swaps → **FEE_OVERRIDE** 3%
 
+## Guided UI (6 stages)
+
+The frontend walks the use case as a staged demo:
+
+| # | Stage | What it shows |
+|---|---|---|
+| 1 | **Swap** | Uniswap-style swap widget (connect wallet here) |
+| 2 | **Hook** | Flow simulator (`beforeSwap` / decision) |
+| 3 | **Fees** | Fee / gas + settled volume (**Sold USDC** / **Bought ETH**) |
+| 4 | **AML stats** | Score, report overview, detection data |
+| 5 | **Opinion** | Legal / technical AML dictamen (sections A–D) |
+| 6 | **Event** | Pool-chain `afterSwap` payload (`SwapObserved`) |
+
+**Navigation**
+
+- **Auto:** Swap → Hook on simulate. After the hook run finishes, the UI lands on **Fees** (short hold; does not auto-advance to AML stats).
+- **Mouse on every stage:** **upper half** = previous, **lower half** = next (click or wheel). Wheel scrolls tall pages first; stage change only at scroll edges. Stage rail clicks also work.
+- **Opinion → Event:** wheel never advances; go to Event only with a **lower-half click after scrolling to the end** of the Opinion module.
+- Progressive unlock: later stages unlock as you reach them (Hook after simulate, Fees/stats after the hook run, Opinion from stats, Event from Opinion).
+- **Connect chip** shows `A · 0x…` (or B/C) with a **green / yellow / red** border from live risk (clean / hop FEE_OVERRIDE / exploit REVERT).
+- **Restart data** (navbar): reseeds wallets A/B/C via `POST /reset` and returns the demo to Swap.
+
+**Event payload** (use-case `afterSwap` emit written to the pool chain):
+
+`{ address, score, decision, fee, amount_usdc, hop_distance?, origin?, timestamp }`
+
+REVERT happens in `beforeSwap` — `afterSwap` never runs, so nothing is written for that swap.
+
 ## Architecture (three layers)
 
 ```
@@ -56,7 +84,7 @@ Exercises all three hook outputs in one run (other paths like A→C or A→C→B
 └─────────────────────────────────────────────────────────────┘
 ```
 
-Today the **backend simulates** what the keeper + oracle will do later. The **frontend** demos the hook UX against that logic (still mostly local mock; API wiring comes next). Smart contracts are not in this repo yet.
+Today the **backend** owns the demo ledger; the **frontend** calls it for wallets, P2P transfers, swaps, and compliance. Smart contracts (oracle + hook) are not in this repo yet.
 
 ## Run the demos
 
@@ -64,3 +92,5 @@ Today the **backend simulates** what the keeper + oracle will do later. The **fr
 |---|---|
 | Backend API (`:4000`) | [`backend/README.md`](backend/README.md) |
 | Frontend UI (`:3000`) | [`frontend/README.md`](frontend/README.md) |
+
+Run **both** for the live demo (`NEXT_PUBLIC_API_URL` defaults to `http://localhost:4000`).

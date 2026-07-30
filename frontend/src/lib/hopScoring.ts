@@ -3,9 +3,10 @@
  *
  * Use case (`docs/AML-Hook_Use_of_Case.txt`):
  * - Wallet A = exploit attacker → REVERT on pool swaps.
- * - Wallets B and C both start clean (ALLOW 0.30%).
- * - Receive from A → 1-hop score ≈ 65 → FEE_OVERRIDE 8%.
- * - Receive from the other after it was tainted by A → 2-hop ≈ 42 → FEE_OVERRIDE 3%.
+ * - Wallets B and C both start clean (ALLOW 0.30%, green). Swaps never add score.
+ * - Risk only via MetaMask P2P hops:
+ *   - Receive from A → hop 1 → score ≈ 65 → FEE_OVERRIDE 8% (yellow)
+ *   - Receive from a 1-hop peer (B↔C after A tainted one) → hop 2 → ≈ 42 → 3%
  * - Closer hop wins if a wallet is contaminated more than once.
  *
  * Formula: derived_score = origin_score × (decay_factor ^ hops) × exposed_proportion

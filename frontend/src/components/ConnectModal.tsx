@@ -1,12 +1,16 @@
 "use client";
 
+import { walletTone } from "@/components/WalletTag";
 import { CASE_ORDER, DEMO_CASES, type DemoCaseId } from "@/data/cases";
+import type { SimWallet } from "@/lib/hopScoring";
 
 type Props = {
   open: boolean;
   onClose: () => void;
   /** Called when the user picks Wallet A / B / C */
   onConnect: (caseId: DemoCaseId) => void;
+  /** Live ledger — B stays green until A or C transfers in */
+  wallets: Record<DemoCaseId, SimWallet>;
 };
 
 /**
@@ -16,18 +20,11 @@ function shorten(addr: string) {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
-/** Border / text tone per use-case wallet */
-const TONE: Record<DemoCaseId, string> = {
-  C: "text-uni-ok border-uni-ok/40 bg-uni-ok/10",
-  A: "text-uni-bad border-uni-bad/40 bg-uni-bad/10",
-  B: "text-uni-warn border-uni-warn/40 bg-uni-warn/10",
-};
-
 /**
- * Connect modal — only the three use-case wallets (A / B / C).
- * No unused providers (Uniswap Wallet, Other wallets, etc.).
+ * Connect modal — wallets A / B / C in alphabetical order.
+ * Row border: green clean · yellow after hop · red exploit.
  */
-export function ConnectModal({ open, onClose, onConnect }: Props) {
+export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
   if (!open) return null;
 
   return (
@@ -56,25 +53,31 @@ export function ConnectModal({ open, onClose, onConnect }: Props) {
         <div className="space-y-2">
           {CASE_ORDER.map((id) => {
             const c = DEMO_CASES[id];
+            const wallet = wallets[id];
+            const tone = walletTone(wallet);
             return (
               <button
                 key={id}
                 type="button"
                 onClick={() => onConnect(id)}
-                className={`flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition hover:brightness-110 ${TONE[id]}`}
+                className={`flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition hover:brightness-110 ${tone.border} ${tone.bg} ${tone.text}`}
               >
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-current/30 bg-black/20 text-sm font-bold">
+                <span
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ${tone.badge}`}
+                >
                   {id}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-semibold text-white">
-                    {c.walletLabel}
+                    Wallet {id} · {tone.label}
                   </span>
                   <span className="block truncate font-mono text-xs opacity-80">
-                    {shorten(c.wallet)}
+                    {shorten(wallet.address)}
                   </span>
                   <span className="mt-0.5 block text-[11px] opacity-80">
-                    {c.label}
+                    {wallet.hopDistance != null
+                      ? `${wallet.hopDistance}-hop · fee override expected`
+                      : c.label}
                   </span>
                 </span>
               </button>

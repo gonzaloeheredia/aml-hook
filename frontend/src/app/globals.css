@@ -106,12 +106,58 @@ body {
   filter: blur(0);
 }
 
+/**
+ * Guided demo stage enter morph.
+ */
+.stage-morph {
+  animation: stageMorphIn 1.15s cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: opacity, transform, filter;
+}
+
+/** Longer hold when landing on Fees after the hook run. */
+.stage-morph-slow {
+  animation-duration: 2.6s;
+}
+
+@keyframes stageMorphIn {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.985);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .scroll-reveal {
     opacity: 1;
     transform: none;
     filter: none;
     transition: none;
+  }
+
+  .stage-morph {
+    animation: none;
+  }
+}
+
+/**
+ * Stage click-nav cursor companion (Fees / Opinion / Record).
+ */
+html.stage-nav-cursor .stage-nav-hint {
+  animation: stageNavHintIn 0.16s ease-out both;
+}
+
+@keyframes stageNavHintIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 

@@ -25,7 +25,7 @@ type Point = { x: number; y: number };
 const BASE_NODES: NodeDef[] = [
   {
     id: "sign",
-    title: "User signs",
+    title: "Swap",
     subtitle: "Swap trigger",
     kind: "trigger",
   },
@@ -61,16 +61,16 @@ const BASE_NODES: NodeDef[] = [
   },
 ];
 
-const NODE_W = 188;
+const NODE_W = 156;
 /** Base card height (decision card is taller — reserved space for branches) */
-const NODE_H = 118;
-const DECIDE_H = 178;
-const GAP_X = 72;
-const GAP_Y = 96;
-const START_X = 28;
-const START_Y = 36;
-const PAD_R = 28;
-const PAD_B = 36;
+const NODE_H = 92;
+const DECIDE_H = 138;
+const GAP_X = 42;
+const GAP_Y = 48;
+const START_X = 20;
+const START_Y = 20;
+const PAD_R = 20;
+const PAD_B = 20;
 
 /**
  * Snake grid like the n8n reference:
@@ -364,10 +364,10 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
 
   return (
     <section className="relative w-full animate-fadeUp">
-      <div className="rounded-3xl border border-uni-border bg-uni-surface/80 p-4 md:p-6">
+      <div className="rounded-[24px] border border-uni-border bg-uni-surface/90 p-3 shadow-glow backdrop-blur md:p-4">
         <div
           ref={canvasRef}
-          className="relative overflow-x-auto overflow-y-hidden rounded-2xl border border-uni-border/70 dot-grid select-none"
+          className="relative overflow-x-auto overflow-y-hidden rounded-[20px] border border-uni-border/70 bg-uni-card/40 dot-grid select-none"
           style={{ minHeight: canvasHeight }}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -437,7 +437,7 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
                   key={node.id}
                   data-node-id={node.id}
                   onPointerDown={(e) => onPointerDown(e, node.id)}
-                  className={`absolute rounded-2xl border-2 bg-uni-card/95 p-3 shadow-lg transition-[border-color,box-shadow,opacity,transform] duration-300 ${borderClass} ${
+                  className={`absolute rounded-xl border-2 bg-uni-card/95 p-2 shadow-lg transition-[border-color,box-shadow,opacity,transform] duration-300 ${borderClass} ${
                     isDragging ? "z-20 cursor-grabbing scale-[1.03] shadow-glow" : "z-10 cursor-grab"
                   } ${isDropTarget ? "ring-2 ring-uni-pink" : ""} ${
                     running ? "cursor-default" : ""
@@ -450,34 +450,36 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
                     touchAction: "none",
                   }}
                 >
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-uni-muted">
+                  <div className="mb-1 flex items-center justify-between gap-1">
+                    <span className="text-[9px] font-semibold uppercase tracking-wider text-uni-muted">
                       {index + 1}. {node.kind}
                     </span>
-                    <span className="flex items-center gap-1.5">
+                    <span className="flex items-center gap-1">
                       {isActive && <Spinner />}
                       {done && isResult && resultTone === "bad" ? (
-                        <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-uni-bad text-[9px] font-bold text-white">
+                        <span className="flex h-3 w-3 items-center justify-center rounded-full bg-uni-bad text-[8px] font-bold text-white">
                           ✕
                         </span>
                       ) : done && isResult && resultTone === "warn" ? (
-                        <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-uni-warn text-[9px] font-bold text-black">
+                        <span className="flex h-3 w-3 items-center justify-center rounded-full bg-uni-warn text-[8px] font-bold text-black">
                           !
                         </span>
                       ) : completed && !isActive ? (
-                        <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-uni-ok text-[9px] font-bold text-black">
+                        <span className="flex h-3 w-3 items-center justify-center rounded-full bg-uni-ok text-[8px] font-bold text-black">
                           ✓
                         </span>
                       ) : null}
                       {!running && !done && (
-                        <span className="text-[10px] text-uni-muted">⠿</span>
+                        <span className="text-[9px] text-uni-muted">⠿</span>
                       )}
                     </span>
                   </div>
-                  <div className="text-sm font-semibold leading-snug">{node.title}</div>
-                  <div className="mt-1 text-xs text-uni-muted">{node.subtitle}</div>
+                  <div className="text-xs font-semibold leading-snug">{node.title}</div>
+                  <div className="mt-0.5 text-[10px] leading-tight text-uni-muted">
+                    {node.subtitle}
+                  </div>
                   <div
-                    className={`mt-2 font-mono text-[11px] ${
+                    className={`mt-1 font-mono text-[10px] ${
                       isActive
                         ? "text-uni-ok"
                         : completed || done
@@ -493,7 +495,7 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
                     s
                   </div>
                   {node.id === "decide" && (
-                    <div className="mt-3 space-y-1 text-[11px]">
+                    <div className="mt-1.5 space-y-0.5 text-[10px] leading-tight">
                       <div
                         className={
                           (isActive || completed || done) &&
@@ -527,28 +529,14 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
                     </div>
                   )}
                   {isActive && (
-                    <div className="mt-2 text-[11px] font-medium text-uni-ok">Running…</div>
+                    <div className="mt-1 text-[10px] font-medium text-uni-ok">
+                      Running…
+                    </div>
                   )}
                 </div>
               );
             })}
           </div>
-        </div>
-
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-xs text-uni-muted">
-          <span>
-            Active case: <span className="text-white">{demoCase.label}</span>
-          </span>
-          <span>
-            {running && !done && `Step ${activeIndex + 1} / ${nodes.length}`}
-            {done &&
-              (demoCase.flowPath === "block"
-                ? "Flow complete · blocked"
-                : demoCase.flowPath === "fee_override"
-                  ? "Flow complete · fee override"
-                  : "Flow complete · allowed")}
-            {!running && !done && 'Click "Get started" to run the flow'}
-          </span>
         </div>
       </div>
     </section>

@@ -92,11 +92,11 @@ function buildTechnicalOpinion(
   }
 
   return {
-    issued: false,
+    issued: true,
     objectAndScope:
       hop == null
-        ? `${wallet.accountLabel} has no inbound contamination from exploit source A. Full dictamen not required.`
-        : `${wallet.accountLabel} previously showed hop exposure, but live score ${score} sits in the ALLOW band. Short decision record only.`,
+        ? `${wallet.accountLabel} has no inbound contamination from exploit source A. Legal opinion issued for the ALLOW path.`
+        : `${wallet.accountLabel} previously showed hop exposure, but live score ${score} sits in the ALLOW band. Legal opinion issued for the ALLOW path.`,
     riskAndScoring: `Score ${score} / 100 · ALLOW band (0–30)${
       hop != null ? ` · hop ${hop} from ${origin}` : ""
     }.`,
@@ -121,7 +121,7 @@ function buildTechnicalOpinion(
     recommendations:
       hop == null
         ? "Monitor for inbound P2P from Wallet A (or contaminated B). If received, expect N-hop decay fees."
-        : "Keep ordinary monitoring. Re-open full opinion if an inbound tainted transfer raises score into FEE_OVERRIDE or REVERT.",
+        : "Keep ordinary monitoring. Re-open full technical opinion if an inbound tainted transfer raises score into FEE_OVERRIDE or REVERT.",
     traceability: `audit_hash ${auditHash} · retention 5 years.`,
   };
 }
@@ -240,9 +240,9 @@ export function buildCompliancePack(wallet: Wallet): CompliancePack {
           ? "Technical opinion · REVERT"
           : decision === "fee_override"
             ? `Technical opinion · ${wallet.hopDistance}-hop FEE_OVERRIDE`
-            : "Decision record issued",
+            : "Legal opinion · ALLOW",
       documentType:
-        decision === "allow" ? "decision-record" : "opinion + sar-annex",
+        decision === "allow" ? "legal-opinion" : "opinion + sar-annex",
       confidence:
         decision === "allow" ? "HIGH" : decision === "fee_override" ? "MEDIUM" : "HIGH",
       humanReview: decision !== "allow",

@@ -25,7 +25,7 @@ export function SwapWidget({
   onSimulate,
 }: Props) {
   const blocked = demoCase.decision === "block";
-  const feeOverride = demoCase.decision === "fee_override";
+  const warnTone = demoCase.decision === "fee_override";
   const insufficient = connected && !blocked && walletUsdc < demoCase.activity.amountUsd;
 
   return (
@@ -38,7 +38,7 @@ export function SwapWidget({
               className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
                 blocked
                   ? "bg-uni-bad/15 text-uni-bad"
-                  : feeOverride
+                  : warnTone
                     ? "bg-uni-warn/15 text-uni-warn"
                     : "bg-uni-ok/15 text-uni-ok"
               }`}
@@ -108,14 +108,6 @@ export function SwapWidget({
             </button>
           </div>
         </div>
-
-        {connected && feeOverride && (
-          <div className="mt-2 rounded-2xl border border-uni-warn/30 bg-uni-warn/10 px-4 py-3 text-sm text-uni-warn">
-            N-hop contamination detected. AML Hook applies{" "}
-            <span className="font-semibold">lpFeeOverride</span> (
-            {(demoCase.appliedFeeBps / 100).toFixed(2)}%) as EDD friction.
-          </div>
-        )}
 
         {connected && blocked && (
           <div className="mt-2 rounded-2xl border border-uni-bad/30 bg-uni-bad/10 px-4 py-3 text-sm text-uni-bad">

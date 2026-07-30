@@ -12,11 +12,14 @@ import type { Decision, TransferRecord, Wallet, WalletId } from "./types.js";
 
 /**
  * Applies a P2P USDC transfer between two wallets.
- * - Debits the sender and credits the recipient.
- * - B and C both start clean. Receive from A → hop 1 (~score 65).
- * - Receive from a tainted peer → hop = sender.hop + 1 (score decays: 100 × 0.65^hops).
- * - Keeps the closer hop if the recipient was already contaminated.
- * - Does not clear exploitConfirmed on the exploit source (A).
+ * Risk/score changes ONLY here — pool swaps never raise behavioral score.
+ *
+ * Hop rules (B and C start clean / green / score 0):
+ * - Receive from exploit A → hop 1 → score ≈ 65 → fee 8%
+ * - Receive from a 1-hop peer (e.g. tainted B→C or C→B) → hop 2 → score ≈ 42 → fee 3%
+ * - A second inbound from A (or B↔A after A→B) keeps the closer hop (min); hop 1 wins over hop 2
+ * - Clean→clean P2P does not contaminate
+ *
  * Returns the next wallet map + transfer record, or null on failure.
  */
 export function applyTransfer(
@@ -98,6 +101,8 @@ export function applyTransfer(
 /**
  * Settles a USDC→ETH pool swap on the ledger when the decision is not REVERT.
  * Debits USDC and credits ETH net of fee. Returns null if blocked or underfunded.
+ * Does NOT change hopDistance / behavioral score — clean wallets stay green
+ * after any number of swaps; risk only moves via P2P hops.
  */
 export function applyPoolSwap(
   wallets: Record<WalletId, Wallet>,
