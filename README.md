@@ -8,7 +8,7 @@ Compliance layer for **Uniswap v4** (UHI10): a hook that intercepts swaps in `be
 | 31–70 | **FEE_OVERRIDE** | Dynamic fee (`lpFeeOverride`, e.g. 3%–8%) |
 | 71–100 | **REVERT** | Fail-closed (exploit / sanctions exposure) |
 
-Product docs: [`docs/Whitepaper.txt`](docs/Whitepaper.txt), [`docs/AML-Hook_Use_of_Case.txt`](docs/AML-Hook_Use_of_Case.txt).
+Product docs: [`docs/Whitepaper.txt`](docs/Whitepaper.txt), [`docs/AML-Hook_Use_Case.txt`](docs/AML-Hook_Use_Case.txt).
 
 ## Use case — Exploit detection, propagation & N-hop decay
 
@@ -44,7 +44,7 @@ The frontend walks the use case as a staged demo:
 | 2 | **Hook** | Flow simulator (`beforeSwap` / decision) |
 | 3 | **Fees** | Fee / gas + settled volume (**Sold USDC** / **Bought ETH**) |
 | 4 | **AML stats** | Score, report overview, detection data |
-| 5 | **Opinion** | Legal / technical dictamen from the **oracle COA** (sections A–D) |
+| 5 | **Opinion** | Legal / technical opinion from the **oracle COA** (sections A–D) |
 | 6 | **Event** | Pool-chain `afterSwap` payload (`SwapObserved`) |
 
 **Navigation**
@@ -75,7 +75,7 @@ REVERT happens in `beforeSwap` — `afterSwap` never runs, so nothing is written
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  1. Off-chain oracle COA (today, in backend)                │
-│     agents/oracle-coa skills · fact-scoring · dictamen      │
+│     agents/oracle-coa skills · fact-scoring · opinion       │
 │     Triggered by afterSwap + P2P · in-memory score store    │
 └───────────────────────────┬─────────────────────────────────┘
                             │  score (future: signed write)

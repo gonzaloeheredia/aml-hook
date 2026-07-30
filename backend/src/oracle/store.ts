@@ -20,7 +20,7 @@ export function getOracleEvaluation(
  * Returns the cached final score, or null when the oracle has not run yet.
  */
 export function getOracleScore(walletId: WalletId): number | null {
-  return evaluations.get(walletId)?.scoreResult.score_final ?? null;
+  return evaluations.get(walletId)?.scoreResult.finalScore ?? null;
 }
 
 /**

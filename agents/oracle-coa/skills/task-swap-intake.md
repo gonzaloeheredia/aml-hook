@@ -1,166 +1,156 @@
 ---
 name: task-swap-intake
-description: "Recibir y clasificar un evento de swap o una solicitud de evaluación de wallet antes de asignar el flujo de análisis. Determina el modo de evaluación, extrae los parámetros del swap, verifica la vigencia del score en el oracle y define qué skills de dominio deben ejecutarse. Usar siempre como primer paso ante un evento nuevo: swap entrante, actualización disparada por afterSwap, denuncia de un LP, o revisión programada de una wallet."
+description: "Receive and classify a swap event or wallet evaluation request before assigning the analysis flow. Determines evaluation mode, extracts swap parameters, checks oracle score validity, and defines which domain skills must run. Always use as the first step on a new event: inbound swap, afterSwap update, LP report, or scheduled wallet review."
 ---
 
-# Task: Swap Intake — Recepción y Clasificación de Eventos
+# Task: Swap Intake — Event Reception and Classification
 
-## Rol en el agente
+## Role
 
-Esta skill es el punto de entrada del agente. Estructura el evento recibido,
-determina el modo de evaluación y define el flujo de trabajo. No analiza el
-fondo: clasifica y enruta.
+Entry point of the agent. Structures the received event, determines evaluation
+mode, and defines the workflow. Does not analyze substance: classifies and routes.
 
 ---
 
-## Modos de evaluación
+## Evaluation modes
 
-El agente opera en cuatro modos, con exigencias distintas de latencia y
-profundidad.
-
-| Modo | Disparador | Latencia admisible | Profundidad |
+| Mode | Trigger | Latency | Depth |
 |---|---|---|---|
-| **PRECOMPUTE** | Wallet nueva detectada, o revisión programada por vencimiento | Alta — asincrónico | Completa |
-| **POST_SWAP** | Evento `SwapObserved` emitido por `afterSwap` | Media — segundos a minutos | Incremental sobre las dimensiones ST y NW |
-| **ON_DEMAND** | Solicitud explícita del operador o del Oficial de Cumplimiento | Alta | Completa, con expediente |
-| **ALERT** | Denuncia validada de LP, alerta de Forta, actualización de lista de sanciones | Inmediata | Dirigida al hecho que la disparó |
-| **DISPUTE** | Impugnación admitida, retracción de señal externa, revocación de clave de reenviador | Alta | Recálculo dirigido a los hechos impugnados |
-| **DEFERRED_ATTRIBUTION** | Evento previamente bloqueado por atribución fallida, encolado para resolución por trace | Alta | Resolución de atribución y, si prospera, evaluación completa |
+| **PRECOMPUTE** | New wallet or scheduled expiry review | High — async | Full |
+| **POST_SWAP** | `SwapObserved` from `afterSwap` | Medium — seconds to minutes | Incremental on ST / NW |
+| **ON_DEMAND** | Explicit operator / Compliance Officer request | High | Full, with case file |
+| **ALERT** | Validated LP report, Forta alert, sanctions list update | Immediate | Directed at triggering fact |
+| **DISPUTE** | Admitted challenge, external signal retraction, forwarder key revocation | High | Recalc on challenged facts |
+| **DEFERRED_ATTRIBUTION** | Previously blocked for failed attribution, queued for trace resolution | High | Attribution then full eval if resolved |
 
-**Regla de latencia.** Ningún modo se ejecuta dentro del `beforeSwap`. El
-hook lee el score precalculado del oracle. Si no existe score vigente para
-una wallet, el hook aplica la política de default configurada por el
-operador, y el intake registra el evento en modo `PRECOMPUTE` con prioridad
-alta.
+**Latency rule.** No mode runs inside `beforeSwap`. The hook reads the
+precomputed oracle score. If no valid score exists, the hook applies the
+operator default policy and intake records `PRECOMPUTE` at high priority.
+
+Demo triggers (`backend/src/oracle/agent.ts`): `seed` · `transfer` ·
+`afterSwap` · `blocked` · `manual`.
 
 ---
 
-## Paso 1: Extracción de campos
+## Step 1: Field extraction
 
-| Campo | Descripción |
+| Field | Description |
 |---|---|
-| `evento_id` | Identificador del evento |
-| `modo` | PRECOMPUTE / POST_SWAP / ON_DEMAND / ALERT |
-| `origen` | Hook / motor off-chain / operador / denuncia LP / fuente externa |
-| `address_evaluada` | Dirección bajo análisis |
-| `rol` | SENDER o RECIPIENT |
-| `pool_id` | Pool de Uniswap v4 involucrado |
-| `amount_specified` | Monto del swap, con signo |
-| `zero_for_one` | Dirección del swap |
-| `currency_in` / `currency_out` | Tokens del par |
-| `block_number` / `block_timestamp` | Momento del evento |
-| `tx_hash` | Transacción, si existe |
-| `score_vigente` | Score actual en el oracle y su bloque de cálculo |
-| `informacion_faltante` | Qué se necesita y no está disponible |
+| `eventId` | Event identifier |
+| `mode` | PRECOMPUTE / POST_SWAP / ON_DEMAND / ALERT / … |
+| `origin` | Hook / off-chain engine / operator / LP report / external |
+| `evaluatedAddress` | Address under analysis |
+| `role` | SENDER or RECIPIENT |
+| `poolId` | Uniswap v4 pool |
+| `amountSpecified` | Swap amount (signed) |
+| `zeroForOne` | Swap direction |
+| `currencyIn` / `currencyOut` | Pair tokens |
+| `blockNumber` / `blockTimestamp` | Event time |
+| `txHash` | Transaction, if any |
+| `currentScore` | Oracle score and calculation time |
+| `missingInformation` | What is needed and unavailable |
 
-**Interpretación de los parámetros del swap.**
-`amountSpecified` es el insumo cuantitativo para la detección de
-structuring: su valor absoluto, su signo (exact input o exact output) y su
-relación con el umbral configurado. `zeroForOne` es el insumo del análisis
-direccional: una serie de swaps con dirección constante y montos homogéneos
-tiene un perfil distinto de una serie bidireccional compatible con
-arbitraje.
+`amountSpecified` feeds structuring detection. `zeroForOne` feeds directional
+series analysis (unilateral extraction vs bidirectional trading).
 
 ---
 
-## Paso 2: Verificación de vigencia del score
+## Step 2: Score validity check
 
-Antes de disparar cualquier análisis, verificar el estado del score en el
-oracle.
-
-| Estado | Criterio | Acción |
+| State | Criterion | Action |
 |---|---|---|
-| **Vigente** | Dentro del período de revisión que corresponde a su tramo | En modo POST_SWAP, actualización incremental. En los demás, no recalcular |
-| **Vencido** | Superó el período de revisión | Recálculo completo |
-| **Inexistente** | La wallet no tiene score registrado | Recálculo completo con prioridad alta |
-| **Invalidado** | Cambió una lista de sanciones o entró una alerta que lo afecta | Recálculo inmediato, override del período de vigencia |
+| **Valid** | Within review period for its band | POST_SWAP → incremental; others → no recalc |
+| **Expired** | Past review period | Full recalc |
+| **Missing** | No registered score | Full recalc, high priority |
+| **Invalidated** | Sanctions list change or affecting alert | Immediate recalc |
 
 ---
 
-## Paso 3: Clasificación de urgencia
+## Step 3: Urgency classification
 
-| Nivel | Criterio | Respuesta |
+| Level | Criterion | Response |
 |---|---|---|
-| **Crítico** | Hit en lista de sanciones, interacción con contrato designado, nexo con financiamiento del terrorismo, alerta de exploit en curso | Inmediato — derivar a `task-blocking-protocol` antes de continuar |
-| **Alto** | Score previo ≥ 71, tipología acumulativa activa, denuncia de LP validada, wallet sin score intentando swap por encima del umbral | Recálculo prioritario |
-| **Medio** | Score previo 31–70, actualización de rutina post-swap, wallet nueva con monto por debajo del umbral | Cola estándar |
-| **Bajo** | Revisión programada de wallet en tramo estándar | Cola diferida |
+| **Critical** | Sanctions hit, designated contract, TF nexus, active exploit alert | Immediate → `task-blocking-protocol` |
+| **High** | Prior score ≥ 71, active cumulative typology, validated LP report, unscored wallet above threshold | Priority recalc |
+| **Medium** | Prior 31–70, routine post-swap, new wallet below threshold | Standard queue |
+| **Low** | Scheduled review in STANDARD band | Deferred queue |
 
 ---
 
-## Paso 4: Asignación del flujo
+## Step 4: Flow assignment
 
 ```
-Siempre, y en primer lugar   → originator-attribution
-Atribución resuelta          → ofac-screening
-Toda evaluación              → wallet-screening
-Existe historial disponible  → swap-behavior-analysis
-Hay patrones detectados      → typology-detection
-Señales de otros pools       → cross-pool-intelligence
-Toda evaluación              → fact-scoring
-Toda evaluación              → task-swap-decision
-Urgencia crítica             → task-blocking-protocol (en paralelo)
-Sospecha razonable alcanzada → task-regulatory-report
-Impugnación recibida         → dispute-remediation
-Configuración de pool nuevo  → protocol-obligations
-Validación periódica         → model-validation
+Always first                 → originator-attribution
+Attribution resolved         → ofac-screening
+Every evaluation             → wallet-screening
+History available            → swap-behavior-analysis
+Patterns detected            → typology-detection
+Signals from other pools     → cross-pool-intelligence
+Every evaluation             → fact-scoring
+Every evaluation             → task-swap-decision
+Critical urgency             → task-blocking-protocol (parallel)
+Reasonable suspicion         → task-regulatory-report
+Challenge received           → dispute-remediation
+New pool setup               → protocol-obligations
+Periodic validation          → model-validation
 ```
 
-**Precedencia obligatoria, en dos niveles.** `originator-attribution` se
-ejecuta antes que todo. Sin sujeto atribuido no hay análisis posible y, bajo
-la política restrictiva por defecto, el swap revierte con código
-`ATTRIBUTION_FAILED` sin que se ejecute ninguna otra skill.
+**Two-level precedence.** `originator-attribution` first. Without an attributed
+subject, analysis is impossible; under default restrictive policy the swap
+reverts with `ATTRIBUTION_FAILED` and no other skill runs.
 
-Resuelta la atribución, `ofac-screening` se ejecuta antes que cualquier otra
-skill de dominio. Un match directo detiene el flujo y deriva de inmediato a
-`task-blocking-protocol`.
+After attribution, `ofac-screening` before any other domain skill. A direct
+match stops the flow and routes to `task-blocking-protocol`.
 
-**Skip condicional.** En modo `POST_SWAP` con score vigente y sin hechos
-nuevos de las dimensiones S, MX o GEO, el flujo se reduce a
-`swap-behavior-analysis` y `fact-scoring` incremental. El objetivo es que la
-actualización del perfil sea barata y frecuente.
+**Conditional skip.** In `POST_SWAP` with a valid score and no new S/MX/GEO
+facts, reduce to `swap-behavior-analysis` + incremental `fact-scoring`
+(+ decision + report in the mock).
+
+Mock flows:
+
+- **FULL:** intake → attribution → ofac → evidence → wallet → behavior →
+  typology → cross-pool → fact-scoring → decision → report
+- **INCREMENTAL:** intake → behavior → fact-scoring → decision → report
 
 ---
 
-## Output estructurado
+## Structured output
 
 ```json
 {
-  "evento_id": "...",
-  "modo": "PRECOMPUTE | POST_SWAP | ON_DEMAND | ALERT | DISPUTE | DEFERRED_ATTRIBUTION",
-  "origen": "...",
-  "address_evaluada": "0x...",
-  "rol": "SENDER | RECIPIENT",
+  "eventId": "...",
+  "mode": "PRECOMPUTE | POST_SWAP | ON_DEMAND | ALERT | DISPUTE | DEFERRED_ATTRIBUTION",
+  "origin": "...",
+  "evaluatedAddress": "0x...",
+  "role": "SENDER | RECIPIENT",
   "swap": {
-    "pool_id": "0x...",
-    "amount_specified": "0",
-    "zero_for_one": true,
-    "currency_in": "0x...",
-    "currency_out": "0x...",
-    "block_number": 0,
-    "tx_hash": "0x..."
+    "poolId": "0x...",
+    "amountSpecified": "0",
+    "zeroForOne": true,
+    "currencyIn": "0x...",
+    "currencyOut": "0x...",
+    "blockNumber": 0,
+    "txHash": "0x..."
   },
-  "score_oracle": {
-    "existe": true,
-    "valor": 0,
-    "calculado_en_block": 0,
-    "estado": "vigente | vencido | inexistente | invalidado"
+  "oracleScore": {
+    "exists": true,
+    "finalScore": 0,
+    "calculatedAt": "<ISO 8601>",
+    "state": "valid | expired | missing | invalidated"
   },
-  "urgencia": "crítico | alto | medio | bajo",
-  "atribucion": {
-    "resuelta": true,
-    "address_a_evaluar": "0x...",
-    "metodo": "...",
-    "politica_aplicada": "restrictiva"
+  "urgency": "critical | high | medium | low",
+  "attribution": {
+    "resolved": true,
+    "addressToEvaluate": "0x...",
+    "method": "...",
+    "policyApplied": "restrictive"
   },
-  "flujo_asignado": ["originator-attribution", "ofac-screening", "wallet-screening", "..."],
-  "informacion_faltante": ["..."],
-  "notas_intake": "..."
+  "assignedFlow": ["originator-attribution", "ofac-screening", "..."],
+  "missingInformation": ["..."],
+  "intakeNotes": "..."
 }
 ```
 
-> Esta skill no requiere análisis previo. Opera con la información
-> disponible al momento de recibir el evento. Si la información es
-> insuficiente para clasificar, registra la carencia y asigna el flujo
-> completo por defecto: la falta de datos no puede resolverse asumiendo un
-> riesgo bajo.
+> Operates on information available at event receipt. If insufficient to
+> classify, record the gap and assign the full flow by default — missing data
+> must not be resolved by assuming low risk.

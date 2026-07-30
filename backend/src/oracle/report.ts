@@ -1,39 +1,41 @@
 /**
- * Maps ScoreResult → Legal Opinion dictamen.
+ * Maps ScoreResult → Legal / technical Opinion.
  *
  * Narrative model (FinCEN SAR Narrative Guidance, Nov 2003 — structure only):
  * Who / What / When / Where / Why / How — chronological, concise, support-draft only.
- * Skills used by the oracle are NOT listed in the dictamen.
+ * Skills used by the oracle are NOT listed in the Opinion.
  */
 
 import { feeBpsFromHop } from "../scoring.js";
 import type { Wallet } from "../types.js";
-import type { OracleDictamen, ScoreResult } from "./types.js";
+import type { OracleOpinion, ScoreResult } from "./types.js";
 
 /**
  * Builds the Opinion-module payload from an oracle ScoreResult.
  */
-export function buildDictamenFromScore(
+export function buildOpinionFromScore(
   wallet: Wallet,
   score: ScoreResult,
-): OracleDictamen {
+): OracleOpinion {
   const decision =
-    score.salida_hook === "REVERT"
+    score.hookOutput === "REVERT"
       ? "block"
-      : score.salida_hook === "FEE_OVERRIDE"
+      : score.hookOutput === "FEE_OVERRIDE"
         ? "fee_override"
         : "allow";
-  const feeBps = feeBpsFromHop(score.score_final, wallet.hopDistance);
+  const feeBps = feeBpsFromHop(score.finalScore, wallet.hopDistance);
   const feePct = (feeBps / 100).toFixed(2);
-  const topFacts = [...score.hechos_disparadores]
+  const topFacts = [...score.triggeringFacts]
     .filter((f) => f.dimension !== "MT")
-    .sort((a, b) => Math.abs(b.contribucion_score) - Math.abs(a.contribucion_score))
+    .sort((a, b) => Math.abs(b.scoreContribution) - Math.abs(a.scoreContribution))
     .slice(0, 5);
 
   const humanReview =
     decision !== "allow" ||
-    score.flags_regulatorios.some(
-      (f) => f.tipo.includes("REVISION_HUMANA") || f.tipo.includes("SOSPECHA"),
+    score.regulatoryFlags.some(
+      (f) =>
+        f.type.includes("HUMAN_REVIEW") ||
+        f.type.includes("REASONABLE_SUSPICION"),
     );
 
   const origin = wallet.originId ?? "—";
@@ -69,9 +71,9 @@ export function buildDictamenFromScore(
   ].join(" ");
 
   const when = [
-    `Oracle evaluation time: ${score.vigencia.calculado_en}.`,
-    `Trigger: ${score.vigencia.trigger} (seed | transfer | afterSwap | blocked).`,
-    `Recommended next review: ${score.vigencia.proxima_revision}.`,
+    `Oracle evaluation time: ${score.validity.calculatedAt}.`,
+    `Trigger: ${score.validity.trigger} (seed | transfer | afterSwap | blocked).`,
+    `Recommended next review: ${score.validity.nextReview}.`,
     "Individual dated transfers and SwapObserved / WalletBlocked emits are retained in the operator ledger; this narrative summarizes the period under review without embedding tables.",
   ].join(" ");
 
@@ -87,22 +89,22 @@ export function buildDictamenFromScore(
   const why =
     decision === "allow"
       ? [
-          `Why not treated as suspicious for enhanced action: oracle score ${score.score_final}/100 (${score.nivel_riesgo}) sits in the ALLOW band (0–30).`,
+          `Why not treated as suspicious for enhanced action: oracle score ${score.finalScore}/100 (${score.riskLevel}) sits in the ALLOW band (0–30).`,
           "Activity is consistent with a clean participant profile for this demo pool; Layer-1 sanctions screen clear (simulated).",
           "This documentation records the verification that no SAR-support annex was opened.",
         ].join(" ")
       : [
-          `Why the activity is unusual / elevated: oracle score ${score.score_final}/100 (${score.nivel_riesgo}) → hook ${score.salida_hook}.`,
+          `Why the activity is unusual / elevated: oracle score ${score.finalScore}/100 (${score.riskLevel}) → hook ${score.hookOutput}.`,
           topFacts.length
             ? `Primary facts: ${topFacts
                 .map(
                   (f) =>
-                    `${f.type.replaceAll("_", " ")} (${f.confidence}): ${f.justificacion}`,
+                    `${f.type.replaceAll("_", " ")} (${f.confidence}): ${f.justification}`,
                 )
                 .join(" ")}`
             : "Elevated score without additional typology detail.",
-          score.flags_regulatorios.length
-            ? `Flags: ${score.flags_regulatorios.map((f) => f.tipo).join(", ")}.`
+          score.regulatoryFlags.length
+            ? `Flags: ${score.regulatoryFlags.map((f) => f.type).join(", ")}.`
             : "",
           "Compared with expected clean-pool behavior, hop-linked or exploit-linked activity is not commensurate with a low-risk retail profile.",
         ]
@@ -140,9 +142,9 @@ export function buildDictamenFromScore(
           ? "FATF Rec. 1 & 10 (EBR / EDD). Narrative organization follows FinCEN SAR Narrative Guidance as an internal support-draft model — not a FinCEN filing."
           : "FATF Rec. 1 & 10. Verification narrative follows FinCEN SAR Narrative Guidance structure for consistency of operator records.",
     recommendations: humanReview
-      ? `For the pool Compliance Officer only: ${score.flags_regulatorios.map((f) => f.recomendacion).join(" ") || "Human review of elevated path."} Next review ${score.vigencia.proxima_revision}. Do not tip off the subject. Agent never files with FinCEN or any authority.`
-      : `Continue ordinary monitoring. Next review ${score.vigencia.proxima_revision}. Re-open enhanced narrative if inbound tainted P2P or anomalous afterSwap series appears.`,
-    traceability: `audit_hash ${score.audit_hash} · calculated ${score.vigencia.calculado_en} · retention 5 years (FATF Rec. 11 · BSA). Support draft — not submitted.`,
+      ? `For the pool Compliance Officer only: ${score.regulatoryFlags.map((f) => f.recommendation).join(" ") || "Human review of elevated path."} Next review ${score.validity.nextReview}. Do not tip off the subject. Agent never files with FinCEN or any authority.`
+      : `Continue ordinary monitoring. Next review ${score.validity.nextReview}. Re-open enhanced narrative if inbound tainted P2P or anomalous afterSwap series appears.`,
+    traceability: `auditHash ${score.auditHash} · calculated ${score.validity.calculatedAt} · retention 5 years (FATF Rec. 11 · BSA). Support draft — not submitted.`,
   };
 
   const sarAnnex =
@@ -151,10 +153,9 @@ export function buildDictamenFromScore(
       : {
           produced: true,
           status: "support-draft (not filed)",
-          activityPeriod: score.vigencia.calculado_en,
+          activityPeriod: score.validity.calculatedAt,
           amountInvolved: `USD ${wallet.usdc.toLocaleString("en-US")} USDC on ledger`,
-          operationState: score.salida_hook,
-          // FinCEN-style chronological narrative blocks
+          operationState: score.hookOutput,
           narrativeDescription: `WHO: ${who} WHAT: ${what}`,
           narrativeAnalysis: `WHEN: ${when} WHERE: ${where}`,
           narrativeEvidence: `WHY: ${why}`,
@@ -182,20 +183,20 @@ export function buildDictamenFromScore(
         : "HIGH",
     humanReview,
     retentionYears: 5,
-    auditHash: score.audit_hash,
+    auditHash: score.auditHash,
     technicalOpinion,
     sarAnnex,
     decisionRecord: {
-      score: String(score.score_final),
-      output: score.salida_hook,
-      mainFacts: `WHO ${wallet.accountLabel}; hop=${hop}; origin=${origin}; trigger=${score.vigencia.trigger}`,
+      score: String(score.finalScore),
+      output: score.hookOutput,
+      mainFacts: `WHO ${wallet.accountLabel}; hop=${hop}; origin=${origin}; trigger=${score.validity.trigger}`,
       basis:
         decision === "block"
           ? "ORACLE_COA_EXPLOIT_OR_BLOCK_BAND"
           : decision === "fee_override"
             ? "ORACLE_COA_N_HOP_OR_BEHAVIORAL_FEE_OVERRIDE"
             : "ORACLE_COA_SCORE_BELOW_FEE_OVERRIDE",
-      nextReview: score.vigencia.proxima_revision,
+      nextReview: score.validity.nextReview,
     },
     note: "Internal operator documentation modeled on FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How). Produced by the off-chain oracle COA (MOCK_MODE). Never filed with any authority.",
   };

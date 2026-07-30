@@ -1,143 +1,133 @@
-# AML Hook — Compliance Officer Agent
+# AML Hook — Compliance Officer Agent (Oracle COA)
 
-Paquete Python con el loop agentico Claude y el sistema de skills modulares, orientado al scoring conductual de wallets para AML Hook, hook de compliance de Uniswap v4.
+Off-chain Compliance Officer Agent pack: system prompt + modular skills for
+behavioral wallet scoring. Spec for the TypeScript mock oracle at
+`backend/src/oracle/` and for a future live agent runtime.
 
-Derivado del Compliance Officer Agent para entidades financieras. Esta versión elimina el marco argentino, las skills ajenas a AML/CFT y el flujo basado en identidad verificada del cliente, y lo reemplaza por análisis conductual de direcciones on-chain bajo los marcos de Estados Unidos, la Unión Europea y las Recomendaciones del GAFI.
+Derived from a financial-institution COA. This version drops identity-based
+KYC flows and focuses on on-chain address behavior under U.S., EU, and FATF
+frameworks.
 
 ```
-agent/
-├── aml_hook_agent/
-│   ├── config.py              # Env, modelo, cliente Anthropic
-│   ├── runtime_config.py      # Overrides desde configuración del operador
-│   ├── token_usage.py         # Contador de tokens / presupuesto
-│   ├── prompts/               # system.md — prompt madre con disciplina forense
-│   ├── tools_def.py           # Schemas de tools para Claude
-│   ├── tool_executor.py       # Despacho de tools
-│   ├── fact_scoring.py        # Score 0–100 GAFI/OFAC/BSA
-│   ├── attribution.py         # Resolución del originador y registro de reenviadores
-│   ├── integrations/          # OpenSanctions, Etherscan, analytics, Forta, GoPlus
-│   ├── oracle_writer.py       # Firma y escritura del score en ComplianceOracle
-│   ├── shared_registry.py     # Publicación y consulta de señales entre pools
-│   ├── agent.py               # Loop: score_wallet + run_dictamen + run_consulta
-│   ├── skills_registry.py     # Carga skills markdown
-│   └── memory.py              # Perfiles de wallet y expedientes
-├── skills/                    # Dominio + tareas + fact-scoring
-├── data/                      # normativa_seed.json + overrides locales
-└── docs/
+agents/oracle-coa/
+├── README.md                 # This file
+├── INTEGRATION.md            # Wiring into aml-hook demo API / frontend
+├── prompts/
+│   └── system.md             # System prompt (forensic discipline)
+└── skills/                   # Domain + task + scoring specs (kebab-case)
+
+backend/src/oracle/           # CURRENT runtime (MOCK_MODE)
+├── agent.ts                  # FULL / INCREMENTAL skill flow
+├── factScoring.ts            # Deterministic fact-scoring over in-memory ledger
+├── report.ts                 # Opinion pack (FinCEN Who–How narrative model)
+├── store.ts                  # In-memory ComplianceOracle stand-in
+├── types.ts                  # ScoreResult · OracleOpinion schemas
+└── index.ts
 ```
+
+There is **no** Python `agent.py` in this repo today. Skills are English
+markdown specs consumed conceptually by the TypeScript mock; a future live
+Claude loop may load them dynamically.
 
 ---
 
-## Responsabilidades del agente
+## Agent responsibilities
 
-### 1. Scoring de wallets
+### 1. Wallet scoring
 
-El agente ejecuta el flujo completo sobre una dirección: resuelve la atribución del originador, verifica sanciones, recopila evidencia on-chain, aplica las skills de dominio, corre `fact-scoring` y produce el score 0–100 con su salida ternaria.
+Run the full pipeline on an address: resolve originator attribution, screen
+sanctions, gather on-chain evidence, apply domain skills, run `fact-scoring`,
+and produce a 0–100 score with ternary hook output.
 
-El score se firma criptográficamente y se escribe en `ComplianceOracle`. `AMLHook.beforeSwap` lo lee y aplica la salida sin latencia adicional.
+The signed score is written to the oracle cache. Simulated
+`AMLHook.beforeSwap` reads it with no extra latency.
 
-Punto de entrada: `score_wallet()`.
+Entry point (mock): `reevaluateWallet()` in `backend/src/oracle/agent.ts`.
 
-### 2. Elaboración del expediente de evidencia
+### 2. Evidence / Opinion pack
 
-Dictamen técnico con scoring justificado, hallazgos por dimensión con cita de norma, tipologías identificadas y recomendaciones. Cuando corresponde, anexo de sustento para un eventual SAR ante FinCEN.
+Technical Opinion with justified scoring, dimension findings with normative
+citations, typologies, and recommendations. When warranted, a SAR-support
+annex for the pool Compliance Officer (FinCEN narrative structure only — not
+a filing).
 
-El destinatario de todo output documental es el Oficial de Cumplimiento del operador del pool. El agente no presenta reportes ante ninguna autoridad.
+Recipient of all documentary output: the pool operator’s Compliance Officer.
+The agent never files with any authority.
 
-Punto de entrada: `run_dictamen()`. Skill responsable: `task-regulatory-report`.
+Skill: `task-regulatory-report`. Mock builder: `buildOpinionFromScore()`.
 
-### 3. Respuesta en el módulo de consulta normativa
+### 3. Normative consultation (future live runtime)
 
-El agente responde consultando el corpus cargado en sesión mediante `search_normativa`, y declara si la materia no está cubierta. Nunca responde desde memoria de entrenamiento en este módulo.
-
-Punto de entrada: `run_consulta()`.
+Answer from a session-loaded corpus via `search_regulations`; declare coverage
+gaps. Never answer from training memory in that module.
 
 ---
 
-## Restricción arquitectónica fundamental
+## Architectural constraint
 
-El agente opera off-chain y de forma asincrónica. El hook nunca lo invoca en tiempo de ejecución: lee un score precalculado.
+The agent runs off-chain and asynchronously. The hook never invokes it at
+swap time: it reads a precomputed score.
 
 ```
-[Motor off-chain]                        [On-chain]
+[Off-chain engine]                         [On-chain / demo]
 
-evento detectado
+event detected
       │
       ▼
   originator-attribution
       │
-      ├── no resuelta ──────────────▶ REVERT (ATTRIBUTION_FAILED)
+      ├── unresolved ──────────────▶ REVERT (ATTRIBUTION_FAILED)
       │
       ▼
-  agente ejecuta el flujo
+  agent runs skill flow
       │
       ▼
-  ScoreResult firmado ──────────▶  ComplianceOracle.setScore()
+  ScoreResult ─────────────────────▶  oracle store / ComplianceOracle
                                           │
                                           ▼
                                   AMLHook.beforeSwap()
-                                    lee score → salida ternaria
+                                    reads score → ternary output
                                           │
                                           ▼
                                   AMLHook.afterSwap()
-                                    emite SwapObserved
+                                    emits SwapObserved
       │                                   │
       └───────────◀───────────────────────┘
-        recálculo incremental
+        incremental recompute
 ```
+
+**Demo N-hop backbone:** `derived_score = 100 × 0.65^hops` (closest hop wins).
+Canonical wallets: A (score 100 / REVERT), B/C hop-1 (~65 / FEE_OVERRIDE 8%),
+hop-2 (~42 / FEE_OVERRIDE 3%).
 
 ---
 
-## Prompt madre
+## System prompt
 
-`prompts/system.md` contiene el system prompt del loop agentico. Gobierna la disciplina forense: citación obligatoria con `tx_hash` y bloque, lectura correcta de exploradores, distinción entre no encontrado, no consultado y sin respuesta, manejo de paginación y ventana efectiva, prohibición de inferencia sobre valores, tratamiento del output de analytics como juicio de terceros, y distinción entre recepción y uso de fondos.
-
-Incluye una lista de autoverificación de doce puntos que el agente recorre antes de emitir cualquier output.
-
----
-
-## Stack
-
-- **Claude** (`anthropic`) — temperature 0, stop sequences, max_tokens 4096
-- **Tools:** `search_normativa`, `get_wallet_data`, `get_wallet_analytics`, `screen_sanctions`, `check_contract_security`, `get_forta_alerts`, `query_wallet_history`, `evaluate_risk_factors`, `resolve_originator`, `query_shared_registry`, `write_oracle_score`
-- **Persistencia:** in-memory (`memory.py`) — PostgreSQL pendiente según `docs/schema.sql`
-- **Skills:** markdown cargadas dinámicamente por `skills_registry.py`
+`prompts/system.md` governs forensic discipline: mandatory citation with
+`tx_hash` and block, correct explorer reading, distinction between not found /
+not consulted / source failed, pagination and effective window, no value
+inference, analytics output as third-party judgment, and receive-vs-use of
+funds. Includes a twelve-point pre-output self-check.
 
 ---
 
-## Setup
+## Current stack (demo)
 
-```bash
-cd agent
-python -m venv .venv
-source .venv/bin/activate      # Linux/Mac; en Windows .venv\Scripts\activate
-pip install -r requirements.txt
-pip install -e .
-```
-
-```bash
-ANTHROPIC_API_KEY=sk-ant-...
-MOCK_MODE=false
-MODEL_NAME=claude-sonnet-4-6
-ETHERSCAN_API_KEY=
-OPENSANCTIONS_API_KEY=
-CHAINALYSIS_API_KEY=
-FORTA_API_KEY=
-GOPLUS_API_KEY=
-GOPLUS_API_SECRET=
-ORACLE_SIGNER_KEY=
-ORACLE_CONTRACT_ADDRESS=
-SHARED_REGISTRY_ADDRESS=
-RPC_URL=
-RPC_TRACE_URL=
-```
+| Layer | Implementation |
+|---|---|
+| Runtime | TypeScript `backend/src/oracle/` (MOCK_MODE) |
+| Facts | Derived from wallets, P2P transfers, `SwapObserved` / `WalletBlocked` |
+| Persistence | In-memory oracle store (no DB) |
+| Skills | Markdown specs in `skills/` (kebab-case English filenames) |
+| Live vendors | Not called (no Anthropic / OpenSanctions / Etherscan in mock) |
 
 ---
 
-## Sistema de skills
+## Skill system
 
 ```
-DIMENSIÓN 1: DOMINIO                    DIMENSIÓN 2: TIPO DE TAREA
+DIMENSION 1: DOMAIN                     DIMENSION 2: TASK TYPE
 
 ├── originator-attribution               ├── task-swap-intake
 ├── ofac-screening                       ├── task-onchain-evidence
@@ -147,272 +137,237 @@ DIMENSIÓN 1: DOMINIO                    DIMENSIÓN 2: TIPO DE TAREA
 ├── cross-pool-intelligence
 └── protocol-obligations
 
-── SCORING ──                            ── CONTROL DEL SISTEMA ──
+── SCORING ──                            ── SYSTEM CONTROL ──
 └── fact-scoring                         ├── model-validation
                                          └── dispute-remediation
 ```
 
-### Flujo de trabajo estándar
+### Standard workflow
 
 ```
-[INPUT: swap / afterSwap / denuncia LP / revisión / impugnación]
-          │
-          ▼
+[INPUT: swap / afterSwap / LP report / review / challenge]
+          |
+          v
   task-swap-intake
-          │
-          ▼
-  originator-attribution           ◀── PRECEDENCIA ABSOLUTA
-  ──────────────────────
-  Sin sujeto atribuido no hay
-  análisis. Política fail-closed:
-  el swap revierte.
-          │
-          ▼
-  ofac-screening                   ◀── PRECEDENCIA SOBRE DOMINIO
-  ──────────────
-  Match directo → task-blocking-protocol
-          │
-          ▼
+          |
+          v
+  originator-attribution           <-- ABSOLUTE PRECEDENCE
+  ----------------------
+  No attributed subject -> no analysis.
+  Fail-closed: swap reverts.
+          |
+          v
+  ofac-screening                   <-- PRECEDENCE OVER DOMAIN
+  --------------
+  Direct match -> task-blocking-protocol
+          |
+          v
   task-onchain-evidence
-          │
-          ▼
-  wallet-screening
-          │
-          ▼
-  swap-behavior-analysis
-          │
-          ▼
-  typology-detection
-          │
-          ▼
-  cross-pool-intelligence (consulta)
-          │
-          ▼
-  fact-scoring
-          │
-          ▼
-  task-swap-decision
-          │
-      ┌───┼────────────────┬─────────────────────┐
-      ▼   ▼                ▼                     ▼
+          |
+          v
+  wallet-screening -> swap-behavior-analysis -> typology-detection
+          |
+          v
+  cross-pool-intelligence (query)
+          |
+          v
+  fact-scoring -> task-swap-decision
+          |
+      +---+---+----------------+---------------------+
+      v   v                v                     v
 task-blocking-  task-regulatory-  cross-pool-      dispute-
 protocol        report            intelligence     remediation
-                                  (publicación)
-                                       │
-                                       ▼
+                                  (publish)
+                                       |
+                                       v
                                  model-validation
-                                 (periódica)
+                                 (periodic)
 ```
 
-### Reglas de precedencia
+### Precedence rules
 
-1. `originator-attribution` se ejecuta antes que todo. Sin sujeto no hay análisis.
-2. `ofac-screening` se ejecuta antes que toda otra skill de dominio.
-3. `swap-behavior-analysis` es obligatoria antes de emitir cualquier score en tramo de bloqueo.
-4. `protocol-obligations` se ejecuta al configurar un pool y antes de todo anexo de sustento para SAR.
+1. `originator-attribution` runs first. No subject → no analysis.
+2. `ofac-screening` runs before every other domain skill.
+3. `swap-behavior-analysis` is mandatory before emitting a block-band score.
+4. `protocol-obligations` runs when configuring a pool and before any SAR annex.
 
-### Flujo incremental post-swap
+### Incremental post-swap flow
 
 ```
-afterSwap emite SwapObserved
+afterSwap emits SwapObserved
           │
           ▼
-  task-swap-intake (modo POST_SWAP)
+  task-swap-intake (POST_SWAP mode)
           │
-          ├─ score vigente, sin hechos nuevos S/MX/GEO ─▶ swap-behavior-analysis
-          │                                               + fact-scoring incremental → oracle
-          ├─ score vencido o invalidado ────────────────▶ flujo completo
-          └─ receptor con hit de sanciones ─────────────▶ task-blocking-protocol
+          ├─ score valid, no new S/MX/GEO facts ─▶ swap-behavior-analysis
+          │                                        + incremental fact-scoring → oracle
+          ├─ score expired or invalidated ───────▶ full flow
+          └─ recipient sanctions hit ────────────▶ task-blocking-protocol
 ```
 
-### Tabla de combinaciones frecuentes
+Mock flows (`agent.ts`):
 
-| Caso | Skills de dominio | Flujo |
-|---|---|---|
-| Swap por router no registrado | `originator-attribution` | intake → atribución → **REVERT** |
-| Swap por reenviador confiable | Flujo completo | intake → atribución → ofac → evidence → dominio → scoring → decisión |
-| Wallet nueva sin score | `ofac-screening` + `wallet-screening` | flujo completo |
-| Actualización post-swap | `swap-behavior-analysis` | incremental |
-| Hit en OFAC SDN | `ofac-screening` | intake → atribución → **blocking-protocol** → report |
-| Structuring o smurfing | `swap-behavior-analysis` + `typology-detection` | flujo completo → report |
-| Manipulación por flash loan | `typology-detection` | flujo completo → report |
-| Swap de claims internos ERC-6909 | `typology-detection` | flujo completo → report |
-| Address poisoning sobre un tercero | `typology-detection` | flujo completo, con regla de recepción frente a uso |
-| Señal recibida de otro pool | `cross-pool-intelligence` | consulta → scoring con techo aplicado |
-| Denuncia de LP en challenge | `dispute-remediation` | challenge → resolución → scoring |
-| Wallet que impugna su bloqueo | `dispute-remediation` | admisibilidad → resolución → recálculo |
-| Validación periódica | `model-validation` | backtesting → sensibilidad → deriva |
-| Configuración de pool nuevo | `protocol-obligations` | intake → dominio → report |
-
----
-
-## Reglas de autonomía del agente
-
-| Límite | Condición |
-|---|---|
-| **Reversión inmediata** | Atribución del originador no resuelta bajo política restrictiva |
-| **Bloqueo inmediato** | Match confirmado en OFAC SDN, ONU o UE |
-| **Bloqueo inmediato** | Interacción con contrato designado |
-| **Bloqueo inmediato** | Nexo con financiamiento del terrorismo o proliferación |
-| **Bloqueo preventivo + revisión humana** | Controlador designado en una Smart Account |
-| **Revisión humana requerida** | Match por atribución de cluster |
-| **Revisión humana requerida** | Score ≥ 71 sin ningún hecho de confidence HIGH |
-| **Revisión humana requerida** | Bloqueo sustentado solo en señales externas no verificadas |
-| **Revisión humana requerida** | Resolución de disputa que implique desbloquear una wallet |
-| **Suspensión de la evaluación** | Indisponibilidad de fuentes de Nivel 1 |
-| **Asesoramiento legal requerido** | Calificación del operador como sujeto obligado bajo la BSA |
-
-El agente nunca:
-
-- Presenta un reporte ante ninguna autoridad
-- Responde directamente un requerimiento de autoridad
-- Informa al sujeto evaluado sobre la existencia de un análisis o un reporte
-- Libera fondos de custodia sin instrucción documentada del Oficial de Cumplimiento
-- Desbloquea una wallet con override de sanciones activo
-- Modifica parámetros gobernables fuera del Timelock de la DAO
-- Publica los valores efectivos de los umbrales
-- Republica como propia una señal recibida de otro pool
-- Construye un perfil sobre un router, un agregador o un contrato de infraestructura
-- Concluye que una entidad es sujeto obligado ni que una conducta constituye un delito
-
----
-
-## Marco normativo
-
-| Marco | Alcance |
-|---|---|
-| GAFI — 40 Recomendaciones (2023) | Estándar base de todo el scoring |
-| GAFI — Indicadores de Alerta en Activos Virtuales (2020) | Catálogo de tipologías; seis categorías |
-| GAFI — Guía sobre activos virtuales y VASPs (2021) | Calificación de actores en entornos descentralizados |
-| OFAC — IEEPA, 31 CFR Part 501 | Bloqueo, segregación y reporte de bienes bloqueados |
-| OFAC — Guía para la industria de moneda virtual (2021) | Screening de direcciones y monitoreo de exposición |
-| BSA — 31 U.S.C. § 5311 y ss., 31 CFR § 1010.320 | Programa AML, monitoreo y régimen del SAR |
-| BSA — 31 CFR § 1010.410(e) y (f) | Travel Rule estadounidense; umbral USD 3.000 |
-| MiCA — Reglamento (UE) 2023/1114 | Régimen de los CASP |
-| TFR — Reglamento (UE) 2023/1113 | Travel Rule europea; umbral cero |
-| AMLR — Reglamento (UE) 2024/1624 | Régimen unificado de debida diligencia |
-
-**Travel Rule.** Aplica a transferencias entre VASPs, no al swap. Un swap no reúne los elementos del supuesto de hecho: no hay dos instituciones, no hay ordenante y beneficiario diferenciados, el usuario conserva la custodia en ambos extremos y no existe VASP receptor. Dentro del sistema cumple tres funciones: mitigante sobre el tramo previo de los fondos, obligación propia del operador si presta servicios custodiados, y delimitación del perímetro donde el compliance ya existe. Ver `protocol-obligations` Paso 3 bis.
-
----
-
-## Configuración en `config.py`
-
-```python
-SKILLS_ENABLED = True
-
-DOMAIN_SKILLS = [
-    "originator-attribution",
-    "ofac-screening",
-    "wallet-screening",
-    "swap-behavior-analysis",
-    "typology-detection",
-    "cross-pool-intelligence",
-    "protocol-obligations",
-]
-
-SYSTEM_SKILLS = [
-    "model-validation",
-    "dispute-remediation",
-]
-
-DEFAULT_TASK_FLOW = [
-    "task-swap-intake",
-    "originator-attribution",
-    "ofac-screening",
-    "task-onchain-evidence",
-    "wallet-screening",
-    "swap-behavior-analysis",
-    "typology-detection",
-    "cross-pool-intelligence",
-    "fact-scoring",
-    "task-swap-decision",
+```
+FULL_FLOW = [
+  task-swap-intake, originator-attribution, ofac-screening,
+  task-onchain-evidence, wallet-screening, swap-behavior-analysis,
+  typology-detection, cross-pool-intelligence, fact-scoring,
+  task-swap-decision, task-regulatory-report,
 ]
 
 INCREMENTAL_FLOW = [
-    "task-swap-intake",
-    "swap-behavior-analysis",
-    "fact-scoring",
-    "task-swap-decision",
+  task-swap-intake, swap-behavior-analysis, fact-scoring,
+  task-swap-decision, task-regulatory-report,
 ]
-
-SKILL_PRECEDENCE = ["originator-attribution", "ofac-screening"]
-
-SCORE_TO_HOOK_OUTPUT = {
-    (0, 30):   "ALLOW",
-    (31, 70):  "FEE_DIFERENCIAL",
-    (71, 100): "REVERT",
-}
-
-ATTRIBUTION_POLICY = "restrictiva"       # restrictiva | diferida | elevada | permissive
-DEFERRED_RESOLUTION_ENABLED = True
-TRUSTED_FORWARDERS = []                  # gobernado por Timelock de la DAO
-
-GOVERNABLE_PARAMS = {
-    "umbral_reporte_usd": 10_000,
-    "ventana_structuring_dias": 30,
-    "min_splits_structuring": 3,
-    "velocity_spike_multiplier": 5,
-    "mixer_lookback_dias": 90,
-    "decay_factor": 0.4,
-    "sospecha_score_threshold": 65,
-    "wallet_nueva_umbral_usd": 5_000,
-    "fee_multiplier_tramo_medio": 3,
-    "denuncia_lp_threshold": 3,
-    "profundidad_hops": 3,
-    "escrow_timelock_horas": 48,
-    "politica_atribucion": "restrictiva",
-    "peso_senal_externa_no_verificada": 0.5,
-    "umbral_reputacion_degradacion_pool": 0.2,
-    "challenge_denuncia_horas": 72,
-    "revision_periodica_bloqueos_dias": 90,
-}
-
-INMUTABLES = [
-    "override_sanciones",
-    "mapeo_score_salida",
-    "firma_oracle_obligatoria",
-    "umbral_dos_dimensiones_sospecha",
-    "hecho_high_para_bloqueo",
-    "tope_mitigantes",
-    "techo_senales_externas",
-    "prohibicion_republicacion",
-    "exclusion_score_registro_compartido",
-    "verificacion_sanciones_contra_lista",
-]
-
-RETENCION_REGISTROS_ANIOS = 5
 ```
 
----
+### Common combinations
 
-## Cambios respecto de la versión para entidades financieras
-
-| Skill original | Estado | Reemplazo |
+| Case | Domain skills | Flow |
 |---|---|---|
-| `aml-cft-screening` | Reescrita | `typology-detection` |
-| `crypto-asset-screening` | Reescrita | `wallet-screening` |
-| `defi-onchain-risk` | Reescrita | `swap-behavior-analysis` |
-| `sanctions-screening` | Reescrita | `ofac-screening` |
-| `vasp-regulatory-compliance` | Reescrita | `protocol-obligations` |
-| `kyc-due-diligence` | Eliminada | No hay onboarding ni identidad verificada |
-| `data-privacy-compliance` | Eliminada | Fuera del alcance AML |
-| `regulatory-compliance-sectoral` | Eliminada | Licenciamiento sectorial ajeno al hook |
-| `task-intake-triage` | Reescrita | `task-swap-intake` |
-| `task-investigation` | Reescrita | `task-onchain-evidence` |
-| `task-risk-assessment` | Reescrita | `task-swap-decision` |
-| `task-escalation` | Reescrita | `task-blocking-protocol` |
-| `task-report-drafting` | Reescrita | `task-regulatory-report` |
-| `fact-scoring` | Adaptada y ampliada | Catálogo reorientado a wallets, dimensión DeFi incorporada |
-| — | Nueva | `originator-attribution` |
-| — | Nueva | `model-validation` |
-| — | Nueva | `dispute-remediation` |
-| — | Nueva | `cross-pool-intelligence` |
-| — | Nuevo | `prompts/system.md` |
-
-Eliminado: toda referencia a UIF, CNV, BCRA, AFIP, SIRO, ROS/RFT, Ley 25.246, Resoluciones UIF, PEP, UBO, expediente KYC documental, fuentes OSINT de identidad y organismos supervisores argentinos.
+| Swap via unregistered router | `originator-attribution` | intake → attribution → **REVERT** |
+| Swap via trusted forwarder | Full flow | intake → … → scoring → decision |
+| New wallet, no score | `ofac-screening` + `wallet-screening` | full |
+| Post-swap update | `swap-behavior-analysis` | incremental |
+| OFAC SDN hit | `ofac-screening` | → **blocking-protocol** → report |
+| Structuring / smurfing | behavior + typology | full → report |
+| Flash-loan manipulation | `typology-detection` | full → report |
+| ERC-6909 internal claims | `typology-detection` | full → report |
+| Address poisoning of a third party | `typology-detection` | receive-vs-use rule |
+| Signal from another pool | `cross-pool-intelligence` | query → capped scoring |
+| LP challenge report | `dispute-remediation` | challenge → resolve → score |
+| Wallet disputes its block | `dispute-remediation` | admissibility → recalc |
+| Periodic validation | `model-validation` | backtest → sensitivity → drift |
+| New pool setup | `protocol-obligations` | intake → domain → report |
 
 ---
 
-*AML Hook — Compliance Officer Agent v3.0*
+## Autonomy limits
+
+| Limit | Condition |
+|---|---|
+| **Immediate revert** | Originator attribution unresolved under restrictive policy |
+| **Immediate block** | Confirmed OFAC SDN / UN / EU match |
+| **Immediate block** | Interaction with a designated contract |
+| **Immediate block** | Nexus to TF / proliferation financing |
+| **Preventive block + human review** | Designated controller on a Smart Account |
+| **Human review required** | Cluster-attribution match |
+| **Human review required** | Score ≥ 71 with no HIGH-confidence fact |
+| **Human review required** | Block based only on unverified external signals |
+| **Human review required** | Dispute resolution that unlocks a wallet |
+| **Suspend evaluation** | Level-1 sources unavailable |
+| **Legal advice required** | Whether the operator is a BSA obligated person |
+
+The agent never:
+
+- Files a report with any authority
+- Answers an authority request directly
+- Tips off the evaluated subject about an analysis or report
+- Releases custodied funds without documented Compliance Officer instruction
+- Unlocks a wallet with an active sanctions override
+- Changes governable parameters outside the DAO Timelock
+- Publishes effective threshold values
+- Re-publishes another pool’s signal as its own
+- Builds a risk profile on a router, aggregator, or infrastructure contract
+- Concludes that an entity is an obligated person or that conduct is a crime
+
+---
+
+## Score → hook output (immutable mapping)
+
+| Score | `riskLevel` | `hookOutput` |
+|---|---|---|
+| 0–30 | `STANDARD` | `ALLOW` (standard fee, e.g. 0.30%) |
+| 31–70 | `ELEVATED` | `FEE_OVERRIDE` (punitive / proportional `lpFeeOverride`) |
+| 71–100 | `BLOCK` | `REVERT` |
+
+Schema keys match `backend/src/oracle/types.ts`: `finalScore`, `riskLevel`,
+`hookOutput`, `scoreBreakdown`, `triggeringFacts`, `regulatoryFlags`,
+`validity.calculatedAt` / `nextReview`, `auditHash`, `skillsApplied`,
+and per-fact `factId`, `baseWeight`, `scoreContribution`, `regulatoryBasis`,
+`justification`.
+
+**Opinion rule:** skill filenames must **not** appear in Opinion sources
+(`technicalOpinion.sourcesConsulted` or SAR annex). Skills are internal
+instruments; the Opinion cites facts, addresses, amounts, dates, and norms.
+
+---
+
+## Regulatory framework
+
+| Framework | Scope |
+|---|---|
+| FATF — 40 Recommendations (2023) | Base standard for all scoring |
+| FATF — VA Red Flag Indicators (2020) | Typology catalog; six categories |
+| FATF — VA / VASP Guidance (2021) | Actor qualification in decentralized settings |
+| OFAC — IEEPA, 31 CFR Part 501 | Blocking, segregation, blocked-property reporting |
+| OFAC — VC Industry Guidance (2021) | Address screening and exposure monitoring |
+| BSA — 31 U.S.C. § 5311 et seq., 31 CFR § 1010.320 | AML program, monitoring, SAR regime |
+| BSA — 31 CFR § 1010.410(e)–(f) | U.S. Travel Rule; USD 3,000 threshold |
+| MiCA — Regulation (EU) 2023/1114 | CASP regime |
+| TFR — Regulation (EU) 2023/1113 | EU Travel Rule; zero threshold |
+| AMLR — Regulation (EU) 2024/1624 | Unified due-diligence regime |
+
+**Travel Rule.** Applies to VASP-to-VASP transfers, not to the swap itself. A
+swap has no two institutions, no distinct originator/beneficiary, and custody
+remains with the user. Inside this system it acts as: mitigant on the prior
+leg, operator obligation if custodial services are offered, and perimeter
+where compliance already exists. See `protocol-obligations`.
+
+---
+
+## Governable parameters (reference)
+
+Defaults aligned with the mock / product docs (values may be overridden by
+DAO Timelock in a live deployment):
+
+| Parameter | Default |
+|---|---|
+| Report threshold USD | 10,000 |
+| Structuring window (days) | 30 |
+| Min structuring splits | 3 |
+| Velocity spike multiplier | 5 |
+| Mixer lookback (days) | 90 |
+| Historical blend `decay_factor` | 0.4 |
+| Reasonable-suspicion score threshold | 65 |
+| N-hop decay factor (demo) | 0.65 |
+| Hop depth | 3 |
+| Fee escrow timelock (hours) | 48 |
+| Attribution policy | restrictive |
+| Unverified external signal weight | 0.5 |
+| LP report challenge (hours) | 72 |
+| Periodic block review (days) | 90 |
+| Record retention (years) | 5 |
+
+**Immutables:** sanctions override, score→output mapping, mandatory oracle
+signature (live), two-dimension suspicion rule, HIGH fact required for block,
+mitigant cap, external-signal ceiling, no re-publication, shared-registry
+excludes raw scores, sanctions verified against list.
+
+---
+
+## Changes vs financial-institution COA
+
+| Original skill | Status | Replacement |
+|---|---|---|
+| `aml-cft-screening` | Rewritten | `typology-detection` |
+| `crypto-asset-screening` | Rewritten | `wallet-screening` |
+| `defi-onchain-risk` | Rewritten | `swap-behavior-analysis` |
+| `sanctions-screening` | Rewritten | `ofac-screening` |
+| `vasp-regulatory-compliance` | Rewritten | `protocol-obligations` |
+| `kyc-due-diligence` | Removed | No onboarding / verified identity |
+| `task-intake-triage` | Rewritten | `task-swap-intake` |
+| `task-investigation` | Rewritten | `task-onchain-evidence` |
+| `task-risk-assessment` | Rewritten | `task-swap-decision` |
+| `task-escalation` | Rewritten | `task-blocking-protocol` |
+| `task-report-drafting` | Rewritten | `task-regulatory-report` |
+| `fact-scoring` | Adapted | Wallet catalog + DeFi dimension |
+| — | New | `originator-attribution`, `model-validation`, `dispute-remediation`, `cross-pool-intelligence`, `prompts/system.md` |
+
+Removed: Argentine supervisors (UIF/CNV/BCRA), ROS/RFT, Ley 25.246, PEP/UBO
+documentary KYC, identity OSINT.
+
+---
+
+*AML Hook — Compliance Officer Agent v3.0 (oracle-coa)*
 *Gonzalo Emanuel Heredia — Uniswap Hook Incubator, Cohort 10*

@@ -1,348 +1,311 @@
 ---
 name: task-regulatory-report
-description: "Redactar el expediente de evidencia que el operador del pool entrega a su propio Oficial de Cumplimiento: dictamen técnico con scoring justificado, anexo de sustento para un eventual SAR ante FinCEN, registro de decisión y reporte agregado del pool. Usar después de task-swap-decision cuando se alcanzó sospecha razonable, cuando se ejecutó un bloqueo, o cuando el operador solicita el expediente de un período. El agente nunca presenta un reporte ante ninguna autoridad."
+description: "Draft the evidence pack the pool operator delivers to its own Compliance Officer: technical Opinion with justified scoring, SAR-support annex for a possible FinCEN filing, decision record, and pool aggregate report. Use after task-swap-decision when reasonable suspicion is reached, when a block executed, or when the operator requests a period pack. The agent never files with any authority. Spec implemented by backend/src/oracle/report.ts (MOCK_MODE)."
 ---
 
-# Task: Regulatory Report — Expediente de Evidencia
+# Task: Regulatory Report — Evidence / Opinion Pack
 
-## Rol en el agente
+## Role
 
-Esta skill transforma el análisis en documentación formal. No genera
-análisis nuevo: estructura y formaliza lo que las skills anteriores
-produjeron.
+Transforms prior analysis into formal documentation. Does not generate new
+analysis: structures and formalizes what earlier skills produced.
 
-**Destinatario.** El destinatario de todo output de esta skill es el Oficial
-de Cumplimiento del operador del pool. El agente produce evidencia y
-borradores para su revisión. No presenta reportes ante FinCEN, OFAC, ninguna
-autoridad europea ni ningún supervisor. Esa presentación requiere revisión y
-firma humana, y corresponde exclusivamente al operador según su propia
-calificación regulatoria.
+**Recipient.** Pool operator’s Compliance Officer. The agent produces evidence
+and drafts for review. It does not file with FinCEN, OFAC, any European
+authority, or any supervisor. Filing requires human review and signature.
 
-**Finalidad.** El expediente debe permitir que el operador acredite, ante un
-supervisor o ante su propia auditoría, que el pool contaba con un sistema
-razonable de monitoreo, que cada decisión tuvo fundamento normativo, y que la
-cadena desde la conclusión hasta la evidencia on-chain es reconstruible.
+**Purpose.** Enable the operator to show a supervisor or auditor that the pool
+had a reasonable monitoring system, each decision had normative basis, and the
+chain from conclusion to on-chain evidence is reconstructible.
+
+**Mock:** `buildOpinionFromScore()` in `backend/src/oracle/report.ts` maps
+`ScoreResult` → `OracleOpinion` for the frontend Opinion UI.
 
 ---
 
-## Inputs esperados
+## Expected inputs
 
-| Campo | Descripción |
+| Field | Description |
 |---|---|
-| `tipo_documento` | `dictamen` · `anexo-sar` · `registro-decision` · `reporte-pool` · `respuesta-requerimiento` |
-| `evento_id` | Identificador del evento |
-| `output_swap_decision` | Output de `task-swap-decision` |
-| `score_result` | Output de `fact-scoring` |
-| `output_typology` | Tipologías identificadas |
-| `expediente` | Output de `task-onchain-evidence` |
-| `output_blocking` | Output de `task-blocking-protocol`, si se activó |
-| `output_protocol_obligations` | Marco aplicable al operador |
-| `periodo` | Rango temporal, para el reporte agregado |
+| `documentType` | `opinion` · `sar-annex` · `decision-record` · `pool-report` · `authority-request-pack` |
+| `eventId` | Event identifier |
+| `swapDecision` | Output of `task-swap-decision` |
+| `scoreResult` | Output of `fact-scoring` (`ScoreResult`) |
+| `typologyOutput` | Identified typologies |
+| `caseFile` | Output of `task-onchain-evidence` |
+| `blockingOutput` | Output of `task-blocking-protocol`, if activated |
+| `protocolObligations` | Operator applicable framework |
+| `period` | Time range for aggregate report |
 
 ---
 
-## A. Dictamen técnico
+## A. Technical Opinion
 
-Documento base. Se emite ante toda decisión de `REVERT`, ante todo bloqueo, y
-ante toda señal de `SOSPECHA_RAZONABLE_ALCANZADA`. También se emite en forma
-abreviada para `ALLOW` (verificación de que no se abrió anexo SAR).
+Base document. Issued for every `REVERT`, every block, and every
+`REASONABLE_SUSPICION_REACHED` signal. Also issued in abbreviated form for
+`ALLOW` (verification that no SAR annex was opened).
 
-**Modelo narrativo.** La estructura del cuerpo sigue la guía FinCEN
-*Guidance on Preparing A Complete & Sufficient Suspicious Activity Report
-Narrative* (nov. 2003) — **solo como modelo interno** (Who / What / When /
-Where / Why / How). No es un SAR presentado ni un formulario FinCEN.
+**Narrative model.** Body follows FinCEN *Guidance on Preparing A Complete &
+Sufficient Suspicious Activity Report Narrative* (Nov 2003) — **internal
+structure only** (Who / What / When / Where / Why / How). Not a filed SAR.
 
-**Prohibición de skills en el dictamen.** El texto del dictamen y del anexo
-cita hechos, direcciones, montos, fechas, eventos on-chain y bases
-normativas. **Nunca** lista nombres de skills del agente (`ofac-screening`,
-`fact-scoring`, `task-*`, rutas `skills/…`, etc.). Las skills son
-instrumentos internos de análisis; no son fuentes del expediente.
+**Skills must not appear in the Opinion.** Text and annex cite facts,
+addresses, amounts, dates, on-chain events, and normative bases. **Never**
+list agent skill names (`ofac-screening`, `fact-scoring`, `task-*`,
+`skills/…`). Skills are internal instruments, not Opinion sources.
 
 ```
-DICTAMEN TÉCNICO DE COMPLIANCE — AML HOOK
+TECHNICAL COMPLIANCE OPINION — AML HOOK
 ════════════════════════════════════════════════════════════
 
-Evento:          [ID]
+Event:           [ID]
 Pool:            [0x...]
 Wallet:          [0x...]
-Fecha de emisión:[ISO 8601]
-Bloque:          [N]
-Destinatario:    Oficial de Cumplimiento del operador del pool
-Carácter:        Evidencia interna. No constituye reporte a autoridad.
-Modelo:          FinCEN SAR Narrative Guidance (estructura Who–How) — no filing
+Issued:          [ISO 8601]
+Block:           [N]
+Recipient:       Pool operator Compliance Officer
+Character:       Internal evidence. Not a report to any authority.
+Model:           FinCEN SAR Narrative Guidance (Who–How) — not a filing
 
-1. WHO — SUJETO(S)
+1. WHO — SUBJECT(S)
 ════════════════════════════════════════════════════════════
-Dirección(es) bajo revisión, rol (originador / intermediario / beneficiario),
-relaciones conocidas en el grafo (origen de hop, cluster si consta).
-Sin identidad verificada en pool permissionless.
+Address(es) under review, role (originator / intermediary / beneficiary),
+known graph relationships (hop origin, cluster if recorded).
+No verified identity in a permissionless pool.
 
-2. WHAT — INSTRUMENTOS Y PATRONES
+2. WHAT — INSTRUMENTS AND PATTERNS
 ════════════════════════════════════════════════════════════
-Instrumento (swap USDC→ETH, P2P ERC-20, etc.), tipologías / indicadores
-GAFI observados, evidencia on-chain (tx_hash / bloque) y resultado del
-screening de sanciones (hallazgo o verificación sin hallazgos).
+Instrument (USDC→ETH swap, ERC-20 P2P, etc.), FATF typologies / indicators
+observed, on-chain evidence (tx_hash / block), sanctions screen result
+(hit or clear verification).
 
-3. WHEN — TEMPORALIDAD
+3. WHEN — TEMPORALITY
 ════════════════════════════════════════════════════════════
-Fecha/hora de evaluación, trigger, período de actividad sospechosa,
-próxima revisión. Sin tablas densas; fechas individuales quedan en el ledger.
+Evaluation timestamp, trigger, suspicious-activity period, next review.
+No dense tables; individual dates remain in the ledger.
 
-4. WHERE — VENUE Y DIRECCIONES
+4. WHERE — VENUE AND ADDRESSES
 ════════════════════════════════════════════════════════════
-Venue (pool Uniswap v4 / red), address bajo revisión, path de hops P2P,
-corredores o jurisdicciones solo si constan en evidencia.
+Venue (Uniswap v4 pool / network), address under review, P2P hop path,
+corridors or jurisdictions only if in evidence.
 
-5. WHY — POR QUÉ ES INUSUAL / ELEVADO
+5. WHY — WHY UNUSUAL / ELEVATED
 ════════════════════════════════════════════════════════════
-Score y banda (ALLOW / FEE_OVERRIDE / REVERT), hechos disparadores con
-contribución, contraste con perfil esperado del pool. Sin concluir delito.
+Score and band (ALLOW / FEE_OVERRIDE / REVERT), triggeringFacts with
+scoreContribution, contrast to expected pool profile. Do not conclude crime.
 
-6. HOW — MÉTODO DE OPERACIÓN Y CONTROL
+6. HOW — METHOD OF OPERATION AND CONTROL
 ════════════════════════════════════════════════════════════
-Modus (cash-out, hop, swap ordinario) y respuesta del hook
-(ALLOW / FEE_OVERRIDE / REVERT), evento emitido, tratamiento de fondos.
+Modus (cash-out, hop, ordinary swap) and hook response
+(ALLOW / FEE_OVERRIDE / REVERT), emitted event, treatment of funds.
 
-7. FUNDAMENTO NORMATIVO
+7. NORMATIVE BASIS
 ════════════════════════════════════════════════════════════
-Norma o estándar que sustenta cada conclusión (GAFI, OFAC, BSA/FinCEN
-como marco de modelo narrativo, marco UE si aplica).
+Standard supporting each conclusion (FATF, OFAC, BSA/FinCEN as narrative
+model framework, EU framework if applicable).
 
-8. RECOMENDACIONES AL OFICIAL DE CUMPLIMIENTO
+8. RECOMMENDATIONS TO THE COMPLIANCE OFFICER
 ════════════════════════════════════════════════════════════
-Acciones sugeridas, plazos, tip-off prohibition, decisión humana.
+Suggested actions, timelines, tip-off prohibition, human decision.
 
-9. TRAZABILIDAD
+9. TRACEABILITY
 ════════════════════════════════════════════════════════════
-audit_hash: [SHA-256]
-Eventos on-chain emitidos: [listado con bloque]
-Evidencia de respaldo (ledger / emits / screen) — sin nombres de skills
-Retención: 5 años (GAFI Rec. 11; BSA)
+auditHash: [hash]
+On-chain events emitted: [list with block]
+Supporting evidence (ledger / emits / screen) — no skill filenames
+Retention: 5 years (FATF Rec. 11; BSA)
 ```
 
 ---
 
-## B. Anexo de sustento para SAR
+## B. SAR-support annex
 
-Se produce únicamente cuando concurren dos condiciones: se alcanzó sospecha
-razonable, y `protocol-obligations` evaluó que el operador es probable
-sujeto obligado bajo la BSA.
+Produced when reasonable suspicion was reached **and** (live) 
+`protocol-obligations` assessed the operator as a likely BSA obligated person.
+In the demo mock, annex opens whenever `hookOutput !== ALLOW`.
 
-**Naturaleza del documento.** Es un anexo de sustento, no un formulario
-presentado. El SAR se presenta electrónicamente ante FinCEN por el sujeto
-obligado a través de su propio acceso. El agente aporta el material
-analítico que el Oficial de Cumplimiento utiliza para completarlo y decidir
-si corresponde presentarlo.
+**Nature.** Support annex, not a submitted form. The obligated person files
+electronically with FinCEN through their own access. The agent supplies
+analytical material for the Compliance Officer.
 
-**Regla de campos.** Si un dato no consta en el expediente, el campo queda
-vacío. No se completan marcadores de relleno.
+**Field rule.** If a datum is not in the case file, leave the field empty. No
+placeholders.
 
-### B.1 Datos de la actividad
+### B.1 Activity data
 
-| Campo | Contenido | Fuente |
+| Field | Content | Source |
 |---|---|---|
-| Fecha de detección inicial | Momento en que el sistema alcanzó sospecha razonable. Determina el cómputo del plazo de 30 días | `ScoreResult` |
-| Período de la actividad | Solo el período de la actividad sospechosa, no el historial completo de la wallet | `swap-behavior-analysis` |
-| Monto involucrado | Suma de las operaciones que integran el patrón, sin decimales | Serie de swaps |
-| Activo y red | Token, par y blockchain | Intake |
-| Estado de la operación | Ejecutada, ejecutada con fee diferencial, o revertida | `task-swap-decision` |
+| Initial detection date | When the system reached reasonable suspicion (starts 30-day clock) | `ScoreResult` |
+| Activity period | Suspicious period only, not full wallet history | behavior analysis |
+| Amount involved | Sum of operations in the pattern, no decimals | swap / transfer series |
+| Asset and network | Token, pair, chain | intake |
+| Operation state | Executed, executed with FEE_OVERRIDE, or reverted | `task-swap-decision` / `hookOutput` |
 
-### B.2 Sujetos
+### B.2 Subjects
 
-En un pool permissionless no existe identidad verificada. El anexo consigna
-identificadores on-chain y declara expresamente la ausencia de atribución de
-identidad.
+No verified identity in a permissionless pool. Record on-chain identifiers and
+expressly declare absence of identity attribution.
 
 ```
-tipo_identificador: DIRECCION_ONCHAIN
+identifierType: ONCHAIN_ADDRESS
 address:
-tipo_cuenta: EOA | SMART_ACCOUNT
-controladores: []          # si es Smart Account y fueron identificados
-cluster_atribuido:         # entidad, si el motor de analytics la atribuyó
-confidence_atribucion: HIGH | MEDIUM | LOW
-jurisdiccion_inferida:     # con base de inferencia declarada
-identidad_verificada: false
-nota: "No existe verificación de identidad. La atribución de cluster
-       proviene de un proveedor comercial de analytics y no fue
-       verificada de forma independiente."
-rol: ORIGINADOR | BENEFICIARIO | WALLET_VINCULADA
+accountType: EOA | SMART_ACCOUNT
+controllers: []
+attributedCluster:
+attributionConfidence: HIGH | MEDIUM | LOW
+inferredJurisdiction:
+identityVerified: false
+note: "No identity verification. Cluster attribution (if any) is from a
+       commercial analytics provider and was not independently verified."
+role: ORIGINATOR | BENEFICIARY | LINKED_WALLET
 ```
 
-### B.3 Campos narrativos
+### B.3 Narrative fields (Who–How structure)
 
-Redacción objetiva siguiendo el modelo FinCEN Who / What / When / Where /
-Why / How (solo estructura). Sin conclusiones sobre la licitud de la
-conducta. Sin listar skills del agente.
+Objective drafting. No conclusions on lawfulness. No skill filenames.
 
-| Campo | Contenido |
+| Field | Content |
 |---|---|
-| **DESCRIPCIÓN (WHO / WHAT)** | Sujeto(s), instrumento y operaciones observadas en secuencia, con montos, fechas y transacciones |
-| **ANÁLISIS (WHEN / WHERE)** | Temporalidad y venue / path (pool, red, hops). Tipologías e indicadores concurrentes |
-| **EVIDENCIA (WHY)** | Por qué es inusual: score, hechos, contraste con perfil; txs y emits de respaldo (sin nombres de skills) |
-| **CONCLUSIÓN (HOW)** | Método de operación + control aplicado + anclaje de sospecha razonable. No concluye delito; no es un SAR presentado |
+| **DESCRIPTION (WHO / WHAT)** | Subject(s), instrument, observed operations in sequence with amounts/dates/txs |
+| **ANALYSIS (WHEN / WHERE)** | Temporality and venue / path; concurrent typologies and indicators |
+| **EVIDENCE (WHY)** | Why unusual: score, facts, profile contrast; supporting txs/emits |
+| **CONCLUSION (HOW)** | Method of operation + control applied + reasonable-suspicion anchor. Not a filed SAR |
 
-### B.4 Advertencias de carga
+### B.4 Load warnings
 
-| Advertencia | Contenido |
+| Warning | Content |
 |---|---|
-| Plazo | 30 días corridos desde la detección inicial, si el operador es sujeto obligado |
-| Confidencialidad | Prohibición de informar al sujeto reportado |
-| Determinación de la obligación | La presentación depende de la calificación del operador bajo la BSA, que requiere confirmación legal |
-| Estado del documento | Borrador de sustento. No presentado |
+| Deadline | 30 calendar days from initial detection if operator is obligated |
+| Confidentiality | Tip-off prohibition |
+| Obligation determination | Filing depends on BSA qualification — legal confirmation required |
+| Document status | Support draft — not submitted |
 
-### B.5 Output estructurado del anexo
+### B.5 Structured annex output (aligned with `OracleOpinion.sarAnnex`)
 
 ```json
 {
-  "anexo_sar": {
-    "marco": "31 CFR § 1010.320 — Suspicious Activity Report",
-    "condicionado_a": "Calificación del operador como sujeto obligado bajo la BSA",
-    "fecha_deteccion_inicial": null,
-    "plazo_presentacion": null,
-    "periodo_actividad": {"desde": null, "hasta": null},
-    "monto_involucrado": null,
-    "activo": null,
-    "red": null,
-    "estado_operacion": "EJECUTADA | EJECUTADA_FEE_DIFERENCIAL | REVERTIDA",
-    "sujetos": [],
-    "campos_narrativos": {
-      "descripcion_actividad": "",
-      "analisis": "",
-      "evidencia_respaldo": "",
-      "conclusion": ""
-    },
-    "campos_faltantes": [],
-    "advertencias": [],
-    "estado": "borrador-de-sustento",
-    "nota_presentacion": "Material de sustento para revisión del Oficial de Cumplimiento del operador. El agente no presenta reportes ante ninguna autoridad."
-  }
+  "produced": true,
+  "status": "support-draft (not filed)",
+  "activityPeriod": "<ISO 8601 or range>",
+  "amountInvolved": "USD …",
+  "operationState": "ALLOW | FEE_OVERRIDE | REVERT",
+  "narrativeDescription": "WHO: … WHAT: …",
+  "narrativeAnalysis": "WHEN: … WHERE: …",
+  "narrativeEvidence": "WHY: …",
+  "narrativeConclusion": "HOW: … Internal SAR-support pack — not a FinCEN SAR.",
+  "warnings": [
+    "Confidentiality — no tip-off to the subject",
+    "Document status: support draft — not submitted",
+    "Organize facts chronologically from the ledger for any human-owned filing",
+    "Human judgment required before any BSA filing decision"
+  ]
 }
 ```
 
 ---
 
-## C. Registro de decisión
+## C. Decision record
 
-Documento breve para toda decisión que no alcanza el umbral de dictamen.
-Su función es acreditar que la decisión existió y tuvo fundamento.
+Brief document for decisions that do not require a full Opinion. Proves the
+decision existed and had a basis.
 
 ```
-REGISTRO DE DECISIÓN
-Evento / Wallet / Pool / Bloque
-Score: [XX] — Salida: [ALLOW / FEE_DIFERENCIAL]
-Hechos principales: [tres de mayor contribución con base regulatoria]
-Fundamento: [código de razón]
-Próxima revisión: [fecha]
-audit_hash: [...]
+DECISION RECORD
+Event / Wallet / Pool / Block
+Score: [XX] — Output: [ALLOW / FEE_OVERRIDE / REVERT]
+Main facts: [top three by scoreContribution with regulatoryBasis]
+Basis: [reason code]
+Next review: [date]
+auditHash: [...]
+```
+
+Maps to `OracleOpinion.decisionRecord`: `score`, `output`, `mainFacts`,
+`basis`, `nextReview`.
+
+---
+
+## D. Pool aggregate report
+
+Periodic product for the operator. Shows monitoring-system performance —
+what a supervisor examines before individual cases.
+
+```
+MONITORING REPORT — POOL [0x...]
+Period: [from] – [to]
+
+1. VOLUME AND COVERAGE
+2. OUTPUT DISTRIBUTION — ALLOW / FEE_OVERRIDE / REVERT / sanctions blocks
+3. TYPOLOGIES DETECTED
+4. REASONABLE-SUSPICION SIGNALS
+5. OPERATIONAL PERFORMANCE — source availability, degraded mode, latency
+6. FEE_OVERRIDE AND ESCROW — escrowed, released to pool, LP compensation
+7. GOVERNANCE — Timelock parameter changes
+8. TRACEABILITY — 5-year retention; auditHash index
 ```
 
 ---
 
-## D. Reporte agregado del pool
+## E. Authority-request compilation
 
-Producto periódico para el operador. Acredita el funcionamiento del sistema
-de monitoreo en su conjunto, que es lo que un supervisor examina antes de
-examinar casos individuales.
+If the operator receives an authority request, the agent compiles requested
+material. It does not draft or send the response.
 
-```
-REPORTE DE MONITOREO — POOL [0x...]
-Período: [desde] – [hasta]
-
-1. VOLUMEN Y COBERTURA
-   Swaps evaluados / total de swaps del pool
-   Wallets distintas evaluadas
-   Wallets con score vigente al cierre del período
-
-2. DISTRIBUCIÓN DE SALIDAS
-   ALLOW:            [N] ([%])
-   FEE_DIFERENCIAL:  [N] ([%])
-   REVERT:           [N] ([%])
-   Bloqueos por sanciones: [N]
-
-3. TIPOLOGÍAS DETECTADAS
-   Por tipología: cantidad de casos y categorías GAFI involucradas
-
-4. SEÑALES DE SOSPECHA RAZONABLE
-   Casos que alcanzaron el umbral
-   Casos elevados al Oficial de Cumplimiento
-   Casos con anexo de sustento producido
-
-5. DESEMPEÑO OPERATIVO DEL SISTEMA
-   Disponibilidad de fuentes de Nivel 1 y Nivel 2
-   Eventos en modo degradado
-   Casos con CONFIDENCE_INSUFICIENTE
-   Casos con gap crítico
-   Latencia media entre swap y actualización del score
-
-6. FEE DIFERENCIAL Y ESCROW
-   Monto acumulado en escrow
-   Liberado al pool / reasignado a compensación de LPs
-
-7. GOBERNANZA
-   Modificaciones de parámetros ejecutadas vía Timelock
-   Fundamento de cada modificación
-
-8. TRAZABILIDAD
-   Retención: 5 años
-   Índice de audit_hash del período
-```
-
----
-
-## E. Respuesta a requerimiento
-
-Si el operador recibe un requerimiento de una autoridad, el agente compila
-el material solicitado. No redacta la respuesta ni la remite.
-
-| Regla | Contenido |
+| Rule | Content |
 |---|---|
-| Alcance | Únicamente el material que el operador solicita compilar |
-| Destinatario | El área legal o el Oficial de Cumplimiento del operador |
-| Prohibición | El agente no responde directamente a ninguna autoridad |
-| Formato | Índice de expedientes con `audit_hash`, eventos on-chain y fuentes, sin interpretación jurídica |
+| Scope | Only material the operator asks to compile |
+| Recipient | Operator legal / Compliance Officer |
+| Prohibition | Agent never answers any authority directly |
+| Format | Case-file index with `auditHash`, on-chain events, sources — no legal interpretation |
 
 ---
 
-## Paso de revisión previo a la entrega
+## Pre-delivery review
 
-Antes de finalizar cualquier documento:
-
-- Verificar que el scoring del dictamen coincide con el `ScoreResult` y con
-  la salida efectivamente ejecutada
-- Verificar que toda conclusión tiene `base_regulatoria` y evidencia
-  on-chain identificada
-- Verificar que los hechos con `confidence: LOW` están señalados como tales
-- Verificar que las limitaciones del análisis están declaradas: profundidad
-  de hops, fuentes no disponibles, gaps, modo degradado
-- Verificar que ningún documento contiene una conclusión sobre la licitud de
-  la conducta de una persona
-- Verificar que el estado del anexo de sustento permanece en
-  `borrador-de-sustento`
-- Verificar que el sujeto evaluado no fue informado
+- Opinion scoring matches `ScoreResult` and executed `hookOutput`
+- Every conclusion has `regulatoryBasis` and identified on-chain evidence
+- `LOW` confidence facts are labeled as such
+- Analysis limits declared: hop depth, unavailable sources, gaps, degraded mode
+- No conclusion on the lawfulness of a person’s conduct
+- SAR annex status remains support-draft
+- Evaluated subject was not tipped off
+- No skill filenames in Opinion / annex sources
 
 ---
 
-## Output
+## Output (`OracleOpinion` — keys match `types.ts`)
 
 ```json
 {
-  "evento_id": "...",
-  "tipo_documento": "dictamen | dictamen+anexo-sar | registro-decision | reporte-pool | compilacion-requerimiento",
-  "destinatario": "Oficial de Cumplimiento del operador del pool",
-  "estado": "borrador | revisado",
-  "dictamen": "[texto completo]",
-  "anexo_sar": { },
-  "registro_decision": "[texto]",
-  "reporte_pool": "[texto]",
-  "limitaciones_declaradas": ["..."],
-  "campos_faltantes": ["..."],
-  "audit_hash": "...",
-  "retencion_anios": 5,
-  "nota": "Documentación interna del operador. El agente no presenta reportes ante ninguna autoridad."
+  "status": "Technical opinion · REVERT | Technical opinion · oracle FEE_OVERRIDE | Legal opinion · ALLOW",
+  "documentType": "legal-opinion | opinion + sar-annex",
+  "confidence": "HIGH | MEDIUM | LOW",
+  "humanReview": false,
+  "retentionYears": 5,
+  "auditHash": "...",
+  "technicalOpinion": {
+    "issued": true,
+    "objectAndScope": "<WHO>",
+    "riskAndScoring": "<WHY>",
+    "typologies": "<WHAT>",
+    "sanctionsCheck": "<WHEN>",
+    "sourcesConsulted": ["<WHERE — evidence only, no skill names>"],
+    "decisionExecuted": "<HOW>",
+    "legalBasis": "...",
+    "recommendations": "...",
+    "traceability": "auditHash … · calculated … · retention 5 years"
+  },
+  "sarAnnex": { },
+  "decisionRecord": {
+    "score": "<finalScore>",
+    "output": "ALLOW | FEE_OVERRIDE | REVERT",
+    "mainFacts": "...",
+    "basis": "...",
+    "nextReview": "<ISO 8601>"
+  },
+  "note": "Internal operator documentation modeled on FinCEN SAR Narrative Guidance. Never filed with any authority."
 }
 ```
 
-> Cuando la decisión fue `REVERT` o se activó un bloqueo, el output debe
-> incluir el dictamen. Cuando además se alcanzó sospecha razonable y el
-> operador es probable sujeto obligado bajo la BSA, debe incluir también el
-> anexo de sustento.
+> On `REVERT` or block activation, include the technical Opinion. When
+> reasonable suspicion is also reached and the operator is a likely BSA
+> obligated person, include the SAR-support annex.

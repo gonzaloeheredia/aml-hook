@@ -1,249 +1,136 @@
 ---
 name: task-blocking-protocol
-description: "Ejecutar el protocolo aplicable cuando se detecta un match de sanciones, un vínculo con financiamiento del terrorismo o una situación que supera el nivel de resolución autónoma del agente. Cubre el tratamiento de fondos bloqueados, la segregación con rastro auditable, la notificación al Oficial de Cumplimiento del operador y las restricciones de confidencialidad. Usar de inmediato ante cualquier override de la dimensión de sanciones, sin esperar el cierre del análisis."
+description: "Execute the protocol when a sanctions match, terrorism-financing nexus, or situation beyond autonomous agent resolution is detected. Covers blocked-funds treatment, segregation with audit trail, notification to the operator Compliance Officer, and confidentiality restrictions. Use immediately on any sanctions-dimension override, without waiting for analysis close."
 ---
 
-# Task: Blocking Protocol — Bloqueo, Segregación y Notificación
+# Task: Blocking Protocol — Block, Segregation, and Notification
 
-## Rol en el agente
+## Role
 
-Esta skill decide qué se hace con la operación y con los fondos cuando el
-análisis arroja un resultado que el agente no puede resolver por sí mismo.
-No evalúa el fondo del caso: asegura que la acción correcta se ejecute y que
-la información correcta llegue al destinatario correcto en el tiempo
-correcto. Es el mecanismo de control que garantiza que el agente no opere
-fuera de su mandato.
+Decides what happens to the operation and funds when analysis yields a result
+the agent cannot resolve alone. Does not re-evaluate substance: ensures the
+correct action executes and the correct information reaches the correct
+recipient on time. Prevents the agent from operating outside its mandate.
 
 ---
 
-## Distinción fundamental: rechazar no es bloquear
+## Fundamental distinction: reject ≠ block
 
-Esta es la diferencia operativa que la mayoría de las implementaciones
-omite, y es la que un supervisor va a examinar primero.
-
-| Situación | Tratamiento correcto | Tratamiento incorrecto |
+| Situation | Correct treatment | Incorrect treatment |
 |---|---|---|
-| Score 71–99 sin designación | **Rechazo.** El swap revierte y los fondos permanecen en poder del participante | — |
-| Match en lista de sanciones | **Bloqueo.** Los fondos adeudados a la parte designada quedan bloqueados y segregados, con registro auditable | Revertir el swap y devolver los fondos, que es una disposición del activo bloqueado |
+| Score 71–99 without designation | **Reject.** Swap reverts; funds remain with the participant | — |
+| Sanctions list match | **Block.** Funds owed to the designated party are blocked and segregated with an audit trail | Revert and return funds (disposition of blocked property) |
 
-Bajo el régimen de OFAC, cuando existe una obligación de pago o entrega a
-favor de una parte designada, el activo debe bloquearse y mantenerse
-segregado. Devolverlo al remitente puede constituir un incumplimiento
-autónomo. La implementación de esta lógica corresponde al contrato de
-custodia previsto en la arquitectura del hook.
+Under OFAC, when a payment/delivery obligation exists toward a designated
+party, the asset must be blocked and kept segregated. Returning it to the
+sender may itself be a violation. Custody-contract logic belongs to the hook
+architecture.
 
-**Advertencia de alcance.** La aplicabilidad concreta del régimen de bloqueo
-al operador de un pool depende de su calificación regulatoria y de su nexo
-jurisdiccional, cuestión que resuelve `protocol-obligations` en forma
-preliminar y que requiere confirmación legal del operador. Esta skill
-implementa el estándar más exigente por defecto y deja constancia del
-criterio aplicado.
+**Scope warning.** Applicability of blocking to a pool operator depends on
+regulatory qualification and jurisdictional nexus — preliminarily assessed by
+`protocol-obligations`, confirmed by operator counsel. This skill implements
+the stricter standard by default and records the criterion applied.
 
 ---
 
-## Inputs esperados
+## Expected inputs
 
-| Campo | Descripción |
+| Field | Description |
 |---|---|
-| `evento_id` | Identificador del evento |
-| `address` | Dirección afectada |
-| `trigger` | Qué activó el protocolo |
-| `output_ofac` | Resultado del screening de sanciones |
-| `score_result` | `ScoreResult` completo |
-| `swap` | Parámetros de la operación afectada |
-| `configuracion_pool` | Política de custodia, dirección del contrato de segregación, contactos del operador |
+| `eventId` | Event identifier |
+| `address` | Affected address |
+| `trigger` | What activated the protocol |
+| `ofacOutput` | Sanctions screening result |
+| `scoreResult` | Full `ScoreResult` |
+| `swap` | Affected operation parameters |
+| `poolConfig` | Custody policy, segregation contract, operator contacts |
 
 ---
 
-## Paso 1: Clasificación del trigger
+## Step 1: Trigger classification
 
-| Trigger | Urgencia | Acción sobre la operación |
+| Trigger | Urgency | Action on operation |
 |---|---|---|
-| Match directo en OFAC SDN, ONU o UE | Crítica | `REVERT` y activación de custodia sobre los fondos afectados |
-| Interacción con contrato designado | Crítica | Idéntica |
-| Nexo con financiamiento del terrorismo o proliferación | Crítica | Idéntica, con notificación inmediata |
-| Controlador designado en Smart Account | Crítica | `REVERT` preventivo; custodia sujeta a revisión humana |
-| Match por atribución de cluster | Alta | `REVERT`; custodia sujeta a revisión humana previa |
-| Exploit en curso detectado sobre el pool | Crítica | Circuit breaker según la configuración del operador |
-| Indisponibilidad del Nivel 1 de evidencia | Alta | Aplicar política de default; notificar incidente operativo |
+| Direct OFAC SDN / UN / EU match | Critical | `REVERT` + custody on affected funds |
+| Designated-contract interaction | Critical | Same |
+| TF / proliferation nexus | Critical | Same + immediate notification |
+| Designated Smart Account controller | Critical | Preventive `REVERT`; custody subject to human review |
+| Cluster-attribution match | High | `REVERT`; custody subject to prior human review |
+| Active exploit on the pool | Critical | Circuit breaker per operator config |
+| Level-1 evidence unavailable | High | Apply default policy; notify operational incident |
+
+Demo: confirmed exploit cash-out (wallet A) → `hookOutput: REVERT`,
+`WalletBlocked` recorded; agent still refreshes Opinion via trigger `blocked`.
 
 ---
 
-## Paso 2: Tratamiento de los fondos
+## Step 2: Funds treatment
 
-| Escenario | Tratamiento |
+| Scenario | Treatment |
 |---|---|
-| El bloqueo ocurre en `beforeSwap` y la transacción revierte íntegramente | No hay transferencia de valor. No hay activo que segregar. Registrar la denegación con su fundamento |
-| El bloqueo se detecta en `afterSwap` sobre la parte receptora | Enrutar el saldo a favor de la parte designada al contrato de custodia. No revertir hacia el remitente sin instrucción del Oficial de Cumplimiento |
-| Fondos ya acreditados antes de la designación | Situación fuera del alcance del hook. Notificar al operador para tratamiento por su propio proceso |
+| Block in `beforeSwap`; tx reverts entirely | No value transfer. Nothing to segregate. Record denial with basis |
+| Block detected in `afterSwap` on recipient | Route designated-party balance to custody contract. Do not revert to sender without Compliance Officer instruction |
+| Funds credited before designation | Outside hook scope. Notify operator for own process |
 
-**Requisitos del registro de custodia.** Todo enrutamiento a custodia debe
-generar un registro con: dirección afectada, monto, activo, bloque,
-`tx_hash`, lista y entrada que fundamentan el bloqueo, y `audit_hash` del
-`ScoreResult`. El activo permanece segregado y no disponible hasta
-instrucción documentada.
+**Custody record requirements.** Affected address, amount, asset, block,
+`tx_hash`, list and entry supporting the block, `auditHash` of `ScoreResult`.
+Asset stays segregated until documented instruction.
 
 ---
 
-## Paso 3: Notificación
+## Step 3: Notification
 
-El destinatario es siempre el Oficial de Cumplimiento del operador del pool.
-El agente no se comunica con autoridades ni con terceros.
+Recipient is always the pool operator’s Compliance Officer. The agent does
+not contact authorities or third parties.
 
-| Situación | Destinatario | Plazo |
+| Situation | Recipient | Timing |
 |---|---|---|
-| Match de sanciones confirmado | Oficial de Cumplimiento del operador | Inmediato |
-| Nexo con financiamiento del terrorismo | Oficial de Cumplimiento y dirección del operador | Inmediato |
-| Match por cluster o por controlador | Oficial de Cumplimiento | Mismo día |
-| Sospecha razonable alcanzada sin designación | Oficial de Cumplimiento | Mismo día hábil |
-| Incidente operativo de fuentes | Responsable técnico del operador | Inmediato |
-
-**Plazos regulatorios que el operador debe conocer.** El agente los informa;
-no los ejecuta.
-
-| Obligación | Marco | Plazo de referencia |
-|---|---|---|
-| Reporte de bienes bloqueados a OFAC | 31 CFR Part 501 | 10 días hábiles desde el bloqueo |
-| Informe anual de bienes bloqueados | 31 CFR Part 501 | Según el calendario del régimen |
-| Presentación de SAR ante FinCEN, si el operador es sujeto obligado | 31 CFR § 1010.320 | 30 días corridos desde la detección inicial |
-| Conservación de registros | BSA y GAFI Rec. 11 | 5 años |
+| Confirmed sanctions match | Compliance Officer | Immediate |
+| TF financing nexus | Compliance Officer + operator leadership | Immediate |
+| Cluster or controller match | Compliance Officer | Same day |
+| Reasonable suspicion without designation | Compliance Officer | Same business day |
+| Source operational incident | Operator technical owner | Immediate |
 
 ---
 
-## Paso 4: Estructura de la notificación
+## Step 4: Confidentiality
 
-```
-ASUNTO: [BLOQUEO / ESCALAMIENTO] Evento [ID] — [Tipo] — Pool [ID]
-
-1. SITUACIÓN
-   Qué se detectó y por qué se activó el protocolo.
-
-2. CLASIFICACIÓN
-   Trigger: [regla activada]
-   Score: [XX/100] — Salida ejecutada: [REVERT / custodia]
-
-3. DATOS DE LA OPERACIÓN
-   Wallet afectada: [0x...]
-   Pool: [0x...]
-   Monto: [...] — Activo: [...]
-   Bloque y transacción: [...]
-
-4. FUNDAMENTO
-   Lista y entrada que originan la designación.
-   Hechos disparadores principales con su base regulatoria.
-   Confidence de cada hecho.
-
-5. TRATAMIENTO DE FONDOS
-   Estado: [sin transferencia / enrutado a custodia]
-   Dirección de custodia: [0x...]
-   Monto segregado: [...]
-
-6. ACCIÓN REQUERIDA DEL OFICIAL DE CUMPLIMIENTO
-   Qué se necesita y en qué plazo, con referencia al plazo regulatorio
-   aplicable según la calificación del operador.
-
-7. EXPEDIENTE
-   audit_hash: [...]
-   Referencia al expediente de evidencia completo.
-```
+- Tip-off prohibition: do not inform the subject of the analysis, report, or
+  block rationale beyond what the on-chain revert necessarily reveals.
+- Do not publish effective internal thresholds.
+- Do not file with OFAC/FinCEN — prepare material for the Compliance Officer.
 
 ---
 
-## Paso 5: Confidencialidad
+## Step 5: Continuity
 
-| Regla | Contenido |
-|---|---|
-| No se informa al sujeto evaluado | Ni el score, ni el fundamento, ni la existencia de un análisis en curso |
-| El evento on-chain no revela el motivo | El código de razón emitido no debe permitir inferir la tipología detectada ni el umbral aplicado |
-| El expediente no se publica | Se conserva off-chain, accesible al Oficial de Cumplimiento del operador |
-| Prohibición de tipping-off | Bajo la BSA, revelar la existencia de un reporte de actividad sospechosa al sujeto reportado está prohibido |
+After block:
 
-**Tensión con la transparencia on-chain.** Un evento de reversión es
-público, y la wallet afectada puede inferir que fue bloqueada. Lo que no
-debe poder inferir es por qué ni con qué umbral, porque esa información
-permite calibrar el comportamiento para eludir el control. El diseño del
-código de razón debe resolver esa tensión, y su granularidad es un parámetro
-que el operador configura bajo su propio criterio de riesgo.
+1. Write / refresh oracle score (`finalScore` 100 / `hookOutput` REVERT).
+2. Produce Opinion + SAR-support annex via `task-regulatory-report`.
+3. Watch outbound P2P for contamination of downstream wallets (demo B/C).
+4. Periodic review of sustained blocks per `dispute-remediation` / config
+   (default 90 days) — except active sanctions overrides (not disputable here).
 
 ---
 
-## Paso 6: Registro
-
-Independientemente del resultado, registrar:
-
-| Campo | Contenido |
-|---|---|
-| Momento de activación | Timestamp y bloque |
-| Trigger | Regla activada |
-| Acción ejecutada sobre la operación | Reversión / custodia |
-| Destino de los fondos | Dirección de custodia o ausencia de transferencia |
-| Destinatario de la notificación | |
-| Confirmación de recepción | Sí / No / Pendiente |
-| Instrucción recibida del Oficial de Cumplimiento | |
-| Acciones resultantes | |
-
----
-
-## Reglas de no omisión
-
-Este protocolo no puede omitirse ni posponerse si:
-
-- Existe match confirmado en OFAC SDN, ONU o UE
-- Se detecta interacción con un contrato designado
-- Se identifica nexo con financiamiento del terrorismo o proliferación
-- Un controlador de una Smart Account presenta un match directo
-
-En estos casos la activación es inmediata y no espera el cierre del análisis
-de fondo.
-
----
-
-## Límites de autonomía del agente
-
-El agente nunca:
-
-- Presenta un reporte ante ninguna autoridad
-- Libera fondos de custodia sin instrucción documentada del Oficial de Cumplimiento
-- Informa al sujeto evaluado sobre la existencia de un análisis o un reporte
-- Responde requerimientos de autoridades
-- Modifica parámetros gobernables fuera del Timelock de la DAO
-- Desbloquea una wallet con override de sanciones activo
-
----
-
-## Output estructurado
+## Structured output
 
 ```json
 {
-  "evento_id": "...",
+  "eventId": "...",
   "address": "0x...",
   "trigger": "...",
-  "urgencia": "crítica | alta",
-  "accion_operacion": "revert-sin-transferencia | revert-con-custodia | circuit-breaker | default-policy",
-  "custodia": {
-    "activada": false,
-    "direccion_custodia": null,
-    "monto": null,
-    "activo": null,
-    "tx_hash": null,
-    "block_number": 0
+  "hookOutput": "REVERT",
+  "finalScore": 100,
+  "custody": {
+    "activated": false,
+    "reason": "beforeSwap full revert — no asset to segregate | custody routed | pending human review"
   },
-  "notificacion": {
-    "destinatario": "Oficial de Cumplimiento del operador",
-    "momento": "<ISO 8601>",
-    "mensaje": "...",
-    "confirmacion_recepcion": false
-  },
-  "plazos_informados": [
-    {"obligacion": "...", "marco": "...", "plazo": "...", "condicionado_a": "calificación regulatoria del operador"}
-  ],
-  "confidencialidad": {
-    "sujeto_no_informado": true,
-    "codigo_razon_emitido": "...",
-    "granularidad_evento": "..."
-  },
-  "revision_humana_requerida": true,
-  "audit_hash": "...",
-  "siguiente_skill": "task-regulatory-report"
+  "notifications": [{"recipient": "compliance_officer", "timing": "immediate"}],
+  "auditHash": "...",
+  "nextSkill": "task-regulatory-report",
+  "requiresHumanReview": true,
+  "tipOffProhibited": true
 }
 ```

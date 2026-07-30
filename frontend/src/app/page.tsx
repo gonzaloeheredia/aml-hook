@@ -147,7 +147,7 @@ export default function HomePage() {
   }, []);
 
   /**
-   * Pulls live dictamen for the active wallet from the API.
+   * Pulls live opinion for the active wallet from the API.
    */
   const refreshCompliance = useCallback(async (id: DemoCaseId) => {
     const pack = await fetchCompliance(id);
@@ -327,7 +327,7 @@ export default function HomePage() {
   }, []);
 
   /**
-   * Opens Opinion (legal dictamen) and unlocks Event.
+   * Opens Opinion (legal opinion) and unlocks Event.
    */
   const enterOpinion = useCallback(() => {
     setAuditRevealKey((k) => k + 1);
@@ -706,7 +706,7 @@ export default function HomePage() {
           {stage === "opinion" && (
             <div className="mb-4 text-center">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-uni-pink">
-                Dictamen
+                Opinion
               </p>
               <h2 className="mt-1.5 text-balance text-2xl font-extrabold tracking-tight md:text-3xl">
                 Opinion

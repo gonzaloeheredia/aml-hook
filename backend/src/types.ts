@@ -51,7 +51,7 @@ export type HookEvent = {
   kind: "SwapObserved" | "WalletBlocked";
 };
 
-/** Fields of the technical compliance opinion (dictamen section A). */
+/** Fields of the technical compliance opinion (section A). */
 export type TechnicalOpinion = {
   issued: boolean;
   objectAndScope: string;

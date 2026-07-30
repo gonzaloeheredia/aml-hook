@@ -1,204 +1,136 @@
 ---
 name: task-onchain-evidence
-description: "Recopilar, organizar y validar la evidencia on-chain necesaria para evaluar una wallet. Cubre consulta de exploradores de bloques, motores de blockchain analytics, registros públicos de direcciones designadas, redes de alertas descentralizadas, attestations de terceros y el registro interno de denuncias de LPs. Usar después del intake, antes de las skills de dominio: produce el expediente sobre el que se construye todo el análisis."
+description: "Collect, organize, and validate on-chain evidence needed to evaluate a wallet. Covers block explorers, blockchain analytics engines, public designated-address registries, decentralized alert networks, third-party attestations, and the internal LP-report registry. Use after intake, before domain skills: produces the case file on which all analysis builds."
 ---
 
-# Task: On-Chain Evidence — Recopilación de Evidencia
+# Task: On-Chain Evidence — Evidence Collection
 
-## Rol en el agente
+## Role
 
-Esta skill estructura la recopilación de información sobre una dirección.
-Define qué fuentes consultar, en qué orden, y cómo organizar el resultado
-para que las skills de dominio trabajen sobre datos verificables. No evalúa
-el fondo: produce un expediente ordenado con trazabilidad de cada dato.
+Structures information collection on an address. Defines which sources to
+query, in what order, and how to organize results so domain skills work on
+verifiable data. Does not evaluate substance: produces an ordered case file
+with traceability for every datum.
 
-Principio rector: todo hecho que después contribuya al score debe poder
-rastrearse hasta la fuente que lo produjo, con su momento de consulta. Un
-score sin cadena de evidencia no es defendible.
+**Principle.** Every fact that later contributes to the score must trace to
+the source that produced it, with consultation time. A score without an
+evidence chain is not defensible.
+
+**Mock note.** Live vendor APIs are not called. The demo derives facts from
+the in-memory ledger (wallets, P2P transfers, `SwapObserved` /
+`WalletBlocked`). This skill remains the full product spec for live runtime.
 
 ---
 
-## Inputs esperados
+## Expected inputs
 
-| Campo | Descripción |
+| Field | Description |
 |---|---|
-| `evento_id` | Identificador generado en el intake |
-| `address` | Dirección bajo análisis |
-| `modo` | Modo de evaluación asignado por el intake |
-| `ventana_analisis` | Período a cubrir |
-| `preguntas_clave` | Qué se necesita determinar |
-| `evidencia_previa` | Expediente anterior de la wallet, si existe |
+| `eventId` | Intake-generated identifier |
+| `address` | Address under analysis |
+| `mode` | Evaluation mode from intake |
+| `analysisWindow` | Period to cover |
+| `keyQuestions` | What must be determined |
+| `priorEvidence` | Prior case file, if any |
 
 ---
 
-## Paso 1: Jerarquía de fuentes
+## Step 1: Source hierarchy
 
-Las fuentes se ordenan por su valor probatorio. La jerarquía determina el
-`confidence` de los `FactEvent` que se emitan.
+Hierarchy determines `confidence` of emitted `FactEvent`s.
 
-### Nivel 1 — Fuentes oficiales y estado on-chain verificable
+### Level 1 — Official sources and verifiable on-chain state
 
-| Fuente | Información | Confidence |
+| Source | Information | Confidence |
 |---|---|---|
-| Listas OFAC SDN, ONU y UE | Designaciones vigentes | HIGH |
-| Mapping on-chain de direcciones designadas | Capa 1 del hook, consultable sin dependencia externa | HIGH |
-| Explorador de bloques | Transacciones, código de contrato, `EXTCODESIZE`, owners de multisig | HIGH |
-| Eventos emitidos por el propio hook | `SwapObserved`, decisiones previas, bloqueos | HIGH |
+| OFAC SDN, UN, EU lists | Current designations | HIGH |
+| On-chain designated-address mapping | Hook Layer 1, no external dependency at runtime | HIGH |
+| Block explorer | Txs, contract code, `EXTCODESIZE`, multisig owners | HIGH |
+| Hook-emitted events | `SwapObserved`, prior decisions, blocks | HIGH |
 
-### Nivel 2 — Motores comerciales de analytics
+### Level 2 — Commercial analytics
 
-| Fuente | Información | Confidence |
+| Source | Information | Confidence |
 |---|---|---|
-| Chainalysis | Mapping de direcciones designadas, atribución de cluster, exposición | MEDIUM |
-| TRM Labs | Cobertura equivalente | MEDIUM |
-| Elliptic | Cobertura equivalente, fuerte en Europa | MEDIUM |
-| Solidus Labs | Orientado a DeFi; detección de manipulación de mercado | MEDIUM |
+| Chainalysis / TRM / Elliptic / Solidus | Designated mapping, cluster attribution, exposure, DeFi manipulation | MEDIUM |
 
-La atribución de cluster es un juicio del proveedor y no es verificable de
-forma independiente por el operador. Corresponde `MEDIUM` salvo
-confirmación por una segunda fuente independiente, en cuyo caso se aplica el
-multiplicador de contexto correspondiente.
+Cluster attribution is provider judgment — `MEDIUM` unless confirmed by a
+second independent source.
 
-### Nivel 3 — Fuentes descentralizadas y comunitarias
+### Level 3 — Decentralized / community
 
-| Fuente | Información | Confidence |
+Forta, EAS attestations, Hypernative, DeFiLlama Hacks DB, open sanctioned-
+address registries → typically `MEDIUM`.
+
+### Level 4 — Protocol-internal signals
+
+| Source | Information | Confidence |
 |---|---|---|
-| Forta Network | Alertas de exploits, comportamiento anómalo, rug pulls | MEDIUM |
-| EAS (Ethereum Attestation Service) | Attestations de riesgo publicadas por terceros | MEDIUM |
-| Hypernative | Alertas on-chain en tiempo real | MEDIUM |
-| DeFiLlama Hacks DB | Registro público de incidentes con direcciones involucradas | MEDIUM |
-| Registros abiertos de direcciones sancionadas | Alternativa sin dependencia de proveedor comercial | MEDIUM |
+| LP report registry | Staked LP reports | LOW individually; MEDIUM past threshold + challenge |
+| Oracle history | Prior `ScoreResult` | HIGH on score value; basis inherits original confidence |
+| Shared cross-pool registry | Aggregated signals from other pools | MEDIUM |
 
-### Nivel 4 — Señales internas del protocolo
+### Level 5 — Analytical inference
 
-| Fuente | Información | Confidence |
-|---|---|---|
-| Registro de denuncias de LPs | Reportes de proveedores de liquidez con stake | LOW individual; MEDIUM al superar el threshold y el período de challenge |
-| Historial del oracle | `ScoreResult` previos de la wallet | HIGH sobre el dato del score; el fundamento hereda el confidence original |
-| Registro compartido entre pools | Señales agregadas de otros pools que integran el hook | MEDIUM |
-
-### Nivel 5 — Inferencia analítica
-
-Estadísticos calculados por el propio agente: percentiles, desviaciones,
-correlaciones temporales, vinculación de wallets. Confidence `LOW` salvo que
-el criterio sea determinístico (co-spending verificable en una transacción
-concreta, que es `HIGH`).
+Percentiles, deviations, temporal correlations, wallet linkage → `LOW` unless
+deterministic (verifiable co-spend in a concrete tx → `HIGH`).
 
 ---
 
-## Paso 2: Plan de recopilación por dimensión
+## Step 2: Collection plan by dimension
 
-| Dimensión de `fact-scoring` | Fuentes a consultar |
+| Dimension | Sources |
 |---|---|
-| **S — Sanciones** | Nivel 1 completo; Nivel 2 para atribución de cluster |
-| **ST — Structuring** | Eventos del hook; explorador; inferencia analítica sobre la serie |
-| **MX — Mixers** | Nivel 1 para contratos designados; Nivel 2 para trazabilidad; explorador para verificación directa |
-| **NW — Red y contrapartes** | Explorador; Nivel 2 para atribución; oracle para score de contrapartes; DeFiLlama para exploits; denuncias de LPs |
-| **GEO — Geografía** | Nivel 2 exclusivamente; declarar siempre la base de la inferencia |
-| **MT — Mitigantes** | Oracle para historial; explorador para diversidad de protocolos; registros de attestations de terceros |
+| **S — Sanctions** | Level 1 full; Level 2 for cluster |
+| **ST — Structuring** | Hook events; explorer; analytical inference on series |
+| **MX — Mixers** | Level 1 for designated contracts; Level 2 for tracing; explorer for direct verification |
+| **NW — Network** | Explorer; Level 2; oracle for counterparty scores; DeFiLlama; LP reports |
+| **GEO — Geography** | Level 2 only; always declare inference basis |
+| **MT — Mitigants** | Oracle history; explorer protocol diversity; attestation registries |
+| **DF — DeFi typologies** | Explorer + mempool/block adjacency + Level 2/3 alerts |
 
 ---
 
-## Paso 3: Registro de la consulta
+## Step 3: Case-file organization
 
-Para cada fuente consultada, documentar:
+Every collected item records: source, consultation time, effective window,
+truncation status, and whether the source failed.
 
-| Campo | Contenido |
+Distinguish always: **not found** / **not consulted** / **source failed**.
+
+Pagination: declare retrieved vs reported totals; never conclude pattern
+absence on a truncated series.
+
+---
+
+## Step 4: Gaps and degraded mode
+
+| Gap type | Effect |
 |---|---|
-| Fuente | Identificación |
-| Momento de consulta | Timestamp y bloque de referencia |
-| Versión de los datos | Fecha de última actualización de la lista o del índice |
-| Resultado | Hallazgo o ausencia de hallazgo |
-| Confidence asignado | Según la jerarquía |
-| Disponibilidad | Respondió / no respondió / respondió parcialmente |
-
-El registro de las consultas sin hallazgos es tan relevante como el de las
-consultas positivas. Acreditar que se verificó y no se encontró nada es
-parte del estándar de monitoreo razonable.
+| Level-1 unavailable | Suspend evaluation or apply pool default; flag operational incident |
+| Level-2 unavailable | Continue in degraded mode; declare limitation; do not invent cluster attribution |
+| Truncated series | Declare; block aggregate structuring conclusions unless paginated |
 
 ---
 
-## Paso 4: Modo degradado
-
-Si una fuente de Nivel 2 no responde, la skill continúa con las fuentes
-disponibles y declara la limitación. La arquitectura del hook prevé
-explícitamente que la indisponibilidad de un oracle no debe producir el
-bloqueo de todas las operaciones.
-
-| Situación | Comportamiento |
-|---|---|
-| Nivel 1 disponible, Nivel 2 caído | Continuar. Emitir `modo_degradado: true`. El score resultante no puede superar el tramo de fee diferencial salvo por hechos de Nivel 1 |
-| Nivel 1 caído | Suspender la evaluación. El screening de sanciones no admite degradación. Emitir alerta al operador |
-| Lista de sanciones desactualizada más allá del período configurado | Emitir `LISTA_DESACTUALIZADA`. Decisión del operador entre operar en modo degradado o suspender el pool |
-
----
-
-## Paso 5: Identificación de gaps
-
-Listar la información necesaria que no fue posible obtener y su efecto sobre
-el análisis.
-
-| Gap | Fuente posible | Efecto sobre el análisis |
-|---|---|---|
-| Atribución del originador tras un router | Trace de la transacción | El análisis no es concluyente sobre ningún actor real |
-| Controladores de una Smart Account | Explorador; interfaz del contrato | No puede completarse la verificación por threshold |
-| Origen de fondos más allá de la profundidad configurada | Ampliación de hops | Porcentaje de origen opaco no determinado |
-| Atribución jurisdiccional | Motor de analytics | La dimensión GEO no puede evaluarse |
-
-**Regla.** Un gap no equivale a un resultado negativo. Si un gap impide
-evaluar una dimensión, el expediente debe declararlo, y `fact-scoring` no
-puede computar esa dimensión como cero por defecto sin registrar la
-limitación.
-
----
-
-## Paso 6: Organización del expediente
-
-```
-expediente/
-├── identificacion/     → tipo de cuenta, controladores, código de contrato
-├── sanciones/          → listas consultadas, versiones, resultados
-├── transaccional/      → serie de swaps, transferencias, eventos del hook
-├── trazabilidad/       → hops, origen de fondos, protocolos intermedios
-├── analytics/          → output del motor comercial, cluster, exposición
-├── señales_externas/   → Forta, EAS, DeFiLlama, denuncias de LPs
-├── historico/          → ScoreResult previos con audit_hash
-└── gaps/               → información faltante y su efecto
-```
-
----
-
-## Output estructurado
+## Structured output
 
 ```json
 {
-  "evento_id": "...",
+  "eventId": "...",
   "address": "0x...",
-  "fuentes_consultadas": [
-    {
-      "fuente": "...",
-      "nivel": 1,
-      "momento_consulta": "<ISO 8601>",
-      "block_referencia": 0,
-      "version_datos": "...",
-      "resultado": "...",
-      "confidence": "HIGH | MEDIUM | LOW",
-      "disponibilidad": "ok | parcial | sin-respuesta"
-    }
+  "analysisWindow": {"from": "...", "to": "...", "effective": true},
+  "sourcesConsulted": [
+    {"source": "...", "level": 1, "status": "ok | empty | failed", "consultedAt": "..."}
   ],
-  "hallazgos_relevantes": ["..."],
-  "gaps_identificados": [
-    {"informacion": "...", "fuente_posible": "...", "efecto_sobre_analisis": "..."}
-  ],
-  "modo_degradado": false,
-  "nivel_1_disponible": true,
-  "lista_desactualizada": false,
-  "expediente_suficiente": true,
-  "listo_para_evaluacion": true,
-  "notas": "..."
+  "factsCandidate": [],
+  "gaps": ["..."],
+  "degradedMode": false,
+  "level1Available": true,
+  "notes": "..."
 }
 ```
 
-> Si `nivel_1_disponible: false`, la skill no avanza. El screening de
-> sanciones es la única capa que no admite ejecución degradada, y su
-> indisponibilidad se eleva al operador como incidente operativo.
+> Candidate facts feed domain skills and `fact-scoring`. Final
+> `triggeringFacts` on `ScoreResult` carry `factId`, `baseWeight`,
+> `scoreContribution`, `regulatoryBasis`, `justification`.

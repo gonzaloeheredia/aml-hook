@@ -8,7 +8,7 @@ type Props = {
   connectedAddress: string | null;
   /**
    * `stats` — metadata + Report Overview + Detection Data (AML stats module).
-   * `opinion` — Compliance Officer legal / technical dictamen.
+   * `opinion` — Compliance Officer legal / technical opinion.
    */
   variant: "stats" | "opinion";
 };
@@ -185,7 +185,7 @@ export function AmlStats({ demoCase, connectedAddress }: Omit<Props, "variant">)
 }
 
 /**
- * Opinion module — Compliance Officer Agent legal / technical dictamen.
+ * Opinion module — Compliance Officer Agent legal / technical opinion.
  * Neutral dark palette aligned with the AML stats subject bar.
  */
 export function LegalOpinion({ demoCase }: Pick<Props, "demoCase">) {

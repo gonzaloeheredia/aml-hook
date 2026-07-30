@@ -1,198 +1,118 @@
 ---
 name: ofac-screening
-description: "Verificar si una dirección, su cluster, sus controladores o sus contrapartes están alcanzados por sanciones internacionales. Cubre OFAC SDN (Estados Unidos), listas del Consejo de Seguridad de la ONU y listas consolidadas de la Unión Europea, incluidos contratos inteligentes designados. Usar en toda evaluación de wallet, con prioridad sobre cualquier otro análisis: un match de sanciones es override incondicional y detiene el flujo."
+description: "Verify whether an address, its cluster, its controllers, or its counterparties are covered by international sanctions. Covers OFAC SDN (United States), UN Security Council lists, and EU consolidated lists, including designated smart contracts. Use on every wallet evaluation, with priority over any other analysis: a sanctions match is an unconditional override and stops the flow."
 ---
 
-# OFAC Screening — Verificación de Sanciones
+# OFAC Screening — Sanctions Verification
 
-## Rol en el agente
+## Role
 
-Esta skill verifica si existe coincidencia entre una dirección y las listas
-de sanciones vigentes. Clasifica el hallazgo, determina si es un verdadero
-positivo y activa la acción obligatoria. No decide por sí misma la salida
-del swap: emite el `FactEvent` de override y deriva a
-`task-blocking-protocol`.
+Verifies coincidence between an address and current sanctions lists. Classifies
+the finding, determines true positive status, and activates the mandatory
+action. Does not alone decide swap output: emits the override `FactEvent` and
+routes to `task-blocking-protocol`.
 
-Es la Capa 1 de la arquitectura del hook: rápida, de bajo costo en gas y sin
-dependencia externa en tiempo de ejecución. El mapping on-chain de
-direcciones designadas se consulta directamente en el `beforeSwap`.
+Layer 1 of the hook architecture: fast, low gas, no external dependency at
+swap runtime. On-chain designated-address mapping is consulted directly in
+`beforeSwap`.
+
+**Mock:** no live list calls; exploit-confirmed wallet A is treated as the
+fail-closed / REVERT path analogous to a designation override for the demo.
 
 ---
 
-## Inputs esperados
+## Expected inputs
 
-| Campo | Descripción |
+| Field | Description |
 |---|---|
-| `address` | Dirección bajo verificación |
-| `tipo_cuenta` | Output de `wallet-screening` Paso 1 |
-| `controllers` | Controladores, si se trata de una Smart Account |
-| `cluster_name` | Entidad atribuida por el motor de analytics |
-| `contrapartes_directas` | Direcciones con las que la wallet interactuó directamente |
-| `contratos_interactuados` | Contratos con los que la wallet interactuó |
-| `resultado_oracle` | Output del mapping on-chain de direcciones designadas |
+| `address` | Address under verification |
+| `accountType` | From `wallet-screening` Step 1 (when available) |
+| `controllers` | Controllers if Smart Account |
+| `clusterName` | Entity attributed by analytics engine |
+| `directCounterparties` | Addresses interacted with directly |
+| `interactedContracts` | Contracts interacted with |
+| `oracleResult` | On-chain designated-address mapping output |
 
 ---
 
-## Paso 1: Listas aplicables
+## Step 1: Applicable lists
 
-| Lista | Emisor | Alcance |
+| List | Issuer | Scope |
 |---|---|---|
-| SDN List (Specially Designated Nationals) | OFAC — Departamento del Tesoro de Estados Unidos | Alcance amplio: transacciones en USD, con nexo estadounidense, o con participación de personas estadounidenses |
-| Non-SDN listas sectoriales (SSI, CAPTA, NS-MBS) | OFAC | Restricciones parciales según programa; no implican bloqueo total |
-| Consolidated Sanctions List | Consejo de Seguridad de la ONU | Universal |
-| Consolidated List of Persons, Groups and Entities | Unión Europea | Obligatorio para entidades sujetas al derecho de la Unión y para operaciones con nexo UE |
+| SDN List | OFAC — U.S. Treasury | Broad: USD, U.S. nexus, U.S. persons |
+| Non-SDN sectoral (SSI, CAPTA, NS-MBS) | OFAC | Partial restrictions by program |
+| Consolidated Sanctions List | UN Security Council | Universal |
+| Consolidated List | European Union | Binding for EU-law entities / EU nexus |
 
-**Direcciones y contratos designados.** Desde 2018 OFAC incorpora
-direcciones de activos virtuales de forma expresa en la SDN. En agosto de
-2022 designó por primera vez un contrato inteligente en su totalidad
-(Tornado Cash), extendiendo la lógica de designación de personas a código
-autónomo. La skill debe verificar tanto direcciones de wallet como
-direcciones de contrato.
+**Addresses and contracts.** Since 2018 OFAC expressly lists virtual-asset
+addresses. In Aug 2022 it designated an entire smart contract (Tornado Cash).
+Screen both wallet and contract addresses.
 
 ---
 
-## Paso 2: Clasificación del hallazgo
+## Step 2: Finding classification
 
-| Categoría | Criterio |
+| Category | Criterion |
 |---|---|
-| **Verdadero positivo directo** | La dirección exacta figura en una lista vigente |
-| **Verdadero positivo por cluster** | La dirección pertenece a un cluster atribuido por el motor de analytics a una entidad designada |
-| **Exposición indirecta** | La dirección interactuó con una dirección designada, sin figurar ella misma |
-| **Falso positivo** | Coincidencia superficial descartada con fundamento explícito |
+| **Direct true positive** | Exact address on a current list |
+| **Cluster true positive** | Analytics attributes address to a designated entity’s cluster |
+| **Indirect exposure** | Interacted with a designated address without being listed |
+| **False positive** | Superficial match discarded with explicit basis |
 
-En direcciones no existe ambigüedad de transliteración ni homonimia: el
-match de una dirección exacta es determinístico. La ambigüedad aparece en
-dos supuestos, que deben documentarse con especial cuidado:
+Exact address match is deterministic. Ambiguity arises in:
 
-1. **Atribución de cluster.** Depende del criterio del proveedor de
-   analytics y no es verificable de forma independiente por el operador.
-   Corresponde `confidence: MEDIUM`, salvo confirmación por segunda fuente.
-2. **Identificación de controladores de Smart Accounts.** La correspondencia
-   entre un controlador y una persona designada por nombre requiere una
-   inferencia externa a la cadena. Corresponde revisión humana.
+1. **Cluster attribution** — provider-dependent; max `confidence: MEDIUM`
+   unless second independent source confirms.
+2. **Smart Account controllers** — mapping a controller to a named designated
+   person requires off-chain inference → human review.
 
-No se descarta ningún hallazgo sin fundamento explícito registrado.
+Never discard a finding without recorded explicit basis.
 
 ---
 
-## Paso 3: Exposición indirecta
+## Step 3: Indirect exposure
 
-La exposición indirecta no es un match, pero tampoco es irrelevante. La guía
-de OFAC para la industria de moneda virtual expresa la expectativa de
-monitoreo de exposición, no solo de coincidencia directa.
-
-| Situación | Tratamiento |
-|---|---|
-| Contraparte directa designada | `MATCH_INDIRECTO_CONTRAPARTE` (+50). No es override, pero por sí solo ubica a la wallet en el tramo de riesgo elevado o superior |
-| Interacción con contrato designado | `CONTRATO_SANCIONADO_DIRECTO` — override. La interacción con un contrato designado es una operación con una entidad designada |
-| Fondos con exposición indirecta a distancia mayor a un salto | Se pondera por porcentaje de exposición y cantidad de saltos; alimenta la dimensión GEO o NW según corresponda |
-
-**Umbral de materialidad.** La exposición indirecta por debajo de un
-porcentaje mínimo configurable no genera `FactEvent`, para evitar que la
-contaminación difusa del ecosistema produzca falsos positivos masivos. El
-umbral es un parámetro gobernable y debe justificarse bajo el EBR.
+Not a match, but not irrelevant. OFAC VC Industry Guidance (2021) expects
+monitoring of indirect exposure. Emit NW/S facts such as
+`INDIRECT_COUNTERPARTY_MATCH` (not automatic score-100 override unless policy
+says so). Ceiling and weighting follow `fact-scoring`.
 
 ---
 
-## Paso 4: Jurisdicciones restringidas
+## Step 4: Mandatory action on direct match
 
-Verificar si el origen o el destino inferido está asociado a:
+| Finding | Fact type | Effect |
+|---|---|---|
+| Direct list match | `OFAC_DIRECT_MATCH` / `UN_DIRECT_MATCH` / `EU_DIRECT_MATCH` | Override `finalScore = 100`, `hookOutput = REVERT` |
+| Designated contract interaction | `SANCTIONED_CONTRACT_DIRECT` | Same |
+| TF / proliferation nexus | `TERRORISM_FINANCING` | Same, max urgency |
+| Designated controller | controller hit | Preventive `REVERT` + human review |
+| Cluster match | `SANCTIONED_CLUSTER_LINK` | `REVERT` + human review (not silent auto-clear) |
 
-- Programas de sanciones comprehensivas por país
-- Programas sectoriales
-- Lista negra del GAFI (jurisdicciones de alto riesgo sujetas a
-  contramedidas)
-- Lista gris del GAFI (jurisdicciones bajo monitoreo reforzado)
-
-La atribución jurisdiccional de una wallet es inferencial. Todo hallazgo de
-este paso debe declarar la base de la inferencia y no admite
-`confidence: HIGH` salvo atribución documentada.
+Stop the remaining domain flow. Route immediately to `task-blocking-protocol`.
 
 ---
 
-## Paso 5: Acción obligatoria
-
-| Resultado | Acción |
-|---|---|
-| Falso positivo documentado | Continuar el análisis; registrar la verificación y su fundamento |
-| Exposición indirecta por debajo del umbral | Registrar sin emitir FactEvent |
-| Exposición indirecta material | Emitir `MATCH_INDIRECTO_CONTRAPARTE`; continuar el análisis |
-| Verdadero positivo por cluster | Emitir `VINCULO_CLUSTER_SANCIONADO`; elevar a revisión humana |
-| Programa sectorial (no SDN) | La operación específica puede o no estar prohibida. Elevar a revisión humana antes de procesar |
-| Verdadero positivo directo | Emitir override. Score 100. Salida `REVERT`. Activar `task-blocking-protocol` de forma inmediata |
-
-**Regla de precedencia.** Esta skill se ejecuta antes que cualquier otra
-skill de dominio. Un match directo detiene el flujo: no se completa
-`swap-behavior-analysis` ni `typology-detection`, porque el resultado no
-puede modificarse.
-
----
-
-## Paso 6: Registro de la verificación negativa
-
-Un screening sin hallazgos es un resultado que debe registrarse. La
-defensibilidad del sistema depende de poder demostrar que la verificación se
-ejecutó, contra qué listas, en qué versión y en qué momento.
-
-Cada verificación registra:
-
-| Campo | Contenido |
-|---|---|
-| Listas consultadas | Identificación de cada lista |
-| Versión o fecha de la lista | Fecha de la última actualización del registro consultado |
-| Bloque de consulta | Bloque en el que se ejecutó la verificación on-chain |
-| Resultado | Sin hallazgos / hallazgos y su clasificación |
-| Fuente | Oracle on-chain / API del proveedor / registro público |
-
-**Antigüedad de las listas.** Si la última actualización del registro
-on-chain supera el período máximo configurado, la skill emite
-`LISTA_DESACTUALIZADA` y el operador debe decidir si opera en modo degradado
-o suspende el pool. Un screening contra una lista vencida no satisface el
-estándar.
-
----
-
-## Output estructurado
+## Structured output
 
 ```json
 {
   "address": "0x...",
-  "hits": [
+  "result": "CLEAR | DIRECT_MATCH | CLUSTER_MATCH | INDIRECT_EXPOSURE | CONTROLLER_MATCH",
+  "list": "OFAC_SDN | UN | EU | null",
+  "entryId": null,
+  "confidence": "HIGH | MEDIUM | LOW",
+  "facts": [
     {
-      "lista": "OFAC_SDN | ONU | UE | OFAC_SECTORIAL",
-      "entrada": "...",
-      "objeto_del_match": "DIRECCION | CONTRATO | CLUSTER | CONTROLADOR",
-      "clasificacion": "verdadero-positivo-directo | verdadero-positivo-cluster | exposicion-indirecta | falso-positivo",
-      "confidence": "HIGH | MEDIUM | LOW",
-      "fundamento": "..."
+      "type": "OFAC_DIRECT_MATCH",
+      "dimension": "S",
+      "baseWeight": 100,
+      "confidence": "HIGH",
+      "regulatoryBasis": "OFAC SDN · IEEPA · 31 CFR Part 501",
+      "justification": "..."
     }
   ],
-  "exposicion_indirecta": {
-    "detectada": false,
-    "porcentaje": 0,
-    "hops": 0,
-    "supera_umbral_materialidad": false
-  },
-  "jurisdiccion_restringida": {
-    "detectada": false,
-    "base_inferencia": "...",
-    "programa": "..."
-  },
-  "verificacion": {
-    "listas_consultadas": ["..."],
-    "fecha_ultima_actualizacion_lista": "...",
-    "block_number_consulta": 0,
-    "lista_desactualizada": false
-  },
-  "override_activado": false,
-  "accion_requerida": "continuar | revision-humana | revert | bloquear-y-segregar",
-  "facts_emitidos": [],
-  "siguiente_skill": "task-blocking-protocol | wallet-screening | fact-scoring"
+  "stopFlow": false,
+  "nextSkill": "task-blocking-protocol | wallet-screening"
 }
 ```
-
-> Ante verdadero positivo directo en SDN, ONU o UE, o ante interacción con
-> contrato designado, esta skill activa `task-blocking-protocol` con
-> prioridad crítica. La salida del hook es `REVERT`, y el tratamiento de los
-> fondos afectados no es una devolución simple: corresponde bloqueo y
-> segregación con rastro auditable.

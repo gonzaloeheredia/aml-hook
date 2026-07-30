@@ -1,192 +1,133 @@
 ---
 name: cross-pool-intelligence
-description: "Gestionar el registro de señales compartidas entre los pools que integran AML Hook: qué se comparte, cómo se pondera una señal externa frente a una propia, cómo se propagan las correcciones, y cómo se evita que un pool malicioso o mal calibrado contamine el registro común. Usar al incorporar señales externas al perfil de una wallet, al publicar una señal propia, y ante toda corrección de un score previamente compartido."
+description: "Manage the shared-signal registry among pools integrating AML Hook: what is shared, how an external signal is weighted vs an own observation, how corrections propagate, and how a malicious or miscalibrated pool is prevented from contaminating the common registry. Use when incorporating external signals into a wallet profile, when publishing an own signal, and on every correction of a previously shared score."
 ---
 
-# Cross-Pool Intelligence — Registro Compartido de Señales
+# Cross-Pool Intelligence — Shared Signal Registry
 
-## Rol en el agente
+## Role
 
-El efecto de red es el activo defensivo del producto. Una wallet señalada en un pool tiene score elevado en los demás, y el registro acumula inteligencia que un competidor no puede replicar sin adopción real del protocolo. Cuantos más pools, mejor la detección; cuantos más participantes, más señales.
+Network effect is a defensive product asset: a wallet flagged in one pool has
+elevated score in others; the registry accumulates intelligence competitors
+cannot replicate without real adoption.
 
-Ese mismo mecanismo es el vector de ataque más grave del sistema. Un registro compartido sin control de calidad propaga errores a escala, permite que un operador malicioso degrade a competidores, y convierte un falso positivo local en un bloqueo global.
+The same mechanism is the system’s most severe attack vector. An uncontrolled
+shared registry propagates errors at scale, lets a malicious operator degrade
+competitors, and turns a local false positive into a global block.
 
-Esta skill define qué entra al registro, con qué peso sale, y cómo se corrige.
+This skill defines what enters the registry, at what weight it exits, and how
+it is corrected.
+
+**Mock:** no live multi-pool registry; skill remains in FULL flow as a no-op /
+pass-through consult step for demo completeness.
 
 ---
 
-## Inputs esperados
+## Expected inputs
 
-| Campo | Descripción |
+| Field | Description |
 |---|---|
-| `operacion` | `PUBLICAR` o `CONSULTAR` |
-| `address` | Dirección sobre la que se publica o consulta |
-| `score_result` | `ScoreResult` propio, en operación de publicación |
-| `pool_origen` | Pool que publica la señal |
-| `señales_externas` | Señales disponibles en el registro, en operación de consulta |
-| `reputacion_pools` | Historial de calidad de las señales de cada pool emisor |
+| `operation` | `PUBLISH` or `QUERY` |
+| `address` | Address being published or queried |
+| `scoreResult` | Own `ScoreResult`, on publish |
+| `originPool` | Pool publishing the signal |
+| `externalSignals` | Registry signals, on query |
+| `poolReputation` | Quality history of each emitting pool |
 
 ---
 
-## Paso 1: Qué se comparte y qué no
+## Step 1: What is shared / not shared
 
-La regla es compartir hechos verificables, no juicios.
+Share verifiable facts, not judgments.
 
-| Se comparte | No se comparte |
+| Shared | Not shared |
 |---|---|
-| Hechos con evidencia on-chain identificada por `tx_hash` y bloque | El score numérico final |
-| Tipo de hecho y su categoría GAFI | El breakdown por dimensión |
-| Confidence del hecho y su fuente | Los umbrales aplicados |
-| Bloque de observación | La metodología de ponderación del pool emisor |
-| Identificador del pool emisor | La identidad de los denunciantes |
-| `audit_hash` de la observación | El expediente completo |
+| Facts with on-chain evidence (`tx_hash` + block) | Final numeric `finalScore` |
+| Fact type and FATF category | `scoreBreakdown` |
+| Fact confidence and source | Applied thresholds |
+| Observation block | Emitting pool’s weighting methodology |
+| Emitting pool id | Complainant identities |
+| Observation `auditHash` | Full case file |
 
-**Fundamento de la exclusión del score.** El score es el resultado de aplicar una metodología y unos umbrales que son específicos del pool y competitivamente sensibles. Compartirlo obligaría a los demás pools a heredar una calibración ajena, y publicaría de facto la configuración interna. Lo que viaja entre pools es la observación; la valoración la hace cada pool con sus propios parámetros.
-
-**Fundamento de la exclusión de los denunciantes.** Publicar la identidad de un LP que denunció lo expone a represalias y desalienta el uso del mecanismo.
+**Why exclude the score.** Score applies pool-specific methodology and
+competitively sensitive thresholds. Sharing it would force inheritance of
+foreign calibration and de facto publish internals. What travels is the
+observation; valuation is local.
 
 ---
 
-## Paso 2: Requisitos de admisión al registro
+## Step 2: Admission requirements (cumulative)
 
-Una señal solo se publica si cumple, de forma acumulativa:
-
-| Requisito | Contenido |
+| Requirement | Content |
 |---|---|
-| Evidencia on-chain | El hecho remite a una transacción concreta, verificable de forma independiente por cualquier pool |
-| Confidence mínimo | No se publican hechos con `confidence: LOW` |
-| Origen no derivado | No se republican señales recibidas de otro pool; se cita la original |
-| Atribución resuelta | No se publican señales sobre direcciones cuyo originador no fue atribuido |
-| Firma del pool emisor | La señal lleva firma verificable del operador que la emite |
+| On-chain evidence | Fact points to a concrete tx, independently verifiable |
+| Minimum confidence | No `LOW` facts published |
+| Non-derived origin | Do not re-publish another pool’s signal as own; cite original |
+| Resolved attribution | No signals on addresses whose originator was not attributed |
+| Emitter signature | Verifiable operator signature |
 
-**Prohibición de circularidad.** Una señal recibida no puede reemitirse como propia. Sin esta regla, una única observación errónea se multiplica entre pools y adquiere la apariencia de confirmación independiente. Cada señal conserva la identidad de su emisor original y su `audit_hash`.
+**No circularity.** A received signal cannot be re-emitted as own. Each signal
+keeps original emitter identity and `auditHash`.
 
 ---
 
-## Paso 3: Ponderación de la señal externa
+## Step 3: External-signal weighting
 
-Una señal ajena no puede pesar lo mismo que una observación propia. El pool que consulta no controló la fuente, no vio el contexto y no puede verificar la calibración del emisor.
-
-| Factor | Efecto sobre el peso |
+| Factor | Effect |
 |---|---|
-| **Verificabilidad independiente** | Si el pool consultante puede confirmar la evidencia on-chain por sí mismo, la señal se trata como propia. Es el caso ideal y el que la regla de evidencia on-chain busca maximizar |
-| **Confidence del emisor** | Se hereda; nunca se eleva |
-| **Reputación del emisor** | Ajuste por el historial de calidad de sus señales, medido en el Paso 5 |
-| **Independencia** | N señales de pools distintos sobre el mismo hecho refuerzan; N señales derivadas de una misma observación original no |
-| **Antigüedad** | Decaimiento temporal equivalente al de los hechos propios |
-| **Tipo de hecho** | Los hechos de sanciones se verifican siempre contra la lista, nunca se aceptan por señal externa |
+| **Independent verifiability** | If consultable pool confirms on-chain evidence itself → treat as own |
+| **Emitter confidence** | Inherited; never raised |
+| **Emitter reputation** | Adjust per Step 5 quality history |
+| **Independence** | N distinct pools on same fact reinforce; N derivatives of one observation do not |
+| **Age** | Temporal decay equivalent to own facts |
+| **Fact type** | Sanctions facts always verified against the list — never accepted by signal alone |
 
-**Regla de techo.** Las señales externas no verificadas de forma independiente tienen techo en el tramo de fee diferencial. Un bloqueo exige al menos un hecho propio con `confidence: HIGH`, o una señal externa que el pool consultante haya verificado por sí mismo contra la evidencia on-chain citada.
+**Ceiling rule.** Unverified external signals cap at the `FEE_OVERRIDE` band.
+A block requires at least one own `HIGH` fact, or an external signal the
+consulting pool verified itself against the cited on-chain evidence.
 
-Esta regla es la protección central contra la contaminación del registro. Impide que un pool malicioso o mal calibrado produzca bloqueos en pools ajenos.
-
----
-
-## Paso 4: Defensa contra abuso
-
-| Vector | Defensa |
-|---|---|
-| **Pool malicioso que señala competidores** | Techo de señales externas; verificación independiente exigida para bloqueo; reputación del emisor |
-| **Pool mal calibrado que genera ruido** | Reputación por tasa de señales desmentidas; señales de emisores degradados pierden peso |
-| **Sybil de pools** | El alta de un pool en el registro requiere umbral mínimo de liquidez y antigüedad, y se gobierna por Timelock |
-| **Amplificación circular** | Prohibición de republicación; cada señal conserva emisor original |
-| **Envenenamiento por dust** | Los hechos derivados de transferencias entrantes no solicitadas se marcan como tales y no computan como comportamiento del receptor |
-| **Denuncia coordinada entre pools vinculados** | Los pools vinculados por operador común computan como un único emisor |
-
-**Ataque de envenenamiento por transferencia entrante.** Cualquiera puede enviar fondos a cualquier dirección. Un actor que quiera degradar una wallet ajena puede enviarle fondos desde una dirección contaminada. El sistema debe distinguir entre fondos que la wallet recibió y fondos que la wallet usó: solo el uso posterior de esos fondos es comportamiento atribuible. Esta distinción es obligatoria y su ausencia convierte al sistema en un arma contra terceros.
+Weight for unverified: original weight × 0.5 (`EXTERNAL_SIGNAL_UNVERIFIED`).
 
 ---
 
-## Paso 5: Reputación del pool emisor
+## Step 4: Corrections
 
-| Métrica | Definición |
-|---|---|
-| Señales emitidas | Volumen del período |
-| Tasa de confirmación | Señales que otros pools verificaron de forma independiente y confirmaron |
-| Tasa de desmentido | Señales revertidas por `dispute-remediation` en el pool emisor o desmentidas por verificación ajena |
-| Tasa de corrección propagada | Señales que el emisor corrigió por iniciativa propia |
-| Cobertura de evidencia | Proporción de señales con evidencia on-chain verificable |
+When an emitter corrects or retracts:
 
-Un emisor con tasa de desmentido sostenida por encima del umbral configurado entra en estado degradado: sus señales siguen registrándose pero con peso reducido, y no pueden fundar tramo elevado en pools ajenos. La salida del estado degradado requiere un período de señales confirmadas.
-
-**Valor del comportamiento correctivo.** Un emisor que corrige sus propios errores y propaga la corrección mejora su reputación. El incentivo debe favorecer la corrección, no el ocultamiento.
+1. Publish correction with reference to original `auditHash`
+2. Consulting pools invalidate derived contributions and recalculate
+3. Reputation of emitter updates (Step 5)
 
 ---
 
-## Paso 6: Propagación de correcciones
+## Step 5: Emitter reputation
 
-Un error corregido en el pool de origen y no propagado sigue produciendo efectos en los demás. La propagación es obligatoria.
-
-| Evento en el pool de origen | Obligación |
-|---|---|
-| Hecho eliminado por `dispute-remediation` | Retracción de la señal, con referencia al `audit_hash` de la resolución |
-| Hecho degradado en confidence | Actualización de la señal |
-| Cluster reatribuido por el proveedor | Actualización o retracción |
-| Contrato que dejó de estar designado | Retracción obligatoria |
-| Clave de reenviador revocada que sustentaba la atribución | Marcado de la señal para revisión |
-
-Los pools consultantes que incorporaron una señal retractada deben recalcular los perfiles afectados. La skill mantiene el índice de qué pools consumieron cada señal, para hacer efectiva la propagación.
+Track true-positive / false-positive rates of published signals against later
+verification. Reputation below configured threshold → degrade weight or
+suspend admission. Reputation is for signal quality, not a public blacklist of
+operators in the Opinion pack.
 
 ---
 
-## Paso 7: Gobernanza del registro
-
-| Decisión | Mecanismo |
-|---|---|
-| Alta y baja de pools | Timelock de la DAO |
-| Umbral de reputación para degradación | Parámetro gobernable |
-| Requisitos mínimos de liquidez y antigüedad para el alta | Parámetro gobernable |
-| Techo de peso de señales externas | Inmutable |
-| Prohibición de republicación | Inmutable |
-| Exclusión del score del contenido compartido | Inmutable |
-| Verificación de sanciones contra lista, nunca por señal ajena | Inmutable |
-
----
-
-## Output estructurado
+## Structured output
 
 ```json
 {
-  "operacion": "PUBLICAR | CONSULTAR",
+  "operation": "PUBLISH | QUERY",
   "address": "0x...",
-  "publicacion": {
-    "señales_publicadas": [
-      {
-        "tipo_hecho": "...",
-        "categoria_gafi": [1],
-        "confidence": "HIGH | MEDIUM",
-        "evidencia_onchain": {"tx_hash": "0x...", "block_number": 0},
-        "pool_emisor": "0x...",
-        "audit_hash": "...",
-        "firma_emisor": "..."
-      }
-    ],
-    "señales_rechazadas": [
-      {"motivo": "confidence-insuficiente | sin-evidencia-onchain | derivada | atribucion-no-resuelta"}
-    ]
-  },
-  "consulta": {
-    "señales_recibidas": 0,
-    "emisores_distintos": 0,
-    "emisores_independientes": 0,
-    "señales_verificadas_localmente": 0,
-    "señales_de_emisores_degradados": 0,
-    "peso_agregado_aplicado": 0.0,
-    "techo_aplicado": "fee-diferencial | sin-techo",
-    "facts_emitidos": []
-  },
-  "defensas_activadas": ["dust-poisoning | republicacion | emisor-degradado | pools-vinculados"],
-  "reputacion_emisores": [
-    {"pool": "0x...", "tasa_confirmacion": 0.0, "tasa_desmentido": 0.0, "estado": "activo | degradado"}
+  "admittedSignals": [],
+  "rejectedSignals": [],
+  "facts": [
+    {
+      "type": "EXTERNAL_SIGNAL_VERIFIED | EXTERNAL_SIGNAL_UNVERIFIED",
+      "dimension": "NW",
+      "baseWeight": 0,
+      "confidence": "MEDIUM",
+      "regulatoryBasis": "FATF Rec. 10 · shared registry observation",
+      "justification": "..."
+    }
   ],
-  "retracciones_procesadas": [
-    {"señal": "...", "motivo": "...", "pools_notificados": 0, "perfiles_a_recalcular": 0}
-  ],
-  "siguiente_skill": "fact-scoring | dispute-remediation"
+  "ceilingApplied": "FEE_OVERRIDE | none",
+  "notes": "..."
 }
 ```
-
-> El registro compartido nunca sustituye la verificación propia. Un pool que
-> bloquea una wallet exclusivamente por señales ajenas no verificadas no
-> puede fundamentar la medida ante un supervisor, y traslada a un tercero
-> una decisión de la que es responsable.

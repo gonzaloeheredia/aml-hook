@@ -9,7 +9,7 @@
 import { listEvents, listTransfers, listWallets, getWallet } from "../store.js";
 import type { WalletId } from "../types.js";
 import { buildFacts, scoreFromFacts } from "./factScoring.js";
-import { buildDictamenFromScore } from "./report.js";
+import { buildOpinionFromScore } from "./report.js";
 import {
   clearOracleStore,
   getOracleEvaluation,
@@ -69,8 +69,8 @@ export function reevaluateWallet(
     skills,
     useIncremental ? "INCREMENTAL" : "FULL",
   );
-  const dictamen = buildDictamenFromScore(wallet, scoreResult);
-  const evaluation: OracleEvaluation = { scoreResult, dictamen };
+  const opinion = buildOpinionFromScore(wallet, scoreResult);
+  const evaluation: OracleEvaluation = { scoreResult, opinion };
   setOracleEvaluation(walletId, evaluation);
   return evaluation;
 }
@@ -113,7 +113,7 @@ export function reevaluateAfterSwap(walletId: WalletId): OracleEvaluation {
 }
 
 /**
- * After beforeSwap REVERT (WalletBlocked): still refresh oracle trail/dictamen.
+ * After beforeSwap REVERT (WalletBlocked): still refresh oracle trail/opinion.
  */
 export function reevaluateAfterBlock(walletId: WalletId): OracleEvaluation {
   return reevaluateWallet(walletId, "blocked");

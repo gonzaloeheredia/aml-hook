@@ -14,17 +14,17 @@ import {
 import type { CompliancePack, SwapQuote, Wallet } from "./types.js";
 
 /**
- * Builds the full live compliance pack (dictamen) for a wallet.
+ * Builds the full live compliance pack (Opinion) for a wallet.
  * Score + Opinion come from the off-chain oracle COA.
  */
 export function buildCompliancePack(wallet: Wallet): CompliancePack {
   const oracle = ensureOracleEvaluation(wallet.id);
-  const score = oracle.scoreResult.score_final;
+  const score = oracle.scoreResult.finalScore;
   const decision = decisionFromScore(score);
   const appliedFeeBps = feeBpsFromHop(score, wallet.hopDistance);
-  const hookOutput = oracle.scoreResult.salida_hook;
-  const dictamen = oracle.dictamen;
-  const auditHash = dictamen.auditHash;
+  const hookOutput = oracle.scoreResult.hookOutput;
+  const opinion = oracle.opinion;
+  const auditHash = opinion.auditHash;
 
   const riskLabel =
     decision === "block"
@@ -44,7 +44,7 @@ export function buildCompliancePack(wallet: Wallet): CompliancePack {
         ? "Exploit source"
         : `${wallet.hopDistance}-hop decay`;
 
-  const topFacts = oracle.scoreResult.hechos_disparadores
+  const topFacts = oracle.scoreResult.triggeringFacts
     .filter((f) => f.dimension !== "MT")
     .slice(0, 2)
     .map((f) => f.type)
@@ -66,7 +66,7 @@ export function buildCompliancePack(wallet: Wallet): CompliancePack {
     eth: wallet.eth,
     riskLabel,
     summary: [
-      `Oracle COA score ${score}/100 · ${oracle.scoreResult.nivel_riesgo} · ${hookOutput} (${oracle.scoreResult.flow}).`,
+      `Oracle COA score ${score}/100 · ${oracle.scoreResult.riskLevel} · ${hookOutput} (${oracle.scoreResult.flow}).`,
       wallet.exploitConfirmed
         ? "Keeper confirmed exploit source — REVERT on pool swaps. P2P outflows contaminate B/C."
         : wallet.hopDistance
@@ -75,16 +75,16 @@ export function buildCompliancePack(wallet: Wallet): CompliancePack {
       topFacts ? `Top facts: ${topFacts}.` : hopTag,
     ],
     agent: {
-      status: dictamen.status,
-      documentType: dictamen.documentType,
-      confidence: dictamen.confidence,
-      humanReview: dictamen.humanReview,
-      retentionYears: dictamen.retentionYears,
+      status: opinion.status,
+      documentType: opinion.documentType,
+      confidence: opinion.confidence,
+      humanReview: opinion.humanReview,
+      retentionYears: opinion.retentionYears,
       auditHash,
-      technicalOpinion: dictamen.technicalOpinion,
-      sarAnnex: dictamen.sarAnnex,
-      decisionRecord: dictamen.decisionRecord,
-      note: dictamen.note,
+      technicalOpinion: opinion.technicalOpinion,
+      sarAnnex: opinion.sarAnnex,
+      decisionRecord: opinion.decisionRecord,
+      note: opinion.note,
     },
   };
 }

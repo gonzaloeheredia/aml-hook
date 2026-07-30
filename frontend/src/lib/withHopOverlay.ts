@@ -29,9 +29,9 @@ function formatEthBuy(n: number): string {
 type Decision = "allow" | "fee_override" | "block";
 
 /**
- * Rebuilds the Opinion dictamen using the FinCEN SAR narrative model
+ * Rebuilds the Opinion using the FinCEN SAR narrative model
  * (Who / What / When / Where / Why / How) from live MetaMask / N-hop state.
- * Skills are never listed in the dictamen.
+ * Skills are never listed in the opinion.
  */
 function buildLiveTechnicalOpinion(
   wallet: SimWallet,
@@ -121,7 +121,7 @@ function buildLiveTechnicalOpinion(
           : hop == null
             ? "Monitor for inbound P2P from Wallet A (or contaminated B). If received, expect N-hop decay fees."
             : "Keep ordinary monitoring. Re-open enhanced narrative if an inbound tainted transfer raises score into FEE_OVERRIDE or REVERT.",
-    traceability: `audit_hash ${auditHash} · retention 5 years (FATF Rec. 11 · BSA). Support draft — not submitted.`,
+    traceability: `auditHash ${auditHash} · retention 5 years (FATF Rec. 11 · BSA). Support draft — not submitted.`,
   };
 }
 

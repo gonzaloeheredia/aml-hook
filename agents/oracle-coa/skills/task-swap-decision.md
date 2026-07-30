@@ -1,197 +1,166 @@
 ---
 name: task-swap-decision
-description: "Traducir el score producido por fact-scoring en la salida ternaria que AML Hook ejecuta: permitir con fee estándar, aplicar fee diferencial, o revertir. Verifica reglas de override, valida la suficiencia probatoria de la decisión, define el destino del fee diferencial y produce el fundamento que se registra on-chain. Usar después de fact-scoring, antes de task-regulatory-report."
+description: "Translate the fact-scoring score into the ternary output AML Hook executes: allow with standard fee, apply FEE_OVERRIDE, or REVERT. Verifies override rules, validates evidentiary sufficiency, defines FEE_OVERRIDE escrow destination, and produces the on-chain reason basis. Use after fact-scoring, before task-regulatory-report."
 ---
 
-# Task: Swap Decision — Determinación de la Salida del Hook
+# Task: Swap Decision — Hook Output Determination
 
-## Rol en el agente
+## Role
 
-Esta skill toma el `ScoreResult` y produce la decisión que el hook ejecuta.
-Es el momento de síntesis: el punto donde el análisis se convierte en una
-acción con efecto económico sobre una operación real.
+Takes `ScoreResult` and produces the decision the hook executes. Synthesis
+point where analysis becomes an economic action on a real operation.
 
-La decisión es ternaria, y esa gradación es la traducción operativa del
-Enfoque Basado en Riesgo. Un sistema binario trata igual al riesgo medio y
-al riesgo bajo, o al riesgo medio y al alto. Ninguna de las dos cosas
-satisface la Recomendación 1 del GAFI.
+The decision is ternary — the operational translation of FATF Rec. 1 (RBA).
+A binary system treats mid-risk like low risk, or mid-risk like high risk;
+neither satisfies Rec. 1.
 
 ---
 
-## Inputs esperados
+## Expected inputs
 
-| Campo | Descripción |
+| Field | Description |
 |---|---|
-| `score_result` | Output completo de `fact-scoring` |
-| `output_ofac` | Output de `ofac-screening` |
-| `output_typology` | Tipologías identificadas y multiplicidad de categorías |
-| `configuracion_pool` | Modo, umbrales gobernables, multiplicador de fee, política de default |
-| `expediente` | Output de `task-onchain-evidence`, incluidos gaps y modo degradado |
+| `scoreResult` | Full `fact-scoring` output |
+| `ofacOutput` | `ofac-screening` output |
+| `typologyOutput` | Typologies and FATF category multiplicity |
+| `poolConfig` | Mode, governable thresholds, fee multiplier, default policy |
+| `caseFile` | `task-onchain-evidence` output, including gaps / degraded mode |
 
 ---
 
-## Paso 1: Verificación de overrides
+## Step 1: Override checks
 
-Antes de aplicar el mapeo de rangos, verificar si alguna regla de override
-está activa. Las reglas de override no admiten ponderación.
+Overrides admit no weighting.
 
-| Regla | Condición | Efecto |
+| Rule | Condition | Effect |
 |---|---|---|
-| Match directo en lista de sanciones | `OFAC_MATCH_DIRECTO`, `ONU_MATCH_DIRECTO`, `UE_MATCH_DIRECTO` | Score 100. Salida `REVERT`. Activar `task-blocking-protocol` |
-| Interacción con contrato designado | `CONTRATO_SANCIONADO_DIRECTO` | Idéntico al anterior |
-| Nexo con financiamiento del terrorismo | `FINANCIAMIENTO_TERRORISMO` | Idéntico, con urgencia máxima |
-| Controlador designado en Smart Account | Hit en cualquier controlador | `REVERT` preventivo y revisión humana obligatoria |
-| Nivel 1 de evidencia no disponible | `nivel_1_disponible: false` | Suspensión de la evaluación; aplicar la política de default del pool |
-| Atribución del originador no resuelta | `atribucion.resuelta: false` bajo política restrictiva | Salida `REVERT` con código `ATTRIBUTION_FAILED`. No se construye perfil. Encolado para resolución diferida si la política está activa |
+| Direct sanctions match | `OFAC_DIRECT_MATCH`, `UN_DIRECT_MATCH`, `EU_DIRECT_MATCH` | Score 100. `hookOutput: REVERT`. Activate `task-blocking-protocol` |
+| Designated contract | `SANCTIONED_CONTRACT_DIRECT` | Same |
+| TF / proliferation nexus | `TERRORISM_FINANCING` | Same, max urgency |
+| Designated Smart Account controller | Hit on any controller | Preventive `REVERT` + mandatory human review |
+| Level-1 evidence unavailable | `level1Available: false` | Suspend evaluation; apply pool default policy |
+| Originator attribution unresolved | `attribution.resolved: false` under restrictive policy | `REVERT` with `ATTRIBUTION_FAILED`. No profile built. Queue deferred resolution if enabled |
 
 ---
 
-## Paso 2: Mapeo del score a la salida
+## Step 2: Score → hook output mapping
 
-| Rango | Salida | Efecto en el hook |
+| Range | hookOutput | Hook effect |
 |---|---|---|
-| 0–30 | `ALLOW` | Swap ejecutado con fee estándar. Evento de verificación emitido |
-| 31–70 | `FEE_DIFERENCIAL` | Swap ejecutado con el multiplicador configurado. Evento de monitoreo emitido con el fundamento |
-| 71–99 | `REVERT` | Swap revertido. Razón registrada en evento on-chain |
-| 100 | `REVERT` + bloqueo | Swap revertido y protocolo de bloqueo activado |
+| 0–30 | `ALLOW` | Swap at standard fee. Verification event emitted |
+| 31–70 | `FEE_OVERRIDE` | Swap with configured multiplier / `lpFeeOverride`. Monitoring event with basis |
+| 71–99 | `REVERT` | Swap reverted. Reason recorded on-chain |
+| 100 | `REVERT` + block | Revert + blocking protocol |
 
-**Fundamento de la salida intermedia.** El tramo 31–70 corresponde a
-wallets con comportamiento atípico sin designación confirmada. No existe
-obligación legal de bloquearlas. El estándar regulatorio ante ese perfil es
-monitoreo reforzado y escrutinio adicional, no rechazo. El fee diferencial
-es la traducción on-chain de ese principio: aplica fricción económica
-proporcional, deja registro del evento y no excluye al participante.
+**Mid-band rationale.** Band 31–70 = atypical behavior without confirmed
+designation. No legal duty to hard-block. The regulatory standard is enhanced
+monitoring — `FEE_OVERRIDE` is the on-chain translation: proportional economic
+friction, event trail, participant not excluded.
+
+`riskLevel`: 0–30 → `STANDARD` · 31–70 → `ELEVATED` · 71–100 → `BLOCK`.
 
 ---
 
-## Paso 3: Validación de suficiencia probatoria
+## Step 3: Evidentiary sufficiency (REVERT 71–99)
 
-Toda decisión de `REVERT` por score entre 71 y 99 debe superar tres
-controles antes de ejecutarse. Un bloqueo mal fundado tiene costo
-regulatorio propio y expone al operador a reclamos.
-
-| Control | Criterio | Resultado si falla |
+| Control | Criterion | On failure |
 |---|---|---|
-| **Al menos un hecho HIGH** | El score no puede sustentarse solo en hechos MEDIUM y LOW | Emitir `CONFIDENCE_INSUFICIENTE`; degradar a `FEE_DIFERENCIAL` |
-| **Multiplicidad de categorías** | Al menos dos categorías GAFI concurrentes | Emitir advertencia; la decisión requiere revisión humana antes de consolidarse como política sobre esa wallet |
-| **Ausencia de gap crítico** | Ningún gap del expediente impide evaluar la dimensión que sustenta el bloqueo | Degradar a `FEE_DIFERENCIAL` y registrar la limitación |
-| **Hecho propio o señal verificada** | El bloqueo no se sustenta exclusivamente en señales externas no verificadas de forma independiente | Degradar a `FEE_DIFERENCIAL`; ver `cross-pool-intelligence` Paso 3 |
+| **At least one HIGH fact** | Score cannot rest only on MEDIUM/LOW | Flag `INSUFFICIENT_CONFIDENCE`; degrade to `FEE_OVERRIDE` |
+| **FATF category multiplicity** | At least two concurrent categories | Warning; human review before consolidating as policy on that wallet |
+| **No critical gap** | No case-file gap blocks the dimension supporting the block | Degrade to `FEE_OVERRIDE`; record limitation |
+| **Own fact or verified signal** | Block not based solely on unverified external signals | Degrade to `FEE_OVERRIDE`; see `cross-pool-intelligence` |
 
-Estos controles no aplican a los overrides del Paso 1. Un match de sanciones
-se ejecuta con independencia de la suficiencia del resto del expediente.
+These controls do **not** apply to Step 1 overrides.
 
 ---
 
-## Paso 4: Destino del fee diferencial
+## Step 4: FEE_OVERRIDE destination
 
-El fee diferencial no se acredita al pool de forma inmediata. Se deposita en
-un contrato de escrow con timelock configurable, cuyo default es 48 horas.
+FEE_OVERRIDE is not credited to the pool immediately. It deposits to an escrow
+contract with configurable timelock (default 48 hours).
 
-| Escenario dentro del timelock | Destino del fee |
+| Scenario within timelock | Fee destination |
 |---|---|
-| Se confirma que la wallet integraba un esquema de fraude, por designación posterior, por flag de wallets vinculadas o por completarse el patrón | Fondo de compensación para los LPs afectados |
-| No hay confirmación al vencimiento del plazo | Liberación normal al pool |
+| Wallet confirmed in a fraud scheme (later designation, linked wallets, completed pattern) | Compensation fund for affected LPs |
+| No confirmation at expiry | Normal release to the pool |
 
-El mecanismo produce dos efectos: genera un costo económico real para el
-actor incluso cuando supera el filtro inicial, y financia un mecanismo de
-compensación. Convierte el control de compliance en protección del pool.
-
-**Registro obligatorio.** Todo depósito en escrow se registra con el
-`audit_hash` del `ScoreResult` que lo fundamentó, para que la liberación o
-la reasignación posterior sea auditable.
+Every escrow deposit records the `auditHash` of the supporting `ScoreResult`.
 
 ---
 
-## Paso 5: Formulación del fundamento
+## Step 5: Reason basis
 
-Toda decisión, incluidas las de `ALLOW`, produce un fundamento registrable.
-La ausencia de acción también es una decisión, y su documentación es parte
-del estándar de monitoreo razonable.
+Every decision, including `ALLOW`, produces a registrable basis. Inaction is
+also a decision under reasonable-monitoring standards.
 
-El fundamento incluye:
+Basis includes:
 
-1. Score y tramo aplicado
-2. Los tres hechos de mayor contribución, con su base regulatoria
-3. Tipologías identificadas y cantidad de categorías GAFI concurrentes
-4. Controles de suficiencia superados o fallados
-5. Bloque de cálculo del score y bloque de ejecución de la decisión
-6. `audit_hash` del `ScoreResult`
+1. `finalScore` and applied band
+2. Top three facts by `scoreContribution`, with `regulatoryBasis`
+3. Typologies and concurrent FATF category count
+4. Sufficiency controls passed or failed
+5. Score calculation time / execution block (live)
+6. `auditHash`
 
-**Regla de longitud.** El fundamento que se emite on-chain es un identificador
-y un código de razón, no texto extenso. El fundamento completo se conserva
-off-chain, vinculado por `audit_hash`. El evento on-chain debe permitir
-localizar el expediente, no contenerlo.
+**Length rule.** On-chain emit = identifier + reason code, not long text. Full
+basis stays off-chain, linked by `auditHash`.
 
 ---
 
-## Paso 6: Derivaciones
+## Step 6: Derivations
 
-| Condición | Derivación |
+| Condition | Derivation |
 |---|---|
-| Override de sanciones activo | `task-blocking-protocol`, urgencia crítica |
-| `SOSPECHA_RAZONABLE_ALCANZADA` | `task-regulatory-report` |
-| `REVERT` por score 71–99 | `task-regulatory-report` |
-| `CONFIDENCE_INSUFICIENTE` o gap crítico | Revisión humana del Oficial de Cumplimiento del operador |
-| `FEE_DIFERENCIAL` sin sospecha razonable | Registro y monitoreo; sin expediente formal |
-| `ALLOW` | Registro de la verificación; cierre |
-| Hecho propio publicable | `cross-pool-intelligence`, operación de publicación |
-| Impugnación recibida sobre esta decisión | `dispute-remediation` |
-| Decisión incorporada al período de validación | `model-validation` |
+| Active sanctions override | `task-blocking-protocol`, critical |
+| `REASONABLE_SUSPICION_REACHED` | `task-regulatory-report` |
+| `REVERT` for score 71–99 | `task-regulatory-report` |
+| `INSUFFICIENT_CONFIDENCE` or critical gap | Human review by operator Compliance Officer |
+| `FEE_OVERRIDE` without reasonable suspicion | Record and monitor; no formal case file |
+| `ALLOW` | Verification record; close |
+| Publishable own fact | `cross-pool-intelligence` (publish) |
+| Challenge on this decision | `dispute-remediation` |
+| Included in validation period | `model-validation` |
 
 ---
 
-## Output estructurado
+## Structured output
 
 ```json
 {
-  "evento_id": "...",
+  "eventId": "...",
   "address": "0x...",
-  "score_final": 0,
-  "salida": "ALLOW | FEE_DIFERENCIAL | REVERT",
-  "override_aplicado": {
-    "activo": false,
-    "regla": null
-  },
-  "validacion_suficiencia": {
-    "hecho_high_presente": true,
-    "sustento_propio_o_verificado": true,
-    "categorias_gafi_concurrentes": 0,
-    "gap_critico": false,
-    "resultado": "suficiente | degradada | insuficiente",
-    "salida_degradada_desde": null
+  "finalScore": 0,
+  "riskLevel": "STANDARD | ELEVATED | BLOCK",
+  "hookOutput": "ALLOW | FEE_OVERRIDE | REVERT",
+  "overrideApplied": { "active": false, "rule": null },
+  "sufficiencyValidation": {
+    "highFactPresent": true,
+    "ownOrVerifiedSupport": true,
+    "concurrentFatfCategories": 0,
+    "criticalGap": false,
+    "result": "sufficient | degraded | insufficient",
+    "degradedFrom": null
   },
   "fee": {
-    "multiplicador_aplicado": 1,
+    "multiplierApplied": 1,
     "escrow": false,
-    "timelock_horas": null,
-    "escrow_id": null
+    "timelockHours": null,
+    "escrowId": null
   },
-  "fundamento": {
-    "codigo_razon": "...",
-    "hechos_principales": [
-      {"type": "...", "contribucion": 0, "base_regulatoria": "..."}
+  "basis": {
+    "reasonCode": "...",
+    "mainFacts": [
+      {"type": "...", "scoreContribution": 0, "regulatoryBasis": "..."}
     ],
-    "tipologias": ["..."],
-    "score_calculado_en_block": 0,
-    "decision_ejecutada_en_block": 0,
-    "audit_hash": "..."
+    "typologies": ["..."],
+    "auditHash": "..."
   },
-  "evento_onchain": {
-    "nombre": "ComplianceDecision",
-    "campos": ["wallet", "poolId", "salida", "codigo_razon", "audit_hash"]
-  },
-  "atribucion": {
-    "resuelta": true,
-    "metodo": "...",
-    "confidence": "HIGH | MEDIUM | LOW"
-  },
-  "requiere_revision_humana": false,
-  "via_impugnacion_disponible": true,
-  "siguiente_skill": "task-blocking-protocol | task-regulatory-report | cross-pool-intelligence | cerrar"
+  "requiresHumanReview": false,
+  "challengePathAvailable": true,
+  "nextSkill": "task-blocking-protocol | task-regulatory-report | cross-pool-intelligence | close"
 }
 ```
 
-> Esta skill produce una decisión de ejecución sobre una operación, no una
-> conclusión sobre la licitud de la conducta de nadie. La calificación de una
-> operación como sospechosa, y toda actuación derivada, corresponde al
-> Oficial de Cumplimiento del operador del pool.
+> Produces an execution decision on an operation, not a conclusion on the
+> lawfulness of anyone’s conduct. Qualifying an operation as suspicious, and
+> any derived action, belongs to the pool Compliance Officer.

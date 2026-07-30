@@ -1,5 +1,5 @@
 /**
- * Off-chain oracle types — ScoreResult + dictamen from the COA agent skills.
+ * Off-chain oracle types — ScoreResult + Opinion from the COA agent skills.
  * Spec: agents/oracle-coa/skills/fact-scoring.md · task-regulatory-report.md
  */
 
@@ -15,51 +15,53 @@ export type OracleTrigger =
 export type FactConfidence = "HIGH" | "MEDIUM" | "LOW";
 
 export type FactEvent = {
-  fact_id: string;
+  factId: string;
   type: string;
   confidence: FactConfidence;
-  base_weight: number;
-  contribucion_score: number;
-  base_regulatoria: string;
-  justificacion: string;
+  baseWeight: number;
+  scoreContribution: number;
+  regulatoryBasis: string;
+  justification: string;
   dimension: "S" | "ST" | "MX" | "NW" | "GEO" | "MT" | "DF";
 };
 
 export type ScoreBreakdown = {
-  sanciones: number;
+  sanctions: number;
   structuring: number;
-  exposicion_mixer: number;
-  comportamiento_red: number;
-  riesgo_geografico: number;
-  tipologias_defi: number;
-  mitigantes: number;
-  componente_historico: number;
+  mixerExposure: number;
+  networkBehavior: number;
+  geographicRisk: number;
+  defiTypologies: number;
+  mitigants: number;
+  historicalComponent: number;
 };
+
+export type RiskLevel = "BLOCK" | "ELEVATED" | "STANDARD";
 
 export type ScoreResult = {
   walletId: WalletId;
   address: string;
-  score_final: number;
-  nivel_riesgo: "BLOQUEO" | "ELEVADO" | "ESTANDAR";
-  salida_hook: HookOutput;
-  score_breakdown: ScoreBreakdown;
-  hechos_disparadores: FactEvent[];
-  flags_regulatorios: {
-    tipo: string;
-    descripcion: string;
-    recomendacion: string;
+  finalScore: number;
+  riskLevel: RiskLevel;
+  hookOutput: HookOutput;
+  scoreBreakdown: ScoreBreakdown;
+  triggeringFacts: FactEvent[];
+  regulatoryFlags: {
+    type: string;
+    description: string;
+    recommendation: string;
   }[];
-  vigencia: {
-    calculado_en: string;
+  validity: {
+    calculatedAt: string;
     trigger: OracleTrigger;
-    proxima_revision: string;
+    nextReview: string;
   };
-  audit_hash: string;
-  skills_applied: string[];
+  auditHash: string;
+  skillsApplied: string[];
   flow: "FULL" | "INCREMENTAL";
 };
 
-export type OracleDictamen = {
+export type OracleOpinion = {
   status: string;
   documentType: string;
   confidence: FactConfidence;
@@ -103,5 +105,5 @@ export type OracleDictamen = {
 /** Full oracle evaluation cached per wallet. */
 export type OracleEvaluation = {
   scoreResult: ScoreResult;
-  dictamen: OracleDictamen;
+  opinion: OracleOpinion;
 };

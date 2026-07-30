@@ -101,7 +101,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /**
-   * Returns the live compliance dictamen for a wallet
+   * Returns the live compliance opinion for a wallet
    * (oracle COA → technical opinion + SAR annex + decision record).
    */
   app.get<{ Params: { id: string } }>(
@@ -141,7 +141,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  /** Cached oracle ScoreResult + dictamen for a wallet. */
+  /** Cached oracle ScoreResult + opinion for a wallet. */
   app.get<{ Params: { id: string } }>(
     "/oracle/:id",
     async (req, reply) => {

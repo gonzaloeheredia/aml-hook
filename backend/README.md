@@ -4,7 +4,7 @@ In-memory TypeScript API that owns the demo ledger and the **off-chain oracle CO
 
 State lives in process memory — **resets when the server restarts**. No Postgres.
 
-**Oracle COA (MOCK_MODE):** scores and Opinion dictamen are produced by `backend/src/oracle/` using the skill pack in [`agents/oracle-coa/`](../agents/oracle-coa/). Facts come from the N-hop ledger + swap/event trail. There are **no live calls** to Anthropic, OpenSanctions, Etherscan, GoPlus, Chainalysis, TRM, or OFAC APIs.
+**Oracle COA (MOCK_MODE):** scores and Opinion are produced by `backend/src/oracle/` using the skill pack in [`agents/oracle-coa/`](../agents/oracle-coa/). Facts come from the N-hop ledger + swap/event trail. There are **no live calls** to Anthropic, OpenSanctions, Etherscan, GoPlus, Chainalysis, TRM, or OFAC APIs.
 
 ## What it replaces (conceptually)
 
@@ -13,7 +13,7 @@ State lives in process memory — **resets when the server restarts**. No Postgr
 | `simWallets` / `initialSimWallets` | `GET /wallets`, `GET /wallets/:id` |
 | `applyTransfer` | `POST /transfers` (+ oracle reevaluate) |
 | `applyPoolSwap` + quote | `GET /wallets/:id/quote`, `POST /swaps` (+ afterSwap oracle) |
-| `withHopOverlay` / agent opinion | `GET /wallets/:id/compliance` (oracle dictamen) |
+| `withHopOverlay` / agent opinion | `GET /wallets/:id/compliance` (oracle opinion) |
 
 ## Run
 
@@ -32,10 +32,10 @@ Default: [http://localhost:4000](http://localhost:4000)
 | `GET` | `/health` | Liveness + mode (`in-memory`, `oracle: coa-mock`) |
 | `GET` | `/wallets` | All wallets + live oracle score/decision |
 | `GET` | `/wallets/:id` | One wallet (`A` \| `B` \| `C`) + quote |
-| `GET` | `/wallets/:id/compliance` | **Oracle dictamen** for Opinion UI |
+| `GET` | `/wallets/:id/compliance` | **Oracle opinion** for Opinion UI |
 | `GET` | `/wallets/:id/quote` | USDC→ETH quote (`?amountUsd=1000`) |
 | `GET` | `/oracle` | All cached ScoreResults |
-| `GET` | `/oracle/:id` | ScoreResult + dictamen for one wallet |
+| `GET` | `/oracle/:id` | ScoreResult + opinion for one wallet |
 | `POST` | `/transfers` | P2P USDC → hop update → **oracle reevaluate** from/to |
 | `POST` | `/swaps` | Settle swap → event → **oracle reevaluate** |
 | `GET` | `/transfers` | Transfer history |
@@ -54,10 +54,10 @@ P2P transfer or afterSwap event
   in-memory score store  ←── next beforeSwap / quote reads this
         │
         ▼
-  dictamen → GET /compliance → Opinion stage
+  opinion → GET /compliance → Opinion stage
 ```
 
-### Example — compliance dictamen (oracle-backed)
+### Example — compliance opinion (oracle-backed)
 
 ```bash
 curl http://localhost:4000/wallets/C/compliance

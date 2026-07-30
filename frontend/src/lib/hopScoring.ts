@@ -1,7 +1,7 @@
 /**
  * N-hop decay scoring for the AML Hook demo.
  *
- * Use case (`docs/AML-Hook_Use_of_Case.txt`):
+ * Use case (`docs/AML-Hook_Use_Case.txt`):
  * - Wallet A = exploit attacker → REVERT on pool swaps.
  * - Wallets B and C both start clean (ALLOW 0.30%, green). Swaps never add score.
  * - Risk only via MetaMask P2P hops:

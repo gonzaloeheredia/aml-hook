@@ -22,7 +22,7 @@ import type {
 } from "./types.js";
 
 /** Historical blend weight (fact-scoring §3.3 default). */
-const DECAY_HISTORICO = 0.4;
+const HISTORICAL_DECAY = 0.4;
 
 /**
  * Builds admissible FactEvents for a wallet from live ledger state.
@@ -40,13 +40,12 @@ export function buildFacts(
   if (wallet.exploitConfirmed) {
     facts.push(
       fact(
-        "FONDOS_DE_PROTOCOLO_EXPLOTADO",
+        "EXPLOIT_PROTOCOL_FUNDS",
         "NW",
         100,
         "HIGH",
         "FATF VA Red Flags Cat. 5 · OFAC VC Guidance 2021",
         `${wallet.accountLabel} is the confirmed exploit cash-out source (keeper detection). Override to score 100.`,
-        true,
       ),
     );
   }
@@ -61,7 +60,7 @@ export function buildFacts(
     const weight = Math.round(ORIGIN_EXPLOIT_SCORE * DECAY_FACTOR ** hop);
     facts.push(
       fact(
-        hop === 1 ? "CONTRAPARTE_ALTO_RIESGO" : "CONTRAPARTE_RIESGO_MEDIO",
+        hop === 1 ? "HIGH_RISK_COUNTERPARTY" : "MEDIUM_RISK_COUNTERPARTY",
         "NW",
         weight,
         "HIGH",
@@ -73,7 +72,7 @@ export function buildFacts(
       const last = inbound[inbound.length - 1];
       facts.push(
         fact(
-          "TRANSFERENCIA_RAPIDA_BALANCE_TOTAL",
+          "RAPID_FULL_BALANCE_TRANSFER",
           "NW",
           hop === 1 ? 8 : 5,
           "MEDIUM",
@@ -106,7 +105,7 @@ export function buildFacts(
   ) {
     facts.push(
       fact(
-        "HISTORIAL_LIMPIO_LARGO",
+        "LONG_CLEAN_HISTORY",
         "MT",
         -10,
         "MEDIUM",
@@ -116,7 +115,7 @@ export function buildFacts(
     );
     facts.push(
       fact(
-        "PERFIL_TRANSACCIONAL_COHERENTE",
+        "COHERENT_TRANSACTION_PROFILE",
         "MT",
         -8,
         "MEDIUM",
@@ -130,7 +129,7 @@ export function buildFacts(
 }
 
 /**
- * Runs fact-scoring §3 and returns a ScoreResult.
+ * Runs fact-scoring and returns a ScoreResult.
  */
 export function scoreFromFacts(
   wallet: Wallet,
@@ -142,65 +141,64 @@ export function scoreFromFacts(
 ): ScoreResult {
   const override = facts.some(
     (f) =>
-      f.type === "FONDOS_DE_PROTOCOLO_EXPLOTADO" ||
-      f.type === "OFAC_MATCH_DIRECTO" ||
-      (f.base_weight >= 100 && f.dimension === "S"),
+      f.type === "EXPLOIT_PROTOCOL_FUNDS" ||
+      f.type === "OFAC_DIRECT_MATCH" ||
+      (f.baseWeight >= 100 && f.dimension === "S"),
   );
 
   let scorePresent = 0;
   const breakdown: ScoreBreakdown = {
-    sanciones: 0,
+    sanctions: 0,
     structuring: 0,
-    exposicion_mixer: 0,
-    comportamiento_red: 0,
-    riesgo_geografico: 0,
-    tipologias_defi: 0,
-    mitigantes: 0,
-    componente_historico: 0,
+    mixerExposure: 0,
+    networkBehavior: 0,
+    geographicRisk: 0,
+    defiTypologies: 0,
+    mitigants: 0,
+    historicalComponent: 0,
   };
 
   const scoredFacts: FactEvent[] = [];
 
   if (override && wallet.exploitConfirmed) {
     scorePresent = 100;
-    breakdown.sanciones = 100;
+    breakdown.sanctions = 100;
     for (const f of facts) {
-      const contrib = f.base_weight;
-      scoredFacts.push({ ...f, contribucion_score: contrib });
+      scoredFacts.push({ ...f, scoreContribution: f.baseWeight });
     }
   } else {
     let rawMt = 0;
     for (const f of facts) {
       const confMod =
         f.confidence === "HIGH" ? 1 : f.confidence === "MEDIUM" ? 0.85 : 0.6;
-      const contrib = Math.round(f.base_weight * confMod);
-      scoredFacts.push({ ...f, contribucion_score: contrib });
+      const contrib = Math.round(f.baseWeight * confMod);
+      scoredFacts.push({ ...f, scoreContribution: contrib });
 
       if (f.dimension === "MT") {
         rawMt += Math.abs(contrib);
-        breakdown.mitigantes += Math.abs(contrib);
+        breakdown.mitigants += Math.abs(contrib);
       } else if (f.dimension === "ST") {
         breakdown.structuring += contrib;
         scorePresent += contrib;
       } else if (f.dimension === "MX") {
-        breakdown.exposicion_mixer += contrib;
+        breakdown.mixerExposure += contrib;
         scorePresent += contrib;
       } else if (f.dimension === "GEO") {
-        breakdown.riesgo_geografico += contrib;
+        breakdown.geographicRisk += contrib;
         scorePresent += contrib;
       } else if (f.dimension === "DF") {
-        breakdown.tipologias_defi += contrib;
+        breakdown.defiTypologies += contrib;
         scorePresent += contrib;
       } else if (f.dimension === "S") {
-        breakdown.sanciones += contrib;
+        breakdown.sanctions += contrib;
         scorePresent += contrib;
       } else {
-        breakdown.comportamiento_red += contrib;
+        breakdown.networkBehavior += contrib;
         scorePresent += contrib;
       }
     }
     const mtCapped = Math.min(rawMt, 40);
-    breakdown.mitigantes = mtCapped;
+    breakdown.mitigants = mtCapped;
     scorePresent = Math.max(0, scorePresent - mtCapped);
   }
 
@@ -213,81 +211,84 @@ export function scoreFromFacts(
     scorePresent = Math.round(
       ORIGIN_EXPLOIT_SCORE * DECAY_FACTOR ** wallet.hopDistance,
     );
-    breakdown.comportamiento_red = scorePresent;
-    breakdown.mitigantes = 0;
+    breakdown.networkBehavior = scorePresent;
+    breakdown.mitigants = 0;
   }
 
-  let scoreFinal = clamp(scorePresent, 0, 100);
+  let finalScore = clamp(scorePresent, 0, 100);
   if (priorScore != null && !wallet.exploitConfirmed) {
     const blended = Math.round(
-      priorScore * DECAY_HISTORICO + scorePresent * (1 - DECAY_HISTORICO),
+      priorScore * HISTORICAL_DECAY + scorePresent * (1 - HISTORICAL_DECAY),
     );
-    breakdown.componente_historico = Math.round(priorScore * DECAY_HISTORICO);
-    // Keep hop band stable for demo when hop is set
+    breakdown.historicalComponent = Math.round(priorScore * HISTORICAL_DECAY);
     if (wallet.hopDistance == null) {
-      scoreFinal = clamp(blended, 0, 100);
+      finalScore = clamp(blended, 0, 100);
     }
   }
 
-  // Rule 6: block needs HIGH fact — degrade otherwise
-  const decision = decisionFromScore(scoreFinal);
-  const hasHigh = scoredFacts.some((f) => f.confidence === "HIGH" && f.contribucion_score > 0);
-  let salida = toHookOutput(decision);
-  const flags: ScoreResult["flags_regulatorios"] = [];
+  const decision = decisionFromScore(finalScore);
+  const hasHigh = scoredFacts.some(
+    (f) => f.confidence === "HIGH" && f.scoreContribution > 0,
+  );
+  let hookOutput = toHookOutput(decision);
+  const regulatoryFlags: ScoreResult["regulatoryFlags"] = [];
 
-  if (scoreFinal >= 71 && !hasHigh && !wallet.exploitConfirmed) {
-    scoreFinal = 70;
-    salida = "FEE_OVERRIDE";
-    flags.push({
-      tipo: "CONFIDENCE_INSUFICIENTE",
-      descripcion: "Block band without HIGH fact — degraded to FEE_OVERRIDE.",
-      recomendacion: "Human review before fail-closed treatment.",
+  if (finalScore >= 71 && !hasHigh && !wallet.exploitConfirmed) {
+    finalScore = 70;
+    hookOutput = "FEE_OVERRIDE";
+    regulatoryFlags.push({
+      type: "INSUFFICIENT_CONFIDENCE",
+      description: "Block band without HIGH fact — degraded to FEE_OVERRIDE.",
+      recommendation: "Human review before fail-closed treatment.",
     });
   }
 
-  if (scoreFinal >= 65 && scoredFacts.filter((f) => f.dimension !== "MT").length >= 2) {
-    flags.push({
-      tipo: "SOSPECHA_RAZONABLE_ALCANZADA",
-      descripcion: "Score ≥ 65 with multiple non-mitigant facts.",
-      recomendacion: "Prepare SAR-support annex for Compliance Officer review.",
+  if (
+    finalScore >= 65 &&
+    scoredFacts.filter((f) => f.dimension !== "MT").length >= 2
+  ) {
+    regulatoryFlags.push({
+      type: "REASONABLE_SUSPICION_REACHED",
+      description: "Score ≥ 65 with multiple non-mitigant facts.",
+      recommendation: "Prepare SAR-support annex for Compliance Officer review.",
     });
   }
 
   if (decision === "block" || wallet.exploitConfirmed) {
-    flags.push({
-      tipo: "REVISION_HUMANA_REQUERIDA",
-      descripcion: "REVERT / exploit path requires human oversight.",
-      recomendacion: "Watch outbound P2P contamination of B/C.",
+    regulatoryFlags.push({
+      type: "HUMAN_REVIEW_REQUIRED",
+      description: "REVERT / exploit path requires human oversight.",
+      recommendation: "Watch outbound P2P contamination of B/C.",
     });
   }
 
-  const nivel =
-    scoreFinal >= 71 ? "BLOQUEO" : scoreFinal >= 31 ? "ELEVADO" : "ESTANDAR";
+  const riskLevel =
+    finalScore >= 71 ? "BLOCK" : finalScore >= 31 ? "ELEVATED" : "STANDARD";
 
   const payload = JSON.stringify({
     wallet: wallet.id,
-    scoreFinal,
+    finalScore,
     scoredFacts,
     trigger,
   });
-  const audit_hash = `0x${createHash("sha256").update(payload).digest("hex").slice(0, 16)}`;
+  const auditHash = `0x${createHash("sha256").update(payload).digest("hex").slice(0, 16)}`;
 
   return {
     walletId: wallet.id,
     address: wallet.address,
-    score_final: scoreFinal,
-    nivel_riesgo: nivel,
-    salida_hook: salida,
-    score_breakdown: breakdown,
-    hechos_disparadores: scoredFacts,
-    flags_regulatorios: flags,
-    vigencia: {
-      calculado_en: new Date().toISOString(),
+    finalScore,
+    riskLevel,
+    hookOutput,
+    scoreBreakdown: breakdown,
+    triggeringFacts: scoredFacts,
+    regulatoryFlags,
+    validity: {
+      calculatedAt: new Date().toISOString(),
       trigger,
-      proxima_revision: nextReviewIso(scoreFinal),
+      nextReview: nextReviewIso(finalScore),
     },
-    audit_hash,
-    skills_applied: skillsApplied,
+    auditHash,
+    skillsApplied,
     flow,
   };
 }
@@ -295,20 +296,19 @@ export function scoreFromFacts(
 function fact(
   type: string,
   dimension: FactEvent["dimension"],
-  base_weight: number,
+  baseWeight: number,
   confidence: FactEvent["confidence"],
-  base_regulatoria: string,
-  justificacion: string,
-  _override = false,
+  regulatoryBasis: string,
+  justification: string,
 ): FactEvent {
   return {
-    fact_id: `${type}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    factId: `${type}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     type,
     confidence,
-    base_weight,
-    contribucion_score: 0,
-    base_regulatoria,
-    justificacion,
+    baseWeight,
+    scoreContribution: 0,
+    regulatoryBasis,
+    justification,
     dimension,
   };
 }

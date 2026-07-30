@@ -16,4 +16,4 @@ export {
   getOracleScore,
   listOracleEvaluations,
 } from "./store.js";
-export type { OracleEvaluation, ScoreResult } from "./types.js";
+export type { OracleEvaluation, OracleOpinion, ScoreResult } from "./types.js";
