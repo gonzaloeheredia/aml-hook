@@ -1,8 +1,11 @@
 /**
  * N-hop decay scoring and fee helpers for the AML Hook.
  * Same rules as the frontend / use-case doc (decay 0.65, ternary bands).
+ *
+ * Live scores prefer the off-chain oracle COA (`getOracleScore`) when present.
  */
 
+import { getOracleScore } from "./oracle/store.js";
 import type { Decision, Wallet, WalletId } from "./types.js";
 
 /** Contamination weight retained per hop. */
@@ -19,7 +22,7 @@ export const EXPLOIT_SOURCE: WalletId = "A";
 export const BASE_FEE_BPS = 30;
 
 /**
- * Computes the AML score for a wallet.
+ * Fallback N-hop score when the oracle has not written a value yet.
  * - Confirmed exploit → 100
  * - No hops → 0
  * - With hops → 100 × 0.65^hops
@@ -30,6 +33,15 @@ export function hopScore(wallet: Wallet): number {
   return Math.round(
     ORIGIN_EXPLOIT_SCORE * DECAY_FACTOR ** wallet.hopDistance * 1.0,
   );
+}
+
+/**
+ * Score read by beforeSwap / quotes: oracle COA first, else hop formula.
+ */
+export function walletScore(wallet: Wallet): number {
+  const oracle = getOracleScore(wallet.id);
+  if (oracle != null) return oracle;
+  return hopScore(wallet);
 }
 
 /**

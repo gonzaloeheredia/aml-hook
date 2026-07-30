@@ -1,0 +1,202 @@
+/**
+ * Maps ScoreResult → Legal Opinion dictamen.
+ *
+ * Narrative model (FinCEN SAR Narrative Guidance, Nov 2003 — structure only):
+ * Who / What / When / Where / Why / How — chronological, concise, support-draft only.
+ * Skills used by the oracle are NOT listed in the dictamen.
+ */
+
+import { feeBpsFromHop } from "../scoring.js";
+import type { Wallet } from "../types.js";
+import type { OracleDictamen, ScoreResult } from "./types.js";
+
+/**
+ * Builds the Opinion-module payload from an oracle ScoreResult.
+ */
+export function buildDictamenFromScore(
+  wallet: Wallet,
+  score: ScoreResult,
+): OracleDictamen {
+  const decision =
+    score.salida_hook === "REVERT"
+      ? "block"
+      : score.salida_hook === "FEE_OVERRIDE"
+        ? "fee_override"
+        : "allow";
+  const feeBps = feeBpsFromHop(score.score_final, wallet.hopDistance);
+  const feePct = (feeBps / 100).toFixed(2);
+  const topFacts = [...score.hechos_disparadores]
+    .filter((f) => f.dimension !== "MT")
+    .sort((a, b) => Math.abs(b.contribucion_score) - Math.abs(a.contribucion_score))
+    .slice(0, 5);
+
+  const humanReview =
+    decision !== "allow" ||
+    score.flags_regulatorios.some(
+      (f) => f.tipo.includes("REVISION_HUMANA") || f.tipo.includes("SOSPECHA"),
+    );
+
+  const origin = wallet.originId ?? "—";
+  const hop =
+    wallet.hopDistance == null ? "none" : String(wallet.hopDistance);
+
+  const who = [
+    `Subject: ${wallet.accountLabel} (${wallet.address}).`,
+    wallet.exploitConfirmed
+      ? "Role: confirmed exploit / contamination origin in the demo ledger."
+      : hop !== "none"
+        ? `Role: intermediary wallet with ${hop}-hop exposure from origin ${origin}.`
+        : "Role: pool participant with no inbound contamination from exploit origin A.",
+    origin !== "—" && hop !== "none"
+      ? `Known relationship: contamination path linked to origin wallet ${origin}.`
+      : "No additional related suspects identified beyond the ledger graph.",
+  ].join(" ");
+
+  const what = [
+    "Instrument / mechanism: Uniswap v4 RWA pool swap (USDC→ETH) and/or off-pool ERC-20 P2P USDC transfers.",
+    decision === "allow"
+      ? "No structuring, mixer, or exploit-propagation pattern attributed to this wallet on the evaluated facts."
+      : topFacts.length
+        ? `Observed patterns: ${topFacts.map((f) => f.type.replaceAll("_", " ")).join("; ")}.`
+        : "Elevated behavioral / hop-derived risk without a single dominant typology label.",
+    `Hook instruments involved: score oracle read at beforeSwap; ${
+      decision === "block"
+        ? "WalletBlocked (no settlement)."
+        : decision === "fee_override"
+          ? `lpFeeOverride ${feePct}% on settlement.`
+          : "standard pool fee 0.30%."
+    }`,
+  ].join(" ");
+
+  const when = [
+    `Oracle evaluation time: ${score.vigencia.calculado_en}.`,
+    `Trigger: ${score.vigencia.trigger} (seed | transfer | afterSwap | blocked).`,
+    `Recommended next review: ${score.vigencia.proxima_revision}.`,
+    "Individual dated transfers and SwapObserved / WalletBlocked emits are retained in the operator ledger; this narrative summarizes the period under review without embedding tables.",
+  ].join(" ");
+
+  const where = [
+    "Venue: AML Hook demo RWA pool (Uniswap v4) — simulated pool on Ethereum.",
+    `Account / address under review: ${wallet.address}.`,
+    hop !== "none"
+      ? `Fund movement path includes off-pool P2P hops (origin ${origin} → subject at hop ${hop}).`
+      : "No foreign VASP corridor or multi-office branching identified in the demo ledger.",
+    "Jurisdiction framing for the operator pack: U.S. BSA / FinCEN SAR narrative practice (support draft only) and FATF VA red-flag vocabulary — not a filing.",
+  ].join(" ");
+
+  const why =
+    decision === "allow"
+      ? [
+          `Why not treated as suspicious for enhanced action: oracle score ${score.score_final}/100 (${score.nivel_riesgo}) sits in the ALLOW band (0–30).`,
+          "Activity is consistent with a clean participant profile for this demo pool; Layer-1 sanctions screen clear (simulated).",
+          "This documentation records the verification that no SAR-support annex was opened.",
+        ].join(" ")
+      : [
+          `Why the activity is unusual / elevated: oracle score ${score.score_final}/100 (${score.nivel_riesgo}) → hook ${score.salida_hook}.`,
+          topFacts.length
+            ? `Primary facts: ${topFacts
+                .map(
+                  (f) =>
+                    `${f.type.replaceAll("_", " ")} (${f.confidence}): ${f.justificacion}`,
+                )
+                .join(" ")}`
+            : "Elevated score without additional typology detail.",
+          score.flags_regulatorios.length
+            ? `Flags: ${score.flags_regulatorios.map((f) => f.tipo).join(", ")}.`
+            : "",
+          "Compared with expected clean-pool behavior, hop-linked or exploit-linked activity is not commensurate with a low-risk retail profile.",
+        ]
+          .filter(Boolean)
+          .join(" ");
+
+  const how = [
+    decision === "block"
+      ? "Method of operation / control response: beforeSwap fail-closed REVERT; afterSwap not reached; WalletBlocked recorded. Subject may still move USDC off-pool via P2P, which updates downstream oracle scores."
+      : decision === "fee_override"
+        ? `Method of operation / control response: swap allowed with economic friction (lpFeeOverride ${feePct}%). afterSwap SwapObserved emitted; oracle reevaluated for the next beforeSwap.`
+        : "Method of operation / control response: swap allowed at standard fee; afterSwap SwapObserved emitted; oracle score remains in ALLOW band for subsequent swaps.",
+    `Modus summary: ${
+      wallet.exploitConfirmed
+        ? "direct exploit cash-out attempt against the pool."
+        : hop !== "none"
+          ? `${hop}-hop propagation of contaminated funds into a pool swap attempt.`
+          : "ordinary USDC→ETH swap without contamination indicators."
+    }`,
+  ].join(" ");
+
+  const technicalOpinion = {
+    issued: true,
+    objectAndScope: who,
+    riskAndScoring: why,
+    typologies: what,
+    sanctionsCheck: when,
+    // Field reused as Where (venue / addresses / path). Evidence only — no skill filenames.
+    sourcesConsulted: [where],
+    decisionExecuted: how,
+    legalBasis:
+      decision === "block"
+        ? "FATF Rec. 6 / fail-closed RWA pool policy on confirmed exploit exposure. Narrative organization follows FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How) as an internal model only."
+        : decision === "fee_override"
+          ? "FATF Rec. 1 & 10 (EBR / EDD). Narrative organization follows FinCEN SAR Narrative Guidance as an internal support-draft model — not a FinCEN filing."
+          : "FATF Rec. 1 & 10. Verification narrative follows FinCEN SAR Narrative Guidance structure for consistency of operator records.",
+    recommendations: humanReview
+      ? `For the pool Compliance Officer only: ${score.flags_regulatorios.map((f) => f.recomendacion).join(" ") || "Human review of elevated path."} Next review ${score.vigencia.proxima_revision}. Do not tip off the subject. Agent never files with FinCEN or any authority.`
+      : `Continue ordinary monitoring. Next review ${score.vigencia.proxima_revision}. Re-open enhanced narrative if inbound tainted P2P or anomalous afterSwap series appears.`,
+    traceability: `audit_hash ${score.audit_hash} · calculated ${score.vigencia.calculado_en} · retention 5 years (FATF Rec. 11 · BSA). Support draft — not submitted.`,
+  };
+
+  const sarAnnex =
+    decision === "allow"
+      ? null
+      : {
+          produced: true,
+          status: "support-draft (not filed)",
+          activityPeriod: score.vigencia.calculado_en,
+          amountInvolved: `USD ${wallet.usdc.toLocaleString("en-US")} USDC on ledger`,
+          operationState: score.salida_hook,
+          // FinCEN-style chronological narrative blocks
+          narrativeDescription: `WHO: ${who} WHAT: ${what}`,
+          narrativeAnalysis: `WHEN: ${when} WHERE: ${where}`,
+          narrativeEvidence: `WHY: ${why}`,
+          narrativeConclusion: `HOW: ${how} This annex is an internal SAR-support pack for the pool Compliance Officer. It is not a FinCEN SAR and must not be filed by the agent.`,
+          warnings: [
+            "Confidentiality — no tip-off to the subject",
+            "Document status: support draft — not submitted to FinCEN or any authority",
+            "Organize facts chronologically; include individual dates/amounts from the ledger when preparing any human-owned filing",
+            "Human judgment required before any BSA filing decision",
+          ],
+        };
+
+  return {
+    status:
+      decision === "block"
+        ? "Technical opinion · REVERT"
+        : decision === "fee_override"
+          ? "Technical opinion · oracle FEE_OVERRIDE"
+          : "Legal opinion · ALLOW",
+    documentType: decision === "allow" ? "legal-opinion" : "opinion + sar-annex",
+    confidence: wallet.exploitConfirmed
+      ? "HIGH"
+      : decision === "fee_override"
+        ? "MEDIUM"
+        : "HIGH",
+    humanReview,
+    retentionYears: 5,
+    auditHash: score.audit_hash,
+    technicalOpinion,
+    sarAnnex,
+    decisionRecord: {
+      score: String(score.score_final),
+      output: score.salida_hook,
+      mainFacts: `WHO ${wallet.accountLabel}; hop=${hop}; origin=${origin}; trigger=${score.vigencia.trigger}`,
+      basis:
+        decision === "block"
+          ? "ORACLE_COA_EXPLOIT_OR_BLOCK_BAND"
+          : decision === "fee_override"
+            ? "ORACLE_COA_N_HOP_OR_BEHAVIORAL_FEE_OVERRIDE"
+            : "ORACLE_COA_SCORE_BELOW_FEE_OVERRIDE",
+      nextReview: score.vigencia.proxima_revision,
+    },
+    note: "Internal operator documentation modeled on FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How). Produced by the off-chain oracle COA (MOCK_MODE). Never filed with any authority.",
+  };
+}

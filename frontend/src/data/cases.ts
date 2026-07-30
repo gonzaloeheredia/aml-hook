@@ -188,22 +188,23 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
       technicalOpinion: {
         issued: true,
         objectAndScope:
-          "Wallet A holds exploit proceeds and is the contamination origin. Pool cash-out attempts REVERT; P2P to B propagates N-hop scores.",
-        riskAndScoring: "Score 100 · REVERT band (71–100). Origin for downstream decay.",
-        typologies: "Exploit cash-out. Confirmed exposure — no discretion to allow on-pool.",
-        sanctionsCheck: "Exploit event / keeper detection drives fail-closed treatment.",
+          "Subject: Wallet A (exploit origin). Role: confirmed exploit / contamination source in the demo ledger. Known relationship: outbound P2P can contaminate B/C.",
+        typologies:
+          "Instrument: Uniswap v4 RWA pool swap (USDC→ETH) and/or off-pool P2P USDC. Pattern: exploit cash-out. Hook: WalletBlocked (no settlement).",
+        sanctionsCheck:
+          "Oracle evaluation at exploit window. Individual dated transfers retained in the operator ledger; this narrative summarizes the period under review.",
         sourcesConsulted: [
-          "Keeper exploit-detection feed (confirmed cash-out cluster)",
-          "Layer-1 on-chain sanctions screen (OFAC SDN / UN / EU mirrors)",
-          "Off-chain score oracle — origin wallet score 100 / hop 0",
-          "Outbound P2P graph (A → B contamination edges)",
-          "beforeSwap WalletBlocked emit + pool REVERT policy band (71–100)",
+          "Venue: AML Hook demo RWA pool (Uniswap v4). Account under review: Wallet A. Fund path: origin hop 0; outbound P2P edges A→B / A→C.",
         ],
-        decisionExecuted: "REVERT in beforeSwap · WalletBlocked · no settlement.",
-        legalBasis: "Fail-closed RWA pool policy on confirmed exploit exposure.",
+        riskAndScoring:
+          "Why elevated: score 100/100 · REVERT band (71–100). Direct exploit cash-out is not commensurate with a clean retail profile.",
+        decisionExecuted:
+          "How / control: beforeSwap fail-closed REVERT; afterSwap not reached; WalletBlocked recorded. Subject may still move USDC off-pool via P2P.",
+        legalBasis:
+          "Fail-closed RWA pool policy on confirmed exploit exposure. Narrative organization follows FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How) as an internal model only.",
         recommendations:
-          "Human review. Watch A→B P2P for 1-hop fee override; then B→C for 2-hop.",
-        traceability: "audit_hash 0xae01…xplt · retention 5 years.",
+          "Human review. Watch A→B P2P for 1-hop fee override; then B→C for 2-hop. Do not tip off the subject.",
+        traceability: "audit_hash 0xae01…xplt · retention 5 years. Support draft — not submitted.",
       },
       sarAnnex: {
         produced: true,
@@ -212,15 +213,17 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
         amountInvolved: "USD 10,000,000 (tainted ledger)",
         operationState: "REVERTED",
         narrativeDescription:
-          "Exploit source wallet blocked from pool swaps; may still move funds P2P to clean intermediaries.",
+          "WHO: Wallet A — exploit origin. WHAT: pool cash-out attempt blocked; P2P may still move tainted USDC.",
         narrativeAnalysis:
-          "Direct exploit cash-out is dispositive for REVERT. Downstream wallets only become risky after receiving from A.",
-        narrativeEvidence: "Keeper exploit detection · score 100 · beforeSwap revert.",
+          "WHEN: exploit window. WHERE: demo RWA pool + off-pool P2P graph from A.",
+        narrativeEvidence:
+          "WHY: score 100 · REVERT band; keeper exploit detection is dispositive.",
         narrativeConclusion:
-          "Reasonable basis for immediate REVERT on A. Hop fees apply only after outbound transfers.",
+          "HOW: beforeSwap REVERT · WalletBlocked. Internal SAR-support pack only — not a FinCEN filing.",
         warnings: [
           "Confidentiality — no tip-off",
           "Document status: support draft — not submitted",
+          "Organize facts chronologically when preparing any human-owned filing",
         ],
       },
       decisionRecord: {
@@ -300,22 +303,23 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
       technicalOpinion: {
         issued: true,
         objectAndScope:
-          "Clean Wallet B with no inbound contamination from exploit source A. Legal opinion issued for the ALLOW path.",
-        riskAndScoring: "Score 0 / 100 · ALLOW band (0–30).",
-        typologies: "None. No exploit link, no hop exposure.",
-        sanctionsCheck: "Layer-1 screen clear.",
+          "Subject: Wallet B. Role: pool participant with no inbound contamination from exploit origin A.",
+        typologies:
+          "Instrument: Uniswap v4 RWA pool swap (USDC→ETH). No structuring, mixer, or exploit-propagation pattern attributed. Hook: standard pool fee 0.30%.",
+        sanctionsCheck:
+          "Oracle evaluation at live session. Ledger retains dated transfers; this narrative summarizes the period under review.",
         sourcesConsulted: [
-          "Layer-1 on-chain sanctions screen (OFAC SDN / UN / EU mirrors)",
-          "Off-chain keeper score oracle (N-hop decay cache)",
-          "P2P transfer graph for Wallet B (inbound from A or C)",
-          "Pool SwapObserved / WalletBlocked event log",
-          "RWA pool policy bands (ALLOW 0–30 · FEE_OVERRIDE 31–70 · REVERT 71–100)",
+          "Venue: AML Hook demo RWA pool (Uniswap v4). Account under review: Wallet B. No inbound contamination path identified.",
         ],
-        decisionExecuted: "ALLOW · standard pool fee 0.30%.",
-        legalBasis: "FATF risk-based approach · permissive RWA pool policy.",
+        riskAndScoring:
+          "Why not treated as suspicious for enhanced action: score 0/100 · ALLOW band (0–30). Layer-1 sanctions screen clear (simulated).",
+        decisionExecuted:
+          "How / control: swap allowed at standard fee; afterSwap SwapObserved emitted; score remains in ALLOW band.",
+        legalBasis:
+          "FATF Rec. 1 & 10. Verification narrative follows FinCEN SAR Narrative Guidance structure for consistency of operator records.",
         recommendations:
           "Monitor inbound from A (1-hop ≈ 65 / 8%) or tainted C (2-hop ≈ 42 / 3%). Closer hop wins if both occur.",
-        traceability: "Retention 5 years.",
+        traceability: "Retention 5 years. Support draft — not submitted.",
       },
       sarAnnex: null,
       decisionRecord: {
@@ -395,22 +399,23 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
       technicalOpinion: {
         issued: true,
         objectAndScope:
-          "Clean Wallet C with no inbound contamination. Legal opinion issued for the ALLOW path.",
-        riskAndScoring: "Score 0 / 100 · ALLOW band (0–30).",
-        typologies: "None. No exploit link, no hop exposure.",
-        sanctionsCheck: "Layer-1 screen clear.",
+          "Subject: Wallet C. Role: pool participant with no inbound contamination from exploit origin A.",
+        typologies:
+          "Instrument: Uniswap v4 RWA pool swap (USDC→ETH). No structuring, mixer, or exploit-propagation pattern attributed. Hook: standard pool fee 0.30%.",
+        sanctionsCheck:
+          "Oracle evaluation at live session. Ledger retains dated transfers; this narrative summarizes the period under review.",
         sourcesConsulted: [
-          "Layer-1 on-chain sanctions screen (OFAC SDN / UN / EU mirrors)",
-          "Off-chain keeper score oracle (N-hop decay cache)",
-          "P2P transfer graph for Wallet C (inbound from A or B)",
-          "Pool SwapObserved / WalletBlocked event log",
-          "RWA pool policy bands (ALLOW 0–30 · FEE_OVERRIDE 31–70 · REVERT 71–100)",
+          "Venue: AML Hook demo RWA pool (Uniswap v4). Account under review: Wallet C. No inbound contamination path identified.",
         ],
-        decisionExecuted: "ALLOW · standard pool fee 0.30%.",
-        legalBasis: "FATF risk-based approach · permissive RWA pool policy.",
+        riskAndScoring:
+          "Why not treated as suspicious for enhanced action: score 0/100 · ALLOW band (0–30). Layer-1 sanctions screen clear (simulated).",
+        decisionExecuted:
+          "How / control: swap allowed at standard fee; afterSwap SwapObserved emitted; score remains in ALLOW band.",
+        legalBasis:
+          "FATF Rec. 1 & 10. Verification narrative follows FinCEN SAR Narrative Guidance structure for consistency of operator records.",
         recommendations:
           "Monitor inbound from A (1-hop ≈ 65 / 8%) or tainted B (2-hop ≈ 42 / 3%). Closer hop wins if both occur.",
-        traceability: "Retention 5 years.",
+        traceability: "Retention 5 years. Support draft — not submitted.",
       },
       sarAnnex: null,
       decisionRecord: {

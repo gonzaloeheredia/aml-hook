@@ -207,33 +207,33 @@ export function LegalOpinion({ demoCase }: Pick<Props, "demoCase">) {
           <ReportSection
             title={
               demoCase.decision === "allow"
-                ? "A. Legal opinion"
-                : "A. Technical compliance opinion"
+                ? "A. Legal opinion · SAR narrative model"
+                : "A. Technical opinion · SAR narrative model"
             }
           >
             <div className="space-y-3">
               <OpinionRow
-                label="1. Object & scope"
+                label="1. Who — subject(s)"
                 value={demoCase.agent.technicalOpinion.objectAndScope}
               />
               <OpinionRow
-                label="2. Risk level & scoring"
-                value={demoCase.agent.technicalOpinion.riskAndScoring}
-              />
-              <OpinionRow
-                label="3. Typologies identified"
+                label="2. What — instruments & patterns"
                 value={demoCase.agent.technicalOpinion.typologies}
               />
               <OpinionRow
-                label="4. Sanctions verification"
+                label="3. When — timing"
                 value={demoCase.agent.technicalOpinion.sanctionsCheck}
               />
-              <SourcesConsulted
-                sources={demoCase.agent.technicalOpinion.sourcesConsulted}
-                numbered
+              <OpinionRow
+                label="4. Where — venue & addresses"
+                value={demoCase.agent.technicalOpinion.sourcesConsulted.join(" · ")}
               />
               <OpinionRow
-                label="6. Decision executed"
+                label="5. Why — why unusual / elevated"
+                value={demoCase.agent.technicalOpinion.riskAndScoring}
+              />
+              <OpinionRow
+                label="6. How — method of operation & control"
                 value={demoCase.agent.technicalOpinion.decisionExecuted}
               />
               <OpinionRow
@@ -270,19 +270,19 @@ export function LegalOpinion({ demoCase }: Pick<Props, "demoCase">) {
                   />
                 </div>
                 <OpinionRow
-                  label="What happened"
+                  label="Who / What"
                   value={demoCase.agent.sarAnnex.narrativeDescription}
                 />
                 <OpinionRow
-                  label="Why it matters"
+                  label="When / Where"
                   value={demoCase.agent.sarAnnex.narrativeAnalysis}
                 />
                 <OpinionRow
-                  label="Evidence on file"
+                  label="Why"
                   value={demoCase.agent.sarAnnex.narrativeEvidence}
                 />
                 <OpinionRow
-                  label="Bottom line"
+                  label="How · closing"
                   value={demoCase.agent.sarAnnex.narrativeConclusion}
                 />
                 <div>
@@ -438,40 +438,6 @@ function OpinionRow({ label, value }: { label: string; value: string }) {
     <div className="border-b border-uni-border/70 pb-2.5 last:border-0 last:pb-0">
       <div className="text-[11px] font-medium text-uni-muted">{label}</div>
       <p className="mt-1 text-xs leading-relaxed text-white/90">{value}</p>
-    </div>
-  );
-}
-
-function SourcesConsulted({
-  sources,
-  numbered = false,
-}: {
-  sources: string[];
-  numbered?: boolean;
-}) {
-  return (
-    <div className="border-b border-uni-border/70 pb-2.5 last:border-0 last:pb-0">
-      <div className="text-[11px] font-medium text-uni-muted">
-        {numbered ? "5. Sources consulted" : "Sources consulted"}
-      </div>
-      <p className="mt-1 text-[11px] leading-relaxed text-uni-muted">
-        The dictamen is grounded only in the sources below — no external filing
-        was made.
-      </p>
-      <ul className="mt-2 space-y-1.5">
-        {sources.map((source) => (
-          <li
-            key={source}
-            className="flex gap-2 text-xs leading-relaxed text-white/90"
-          >
-            <span
-              className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-white/40"
-              aria-hidden
-            />
-            <span>{source}</span>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }

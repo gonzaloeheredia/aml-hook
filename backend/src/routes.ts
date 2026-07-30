@@ -6,11 +6,20 @@ import type { FastifyInstance } from "fastify";
 import { buildCompliancePack, buildSwapQuote } from "./compliance.js";
 import { applyPoolSwap, applyTransfer } from "./ledger.js";
 import {
+  ensureOracleEvaluation,
+  listOracleEvaluations,
+  reevaluateAfterBlock,
+  reevaluateAfterSwap,
+  reevaluateAfterTransfer,
+  resetOracle,
+  seedOracleAll,
+} from "./oracle/index.js";
+import {
   decisionFromScore,
   feeBpsFromHop,
-  hopScore,
   isWalletId,
   toHookOutput,
+  walletScore,
 } from "./scoring.js";
 import {
   appendEvent,
@@ -40,20 +49,21 @@ type SwapBody = {
 
 /**
  * Registers all demo API routes on the Fastify instance
- * (wallets, transfers, swaps, compliance, reset).
+ * (wallets, transfers, swaps, compliance, oracle, reset).
  */
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   /** Health check — confirms the API is up and running in-memory mode. */
   app.get("/health", async () => ({
     ok: true,
     mode: "in-memory",
+    oracle: "coa-mock",
     persistence: "none — state resets on process restart",
   }));
 
-  /** Lists all wallets with live score, decision, and applied fee. */
+  /** Lists all wallets with live oracle score, decision, and applied fee. */
   app.get("/wallets", async () => {
     const wallets = listWallets().map((w) => {
-      const score = hopScore(w);
+      const score = walletScore(w);
       const decision = decisionFromScore(score);
       return {
         ...w,
@@ -76,7 +86,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!wallet) {
       return reply.code(404).send({ error: "Wallet not found" });
     }
-    const score = hopScore(wallet);
+    const score = walletScore(wallet);
     const decision = decisionFromScore(score);
     return {
       wallet: {
@@ -92,7 +102,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /**
    * Returns the live compliance dictamen for a wallet
-   * (technical opinion + SAR annex + decision record).
+   * (oracle COA → technical opinion + SAR annex + decision record).
    */
   app.get<{ Params: { id: string } }>(
     "/wallets/:id/compliance",
@@ -131,12 +141,29 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
+  /** Cached oracle ScoreResult + dictamen for a wallet. */
+  app.get<{ Params: { id: string } }>(
+    "/oracle/:id",
+    async (req, reply) => {
+      const id = req.params.id.toUpperCase();
+      if (!isWalletId(id)) {
+        return reply.code(400).send({ error: "Wallet id must be A, B, or C" });
+      }
+      return ensureOracleEvaluation(id);
+    },
+  );
+
+  /** Lists all cached oracle evaluations. */
+  app.get("/oracle", async () => ({
+    evaluations: listOracleEvaluations(),
+  }));
+
   /** Returns the P2P transfer history. */
   app.get("/transfers", async () => ({ transfers: listTransfers() }));
 
   /**
    * Executes a P2P USDC transfer, updates hop contamination,
-   * and returns the recipient's refreshed compliance pack.
+   * reevaluates oracle scores for from/to, returns recipient compliance.
    */
   app.post<{ Body: TransferBody }>("/transfers", async (req, reply) => {
     const fromRaw = String(req.body?.from ?? "").toUpperCase();
@@ -160,12 +187,19 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     setWallets(result.wallets);
     appendTransfer(result.record);
 
+    // Oracle COA: update scores before the next swap (afterSwap-equivalent for P2P)
+    const oracle = reevaluateAfterTransfer(fromRaw, toRaw);
+
     return {
       transfer: result.record,
       wallets: listWallets().map((w) => ({
         ...w,
-        score: hopScore(w),
+        score: walletScore(w),
       })),
+      oracle: {
+        from: oracle.from.scoreResult,
+        to: oracle.to.scoreResult,
+      },
       recipientCompliance: buildCompliancePack(result.wallets[toRaw as WalletId]),
     };
   });
@@ -175,7 +209,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /**
    * Settles a pool swap against the in-memory ledger.
-   * REVERT wallets do not move balances; they still emit WalletBlocked.
+   * REVERT → WalletBlocked + oracle refresh.
+   * ALLOW / FEE_OVERRIDE → afterSwap SwapObserved + oracle reevaluate for next beforeSwap.
    */
   app.post<{ Body: SwapBody }>("/swaps", async (req, reply) => {
     const idRaw = String(req.body?.walletId ?? "").toUpperCase();
@@ -207,11 +242,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         at: new Date().toISOString(),
         kind: "WalletBlocked",
       });
+      const oracle = reevaluateAfterBlock(idRaw);
       return {
         settled: false,
         reason: "REVERT — beforeSwap fail-closed",
         quote,
         wallet,
+        oracle: oracle.scoreResult,
         compliance: buildCompliancePack(wallet),
       };
     }
@@ -250,26 +287,38 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       kind: "SwapObserved",
     });
 
+    // afterSwap → oracle COA incremental/full reevaluate before next swap
+    const oracle = reevaluateAfterSwap(idRaw);
+
     return {
       settled: true,
       quote,
       wallet: {
         ...updated,
-        score: hopScore(updated),
+        score: walletScore(updated),
       },
       ethReceived: quote.ethOut,
+      oracle: oracle.scoreResult,
       compliance: buildCompliancePack(updated),
     };
   });
 
-  /** Reseeds A/B/C and clears transfer/event history. */
+  /** Reseeds A/B/C, clears history, and reseeds oracle scores. */
   app.post("/reset", async () => {
     const store = resetStore();
+    resetOracle();
     return {
       ok: true,
-      wallets: Object.values(store.wallets),
+      wallets: Object.values(store.wallets).map((w) => ({
+        ...w,
+        score: walletScore(w),
+      })),
       transfers: store.transfers,
       events: store.events,
+      oracle: listOracleEvaluations().map((e) => e.scoreResult),
     };
   });
+
+  // Ensure baseline oracle scores exist when routes load
+  seedOracleAll();
 }

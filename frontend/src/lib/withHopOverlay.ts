@@ -29,8 +29,9 @@ function formatEthBuy(n: number): string {
 type Decision = "allow" | "fee_override" | "block";
 
 /**
- * Rebuilds the full Technical compliance opinion from the live MetaMask /
- * N-hop wallet state so the dictamen tracks contamination changes.
+ * Rebuilds the Opinion dictamen using the FinCEN SAR narrative model
+ * (Who / What / When / Where / Why / How) from live MetaMask / N-hop state.
+ * Skills are never listed in the dictamen.
  */
 function buildLiveTechnicalOpinion(
   wallet: SimWallet,
@@ -42,95 +43,91 @@ function buildLiveTechnicalOpinion(
   const hop = wallet.hopDistance;
   const origin = wallet.originId ?? "A";
   const feePct = (appliedFeeBps / 100).toFixed(2);
+  const hopLabel = hop == null ? "none" : String(hop);
 
-  if (wallet.exploitConfirmed || decision === "block") {
-    return {
-      issued: true,
-      objectAndScope: `${wallet.accountLabel} is treated as the exploit / contamination origin (or score ≥ 71). Pool cash-out attempts REVERT; outbound P2P can still contaminate B/C.`,
-      riskAndScoring: `Score ${score} / 100 · REVERT band (71–100). Hop ${hop ?? 0} · origin ${origin}.`,
-      typologies:
-        "Exploit cash-out. Confirmed exposure — fail-closed; no discretion to settle on-pool.",
-      sanctionsCheck:
-        "Exploit event / keeper detection drives fail-closed treatment. Layer-1 screen reviewed.",
-      sourcesConsulted: [
-        "Keeper exploit-detection feed (confirmed cash-out cluster)",
-        "Layer-1 on-chain sanctions screen (OFAC SDN / UN / EU mirrors)",
-        `Off-chain score oracle — live score ${score} / hop ${hop ?? 0}`,
-        `Outbound P2P graph (${wallet.id} → downstream wallets)`,
-        "beforeSwap WalletBlocked emit + pool REVERT policy band (71–100)",
-      ],
-      decisionExecuted: "REVERT in beforeSwap · WalletBlocked · no settlement.",
-      legalBasis: "Fail-closed RWA pool policy on confirmed exploit exposure.",
-      recommendations:
-        "Human review required. Watch outbound P2P for 1-hop fee overrides on recipients; then second-hop decay.",
-      traceability: `audit_hash ${auditHash} · retention 5 years.`,
-    };
-  }
+  const who = [
+    `Subject: ${wallet.accountLabel} (${wallet.address}).`,
+    wallet.exploitConfirmed || decision === "block"
+      ? "Role: confirmed exploit / contamination origin or REVERT-band wallet."
+      : hop != null
+        ? `Role: intermediary wallet with ${hop}-hop exposure from origin ${origin}.`
+        : "Role: pool participant with no inbound contamination from exploit origin A.",
+  ].join(" ");
 
-  if (decision === "fee_override") {
-    return {
-      issued: true,
-      objectAndScope: `${wallet.accountLabel} received contaminated funds at ${hop}-hop from origin ${origin}. Full technical opinion issued for FEE_OVERRIDE path.`,
-      riskAndScoring: `Score ${score} / 100 · FEE_OVERRIDE band (31–70). ${hop}-hop decay from origin ${origin}.`,
-      typologies: `N-hop propagation (${hop}-hop). Exposure proportioned by decay factor 0.65^${hop}.`,
-      sanctionsCheck:
-        "Layer-1 screen clear for this address; risk is hop-derived from exploit origin, not a direct SDN hit.",
-      sourcesConsulted: [
-        "Layer-1 on-chain sanctions screen (OFAC SDN / UN / EU mirrors)",
-        `Off-chain keeper score oracle (live score ${score} · ${hop}-hop)`,
-        `P2P transfer graph (${wallet.accountLabel} ← origin ${origin})`,
-        "Pool SwapObserved event log + lpFeeOverride receipt",
-        "RWA pool policy bands (ALLOW 0–30 · FEE_OVERRIDE 31–70 · REVERT 71–100)",
-      ],
-      decisionExecuted: `FEE_OVERRIDE · lpFeeOverride ${feePct}% applied as EDD friction.`,
-      legalBasis:
-        "FATF risk-based approach · proportional fee friction on intermediate hop exposure.",
-      recommendations:
-        hop === 1
-          ? "Treat as elevated EDD. If this wallet sends to the other clean peer (B↔C), expect 2-hop score ≈ 42 and 3% fee."
-          : "Proportional friction applied. Continue monitoring further downstream hops; score decays toward ALLOW.",
-      traceability: `audit_hash ${auditHash} · retention 5 years · hop=${hop} · origin=${origin}.`,
-    };
-  }
+  const what = [
+    "Instrument / mechanism: Uniswap v4 RWA pool swap (USDC→ETH) and/or off-pool ERC-20 P2P USDC transfers.",
+    wallet.exploitConfirmed || decision === "block"
+      ? "Observed pattern: exploit cash-out / REVERT-band exposure — fail-closed on-pool."
+      : decision === "fee_override"
+        ? `Observed pattern: N-hop propagation (${hop}-hop; decay 0.65^${hop}).`
+        : hop == null
+          ? "No structuring, mixer, or exploit-propagation pattern attributed on the evaluated facts."
+          : "Prior N-hop link noted; current score below FEE_OVERRIDE threshold.",
+    `Hook instruments: ${
+      decision === "block"
+        ? "WalletBlocked (no settlement)."
+        : decision === "fee_override"
+          ? `lpFeeOverride ${feePct}% on settlement.`
+          : "standard pool fee 0.30%."
+    }`,
+  ].join(" ");
 
-  // ALLOW — clean or decayed below threshold → Legal opinion (same layout as technical)
+  const when =
+    "Oracle / keeper evaluation at live MetaMask session. Individual dated transfers and SwapObserved / WalletBlocked emits are retained in the operator ledger; this narrative summarizes the period under review.";
+
+  const where = [
+    "Venue: AML Hook demo RWA pool (Uniswap v4) — simulated pool on Ethereum.",
+    `Account / address under review: ${wallet.address}.`,
+    hop != null
+      ? `Fund movement path includes off-pool P2P hops (origin ${origin} → subject at hop ${hop}).`
+      : "No inbound contamination path identified in the demo ledger.",
+  ].join(" ");
+
+  const why =
+    decision === "block" || wallet.exploitConfirmed
+      ? `Why elevated: score ${score}/100 · REVERT band (71–100). Hop ${hopLabel} · origin ${origin}. Direct exploit cash-out or block-band score is not commensurate with a clean retail profile.`
+      : decision === "fee_override"
+        ? `Why elevated: score ${score}/100 · FEE_OVERRIDE band (31–70). ${hop}-hop decay from origin ${origin} warrants proportional EDD friction.`
+        : `Why not treated as suspicious for enhanced action: score ${score}/100 sits in the ALLOW band (0–30). Layer-1 sanctions screen clear (simulated).`;
+
+  const how =
+    decision === "block" || wallet.exploitConfirmed
+      ? "How / control: beforeSwap fail-closed REVERT; afterSwap not reached; WalletBlocked recorded. Subject may still move USDC off-pool via P2P."
+      : decision === "fee_override"
+        ? `How / control: swap allowed with economic friction (lpFeeOverride ${feePct}%). afterSwap SwapObserved emitted.`
+        : "How / control: swap allowed at standard fee; afterSwap SwapObserved emitted; score remains in ALLOW band.";
+
   return {
     issued: true,
-    objectAndScope:
-      hop == null
-        ? `${wallet.accountLabel} has no inbound contamination from exploit source A. Legal opinion issued for the ALLOW path.`
-        : `${wallet.accountLabel} previously showed hop exposure, but live score ${score} sits in the ALLOW band. Legal opinion issued for the ALLOW path.`,
-    riskAndScoring: `Score ${score} / 100 · ALLOW band (0–30)${
-      hop != null ? ` · hop ${hop} from ${origin}` : ""
-    }.`,
-    typologies:
-      hop == null
-        ? "None. No exploit link, no hop exposure."
-        : `Prior N-hop link noted; current score below FEE_OVERRIDE threshold.`,
-    sanctionsCheck: "Layer-1 screen clear.",
-    sourcesConsulted: [
-      "Layer-1 on-chain sanctions screen (OFAC SDN / UN / EU mirrors)",
-      `Off-chain keeper score oracle (live score ${score}${
-        hop != null ? ` · ${hop}-hop` : " · clean"
-      })`,
-      `P2P transfer graph (${wallet.accountLabel}${
-        origin && hop != null ? ` ← origin ${origin}` : " · no inbound contamination"
-      })`,
-      "Pool SwapObserved / WalletBlocked event log",
-      "RWA pool policy bands (ALLOW 0–30 · FEE_OVERRIDE 31–70 · REVERT 71–100)",
-    ],
-    decisionExecuted: "ALLOW · standard pool fee 0.30%.",
-    legalBasis: "FATF risk-based approach · permissive RWA pool policy.",
+    objectAndScope: who,
+    typologies: what,
+    sanctionsCheck: when,
+    sourcesConsulted: [where],
+    riskAndScoring: why,
+    decisionExecuted: how,
+    legalBasis:
+      decision === "block" || wallet.exploitConfirmed
+        ? "Fail-closed RWA pool policy on confirmed exploit exposure. Narrative organization follows FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How) as an internal model only."
+        : decision === "fee_override"
+          ? "FATF Rec. 1 & 10 (EBR / EDD). Narrative organization follows FinCEN SAR Narrative Guidance as an internal support-draft model — not a FinCEN filing."
+          : "FATF Rec. 1 & 10. Verification narrative follows FinCEN SAR Narrative Guidance structure for consistency of operator records.",
     recommendations:
-      hop == null
-        ? "Monitor for inbound P2P from Wallet A (or contaminated B). If received, expect N-hop decay fees."
-        : "Keep ordinary monitoring. Re-open full technical opinion if an inbound tainted transfer raises score into FEE_OVERRIDE or REVERT.",
-    traceability: `audit_hash ${auditHash} · retention 5 years.`,
+      decision === "block" || wallet.exploitConfirmed
+        ? "Human review required. Watch outbound P2P for 1-hop fee overrides on recipients; then second-hop decay. Do not tip off the subject."
+        : decision === "fee_override"
+          ? hop === 1
+            ? "Treat as elevated EDD. If this wallet sends to the other clean peer (B↔C), expect 2-hop score ≈ 42 and 3% fee."
+            : "Proportional friction applied. Continue monitoring further downstream hops; score decays toward ALLOW."
+          : hop == null
+            ? "Monitor for inbound P2P from Wallet A (or contaminated B). If received, expect N-hop decay fees."
+            : "Keep ordinary monitoring. Re-open enhanced narrative if an inbound tainted transfer raises score into FEE_OVERRIDE or REVERT.",
+    traceability: `audit_hash ${auditHash} · retention 5 years (FATF Rec. 11 · BSA). Support draft — not submitted.`,
   };
 }
 
 /**
  * Live SAR annex only when FEE_OVERRIDE or REVERT warrants support drafting.
+ * Blocks follow Who/What · When/Where · Why · How.
  */
 function buildLiveSarAnnex(
   wallet: SimWallet,
@@ -140,53 +137,60 @@ function buildLiveSarAnnex(
 ): DemoCase["agent"]["sarAnnex"] {
   if (decision === "allow") return null;
 
+  const opinion = buildLiveTechnicalOpinion(
+    wallet,
+    score,
+    decision,
+    feeBpsFromHop(score, wallet.hopDistance),
+    base.agent.auditHash,
+  );
+  const who = opinion.objectAndScope;
+  const what = opinion.typologies;
+  const when = opinion.sanctionsCheck;
+  const where = opinion.sourcesConsulted.join(" ");
+  const why = opinion.riskAndScoring;
+  const how = opinion.decisionExecuted;
+
   if (decision === "block" || wallet.exploitConfirmed) {
-    return (
-      base.agent.sarAnnex ?? {
-        produced: true,
-        status: "support-draft (not filed)",
-        activityPeriod: "exploit window",
-        amountInvolved: `USD ${wallet.usdc.toLocaleString("en-US")} (ledger)`,
-        operationState: "REVERTED",
-        narrativeDescription:
-          "Exploit source / REVERT-band wallet blocked from pool swaps; may still move funds P2P.",
-        narrativeAnalysis:
-          "Direct exploit cash-out or score ≥ 71 is dispositive for REVERT.",
-        narrativeEvidence: `Keeper detection · score ${score} · beforeSwap revert.`,
-        narrativeConclusion:
-          "Reasonable basis for immediate REVERT. Hop fees apply only after outbound transfers.",
-        warnings: [
-          "Confidentiality — no tip-off",
-          "Document status: support draft — not submitted",
-        ],
-      }
-    );
+    return {
+      produced: true,
+      status: "support-draft (not filed)",
+      activityPeriod: "exploit window",
+      amountInvolved: `USD ${wallet.usdc.toLocaleString("en-US")} (ledger)`,
+      operationState: "REVERTED",
+      narrativeDescription: `WHO: ${who} WHAT: ${what}`,
+      narrativeAnalysis: `WHEN: ${when} WHERE: ${where}`,
+      narrativeEvidence: `WHY: ${why}`,
+      narrativeConclusion: `HOW: ${how} This annex is an internal SAR-support pack. It is not a FinCEN SAR and must not be filed by the agent.`,
+      warnings: [
+        "Confidentiality — no tip-off",
+        "Document status: support draft — not submitted",
+        "Organize facts chronologically when preparing any human-owned filing",
+      ],
+    };
   }
 
-  // fee_override
   return {
     produced: true,
     status: "support-draft (not filed)",
     activityPeriod: "post-contamination window",
     amountInvolved: `USD ${wallet.usdc.toLocaleString("en-US")} USDC on ledger`,
     operationState: "FEE_OVERRIDE",
-    narrativeDescription: `${wallet.accountLabel} shows ${wallet.hopDistance}-hop contamination from origin ${wallet.originId ?? "A"} (score ${score}).`,
-    narrativeAnalysis:
-      "Intermediate hop exposure warrants proportional fee friction and an internal evidence pack — not an autonomous filing.",
-    narrativeEvidence: `P2P graph · keeper oracle score ${score} · lpFeeOverride ${(feeBpsFromHop(score, wallet.hopDistance) / 100).toFixed(2)}%.`,
-    narrativeConclusion:
-      "Reasonable suspicion for enhanced monitoring. Human decides whether BSA filing is required.",
+    narrativeDescription: `WHO: ${who} WHAT: ${what}`,
+    narrativeAnalysis: `WHEN: ${when} WHERE: ${where}`,
+    narrativeEvidence: `WHY: ${why}`,
+    narrativeConclusion: `HOW: ${how} Human decides whether BSA filing is required.`,
     warnings: [
       "Confidentiality — no tip-off",
       "Document status: support draft — not submitted",
+      "Human judgment required before any BSA filing decision",
     ],
   };
 }
 
 /**
  * Overlays live MetaMask / N-hop simulation state onto a demo case
- * so Swap / Flow / Audit (including Technical compliance opinion) track
- * contamination changes.
+ * so Swap / Flow / Audit (including Opinion) track contamination changes.
  */
 export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
   const score = hopScore(wallet);
@@ -328,7 +332,7 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
         ...base.agent.decisionRecord,
         score: String(score),
         output: hookOutput,
-        mainFacts: `${wallet.accountLabel}; hop=${wallet.hopDistance ?? "none"}; origin=${wallet.originId ?? "—"}; USDC=${wallet.usdc.toLocaleString("en-US")}; ETH=${wallet.eth}.`,
+        mainFacts: `WHO ${wallet.accountLabel}; hop=${wallet.hopDistance ?? "none"}; origin=${wallet.originId ?? "—"}; USDC=${wallet.usdc.toLocaleString("en-US")}; ETH=${wallet.eth}.`,
         basis:
           decision === "block"
             ? "EXPLOIT_CASH_OUT_FAIL_CLOSED"
@@ -342,6 +346,7 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
               ? "On further hop transfer or score band change"
               : "On inbound transfer from A or other tainted wallet",
       },
+      note: "Internal operator documentation modeled on FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How). Never filed with any authority.",
     },
   };
 }

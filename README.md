@@ -29,9 +29,9 @@ Exercises all three hook outputs in one run (other paths like A→C or A→C→B
 
 0. **C** swaps clean → **ALLOW** 0.30%
 1. **A** attempts pool cash-out → **REVERT**
-2. **A → B** P2P → keeper writes score **65**
+2. **A → B** P2P → oracle writes score **65**
 3. **B** swaps → **FEE_OVERRIDE** 8%
-4. **B → C** P2P → keeper writes score **42**
+4. **B → C** P2P → oracle writes score **42**
 5. **C** swaps → **FEE_OVERRIDE** 3%
 
 ## Guided UI (6 stages)
@@ -44,7 +44,7 @@ The frontend walks the use case as a staged demo:
 | 2 | **Hook** | Flow simulator (`beforeSwap` / decision) |
 | 3 | **Fees** | Fee / gas + settled volume (**Sold USDC** / **Bought ETH**) |
 | 4 | **AML stats** | Score, report overview, detection data |
-| 5 | **Opinion** | Legal / technical AML dictamen (sections A–D) |
+| 5 | **Opinion** | Legal / technical dictamen from the **oracle COA** (sections A–D) |
 | 6 | **Event** | Pool-chain `afterSwap` payload (`SwapObserved`) |
 
 **Navigation**
@@ -56,6 +56,14 @@ The frontend walks the use case as a staged demo:
 - **Connect chip** shows `A · 0x…` (or B/C) with a **green / yellow / red** border from live risk (clean / hop FEE_OVERRIDE / exploit REVERT).
 - **Restart data** (navbar): reseeds wallets A/B/C via `POST /reset` and returns the demo to Swap.
 
+**Off-chain oracle (Compliance Officer Agent)**
+
+- Spec + skills: [`agents/oracle-coa/`](agents/oracle-coa/) (see `INTEGRATION.md`)
+- Runner: `backend/src/oracle/` (MOCK_MODE — no live LLM/vendor APIs yet)
+- Consumes P2P transfers + `afterSwap` / `WalletBlocked` events → writes score **before the next swap**
+- `beforeSwap` (simulated) only **reads** the cached oracle score
+- Opinion UI is filled from the same oracle evaluation (`task-regulatory-report` mapping)
+
 **Event payload** (use-case `afterSwap` emit written to the pool chain):
 
 `{ address, score, decision, fee, amount_usdc, hop_distance?, origin?, timestamp }`
@@ -66,11 +74,11 @@ REVERT happens in `beforeSwap` — `afterSwap` never runs, so nothing is written
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  1. Backend (today)                                         │
-│     In-memory TypeScript API · ledger · N-hop scores        │
-│     Simulated sanctions / oracle copy — no live vendor APIs │
+│  1. Off-chain oracle COA (today, in backend)                │
+│     agents/oracle-coa skills · fact-scoring · dictamen      │
+│     Triggered by afterSwap + P2P · in-memory score store    │
 └───────────────────────────┬─────────────────────────────────┘
-                            │  writes scores (future)
+                            │  score (future: signed write)
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  2. Oracle contract (next)                                  │
@@ -79,12 +87,12 @@ REVERT happens in `beforeSwap` — `afterSwap` never runs, so nothing is written
                             │  score lookup in beforeSwap
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  3. AML Hook (Uniswap v4)                                   │
-│     ALLOW / FEE_OVERRIDE / REVERT + on-chain audit events   │
+│  3. AML Hook (Uniswap v4) — next                            │
+│     ALLOW / FEE_OVERRIDE / REVERT + afterSwap events        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-Today the **backend** owns the demo ledger; the **frontend** calls it for wallets, P2P transfers, swaps, and compliance. Smart contracts (oracle + hook) are not in this repo yet.
+Today the **backend** owns the demo ledger **and** the oracle COA mock; the **frontend** calls it for wallets, P2P, swaps, compliance/Opinion. Smart contracts are not in this repo yet.
 
 ## Run the demos
 
