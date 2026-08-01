@@ -1,6 +1,9 @@
 /**
- * Headless E2E of the guided Uniswap + MetaMask demo flow
- * (frontend API client ↔ in-memory backend). No browser / no UI.
+ * Headless demo-flow script (NOT Foundry / unit tests — see contracts/test for those).
+ * Exercises the same HTTP API the frontend uses. No browser / no UI.
+ *
+ * MOCK: pool swaps & MetaMask P2P are simulated via POST /swaps and /transfers.
+ * With deploy:local + API .env.local, keeper publishes REAL updateScore txs on Anvil.
  *
  * Risk rule (important):
  * - Pool swaps NEVER raise behavioral score. Clean B/C stay green after 2–3 swaps.
@@ -19,7 +22,7 @@
  *
  * Prerequisites: backend running at API_BASE (default http://localhost:4000)
  *
- *   cd backend && npm run dev
+ *   cd apps/api && npm run dev
  *   node test/flow-uniswap-metamask.mjs
  */
 
@@ -197,6 +200,6 @@ async function main() {
 
 main().catch((err) => {
   console.error("\nFatal:", err.message || err);
-  console.error("\nIs the backend up?  cd backend && npm run dev\n");
+  console.error("\nIs the API up?  cd apps/api && npm run dev\n");
   process.exitCode = 1;
 });

@@ -1,6 +1,6 @@
 ---
 name: task-regulatory-report
-description: "Draft the evidence pack the pool operator delivers to its own Compliance Officer: technical Opinion with justified scoring, SAR-support annex for a possible FinCEN filing, decision record, and pool aggregate report. Use after task-swap-decision when reasonable suspicion is reached, when a block executed, or when the operator requests a period pack. The agent never files with any authority. Spec implemented by backend/src/oracle/report.ts (MOCK_MODE)."
+description: "Draft the evidence pack the pool operator delivers to its own Compliance Officer: technical Opinion with justified scoring, SAR-support annex for a possible FinCEN filing, decision record, and pool aggregate report. Use after task-swap-decision when reasonable suspicion is reached, when a block executed, or when the operator requests a period pack. The agent never files with any authority. Spec implemented by apps/api/src/oracle/report.ts (MOCK_MODE)."
 ---
 
 # Task: Regulatory Report — Evidence / Opinion Pack
@@ -18,7 +18,7 @@ authority, or any supervisor. Filing requires human review and signature.
 had a reasonable monitoring system, each decision had normative basis, and the
 chain from conclusion to on-chain evidence is reconstructible.
 
-**Mock:** `buildOpinionFromScore()` in `backend/src/oracle/report.ts` maps
+**Mock:** `buildOpinionFromScore()` in `apps/api/src/oracle/report.ts` maps
 `ScoreResult` → `OracleOpinion` for the frontend Opinion UI.
 
 ---

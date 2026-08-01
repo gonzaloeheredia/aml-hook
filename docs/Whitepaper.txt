@@ -207,6 +207,32 @@ Static, point-in-time checks can only ever reach the first category, and only it
 3.5 Detailed Technical Architecture
 
 
+Call path and on-chain modules
+
+
+User → Router → PoolManager
+                       │
+              beforeSwap │ afterSwap
+                       ▼
+                   AMLHook
+          ┌────────────┼────────────┐
+          ▼            ▼            ▼
+   SanctionRegistry  ComplianceOracle  RiskPolicy
+     (Layer 1)         (Layer 2)         (Layer 3, decision)
+                          ▲
+                          │ updateScore(wallet, score, hopDistance, origin, signature)
+                          │
+                    Oracle Keeper (off-chain)
+                          │
+              ┌───────────┴───────────┐
+              ▼                       ▼
+     External exploit-event       ERC-20 P2P transfer
+     monitors (Forta,             monitor (wallet-to-wallet)
+     Hypernative, protocol feeds)
+
+AMLHook is the Uniswap v4 hook the PoolManager invokes. SanctionRegistry is Layer 1 (static sanctions). ComplianceOracle is Layer 2 (behavioral score store written by the off-chain Oracle Keeper). RiskPolicy is Layer 3 (ternary decision: ALLOW, FEE_OVERRIDE, or REVERT). The keeper monitors external exploit feeds and ERC-20 peer-to-peer transfers and publishes scores via updateScore before the next swap.
+
+
 Off-chain analysis engine
 
 

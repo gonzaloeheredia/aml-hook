@@ -26,6 +26,44 @@ The walkthrough below uses one propagation path (A → B → C) to exercise all 
 
 The pool is configured as a Real World Asset (RWA) pool on Uniswap v4, with AML Hook attached and dynamic fee permissions enabled. The off-chain scoring keeper monitors transfer events continuously and writes updated scores on-chain before any swap is attempted.
 
+1.1 System Call Path and Contract Layers
+
+Swap path and the three on-chain modules the hook queries, plus the off-chain keeper that writes scores:
+
+User → Router → PoolManager
+                       │
+              beforeSwap │ afterSwap
+                       ▼
+                   AMLHook
+          ┌────────────┼────────────┐
+          ▼            ▼            ▼
+   SanctionRegistry  ComplianceOracle  RiskPolicy
+     (Layer 1)         (Layer 2)         (Layer 3, decision)
+                          ▲
+                          │ updateScore(wallet, score, hopDistance, origin, signature)
+                          │
+                    Oracle Keeper (off-chain)
+                          │
+              ┌───────────┴───────────┐
+              ▼                       ▼
+     External exploit-event       ERC-20 P2P transfer
+     monitors (Forta,             monitor (wallet-to-wallet)
+     Hypernative, protocol feeds)
+
+  --------------------- ------------------------------------------------------------------------------------------------
+  Component             Role
+
+  AMLHook               Uniswap v4 hook invoked by PoolManager at beforeSwap and afterSwap.
+
+  SanctionRegistry      Layer 1. On-chain sanctions screen. Confirmed match → immediate REVERT.
+
+  ComplianceOracle      Layer 2. On-chain store of behavioral score, hop distance, and origin. Updated by the keeper.
+
+  RiskPolicy            Layer 3. Maps score to ALLOW / FEE_OVERRIDE / REVERT (and lpFeeOverride when applicable).
+
+  Oracle Keeper         Off-chain. Consumes exploit feeds and ERC-20 P2P transfers; calls updateScore before the next swap.
+  --------------------- ------------------------------------------------------------------------------------------------
+
 2. Risk Scoring Model
 
 2.1 Ternary Decision Logic

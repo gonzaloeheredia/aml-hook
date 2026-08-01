@@ -5,15 +5,16 @@ the **off-chain scoring oracle** for the UHI10 demo. Smart contracts come later.
 
 ## Runtime today (MOCK_MODE)
 
-The TypeScript runner lives in `backend/src/oracle/`:
+The TypeScript runner lives in `apps/api/src/oracle/`:
 
 | Module | Role |
 |---|---|
-| `agent.ts` | Skill flow FULL / INCREMENTAL |
+| `agent.ts` | Skill flow FULL / INCREMENTAL + publish after score |
 | `factScoring.ts` | `fact-scoring.md` over the in-memory ledger |
 | `report.ts` | `task-regulatory-report` → Opinion UI pack |
-| `store.ts` | In-memory stand-in for `ComplianceOracle` |
-| `types.ts` | `ScoreResult` · `OracleOpinion` schema keys |
+| `store.ts` | In-memory score cache (demo beforeSwap read) |
+| `onchainPublisher.ts` | Keeper → `ComplianceOracle.updateScore` (mock or rpc) |
+| `types.ts` | `ScoreResult` · `OracleOpinion` · `ScorePublishResult` |
 
 No live Anthropic / OpenSanctions / Etherscan calls. Facts are derived from
 wallets, P2P transfers, and `SwapObserved` / `WalletBlocked` events. N-hop
@@ -37,6 +38,7 @@ from the oracle cache.
 |---|---|---|
 | `GET` | `/oracle` | All cached ScoreResults |
 | `GET` | `/oracle/:id` | ScoreResult + Opinion for A/B/C |
+| `GET` | `/oracle/publishes` | Keeper `updateScore` trail (mock or rpc tx) |
 | `GET` | `/wallets/:id/compliance` | Pack for frontend Opinion (oracle-backed) |
 
 ## Schema keys (must match `types.ts`)
