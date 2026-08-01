@@ -1,6 +1,6 @@
 ---
 name: fact-scoring
-description: "AML/CFT wallet scoring module (score 0–100) with FATF/OFAC/BSA justification per dimension. Produces the score AML Hook consumes at beforeSwap for ternary output: ALLOW, FEE_OVERRIDE, or REVERT. Use whenever task-swap-decision needs a quantified rating integrable into the task-regulatory-report Opinion pack. Spec implemented by backend/src/oracle/factScoring.ts (MOCK_MODE)."
+description: "AML/CFT wallet scoring module (score 0–100) with FATF/OFAC/BSA justification per dimension. Produces the score AML Hook consumes at beforeSwap for ternary output: ALLOW, FEE_OVERRIDE, or REVERT. Use whenever task-swap-decision needs a quantified rating integrable into the task-regulatory-report Opinion pack. Spec implemented by apps/api/src/oracle/factScoring.ts (MOCK_MODE)."
 ---
 
 # Fact Scoring — Wallet AML/CFT Scoring Module
@@ -73,7 +73,7 @@ act as a mitigant (`TRAVEL_RULE_PRIOR_LEG`).
 }
 ```
 
-Each `FactEvent` (keys match `backend/src/oracle/types.ts`):
+Each `FactEvent` (keys match `apps/api/src/oracle/types.ts`):
 
 ```json
 {
@@ -261,7 +261,7 @@ Declare calculation time in `validity.calculatedAt` (and block number when live)
 
 ## 4. Module output (`ScoreResult`)
 
-Keys **must** match `backend/src/oracle/types.ts`:
+Keys **must** match `apps/api/src/oracle/types.ts`:
 
 ```json
 {
@@ -347,7 +347,7 @@ If `finalScore ≥ 71` without any HIGH contributing fact → degrade to 70 /
 
 ## 5. Mock implementation notes
 
-`backend/src/oracle/factScoring.ts` implements a deterministic subset:
+`apps/api/src/oracle/factScoring.ts` implements a deterministic subset:
 
 - `EXPLOIT_PROTOCOL_FUNDS` → score 100 override (wallet A)
 - Hop contamination → `HIGH_RISK_COUNTERPARTY` / `MEDIUM_RISK_COUNTERPARTY`

@@ -27,7 +27,7 @@ mode, and defines the workflow. Does not analyze substance: classifies and route
 precomputed oracle score. If no valid score exists, the hook applies the
 operator default policy and intake records `PRECOMPUTE` at high priority.
 
-Demo triggers (`backend/src/oracle/agent.ts`): `seed` · `transfer` ·
+Demo triggers (`apps/api/src/oracle/agent.ts`): `seed` · `transfer` ·
 `afterSwap` · `blocked` · `manual`.
 
 ---

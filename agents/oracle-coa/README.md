@@ -2,7 +2,7 @@
 
 Off-chain Compliance Officer Agent pack: system prompt + modular skills for
 behavioral wallet scoring. Spec for the TypeScript mock oracle at
-`backend/src/oracle/` and for a future live agent runtime.
+`apps/api/src/oracle/` and for a future live agent runtime.
 
 Derived from a financial-institution COA. This version drops identity-based
 KYC flows and focuses on on-chain address behavior under U.S., EU, and FATF
@@ -16,7 +16,7 @@ agents/oracle-coa/
 │   └── system.md             # System prompt (forensic discipline)
 └── skills/                   # Domain + task + scoring specs (kebab-case)
 
-backend/src/oracle/           # CURRENT runtime (MOCK_MODE)
+apps/api/src/oracle/           # CURRENT runtime (MOCK_MODE)
 ├── agent.ts                  # FULL / INCREMENTAL skill flow
 ├── factScoring.ts            # Deterministic fact-scoring over in-memory ledger
 ├── report.ts                 # Opinion pack (FinCEN Who–How narrative model)
@@ -42,7 +42,7 @@ and produce a 0–100 score with ternary hook output.
 The signed score is written to the oracle cache. Simulated
 `AMLHook.beforeSwap` reads it with no extra latency.
 
-Entry point (mock): `reevaluateWallet()` in `backend/src/oracle/agent.ts`.
+Entry point (mock): `reevaluateWallet()` in `apps/api/src/oracle/agent.ts`.
 
 ### 2. Evidence / Opinion pack
 
@@ -116,7 +116,7 @@ funds. Includes a twelve-point pre-output self-check.
 
 | Layer | Implementation |
 |---|---|
-| Runtime | TypeScript `backend/src/oracle/` (MOCK_MODE) |
+| Runtime | TypeScript `apps/api/src/oracle/` (MOCK_MODE) |
 | Facts | Derived from wallets, P2P transfers, `SwapObserved` / `WalletBlocked` |
 | Persistence | In-memory oracle store (no DB) |
 | Skills | Markdown specs in `skills/` (kebab-case English filenames) |
@@ -281,7 +281,7 @@ The agent never:
 | 31–70 | `ELEVATED` | `FEE_OVERRIDE` (punitive / proportional `lpFeeOverride`) |
 | 71–100 | `BLOCK` | `REVERT` |
 
-Schema keys match `backend/src/oracle/types.ts`: `finalScore`, `riskLevel`,
+Schema keys match `apps/api/src/oracle/types.ts`: `finalScore`, `riskLevel`,
 `hookOutput`, `scoreBreakdown`, `triggeringFacts`, `regulatoryFlags`,
 `validity.calculatedAt` / `nextReview`, `auditHash`, `skillsApplied`,
 and per-fact `factId`, `baseWeight`, `scoreContribution`, `regulatoryBasis`,

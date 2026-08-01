@@ -1,11 +1,13 @@
-# Headless flow tests
+# Headless demo flows (not unit tests)
 
-Scripts that exercise the same backend routes the frontend uses (`/swaps`, `/transfers`, `/compliance`) **without opening a browser**.
+This folder is **not** the Foundry suite — Solidity tests live in [`contracts/test/`](../contracts/test/).
+
+Scripts here exercise the same API routes the frontend uses (`/swaps`, `/transfers`, `/compliance`) **without opening a browser**. Swaps/transfers are **mocked in the API ledger**; with `npm run deploy:local` the keeper can still write **real** `updateScore` txs on Anvil.
 
 ## Prerequisites
 
 ```bash
-cd backend
+cd apps/api
 npm run dev
 ```
 

@@ -1,7 +1,7 @@
 # SYSTEM PROMPT — AML Hook Compliance Officer Agent
 
 > Loaded as the system prompt for the agentic loop (live runtime) and as the
-> behavioral contract for the TypeScript mock at `backend/src/oracle/`.
+> behavioral contract for the TypeScript mock at `apps/api/src/oracle/`.
 > Changes require review: this file governs what the agent may assert.
 
 ---

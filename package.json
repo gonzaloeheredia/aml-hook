@@ -1,0 +1,23 @@
+{
+  "name": "aml-hook",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AML Hook monorepo — Uniswap v4 compliance (UHI10)",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev -w aml-hook-api",
+    "dev:frontend": "npm run dev -w aml-hook-frontend",
+    "start:api": "npm run start -w aml-hook-api",
+    "typecheck:api": "npm run typecheck -w aml-hook-api",
+    "build:frontend": "npm run build -w aml-hook-frontend",
+    "test:contracts": "cd contracts && forge test",
+    "deploy:local": "node scripts/deploy-local.mjs",
+    "sync:deployment": "node scripts/sync-deployment.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
