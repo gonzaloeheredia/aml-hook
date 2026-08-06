@@ -77,6 +77,16 @@ export type ApiCompliancePack = {
       nextReview: string;
     };
     note: string;
+    run?: {
+      runId: string;
+      role: string;
+      flow: string;
+      durationMs: number;
+      skillsExecuted: string[];
+      sourcesConsulted: string[];
+      publishTxHash?: string;
+      publishStatus?: string;
+    };
   };
 };
 

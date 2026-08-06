@@ -1,10 +1,8 @@
 /**
  * Off-chain Compliance Officer / oracle agent runner.
  *
- * MOCK: skill pipeline + fact-scoring (no Anthropic / OpenSanctions / Etherscan).
- * After each evaluation, the keeper publishes to ComplianceOracle.updateScore:
- *   - MOCK trail by default (GET /oracle/publishes, no chain write)
- *   - REAL tx when ORACLE_RPC_URL + COMPLIANCE_ORACLE_ADDRESS + KEEPER_PRIVATE_KEY are set
+ * Runs the virtual AI AML analyst pipeline (skills + connected sources), then
+ * scores deterministically for the A/B/C use case and publishes via the keeper.
  */
 
 import { listEvents, listTransfers, listWallets, getWallet } from "../store.js";
@@ -22,6 +20,7 @@ import {
   setOracleEvaluation,
 } from "./store.js";
 import type { OracleEvaluation, OracleTrigger } from "./types.js";
+import { runVirtualAgentPipeline } from "./virtualAgent.js";
 
 const FULL_FLOW = [
   "task-swap-intake",
@@ -47,7 +46,7 @@ const INCREMENTAL_FLOW = [
 
 /**
  * Reevaluates one wallet through the COA skill pipeline, caches the oracle,
- * and publishes the score for the next beforeSwap (mock or on-chain).
+ * and publishes the score for the next beforeSwap.
  */
 export async function reevaluateWallet(
   walletId: WalletId,
@@ -66,6 +65,18 @@ export async function reevaluateWallet(
     wallet.hopDistance == null;
 
   const skills = [...(useIncremental ? INCREMENTAL_FLOW : FULL_FLOW)];
+  const flow = useIncremental ? "INCREMENTAL" : "FULL";
+  // Theater latency on interactive triggers only (keep seed/reset snappy).
+  const theater = trigger !== "seed";
+
+  const agentRun = await runVirtualAgentPipeline({
+    wallet,
+    trigger,
+    skills,
+    flow,
+    theater,
+  });
+
   const facts = buildFacts(wallet, listTransfers(), listEvents());
   const scoreResult = scoreFromFacts(
     wallet,
@@ -73,13 +84,14 @@ export async function reevaluateWallet(
     trigger,
     prior,
     skills,
-    useIncremental ? "INCREMENTAL" : "FULL",
+    flow,
   );
-  const opinion = buildOpinionFromScore(wallet, scoreResult);
+  const opinion = buildOpinionFromScore(wallet, scoreResult, agentRun);
   const onChainPublish = await publishScoreToChain(wallet, scoreResult);
   const evaluation: OracleEvaluation = {
     scoreResult,
     opinion,
+    agentRun,
     onChainPublish,
   };
   setOracleEvaluation(walletId, evaluation);

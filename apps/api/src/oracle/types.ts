@@ -4,6 +4,9 @@
  */
 
 import type { HookOutput, WalletId } from "../types.js";
+import type { AgentRun } from "./virtualAgent.js";
+
+export type { AgentRun, AgentSkillStep } from "./virtualAgent.js";
 
 export type OracleTrigger =
   | "seed"
@@ -123,6 +126,8 @@ export type ScorePublishResult = {
 export type OracleEvaluation = {
   scoreResult: ScoreResult;
   opinion: OracleOpinion;
-  /** Keeper → ComplianceOracle.updateScore (mock record or rpc tx). */
+  /** Virtual COA skill run (connected sources; deterministic outcomes). */
+  agentRun: AgentRun;
+  /** Keeper → ComplianceOracle.updateScore (virtual receipt or rpc tx). */
   onChainPublish?: ScorePublishResult;
 };

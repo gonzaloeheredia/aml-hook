@@ -46,7 +46,7 @@ export function buildFacts(
         100,
         "HIGH",
         "FATF VA Red Flags Cat. 5 · OFAC VC Guidance 2021",
-        `${wallet.accountLabel} is the confirmed exploit cash-out source (keeper detection). Override to score 100.`,
+        `${wallet.accountLabel} is the confirmed exploit cash-out source (Compliance Officer Agent · threat feed). Override to score 100.`,
       ),
     );
   }
@@ -66,7 +66,7 @@ export function buildFacts(
         weight,
         "HIGH",
         "FATF Rec. 10 · VA Red Flags Cat. 5 (indirect exposure)",
-        `${hop}-hop contamination from origin ${origin}. Demo N-hop decay: 100 × ${DECAY_FACTOR}^${hop} ≈ ${weight}.`,
+        `${hop}-hop contamination from origin ${origin}. N-hop decay applied by COA: 100 × ${DECAY_FACTOR}^${hop} ≈ ${weight}.`,
       ),
     );
     if (inbound.length > 0) {

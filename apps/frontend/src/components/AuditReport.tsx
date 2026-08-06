@@ -201,6 +201,24 @@ export function LegalOpinion({ demoCase }: Pick<Props, "demoCase">) {
               value={`${demoCase.agent.retentionYears} years (FATF Rec. 11 · BSA)`}
             />
           </div>
+          {demoCase.agent.run ? (
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <MetaCell
+                label="COA run"
+                value={`${demoCase.agent.run.runId} · ${demoCase.agent.run.durationMs}ms`}
+                mono
+              />
+              <MetaCell
+                label="Skills"
+                value={`${demoCase.agent.run.skillsExecuted.length} · ${demoCase.agent.run.flow}`}
+              />
+              <MetaCell
+                label="Keeper tx"
+                value={demoCase.agent.run.publishTxHash ?? "—"}
+                mono
+              />
+            </div>
+          ) : null}
         </div>
 
         <div className="mx-auto mt-2 max-w-3xl">

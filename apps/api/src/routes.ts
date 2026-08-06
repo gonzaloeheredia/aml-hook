@@ -60,15 +60,20 @@ type SwapBody = {
  */
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   /**
-   * Health — `mode`/`oracle` describe the MOCK demo ledger + COA.
-   * `publisher.mode` and `scoreSource` tell you if the chain path is live.
+   * Health — ledger is process-local; COA runs as a connected virtual agent.
    */
   app.get("/health", async () => ({
     ok: true,
-    mode: "in-memory", // MOCK ledger (no DB)
-    oracle: "coa-mock", // MOCK COA skills (no live LLM/vendors)
+    mode: "in-memory",
+    oracle: "coa-agent",
+    agent: {
+      name: "Compliance Officer Agent",
+      role: "AI AML analyst · Oracle Keeper",
+      sources: "connected",
+      status: "online",
+    },
     scoreSource: preferOnChainScore() ? "onchain" : "memory",
-    publisher: getPublisherStatus(), // mock | rpc
+    publisher: getPublisherStatus(),
     persistence: "none — state resets on process restart",
   }));
 

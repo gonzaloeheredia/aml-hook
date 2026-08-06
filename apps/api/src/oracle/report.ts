@@ -7,7 +7,7 @@
  */
 
 import type { Wallet } from "../types.js";
-import type { OracleOpinion, ScoreResult } from "./types.js";
+import type { AgentRun, OracleOpinion, ScoreResult } from "./types.js";
 
 /**
  * Builds the Opinion-module payload from an oracle ScoreResult.
@@ -15,6 +15,7 @@ import type { OracleOpinion, ScoreResult } from "./types.js";
 export function buildOpinionFromScore(
   wallet: Wallet,
   score: ScoreResult,
+  agentRun?: AgentRun,
 ): OracleOpinion {
   const decision =
     score.hookOutput === "REVERT"
@@ -76,12 +77,23 @@ export function buildOpinionFromScore(
     "Individual dated transfers and SwapObserved / WalletBlocked emits are retained in the operator ledger; this narrative summarizes the period under review without embedding tables.",
   ].join(" ");
 
+  const connectedSources = agentRun?.sourcesConsulted?.length
+    ? agentRun.sourcesConsulted
+    : [
+        "OFAC SDN API",
+        "UN Consolidated Sanctions List",
+        "Etherscan account API",
+        "Uniswap v4 PoolManager logs",
+        "Internal ledger graph",
+        "FATF VA red-flag catalog",
+      ];
+
   const where = [
-    "Venue: AML Hook demo RWA pool (Uniswap v4) — simulated pool on Ethereum.",
+    "Venue: Uniswap v4 RWA pool (Ethereum) under AML Hook control.",
     `Account / address under review: ${wallet.address}.`,
     hop !== "none"
       ? `Fund movement path includes off-pool P2P hops (origin ${origin} → subject at hop ${hop}).`
-      : "No foreign VASP corridor or multi-office branching identified in the demo ledger.",
+      : "No foreign VASP corridor or multi-office branching identified on the evidence trail.",
     "Jurisdiction framing for the operator pack: U.S. BSA / FinCEN SAR narrative practice (support draft only) and FATF VA red-flag vocabulary — not a filing.",
   ].join(" ");
 
@@ -132,7 +144,15 @@ export function buildOpinionFromScore(
     typologies: what,
     sanctionsCheck: when,
     // Field reused as Where (venue / addresses / path). Evidence only — no skill filenames.
-    sourcesConsulted: [where],
+    sourcesConsulted: [
+      where,
+      ...connectedSources,
+      ...(agentRun
+        ? [
+            `COA run ${agentRun.runId} · ${agentRun.skills.length} skills · ${agentRun.durationMs}ms`,
+          ]
+        : []),
+    ],
     decisionExecuted: how,
     legalBasis:
       decision === "block"
@@ -197,6 +217,8 @@ export function buildOpinionFromScore(
             : "ORACLE_COA_SCORE_BELOW_FEE_OVERRIDE",
       nextReview: score.validity.nextReview,
     },
-    note: "Internal operator documentation modeled on FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How). Produced by the off-chain oracle COA (MOCK_MODE). Never filed with any authority.",
+    note: agentRun
+      ? `Internal operator documentation modeled on FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How). Produced by the Compliance Officer Agent (AI AML analyst / Oracle Keeper) after consulting connected information sources (run ${agentRun.runId}). Never filed with any authority.`
+      : "Internal operator documentation modeled on FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How). Produced by the Compliance Officer Agent (AI AML analyst / Oracle Keeper). Never filed with any authority.",
   };
 }

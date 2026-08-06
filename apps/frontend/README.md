@@ -75,5 +75,5 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 
 ## Related docs (repo root)
 
-- `docs/Whitepaper.txt`
-- `docs/AML-Hook_Use_Case.txt`
+- `docs/Whitepaper.md`
+- `docs/Use_Case.md`

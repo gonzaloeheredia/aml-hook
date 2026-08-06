@@ -1,7 +1,7 @@
 /**
  * Hardcoded demo scenarios for the AML Hook frontend.
  *
- * Use case (`docs/AML-Hook_Use_Case.txt`):
+ * Use case (`docs/Use_Case.md`):
  * - A = exploit attacker → REVERT
  * - B and C both start clean (ALLOW)
  * - A→B or A→C → 1-hop · ~65 · 8%; tainted peer → 2-hop · ~42 · 3%
@@ -101,6 +101,16 @@ export interface DemoCase {
       reasonableSuspicionCases: string;
     };
     note: string;
+    run?: {
+      runId: string;
+      role: string;
+      flow: string;
+      durationMs: number;
+      skillsExecuted: string[];
+      sourcesConsulted: string[];
+      publishTxHash?: string;
+      publishStatus?: string;
+    };
   };
 }
 

@@ -8,16 +8,16 @@ Compliance layer for **Uniswap v4** (UHI10). The hook intercepts swaps at `befor
 | 31–70 | **FEE_OVERRIDE** | Dynamic fee (`lpFeeOverride`, e.g. 3%–8%) |
 | 71–100 | **REVERT** | Fail-closed (exploit / sanctions exposure) |
 
-The score is computed **off-chain** (Oracle Keeper / COA) and stored **on-chain** (`ComplianceOracle`). The hook only reads; it does not invent the score.
+The score is computed **off-chain** by the **Oracle Keeper** — a Compliance Officer Agent (COA): an AI AML analyst that will connect to external information sources (sanctions feeds, exploit monitors, on-chain graph signals) — and stored **on-chain** (`ComplianceOracle`). The hook only reads; it does not invent the score.
 
 ## Docs
 
 | Doc | What it is |
 |---|---|
-| [`docs/Whitepaper.txt`](docs/Whitepaper.txt) | Product thesis, regulatory framing, why this exists |
-| [`docs/AML-Hook_Use_Case.txt`](docs/AML-Hook_Use_Case.txt) | A/B/C exploit → N-hop demo scenario |
+| [`docs/Whitepaper.md`](docs/Whitepaper.md) | Product thesis, regulatory framing, why this exists |
+| [`docs/Use_Case.md`](docs/Use_Case.md) | A/B/C exploit → N-hop demo scenario |
 | [`docs/Instructivo_Contracts_Local.md`](docs/Instructivo_Contracts_Local.md) | Plain-language walkthrough of every contract + local Anvil |
-| [`agents/oracle-coa/`](agents/oracle-coa/) | Off-chain Compliance Officer Agent skill specs |
+| [`agents/oracle-coa/`](agents/oracle-coa/) | COA skill specs — AI Compliance Officer / AML analyst (Oracle Keeper) |
 
 ## Quick start
 
@@ -64,7 +64,9 @@ User → Router → PoolManager
      (Layer 1)         (Layer 2)         (Layer 3)
                           ▲
                           │ updateScore(...)
-                    Oracle Keeper (off-chain)
+              Oracle Keeper / COA (off-chain)
+         AI Compliance Officer · AML analyst
+         → will connect to info sources / feeds
 ```
 
 | Component | Role |
@@ -73,9 +75,9 @@ User → Router → PoolManager
 | **SanctionRegistry** | L1 — sanctions screen (fail-closed) |
 | **ComplianceOracle** | L2 — score / hop / origin written by the keeper |
 | **RiskPolicy** | L3 — score → ALLOW / FEE_OVERRIDE / REVERT |
-| **Oracle Keeper** | Off-chain COA — then `updateScore` before the next swap |
+| **Oracle Keeper (COA)** | Off-chain AI Compliance Officer / AML analyst — ingests information sources, scores wallets, then `updateScore` before the next swap |
 
-In this repo, **`apps/api`** is the demo keeper. **`apps/frontend`** drives the UI. Pool swaps in the UI are still settled in the API ledger until a real PoolManager is wired; scores can already be published/read on Anvil.
+In this repo, **`apps/api`** is the demo keeper (deterministic mock of that COA; live LLM and vendor feeds are the production path). **`apps/frontend`** drives the UI. Pool swaps in the UI are still settled in the API ledger until a real PoolManager is wired; scores can already be published/read on Anvil.
 
 ## Mock vs real
 
@@ -86,8 +88,8 @@ In this repo, **`apps/api`** is the demo keeper. **`apps/frontend`** drives the 
 | Keeper `updateScore` | **Real tx** when RPC env is set; else mock trail |
 | Demo beforeSwap score + fee | **Hybrid** — on-chain `getRisk` (score + `feeBps` from COA) → memory → hop |
 | API ledger (balances, P2P, swap settle) | **Mock** (in-memory) |
-| COA skills / Opinion | **Mock** (deterministic TS; no live LLM/vendors) |
-| External monitors (Forta, etc.) | Spec only — not wired |
+| COA skills / Opinion | **Mock** (deterministic TS stand-in for the AI Compliance Officer; no live LLM/vendors yet) |
+| External info sources (Forta, sanctions, graph feeds, etc.) | Spec / future wiring — COA will connect to these in production |
 
 ## Local on-chain stack
 
@@ -116,7 +118,7 @@ const d = getDeployment(31337);
 
 ## Demo use case (A → B → C)
 
-Attacker **A** (score 100) is blocked at the pool, then moves USDC via P2P. The keeper applies **N-hop decay** (`score ≈ 100 × 0.65^hops`; closer hop wins) and writes scores before the next swap.
+Attacker **A** (score 100) is blocked at the pool, then moves USDC via P2P. The Oracle Keeper (COA / AI AML analyst) applies **N-hop decay** (`score ≈ 100 × 0.65^hops`; closer hop wins) and writes scores before the next swap.
 
 | Step | Action | Result |
 |---|---|---|
@@ -127,7 +129,7 @@ Attacker **A** (score 100) is blocked at the pool, then moves USDC via P2P. The 
 | 4 | B → C (P2P) | C ≈ 42 |
 | 5 | C swaps | FEE_OVERRIDE 3% |
 
-Full narrative: [`docs/AML-Hook_Use_Case.txt`](docs/AML-Hook_Use_Case.txt).
+Full narrative: [`docs/Use_Case.md`](docs/Use_Case.md).
 
 ## Guided UI (6 stages)
 
