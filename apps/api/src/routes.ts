@@ -22,9 +22,8 @@ import {
 } from "./oracle/index.js";
 import {
   decisionFromScore,
-  feeBpsFromHop,
   isWalletId,
-  resolveWalletScore,
+  resolveWalletRisk,
   toHookOutput,
   walletScore,
 } from "./scoring.js";
@@ -77,7 +76,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/wallets", async () => {
     const wallets = await Promise.all(
       listWallets().map(async (w) => {
-        const { score, source } = await resolveWalletScore(w);
+        const { score, feeBps, source } = await resolveWalletRisk(w);
         const decision = decisionFromScore(score);
         return {
           ...w,
@@ -85,7 +84,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           scoreSource: source,
           decision,
           hookOutput: toHookOutput(decision),
-          appliedFeeBps: feeBpsFromHop(score, w.hopDistance),
+          appliedFeeBps: feeBps,
         };
       }),
     );
@@ -102,7 +101,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!wallet) {
       return reply.code(404).send({ error: "Wallet not found" });
     }
-    const { score, source } = await resolveWalletScore(wallet);
+    const { score, feeBps, source } = await resolveWalletRisk(wallet);
     const decision = decisionFromScore(score);
     return {
       wallet: {
@@ -111,7 +110,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         scoreSource: source,
         decision,
         hookOutput: toHookOutput(decision),
-        appliedFeeBps: feeBpsFromHop(score, wallet.hopDistance),
+        appliedFeeBps: feeBps,
       },
       quote: await buildSwapQuote(wallet),
     };

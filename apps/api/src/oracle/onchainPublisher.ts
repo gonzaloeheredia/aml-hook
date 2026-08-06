@@ -1,6 +1,8 @@
 /**
  * Oracle Keeper → ComplianceOracle.updateScore
  *
+ * Writes COA finalScore + recommendedFeeBps (feeBps on-chain).
+ *
  * Modes:
  * - mock (default): MOCK — record the intended write in memory only (no RPC / no tx)
  * - rpc: REAL — broadcast updateScore when ORACLE_RPC_URL + COMPLIANCE_ORACLE_ADDRESS +
@@ -83,12 +85,17 @@ export async function publishScoreToChain(
   const hopDistance =
     wallet.hopDistance == null ? 0 : Math.min(255, Math.max(0, wallet.hopDistance));
   const origin = resolveOriginAddress(wallet);
+  const feeBps = Math.min(
+    10_000,
+    Math.max(0, Math.round(score.recommendedFeeBps)),
+  );
   const base = {
     walletId: wallet.id,
     address: wallet.address,
     score: score.finalScore,
     hopDistance,
     origin,
+    feeBps,
     at: new Date().toISOString(),
   };
 
@@ -135,6 +142,7 @@ export async function publishScoreToChain(
         score.finalScore,
         hopDistance,
         origin,
+        feeBps,
         "0x",
       ],
       chain,

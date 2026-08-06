@@ -6,5 +6,6 @@ export type WalletRisk = {
   score: number;
   hopDistance: number;
   origin: Address;
+  feeBps: number;
   updatedAt: number;
 };

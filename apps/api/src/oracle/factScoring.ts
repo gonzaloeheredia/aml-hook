@@ -11,6 +11,7 @@ import {
   DECAY_FACTOR,
   ORIGIN_EXPLOIT_SCORE,
   decisionFromScore,
+  feeBpsFromHop,
   toHookOutput,
 } from "../scoring.js";
 import type { HookEvent, TransferRecord, Wallet, WalletId } from "../types.js";
@@ -265,9 +266,13 @@ export function scoreFromFacts(
   const riskLevel =
     finalScore >= 71 ? "BLOCK" : finalScore >= 31 ? "ELEVATED" : "STANDARD";
 
+  // COA owns the recommended fee (source of truth for hook FEE_OVERRIDE + demo quotes).
+  const recommendedFeeBps = feeBpsFromHop(finalScore, wallet.hopDistance);
+
   const payload = JSON.stringify({
     wallet: wallet.id,
     finalScore,
+    recommendedFeeBps,
     scoredFacts,
     trigger,
   });
@@ -279,6 +284,7 @@ export function scoreFromFacts(
     finalScore,
     riskLevel,
     hookOutput,
+    recommendedFeeBps,
     scoreBreakdown: breakdown,
     triggeringFacts: scoredFacts,
     regulatoryFlags,

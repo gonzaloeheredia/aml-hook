@@ -4,8 +4,8 @@ pragma solidity ^0.8.26;
 import {IComplianceOracle} from "../interfaces/IComplianceOracle.sol";
 
 /// @title Layer 2 — ComplianceOracle (REAL on-chain storage)
-/// @notice Stores keeper-written scores. Hook only reads; keeper (or role) writes.
-/// @dev Not a mock: scores persist on-chain. The off-chain COA that *computes* the score
+/// @notice Stores keeper-written scores + COA recommended feeBps. Hook only reads; keeper writes.
+/// @dev Not a mock: scores persist on-chain. The off-chain COA that *computes* score/fee
 ///      may still be a TypeScript mock; publishing uses `updateScore` (real tx when RPC is set).
 contract ComplianceOracle is IComplianceOracle {
     address public owner;
@@ -52,6 +52,7 @@ contract ComplianceOracle is IComplianceOracle {
         uint8 score,
         uint8 hopDistance,
         address origin,
+        uint24 feeBps,
         bytes calldata /* signature */
     ) external onlyKeeper {
         if (score > 100) revert ScoreOutOfRange();
@@ -60,9 +61,10 @@ contract ComplianceOracle is IComplianceOracle {
             score: score,
             hopDistance: hopDistance,
             origin: origin,
+            feeBps: feeBps,
             updatedAt: ts
         });
-        emit ScoreUpdated(wallet, score, hopDistance, origin, ts);
+        emit ScoreUpdated(wallet, score, hopDistance, origin, feeBps, ts);
     }
 
     function setKeeper(address keeper, bool allowed) external onlyOwner {

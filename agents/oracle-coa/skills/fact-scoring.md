@@ -270,6 +270,7 @@ Keys **must** match `apps/api/src/oracle/types.ts`:
   "finalScore": 0,
   "riskLevel": "BLOCK | ELEVATED | STANDARD",
   "hookOutput": "REVERT | FEE_OVERRIDE | ALLOW",
+  "recommendedFeeBps": 0,
   "scoreBreakdown": {
     "sanctions": 0,
     "structuring": 0,

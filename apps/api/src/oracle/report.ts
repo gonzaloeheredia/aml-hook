@@ -6,7 +6,6 @@
  * Skills used by the oracle are NOT listed in the Opinion.
  */
 
-import { feeBpsFromHop } from "../scoring.js";
 import type { Wallet } from "../types.js";
 import type { OracleOpinion, ScoreResult } from "./types.js";
 
@@ -23,7 +22,7 @@ export function buildOpinionFromScore(
       : score.hookOutput === "FEE_OVERRIDE"
         ? "fee_override"
         : "allow";
-  const feeBps = feeBpsFromHop(score.finalScore, wallet.hopDistance);
+  const feeBps = score.recommendedFeeBps;
   const feePct = (feeBps / 100).toFixed(2);
   const topFacts = [...score.triggeringFacts]
     .filter((f) => f.dimension !== "MT")

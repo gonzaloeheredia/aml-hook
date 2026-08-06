@@ -52,15 +52,33 @@ contract DeployAmlStack is Script {
             console2.log("ExtraKeeper", extraKeeper);
         }
 
+        // §3.8 latency mitigations: maxScoreAge=5m, activityWindow=1h, maxOpsInWindow=3
+        uint64 maxScoreAge = uint64(vm.envOr("MAX_SCORE_AGE", uint256(5 minutes)));
+        uint64 activityWindow = uint64(vm.envOr("ACTIVITY_WINDOW", uint256(1 hours)));
+        uint32 maxOpsInWindow = uint32(vm.envOr("MAX_OPS_IN_WINDOW", uint256(3)));
+
         uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG);
-        bytes memory constructorArgs =
-            abi.encode(poolManagerAddr, address(registry), address(oracle), address(policy));
+        bytes memory constructorArgs = abi.encode(
+            poolManagerAddr,
+            address(registry),
+            address(oracle),
+            address(policy),
+            maxScoreAge,
+            activityWindow,
+            maxOpsInWindow
+        );
 
         (address hookAddr, bytes32 salt) =
             HookMiner.find(CREATE2_DEPLOYER, flags, type(AmlHook).creationCode, constructorArgs);
 
         AmlHook hook = new AmlHook{salt: salt}(
-            IPoolManager(poolManagerAddr), registry, oracle, policy
+            IPoolManager(poolManagerAddr),
+            registry,
+            oracle,
+            policy,
+            maxScoreAge,
+            activityWindow,
+            maxOpsInWindow
         );
         require(address(hook) == hookAddr, "hook address mismatch");
 

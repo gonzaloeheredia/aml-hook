@@ -18,13 +18,13 @@ import {LPFeeLibrary} from "v4-core/src/libraries/LPFeeLibrary.sol";
 
 /// @title AMLHook — Uniswap v4 compliance hook (REAL on-chain logic)
 /// @notice PoolManager → beforeSwap/afterSwap → SanctionRegistry → ComplianceOracle → RiskPolicy
-/// @dev This contract is production-shaped. Local demos often wire a MockPoolManager so
-///      PoolManager-gated swaps are not exercised end-to-end; the demo API simulates beforeSwap
-///      decisions in TypeScript while still reading/writing ComplianceOracle on Anvil.
-///      Swap subject: `abi.decode(hookData, (address))` when provided; otherwise `sender` (router).
-///      Fee override uses v4 units (hundredths of a bip): traditional bps × 100.
+/// @dev Swap subject MUST be `abi.encode(endUser)` in hookData — never the router.
+///      §3.8 mitigations: unset score, stale+activity, activity-window cap (see AmlHookLogic).
 contract AmlHook is BaseHook, AmlHookLogic {
     using LPFeeLibrary for uint24;
+
+    /// @notice Router called without encoding the end-user wallet in hookData.
+    error MissingSwapSubject();
 
     /// @dev Transient cache so afterSwap can emit without a second oracle read race.
     address private _swapWallet;
@@ -36,8 +36,21 @@ contract AmlHook is BaseHook, AmlHookLogic {
         IPoolManager poolManager_,
         ISanctionRegistry sanctionRegistry_,
         IComplianceOracle complianceOracle_,
-        IRiskPolicy riskPolicy_
-    ) BaseHook(poolManager_) AmlHookLogic(sanctionRegistry_, complianceOracle_, riskPolicy_) {}
+        IRiskPolicy riskPolicy_,
+        uint64 maxScoreAge_,
+        uint64 activityWindow_,
+        uint32 maxOpsInWindow_
+    )
+        BaseHook(poolManager_)
+        AmlHookLogic(
+            sanctionRegistry_,
+            complianceOracle_,
+            riskPolicy_,
+            maxScoreAge_,
+            activityWindow_,
+            maxOpsInWindow_
+        )
+    {}
 
     /// @inheritdoc BaseHook
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
@@ -60,15 +73,15 @@ contract AmlHook is BaseHook, AmlHookLogic {
     }
 
     /// @inheritdoc BaseHook
-    function _beforeSwap(address sender, PoolKey calldata, SwapParams calldata, bytes calldata hookData)
+    function _beforeSwap(address /* sender */, PoolKey calldata, SwapParams calldata, bytes calldata hookData)
         internal
         override
         returns (bytes4, BeforeSwapDelta, uint24)
     {
-        address wallet = _resolveWallet(sender, hookData);
-        (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk) = _evaluate(wallet);
+        address wallet = _resolveWallet(hookData);
+        (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk) =
+            _evaluateWithMitigationEvents(wallet);
 
-        // Cache for afterSwap emit
         _swapWallet = wallet;
         _swapDecision = decision;
         _swapFeeBps = feeBps;
@@ -76,7 +89,6 @@ contract AmlHook is BaseHook, AmlHookLogic {
 
         uint24 lpFee;
         if (decision == HookDecision.FEE_OVERRIDE) {
-            // RiskPolicy uses traditional bps (800 = 8%); v4 wants hundredths of a bip.
             lpFee = uint24(feeBps) * 100 | LPFeeLibrary.OVERRIDE_FEE_FLAG;
         } else {
             lpFee = 0;
@@ -91,9 +103,9 @@ contract AmlHook is BaseHook, AmlHookLogic {
         override
         returns (bytes4, int128)
     {
+        _recordActivity(_swapWallet);
         _emitSwapObserved(_swapWallet, _swapDecision, _swapFeeBps, _swapRisk);
 
-        // Clear cache
         delete _swapWallet;
         delete _swapDecision;
         delete _swapFeeBps;
@@ -102,11 +114,9 @@ contract AmlHook is BaseHook, AmlHookLogic {
         return (this.afterSwap.selector, 0);
     }
 
-    function _resolveWallet(address sender, bytes calldata hookData) private pure returns (address wallet) {
-        if (hookData.length >= 32) {
-            wallet = abi.decode(hookData, (address));
-            if (wallet != address(0)) return wallet;
-        }
-        return sender;
+    function _resolveWallet(bytes calldata hookData) private pure returns (address wallet) {
+        if (hookData.length < 32) revert MissingSwapSubject();
+        wallet = abi.decode(hookData, (address));
+        if (wallet == address(0)) revert MissingSwapSubject();
     }
 }

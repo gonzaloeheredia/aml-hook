@@ -2,10 +2,10 @@
  * N-hop decay scoring and fee helpers for the AML Hook.
  * Same rules as the frontend / use-case doc (decay 0.65, ternary bands).
  *
- * Score sources (hybrid beforeSwap path for the demo):
- * 1. REAL on-chain — ComplianceOracle.getRisk when SCORE_SOURCE=onchain + RPC env
- * 2. MOCK memory — COA evaluation cache in process memory
- * 3. Formula fallback — hopScore() from the in-memory hop graph
+ * Score / fee sources (hybrid beforeSwap path for the demo):
+ * 1. REAL on-chain — ComplianceOracle.getRisk (score + feeBps) when SCORE_SOURCE=onchain
+ * 2. MOCK memory — COA ScoreResult (finalScore + recommendedFeeBps)
+ * 3. Formula fallback — hopScore() / feeBpsFromHop()
  */
 
 import {
@@ -13,7 +13,7 @@ import {
   readRiskFromChain,
   type ScoreSource,
 } from "./oracle/onchainReader.js";
-import { getOracleScore } from "./oracle/store.js";
+import { getOracleFeeBps, getOracleScore } from "./oracle/store.js";
 import type { Decision, Wallet, WalletId } from "./types.js";
 
 /** Contamination weight retained per hop. */
@@ -60,15 +60,45 @@ export function walletScore(wallet: Wallet): number {
 export async function resolveWalletScore(
   wallet: Wallet,
 ): Promise<{ score: number; source: ScoreSource }> {
+  const resolved = await resolveWalletRisk(wallet);
+  return { score: resolved.score, source: resolved.source };
+}
+
+/**
+ * Score + applied fee from COA/oracle. Fee prefers COA recommendedFeeBps / on-chain feeBps.
+ */
+export async function resolveWalletRisk(wallet: Wallet): Promise<{
+  score: number;
+  feeBps: number;
+  source: ScoreSource;
+}> {
   if (preferOnChainScore()) {
     const risk = await readRiskFromChain(wallet.address);
     if (risk != null && risk.updatedAt > 0) {
-      return { score: risk.score, source: "onchain" };
+      const score = risk.score;
+      const feeBps =
+        risk.feeBps > 0 ? risk.feeBps : feeBpsFromHop(score, wallet.hopDistance);
+      return { score, feeBps, source: "onchain" };
     }
   }
-  const memory = getOracleScore(wallet.id);
-  if (memory != null) return { score: memory, source: "memory" };
-  return { score: hopScore(wallet), source: "hop" };
+  const memoryScore = getOracleScore(wallet.id);
+  const memoryFee = getOracleFeeBps(wallet.id);
+  if (memoryScore != null) {
+    return {
+      score: memoryScore,
+      feeBps:
+        memoryFee != null
+          ? memoryFee
+          : feeBpsFromHop(memoryScore, wallet.hopDistance),
+      source: "memory",
+    };
+  }
+  const score = hopScore(wallet);
+  return {
+    score,
+    feeBps: feeBpsFromHop(score, wallet.hopDistance),
+    source: "hop",
+  };
 }
 
 /**
@@ -82,7 +112,7 @@ export function decisionFromScore(score: number): Decision {
 }
 
 /**
- * Returns the applied fee in basis points from score and hop distance.
+ * COA fee schedule helper (also used as fallback when oracle feeBps is unset).
  * Clean 0.30% · 1-hop 8% · 2-hop 3% · REVERT 0.
  */
 export function feeBpsFromHop(score: number, hopDistance: number | null): number {

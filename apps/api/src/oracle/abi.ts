@@ -1,5 +1,5 @@
 /**
- * Minimal ABI for ComplianceOracle.updateScore / getScore (Layer 2).
+ * Minimal ABI for ComplianceOracle.updateScore / getRisk (Layer 2).
  * Mirrors contracts/src/interfaces/IComplianceOracle.sol
  */
 
@@ -13,6 +13,7 @@ export const complianceOracleAbi = [
       { name: "score", type: "uint8" },
       { name: "hopDistance", type: "uint8" },
       { name: "origin", type: "address" },
+      { name: "feeBps", type: "uint24" },
       { name: "signature", type: "bytes" },
     ],
     outputs: [],
@@ -37,6 +38,7 @@ export const complianceOracleAbi = [
           { name: "score", type: "uint8" },
           { name: "hopDistance", type: "uint8" },
           { name: "origin", type: "address" },
+          { name: "feeBps", type: "uint24" },
           { name: "updatedAt", type: "uint64" },
         ],
       },
@@ -50,6 +52,7 @@ export const complianceOracleAbi = [
       { name: "score", indexed: false, type: "uint8" },
       { name: "hopDistance", indexed: false, type: "uint8" },
       { name: "origin", indexed: false, type: "address" },
+      { name: "feeBps", indexed: false, type: "uint24" },
       { name: "updatedAt", indexed: false, type: "uint64" },
     ],
   },

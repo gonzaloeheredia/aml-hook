@@ -13,6 +13,7 @@ import {BeforeSwapDelta} from "v4-core/src/types/BeforeSwapDelta.sol";
 import {LPFeeLibrary} from "v4-core/src/libraries/LPFeeLibrary.sol";
 
 import {AmlHook} from "../src/hooks/AmlHook.sol";
+import {BaseHook} from "../src/hooks/BaseHook.sol";
 import {SanctionRegistry} from "../src/registries/SanctionRegistry.sol";
 import {ComplianceOracle} from "../src/oracle/ComplianceOracle.sol";
 import {RiskPolicy} from "../src/policy/RiskPolicy.sol";
@@ -78,7 +79,15 @@ contract AmlHookTest is Test {
         address flags = address(uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG));
         deployCodeTo(
             "AmlHook.sol:AmlHook",
-            abi.encode(IPoolManager(address(manager)), registry, oracle, policy),
+            abi.encode(
+                IPoolManager(address(manager)),
+                registry,
+                oracle,
+                policy,
+                uint64(300),
+                uint64(3600),
+                uint32(3)
+            ),
             flags
         );
         hook = AmlHook(flags);
@@ -101,6 +110,8 @@ contract AmlHookTest is Test {
     }
 
     function test_CleanSwapAllowThenObserve() public {
+        // Keeper must write score (even 0) so unset mitigation does not elevate.
+        oracle.updateScore(walletC, 0, 0, address(0), 0, "");
         bytes memory data = abi.encode(walletC);
 
         (bytes4 sel,, uint24 fee) =
@@ -114,8 +125,15 @@ contract AmlHookTest is Test {
         manager.callAfterSwap(IHooks(address(hook)), router, key, params, BalanceDelta.wrap(0), data);
     }
 
+    function test_UnsetScoreElevatesInBeforeSwap() public {
+        bytes memory data = abi.encode(walletC);
+        (,, uint24 fee) = manager.callBeforeSwap(IHooks(address(hook)), router, key, params, data);
+        assertTrue(fee.isOverride());
+        assertEq(fee.removeOverrideFlag(), 80_000); // LATENCY_FEE_BPS 800 → v4 units
+    }
+
     function test_FeeOverrideReturnsV4FeeWithFlag() public {
-        oracle.updateScore(walletB, 65, 1, walletA, "");
+        oracle.updateScore(walletB, 65, 1, walletA, 800, "");
         bytes memory data = abi.encode(walletB);
 
         (,, uint24 fee) = manager.callBeforeSwap(IHooks(address(hook)), router, key, params, data);
@@ -124,7 +142,7 @@ contract AmlHookTest is Test {
     }
 
     function test_TwoHopProportionalFee() public {
-        oracle.updateScore(walletC, 42, 2, walletA, "");
+        oracle.updateScore(walletC, 42, 2, walletA, 300, "");
         bytes memory data = abi.encode(walletC);
 
         (,, uint24 fee) = manager.callBeforeSwap(IHooks(address(hook)), router, key, params, data);
@@ -133,7 +151,7 @@ contract AmlHookTest is Test {
     }
 
     function test_RevertBandRevertsInBeforeSwap() public {
-        oracle.updateScore(walletA, 100, 0, walletA, "");
+        oracle.updateScore(walletA, 100, 0, walletA, 0, "");
         bytes memory data = abi.encode(walletA);
 
         vm.expectRevert();
@@ -142,10 +160,39 @@ contract AmlHookTest is Test {
 
     function test_SanctionRevertsBeforeScore() public {
         registry.setSanctioned(walletB, true);
-        oracle.updateScore(walletB, 0, 0, address(0), "");
+        oracle.updateScore(walletB, 0, 0, address(0), 0, "");
         bytes memory data = abi.encode(walletB);
 
         vm.expectRevert();
         manager.callBeforeSwap(IHooks(address(hook)), router, key, params, data);
+    }
+
+    function test_EmptyHookDataRevertsNotRouter() public {
+        // Without end-user in hookData, must NOT evaluate the router — fail closed.
+        vm.expectRevert(AmlHook.MissingSwapSubject.selector);
+        manager.callBeforeSwap(IHooks(address(hook)), router, key, params, "");
+    }
+
+    function test_ZeroAddressHookDataReverts() public {
+        bytes memory data = abi.encode(address(0));
+        vm.expectRevert(AmlHook.MissingSwapSubject.selector);
+        manager.callBeforeSwap(IHooks(address(hook)), router, key, params, data);
+    }
+
+    function test_NonPoolManagerCannotCallBeforeSwap() public {
+        bytes memory data = abi.encode(walletC);
+        vm.prank(router);
+        vm.expectRevert(BaseHook.NotPoolManager.selector);
+        hook.beforeSwap(router, key, params, data);
+    }
+
+    function test_AfterSwapEmitsCachedDecision() public {
+        oracle.updateScore(walletB, 65, 1, walletA, 800, "");
+        bytes memory data = abi.encode(walletB);
+        manager.callBeforeSwap(IHooks(address(hook)), router, key, params, data);
+
+        vm.expectEmit(true, false, false, true, address(hook));
+        emit SwapObserved(walletB, 65, HookDecision.FEE_OVERRIDE, 800, 1, walletA);
+        manager.callAfterSwap(IHooks(address(hook)), router, key, params, BalanceDelta.wrap(0), data);
     }
 }
