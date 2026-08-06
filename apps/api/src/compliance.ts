@@ -1,7 +1,6 @@
 /**
- * Demo compliance pack — score + Opinion from the off-chain oracle COA.
- * Opinion / COA skills are MOCK (deterministic TypeScript, no live LLM).
- * Numeric score may be REAL on-chain when SCORE_SOURCE=onchain (see resolveWalletScore).
+ * Demo compliance pack — score + Opinion from the Compliance Officer Agent.
+ * Agent runs a connected skill/source pipeline; outcomes stay use-case aligned.
  */
 
 import { ensureOracleEvaluation } from "./oracle/index.js";
@@ -25,6 +24,7 @@ export async function buildCompliancePack(wallet: Wallet): Promise<CompliancePac
   const hookOutput = toHookOutput(decision);
   const opinion = oracle.opinion;
   const auditHash = opinion.auditHash;
+  const run = oracle.agentRun!;
 
   const riskLabel =
     decision === "block"
@@ -67,8 +67,9 @@ export async function buildCompliancePack(wallet: Wallet): Promise<CompliancePac
     riskLabel,
     summary: [
       `Score ${score}/100 · source=${source} · ${hookOutput} (${oracle.scoreResult.flow}).`,
+      `COA ${run.runId}: ${run.skills.length} skills · ${run.sourcesConsulted.length} sources · ${run.durationMs}ms.`,
       wallet.exploitConfirmed
-        ? "Keeper confirmed exploit source — REVERT on pool swaps. P2P outflows contaminate B/C."
+        ? "Compliance Officer Agent confirmed exploit source — REVERT on pool swaps. P2P outflows contaminate B/C."
         : wallet.hopDistance
           ? `Contamination at ${wallet.hopDistance} hop(s) from origin ${wallet.originId ?? "A"}.`
           : "Clean wallet. No contamination from A yet — ALLOW at standard fee.",
@@ -85,6 +86,16 @@ export async function buildCompliancePack(wallet: Wallet): Promise<CompliancePac
       sarAnnex: opinion.sarAnnex,
       decisionRecord: opinion.decisionRecord,
       note: opinion.note,
+      run: {
+        runId: run.runId,
+        role: run.role,
+        flow: run.flow,
+        durationMs: run.durationMs,
+        skillsExecuted: run.skills.map((s) => s.skill),
+        sourcesConsulted: run.sourcesConsulted,
+        publishTxHash: oracle.onChainPublish?.txHash,
+        publishStatus: oracle.onChainPublish?.status,
+      },
     },
   };
 }

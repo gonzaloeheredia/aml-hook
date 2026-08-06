@@ -113,6 +113,17 @@ export type CompliancePack = {
       nextReview: string;
     };
     note: string;
+    /** Virtual COA run metadata (skills + connected sources). */
+    run?: {
+      runId: string;
+      role: string;
+      flow: string;
+      durationMs: number;
+      skillsExecuted: string[];
+      sourcesConsulted: string[];
+      publishTxHash?: string;
+      publishStatus?: string;
+    };
   };
 };
 

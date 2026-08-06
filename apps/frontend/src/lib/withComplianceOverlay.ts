@@ -149,6 +149,7 @@ export function withComplianceOverlay(
       sarAnnex: pack.agent.sarAnnex,
       decisionRecord: pack.agent.decisionRecord,
       note: pack.agent.note,
+      run: pack.agent.run,
     },
   };
 }

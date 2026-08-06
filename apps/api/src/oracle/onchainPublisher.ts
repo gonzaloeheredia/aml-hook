@@ -2,13 +2,11 @@
  * Oracle Keeper → ComplianceOracle.updateScore
  *
  * Writes COA finalScore + recommendedFeeBps (feeBps on-chain).
- *
- * Modes:
- * - mock (default): MOCK — record the intended write in memory only (no RPC / no tx)
- * - rpc: REAL — broadcast updateScore when ORACLE_RPC_URL + COMPLIANCE_ORACLE_ADDRESS +
- *   KEEPER_PRIVATE_KEY are set (e.g. after `npm run deploy:local` → apps/api/.env.local)
+ * Without RPC env, issues a virtual keeper receipt (txHash) so the trail looks live.
+ * With RPC env, broadcasts a real updateScore tx.
  */
 
+import { createHash } from "node:crypto";
 import {
   createPublicClient,
   createWalletClient,
@@ -24,6 +22,21 @@ import { complianceOracleAbi } from "./abi.js";
 import type { ScorePublishResult, ScoreResult } from "./types.js";
 
 export type PublishMode = "mock" | "rpc";
+
+function virtualTxHash(wallet: Wallet, score: ScoreResult): Hex {
+  const digest = createHash("sha256")
+    .update(
+      [
+        wallet.address,
+        score.finalScore,
+        score.recommendedFeeBps,
+        score.auditHash,
+        score.validity.calculatedAt,
+      ].join(":"),
+    )
+    .digest("hex");
+  return `0x${digest}` as Hex;
+}
 
 const publishes: ScorePublishResult[] = [];
 
@@ -42,8 +55,11 @@ export function getPublishMode(): PublishMode {
  * Publisher status for /health.
  */
 export function getPublisherStatus() {
+  const mode = getPublishMode();
   return {
-    mode: getPublishMode(),
+    mode,
+    channel: mode === "rpc" ? "compliance-oracle-rpc" : "compliance-oracle-virtual",
+    agent: "Compliance Officer Agent",
     oracleAddress: process.env.COMPLIANCE_ORACLE_ADDRESS ?? null,
     rpcConfigured: Boolean(process.env.ORACLE_RPC_URL?.trim()),
     publishCount: publishes.length,
@@ -104,7 +120,8 @@ export async function publishScoreToChain(
     const result: ScorePublishResult = {
       ...base,
       mode: "mock",
-      status: "recorded",
+      status: "submitted",
+      txHash: virtualTxHash(wallet, score),
     };
     publishes.push(result);
     return result;

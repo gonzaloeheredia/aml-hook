@@ -21,8 +21,10 @@ export {
   listOracleEvaluations,
 } from "./store.js";
 export type {
+  AgentRun,
   OracleEvaluation,
   OracleOpinion,
   ScorePublishResult,
   ScoreResult,
 } from "./types.js";
+export type { AgentSkillStep } from "./virtualAgent.js";
