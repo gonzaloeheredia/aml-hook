@@ -7,9 +7,11 @@ import {HookDecision} from "../libraries/HookDecision.sol";
 /// @notice Pure policy: no storage of per-wallet state.
 interface IRiskPolicy {
     /// @notice Decide ALLOW / FEE_OVERRIDE / REVERT from a 0–100 score.
+    /// @param score Behavioral score from ComplianceOracle.
+    /// @param recommendedFeeBps Keeper-written fee (bps) from ComplianceOracle. Used on FEE_OVERRIDE when in range.
     /// @return decision Ternary output for the hook.
-    /// @return feeBps Fee in basis points when FEE_OVERRIDE (else 0). Standard pool fee is applied on ALLOW by the pool, not here.
-    function decide(uint8 score)
+    /// @return feeBps Fee in basis points when FEE_OVERRIDE (else 0). Pool base fee applies on ALLOW.
+    function decide(uint8 score, uint24 recommendedFeeBps)
         external
         view
         returns (HookDecision decision, uint24 feeBps);

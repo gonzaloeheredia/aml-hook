@@ -24,6 +24,14 @@ export function getOracleScore(walletId: WalletId): number | null {
 }
 
 /**
+ * Returns the COA recommended fee (bps), or null when the oracle has not run yet.
+ */
+export function getOracleFeeBps(walletId: WalletId): number | null {
+  const fee = evaluations.get(walletId)?.scoreResult.recommendedFeeBps;
+  return fee == null ? null : fee;
+}
+
+/**
  * Writes (or overwrites) the oracle evaluation for a wallet.
  */
 export function setOracleEvaluation(

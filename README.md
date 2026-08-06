@@ -1,6 +1,6 @@
 # AML Hook
 
-Compliance layer for **Uniswap v4** (UHI10): a hook that intercepts swaps in `beforeSwap` / `afterSwap` and returns a ternary decision from an off-chain risk score.
+Compliance layer for **Uniswap v4** (UHI10). The hook intercepts swaps at `beforeSwap` / `afterSwap` and returns a ternary decision from a keeper-written risk score:
 
 | Score | Output | Effect |
 |---|---|---|
@@ -8,42 +8,49 @@ Compliance layer for **Uniswap v4** (UHI10): a hook that intercepts swaps in `be
 | 31–70 | **FEE_OVERRIDE** | Dynamic fee (`lpFeeOverride`, e.g. 3%–8%) |
 | 71–100 | **REVERT** | Fail-closed (exploit / sanctions exposure) |
 
-Product docs: [`docs/Whitepaper.txt`](docs/Whitepaper.txt), [`docs/AML-Hook_Use_Case.txt`](docs/AML-Hook_Use_Case.txt).
+The score is computed **off-chain** (Oracle Keeper / COA) and stored **on-chain** (`ComplianceOracle`). The hook only reads; it does not invent the score.
 
-## Monorepo layout
+## Docs
 
-```text
-aml-hook/
-├── apps/
-│   ├── frontend/       # Next.js guided demo UI (:3000)
-│   └── api/            # Fastify ledger + oracle COA + optional on-chain keeper (:4000)
-├── packages/
-│   └── sdk/            # ABIs + Anvil deployment addresses for the frontend
-├── contracts/          # Foundry — AmlHook + L1/L2/L3 (+ MockPoolManager for local)
-│   └── test/           # Forge unit tests (*.t.sol)
-├── agents/oracle-coa/  # Off-chain Compliance Officer Agent skill specs
-├── docs/
-├── scripts/            # deploy-local, sync-deployment, WSL Anvil helpers
-└── test/               # Headless HTTP demo flows (not Forge) — see note below
+| Doc | What it is |
+|---|---|
+| [`docs/Whitepaper.txt`](docs/Whitepaper.txt) | Product thesis, regulatory framing, why this exists |
+| [`docs/AML-Hook_Use_Case.txt`](docs/AML-Hook_Use_Case.txt) | A/B/C exploit → N-hop demo scenario |
+| [`docs/Instructivo_Contracts_Local.md`](docs/Instructivo_Contracts_Local.md) | Plain-language walkthrough of every contract + local Anvil |
+| [`agents/oracle-coa/`](agents/oracle-coa/) | Off-chain Compliance Officer Agent skill specs |
+
+## Quick start
+
+```bash
+npm install
+
+# optional — Anvil + real L1/L2/L3 + keeper env for the API
+npm run deploy:local
+
+npm run dev:api        # http://localhost:4000
+npm run dev:frontend   # http://localhost:3000
 ```
 
-**`test/` vs `contracts/test/`:** same folder name, different jobs. Root [`test/`](test/) = Node scripts against the demo API. [`contracts/test/`](contracts/test/) = Foundry Solidity tests (`forge test`). Prefer reading the folder README before assuming “unit tests.”
+`NEXT_PUBLIC_API_URL` defaults to `http://localhost:4000`.
 
-## Mock vs real (current boundary)
+After `deploy:local`, restart the API so it loads `apps/api/.env.local`. Check:
 
-| Piece | Status | Notes |
+```bash
+curl http://127.0.0.1:4000/health
+# publisher.mode: "rpc" · scoreSource: "onchain"
+```
+
+| Layer | Path | Notes |
 |---|---|---|
-| **SanctionRegistry / ComplianceOracle / RiskPolicy / AmlHook** | **Real contracts** | Deployed on Anvil via `DeployAmlStack` |
-| **PoolManager** | **Mock** locally | `MockPoolManager` — address stand-in; no live Uniswap swaps |
-| **Keeper `updateScore`** | **Real tx** when env set | Else mock trail in `GET /oracle/publishes` |
-| **Demo beforeSwap score** | **Hybrid** | Prefers on-chain `getRisk` → memory COA → hop formula |
-| **API ledger (balances, P2P, swap settle)** | **Mock** | In-memory; resets on process restart |
-| **Oracle COA skills / Opinion** | **Mock** | Deterministic TS; no live LLM / vendors |
-| **External monitors (Forta, etc.)** | **Not wired** | Spec only; demo uses scripted A/B/C ledger |
+| Frontend | [`apps/frontend/`](apps/frontend/README.md) | Guided 6-stage demo UI |
+| API / keeper | [`apps/api/`](apps/api/README.md) | In-memory ledger + COA + optional RPC publish |
+| Contracts | [`contracts/`](contracts/README.md) | Foundry — `forge test` / `DeployAmlStack` |
+| SDK | [`packages/sdk/`](packages/sdk/README.md) | ABIs + `getDeployment(31337)` |
+| Demo flows | [`test/`](test/README.md) | Headless HTTP scripts (not Forge) |
 
-Code comments in `apps/api` and `contracts/src` call out MOCK vs REAL at the entry points.
+**`test/` vs `contracts/test/`:** root `test/` = Node demo flows against the API. `contracts/test/` = Solidity unit tests (`forge test`).
 
-## Architecture — call path & contract layers
+## Architecture
 
 ```text
 User → Router → PoolManager
@@ -54,147 +61,103 @@ User → Router → PoolManager
           ┌────────────┼────────────┐
           ▼            ▼            ▼
    SanctionRegistry  ComplianceOracle  RiskPolicy
-     (Layer 1)         (Layer 2)         (Layer 3, decision)
+     (Layer 1)         (Layer 2)         (Layer 3)
                           ▲
-                          │ updateScore(wallet, score, hopDistance, origin, signature)
-                          │
+                          │ updateScore(...)
                     Oracle Keeper (off-chain)
-                          │
-              ┌───────────┴───────────┐
-              ▼                       ▼
-     External exploit-event       ERC-20 P2P transfer
-     monitors (Forta,             monitor (wallet-to-wallet)
-     Hypernative, protocol feeds)
 ```
 
 | Component | Role |
 |---|---|
-| **AMLHook** | Uniswap v4 hook — runs at `beforeSwap` / `afterSwap` |
-| **SanctionRegistry** | Layer 1 — on-chain sanctions screen (fail-closed) |
-| **ComplianceOracle** | Layer 2 — stores behavioral score written by the keeper |
-| **RiskPolicy** | Layer 3 — maps score → ALLOW / FEE_OVERRIDE / REVERT |
-| **Oracle Keeper** | Off-chain COA — monitors exploits + P2P, then `updateScore` |
+| **AmlHook** | Uniswap v4 hook — `beforeSwap` / `afterSwap` |
+| **SanctionRegistry** | L1 — sanctions screen (fail-closed) |
+| **ComplianceOracle** | L2 — score / hop / origin written by the keeper |
+| **RiskPolicy** | L3 — score → ALLOW / FEE_OVERRIDE / REVERT |
+| **Oracle Keeper** | Off-chain COA — then `updateScore` before the next swap |
 
-**`apps/api`** is the Oracle Keeper for the demo: after each score it calls `ComplianceOracle.updateScore` (mock trail or real Anvil tx). **`apps/frontend`** drives the UI. Pool swaps in the UI are still settled in the API ledger until a real PoolManager is wired.
+In this repo, **`apps/api`** is the demo keeper. **`apps/frontend`** drives the UI. Pool swaps in the UI are still settled in the API ledger until a real PoolManager is wired; scores can already be published/read on Anvil.
 
-## Local on-chain stack (Anvil)
+## Mock vs real
 
-From the repo root (Foundry on PATH, or WSL Foundry on Windows):
+| Piece | Status |
+|---|---|
+| SanctionRegistry · ComplianceOracle · RiskPolicy · AmlHook | **Real** contracts on Anvil |
+| PoolManager | **Mock** locally (`MockPoolManager`) |
+| Keeper `updateScore` | **Real tx** when RPC env is set; else mock trail |
+| Demo beforeSwap score + fee | **Hybrid** — on-chain `getRisk` (score + `feeBps` from COA) → memory → hop |
+| API ledger (balances, P2P, swap settle) | **Mock** (in-memory) |
+| COA skills / Opinion | **Mock** (deterministic TS; no live LLM/vendors) |
+| External monitors (Forta, etc.) | Spec only — not wired |
+
+## Local on-chain stack
 
 ```bash
 npm run deploy:local
-# → starts Anvil (detached), forge DeployAmlStack, syncs SDK + apps/api/.env.local
-
-# restart API so it loads .env.local
-npm run start -w aml-hook-api   # or npm run dev:api
 ```
 
-What `deploy:local` does:
+1. Starts Anvil on `:8545` (WSL: detached so it survives the shell)
+2. Deploys real L1/L2/L3 + AmlHook (CREATE2); MockPoolManager unless `POOL_MANAGER` is set
+3. Deployer = Anvil account #0 = ComplianceOracle keeper
+4. Writes `contracts/deployments/31337.json` → `packages/sdk/deployments/`
+5. Writes `apps/api/.env.local` (`ORACLE_RPC_URL`, `COMPLIANCE_ORACLE_ADDRESS`, `KEEPER_PRIVATE_KEY`, `SCORE_SOURCE=onchain`)
 
-1. Anvil on `:8545` (WSL uses `setsid/nohup` so the process survives the shell)
-2. Deploys **real** L1/L2/L3 + AmlHook (CREATE2 flags); **MockPoolManager** unless `POOL_MANAGER` is set
-3. Deployer = Anvil account #0 = ComplianceOracle **keeper**
-4. Writes `contracts/deployments/31337.json` → copies to `packages/sdk/deployments/`
-5. Writes `apps/api/.env.local`:
-
-```env
-ORACLE_RPC_URL=http://127.0.0.1:8545
-COMPLIANCE_ORACLE_ADDRESS=0x…
-KEEPER_PRIVATE_KEY=0xac0974…   # Anvil #0
-SCORE_SOURCE=onchain
-```
-
-Verify:
+Smoke after API restart:
 
 ```bash
-curl http://127.0.0.1:4000/health
-# publisher.mode: "rpc", scoreSource: "onchain"
-
-# after a transfer A→B
-curl http://127.0.0.1:4000/oracle/publishes
-# status: "submitted" + txHash
-
-curl http://127.0.0.1:4000/wallets/B
-# scoreSource: "onchain"
+# transfer A→B, then:
+curl http://127.0.0.1:4000/oracle/publishes   # status: submitted + txHash
+curl http://127.0.0.1:4000/wallets/B          # scoreSource: onchain
 ```
-
-SDK for the frontend:
 
 ```ts
 import { getDeployment, complianceOracleAbi, amlHookAbi } from "@aml-hook/sdk";
 const d = getDeployment(31337);
 ```
 
-## Use case — Exploit detection, propagation & N-hop decay
+## Demo use case (A → B → C)
 
-An attacker drains an external protocol and tries to cash out stolen USDC into ETH in an RWA Uniswap v4 pool protected by AML Hook. Blocked at the pool, they move funds off-pool via P2P; the keeper traces contamination with **N-hop decay** and writes updated scores before the next swap.
+Attacker **A** (score 100) is blocked at the pool, then moves USDC via P2P. The keeper applies **N-hop decay** (`score ≈ 100 × 0.65^hops`; closer hop wins) and writes scores before the next swap.
 
-**Formula:** `derived_score = origin_score × (0.65 ^ hops) × exposed_proportion`  
-(with full exposure → `score ≈ 100 × 0.65^hops`). If a wallet is reached by more than one path, the **closer hop wins**.
-
-| Wallet | Role | Live score |
+| Step | Action | Result |
 |---|---|---|
-| **A** | Exploit source | **100 → REVERT** |
-| **B** | Starts **clean** (same rules as C) | A→B → **~65 / 8%**; tainted C→B → **~42 / 3%** |
-| **C** | Starts **clean** (same rules as B) | A→C → **~65 / 8%**; tainted B→C → **~42 / 3%** |
+| 0 | C swaps clean | ALLOW 0.30% |
+| 1 | A tries pool cash-out | REVERT |
+| 2 | A → B (P2P) | B ≈ 65 |
+| 3 | B swaps | FEE_OVERRIDE 8% |
+| 4 | B → C (P2P) | C ≈ 42 |
+| 5 | C swaps | FEE_OVERRIDE 3% |
 
-### Demo walkthrough (path A → B → C)
-
-0. **C** swaps clean → **ALLOW** 0.30%
-1. **A** attempts pool cash-out → **REVERT**
-2. **A → B** P2P → oracle writes score **65**
-3. **B** swaps → **FEE_OVERRIDE** 8%
-4. **B → C** P2P → oracle writes score **42**
-5. **C** swaps → **FEE_OVERRIDE** 3%
+Full narrative: [`docs/AML-Hook_Use_Case.txt`](docs/AML-Hook_Use_Case.txt).
 
 ## Guided UI (6 stages)
 
-| # | Stage | What it shows |
+| # | Stage | Shows |
 |---|---|---|
-| 1 | **Swap** | Uniswap-style swap widget (connect wallet here) |
-| 2 | **Hook** | Flow simulator (`beforeSwap` / decision) |
-| 3 | **Fees** | Fee / gas + settled volume (**Sold USDC** / **Bought ETH**) |
-| 4 | **AML stats** | Score, report overview, detection data |
-| 5 | **Opinion** | Legal / technical opinion from the **oracle COA** (sections A–D) |
-| 6 | **Event** | Pool-chain `afterSwap` payload (`SwapObserved`) |
+| 1 | Swap | Uniswap-style widget |
+| 2 | Hook | beforeSwap / decision flow |
+| 3 | Fees | Fee + settled Sold USDC / Bought ETH |
+| 4 | AML stats | Score, report overview |
+| 5 | Opinion | COA legal/technical opinion (A–D) |
+| 6 | Event | `SwapObserved` / afterSwap payload |
 
-**Off-chain oracle (Compliance Officer Agent)**
+REVERT is decided in `beforeSwap` — `afterSwap` never runs for that attempt.
 
-- Spec + skills: [`agents/oracle-coa/`](agents/oracle-coa/) (see `INTEGRATION.md`)
-- Runner: `apps/api/src/oracle/` (MOCK_MODE — no live LLM/vendor APIs yet)
-- Consumes P2P transfers + `afterSwap` / `WalletBlocked` events → writes score **before the next swap**
-- Opinion UI is filled from the same oracle evaluation
+## Repo layout
 
-**Event payload** (use-case `afterSwap` emit):
-
-`{ address, score, decision, fee, amount_usdc, hop_distance?, origin?, timestamp }`
-
-REVERT happens in `beforeSwap` — `afterSwap` never runs for that attempt.
-
-## Run the demos
-
-From the repo root (npm workspaces):
-
-```bash
-npm install
-npm run deploy:local   # optional — on-chain oracle + keeper
-npm run dev:api        # :4000  (restart after deploy:local)
-npm run dev:frontend   # :3000
+```text
+aml-hook/
+├── apps/frontend/      # Next.js demo (:3000)
+├── apps/api/           # Ledger + COA + keeper (:4000)
+├── packages/sdk/       # ABIs + Anvil addresses
+├── contracts/          # Foundry stack (+ MockPoolManager)
+├── agents/oracle-coa/  # COA skill specs
+├── docs/               # Whitepaper, use case, instructivo
+├── scripts/            # deploy-local, sync-deployment
+└── test/               # Headless API demo flows
 ```
 
-| Layer | Path | Commands |
-|---|---|---|
-| API (`:4000`) | [`apps/api/`](apps/api/README.md) | `npm run dev:api` |
-| Frontend (`:3000`) | [`apps/frontend/`](apps/frontend/README.md) | `npm run dev:frontend` |
-| Contracts | [`contracts/`](contracts/README.md) | Foundry — `forge test` / `DeployAmlStack` |
-| SDK | [`packages/sdk/`](packages/sdk/README.md) | ABIs + `deployments/31337.json` after deploy |
-| Local chain | `npm run deploy:local` | Anvil + stack + sync env/SDK |
-| Demo flows | [`test/`](test/README.md) | `node test/flow-uniswap-metamask.mjs` |
+## Still pending
 
-`NEXT_PUBLIC_API_URL` defaults to `http://localhost:4000`.
-
-## Still pending (not done)
-
-- Wire a **real Uniswap v4 PoolManager** + pool so swaps execute on-chain through AmlHook (today: MockPoolManager + API-simulated settlement)
-- Live COA vendors / LLM (still deterministic mock)
-- Broader e2e / Foundry coverage beyond the current unit tests
+- Real Uniswap v4 PoolManager + pool (swaps through AmlHook on-chain)
+- Live COA vendors / LLM
+- Broader e2e beyond current Forge unit tests

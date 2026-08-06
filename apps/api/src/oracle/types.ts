@@ -44,6 +44,8 @@ export type ScoreResult = {
   finalScore: number;
   riskLevel: RiskLevel;
   hookOutput: HookOutput;
+  /** COA recommended pool fee in bps — source of truth for FEE_OVERRIDE (and display on ALLOW). */
+  recommendedFeeBps: number;
   scoreBreakdown: ScoreBreakdown;
   triggeringFacts: FactEvent[];
   regulatoryFlags: {
@@ -111,6 +113,7 @@ export type ScorePublishResult = {
   score: number;
   hopDistance: number;
   origin: string;
+  feeBps: number;
   at: string;
   txHash?: string;
   error?: string;

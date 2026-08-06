@@ -8,8 +8,7 @@ import { ensureOracleEvaluation } from "./oracle/index.js";
 import {
   decisionFromScore,
   ethOutFromSwap,
-  feeBpsFromHop,
-  resolveWalletScore,
+  resolveWalletRisk,
   swapUsdcAmount,
   toHookOutput,
 } from "./scoring.js";
@@ -17,13 +16,12 @@ import type { CompliancePack, SwapQuote, Wallet } from "./types.js";
 
 /**
  * Builds the full live compliance pack (Opinion) for a wallet.
- * Score prefers on-chain oracle when SCORE_SOURCE=onchain.
+ * Score + fee prefer COA / on-chain oracle (recommendedFeeBps).
  */
 export async function buildCompliancePack(wallet: Wallet): Promise<CompliancePack> {
   const oracle = await ensureOracleEvaluation(wallet.id);
-  const { score, source } = await resolveWalletScore(wallet);
+  const { score, feeBps: appliedFeeBps, source } = await resolveWalletRisk(wallet);
   const decision = decisionFromScore(score);
-  const appliedFeeBps = feeBpsFromHop(score, wallet.hopDistance);
   const hookOutput = toHookOutput(decision);
   const opinion = oracle.opinion;
   const auditHash = opinion.auditHash;
@@ -93,15 +91,14 @@ export async function buildCompliancePack(wallet: Wallet): Promise<CompliancePac
 
 /**
  * Preview a USDC→ETH swap against current wallet state (no mutation).
- * Score follows beforeSwap resolution (on-chain → memory → hop).
+ * Score + fee follow beforeSwap resolution (on-chain COA fee → memory → hop).
  */
 export async function buildSwapQuote(
   wallet: Wallet,
   preferredUsdc?: number,
 ): Promise<SwapQuote> {
-  const { score } = await resolveWalletScore(wallet);
+  const { score, feeBps } = await resolveWalletRisk(wallet);
   const decision = decisionFromScore(score);
-  const feeBps = feeBpsFromHop(score, wallet.hopDistance);
   const usdcIn = swapUsdcAmount(wallet, preferredUsdc);
   const ethOut = decision === "block" ? 0 : ethOutFromSwap(usdcIn, feeBps);
 

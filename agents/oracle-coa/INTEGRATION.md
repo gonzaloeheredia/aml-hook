@@ -43,7 +43,7 @@ from the oracle cache.
 
 ## Schema keys (must match `types.ts`)
 
-`finalScore`, `riskLevel` (`BLOCK` \| `ELEVATED` \| `STANDARD`),
+`finalScore`, `recommendedFeeBps`, `riskLevel` (`BLOCK` \| `ELEVATED` \| `STANDARD`),
 `hookOutput` (`ALLOW` \| `FEE_OVERRIDE` \| `REVERT`), `scoreBreakdown`,
 `triggeringFacts`, `regulatoryFlags`, `validity.calculatedAt` /
 `validity.nextReview`, `auditHash`, `skillsApplied`, and per fact:

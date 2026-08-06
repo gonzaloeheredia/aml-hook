@@ -66,6 +66,7 @@ export async function readRiskFromChain(walletAddress: string): Promise<{
   score: number;
   hopDistance: number;
   origin: string;
+  feeBps: number;
   updatedAt: number;
 } | null> {
   const oracle = process.env.COMPLIANCE_ORACLE_ADDRESS?.trim() as
@@ -85,6 +86,7 @@ export async function readRiskFromChain(walletAddress: string): Promise<{
       score: Number(risk.score),
       hopDistance: Number(risk.hopDistance),
       origin: risk.origin,
+      feeBps: Number(risk.feeBps),
       updatedAt: Number(risk.updatedAt),
     };
   } catch {
