@@ -5,7 +5,7 @@ Compliance layer for **Uniswap v4** (UHI10). The hook intercepts swaps at `befor
 | Score | Output | Effect |
 |---|---|---|
 | 0–30 | **ALLOW** | Standard pool fee (0.30%) |
-| 31–70 | **FEE_OVERRIDE** | Dynamic fee (`lpFeeOverride`, e.g. 3%–8%) |
+| 31–70 | **FEE_OVERRIDE** | Dynamic fee (`lpFeeOverride`, e.g. 3%–8%); differential slice in **FeeEscrow** for 48h (confiscation → LP compensation, never the pool) |
 | 71–100 | **REVERT** | Fail-closed (exploit / sanctions exposure) |
 
 The score is computed **off-chain** by the **Oracle Keeper** — a Compliance Officer Agent (COA): an AI AML analyst that will connect to external information sources (sanctions feeds, exploit monitors, on-chain graph signals) — and stored **on-chain** (`ComplianceOracle`). The hook only reads; it does not invent the score.
@@ -52,7 +52,7 @@ curl http://127.0.0.1:4000/health
 
 ## Architecture
 
-```text
+`	ext
 User → Router → PoolManager
                        │
               beforeSwap │ afterSwap
@@ -67,23 +67,31 @@ User → Router → PoolManager
               Oracle Keeper / COA (off-chain)
          AI Compliance Officer · AML analyst
          → will connect to info sources / feeds
-```
+                          │
+                          │ keeper-only resolutions
+                          ▼
+                     FeeEscrow
+              (FEE_OVERRIDE differential fee, 48h)
+              early / default → pool
+              confiscate → LP compensation (never pool)
+`
 
 | Component | Role |
 |---|---|
-| **AmlHook** | Uniswap v4 hook — `beforeSwap` / `afterSwap` |
+| **AmlHook** | Uniswap v4 hook — eforeSwap / fterSwap |
 | **SanctionRegistry** | L1 — sanctions screen (fail-closed) |
 | **ComplianceOracle** | L2 — score / hop / origin written by the keeper |
 | **RiskPolicy** | L3 — score → ALLOW / FEE_OVERRIDE / REVERT (+ §3.8 latency floors) |
-| **Oracle Keeper (COA)** | Off-chain AI Compliance Officer / AML analyst — ingests information sources, scores wallets, then `updateScore` before the next swap (deferred for Wallet D) |
+| **Oracle Keeper (COA)** | Off-chain AI Compliance Officer / AML analyst — scores wallets, updateScore, and drives FeeEscrow after COA memos (COA never writes on-chain; deferred publish for Wallet D) |
+| **FeeEscrow** | Holds FEE_OVERRIDE differential fee for 48h (not swap output). Checkpoint 1 (≥24h: early release to pool. Checkpoint 2: confiscate to lpCompensationFund (LP compensation — never the pool) or release to pool. |
 
-In this repo, **`apps/api`** is the demo keeper (deterministic mock of that COA; live LLM and vendor feeds are the production path). **`apps/frontend`** drives the UI. Pool swaps in the UI are still settled in the API ledger until a real PoolManager is wired; scores can already be published/read on Anvil.
+In this repo, **pps/api** is the demo keeper (deterministic mock of that COA; live LLM and vendor feeds are the production path). **pps/frontend** drives the UI. Pool swaps in the UI are still settled in the API ledger until a real PoolManager is wired; scores can already be published/read on Anvil.
 
 ## Mock vs real
 
 | Piece | Status |
 |---|---|
-| SanctionRegistry · ComplianceOracle · RiskPolicy · AmlHook | **Real** contracts on Anvil |
+| SanctionRegistry · ComplianceOracle · RiskPolicy · AmlHook · FeeEscrow | **Real** contracts (FeeEscrow: Foundry suite; deploy wiring optional) |
 | PoolManager | **Mock** locally (`MockPoolManager`) |
 | Keeper `updateScore` | **Real tx** when RPC env is set; else mock trail |
 | Demo beforeSwap score + fee | **Hybrid** — on-chain `getRisk` (score + `feeBps` from COA) → memory → hop |
@@ -125,9 +133,9 @@ Attacker **A** (score 100) is blocked at the pool, then moves USDC via P2P. The 
 | 0 | C swaps clean | ALLOW 0.30% |
 | 1 | A tries pool cash-out | REVERT |
 | 2 | A → B (P2P) | B ≈ 65 |
-| 3 | B swaps | FEE_OVERRIDE 8% |
+| 3 | B swaps | FEE_OVERRIDE 8% → differential fee into FeeEscrow |
 | 4 | B → C (P2P) | C ≈ 42 |
-| 5 | C swaps | FEE_OVERRIDE 3% |
+| 5 | C swaps | FEE_OVERRIDE 3% → differential fee into FeeEscrow |
 | 6 | A → D (P2P); keeper not yet published | D oracle score still **0** (pending) |
 | 7 | D swaps under stale score | FEE_OVERRIDE **8%** (inflow heuristic) |
 | 8 | Keeper catch-up | D ≈ **65** |

@@ -68,7 +68,12 @@ User → Router → PoolManager
 
   RiskPolicy            Layer 3. Maps score to ALLOW / FEE_OVERRIDE / REVERT (and lpFeeOverride when applicable).
 
-  Oracle Keeper         Off-chain. Consumes exploit feeds and ERC-20 P2P transfers; calls updateScore before the next swap.
+  Oracle Keeper / COA   Off-chain AI AML analyst. Scores wallets, publishes updateScore, and drives FeeEscrow resolutions.
+                        The COA never writes on-chain; the keeper alone calls FeeEscrow after off-chain sanity checks.
+
+  FeeEscrow             Holds the FEE_OVERRIDE differential fee for 48h (not the swap output). Checkpoint 1 (>=24h: early
+                        release to the pool. Checkpoint 2 (>=48h): confiscation to lpCompensationFund (LP compensation —
+                        never the pool) or default release to the pool.
   --------------------- ------------------------------------------------------------------------------------------------
 ```
 
@@ -198,7 +203,7 @@ beforeSwap — Layer 1        OFAC screening: no match.
 
 beforeSwap — Score read     Keeper score: 65. Falls in tier 31–70. No revert. lpFeeOverride applied: 8%.
 
-Execution                   Swap executes. Fee of 8% deducted. Net proceeds to Wallet B reduced significantly.
+Execution                   Swap executes. Differential fee (8%) deposited into FeeEscrow (48h hold). User output settles in-block; net proceeds to Wallet B reduced.
 
 afterSwap — Event emitted   { address: B, score: 65, decision: FEE_OVERRIDE, fee: 8.00%, hop_distance: 1, origin: A, timestamp: T2 }
 
@@ -224,13 +229,37 @@ beforeSwap — Layer 1        OFAC screening: no match.
 
 beforeSwap — Score read     Keeper score: 42. Falls in tier 31–70. lpFeeOverride applied: 3% (proportional to lower contamination).
 
-Execution                   Swap executes. Reduced fee reflects two-hop distance from exploit source.
+Execution                   Swap executes. Differential fee (3%) deposited into FeeEscrow (48h hold). User output settles in-block; fee reflects two-hop distance.
 
 afterSwap — Event emitted   { address: C, score: 42, decision: FEE_OVERRIDE, fee: 3.00%, hop_distance: 2, origin: A, timestamp: T4 }
 
 Hook output                 PROPORTIONAL FEE — two-hop contamination. Penalty decays with distance. Audit trail maintained.
 --------------------------- ----------------------------------------------------------------------------------------------------------
 ```
+
+
+## 3.1 Fee Escrow on FEE_OVERRIDE Paths (Steps 3 and 5)
+
+On every FEE_OVERRIDE settlement (Wallet B at 8 percent, Wallet C at 3 percent), only the differential fee is deposited into FeeEscrow. User swap output settles in the same block; the escrow never retains the full swap.
+
+Deposit records wallet, amount, timestamp and origin transaction hash (FeeDeposited).
+
+`	ext
+--------------------------- ---------------------------------------------------------------------------------
+Phase                       Resolution
+--------------------------- ---------------------------------------------------------------------------------
+0 to 24h                    Fee retained in FeeEscrow. COA may analyze off-chain; no on-chain write by COA.
+Checkpoint 1 (>=24h, <48h)  Keeper may call releaseEarly after COA + sanity check. Fee goes to the pool.
+                            Checkpoint 1 cannot confiscate.
+Checkpoint 2 (>=48h)        Keeper calls resolveCheckpoint2 with COA conclusion.
+                            Illicit (confidence above keeper threshold) -> lpCompensationFund (LP compensation).
+                            Confiscated fees never go to the pool.
+                            Not illicit -> pool recipient (FeeReleasedDefault).
+No resolution by 48h        Keeper calls releaseDefault -> pool recipient.
+--------------------------- ---------------------------------------------------------------------------------
+`
+
+Events FeeReleasedEarly, FeeConfiscated and FeeReleasedDefault complete the audit trail for the operator.
 
 ## 4. Sequence Summary
 
@@ -244,11 +273,11 @@ Step   Actor    Action                                                          
 
 2      A → B    P2P transfer outside pool. Keeper writes score 65 to Wallet B.   —       Off-chain keeper update       —
 
-3      B        Swap attempt with 1-hop contaminated funds                       65      FEE OVERRIDE (punitive)       8.00%
+3      B        Swap attempt with 1-hop contaminated funds                       65      FEE OVERRIDE (punitive)       8.00% -> FeeEscrow
 
 4      B → C    P2P transfer outside pool. Keeper writes score 42 to Wallet C.   —       Off-chain keeper update       —
 
-5      C        Swap attempt with 2-hop contaminated funds                       42      FEE OVERRIDE (proportional)   3.00%
+5      C        Swap attempt with 2-hop contaminated funds                       42      FEE OVERRIDE (proportional)   3.00% -> FeeEscrow
 
 6      A → D    P2P transfer; keeper updateScore for D not yet confirmed         —       Off-chain (pending)           —
 
