@@ -13,11 +13,13 @@ import {BeforeSwapDelta} from "v4-core/src/types/BeforeSwapDelta.sol";
 import {LPFeeLibrary} from "v4-core/src/libraries/LPFeeLibrary.sol";
 
 import {AmlHook} from "../src/hooks/AmlHook.sol";
+import {AmlHookLogic} from "../src/hooks/AmlHookLogic.sol";
 import {BaseHook} from "../src/hooks/BaseHook.sol";
 import {SanctionRegistry} from "../src/registries/SanctionRegistry.sol";
 import {ComplianceOracle} from "../src/oracle/ComplianceOracle.sol";
 import {RiskPolicy} from "../src/policy/RiskPolicy.sol";
 import {HookDecision} from "../src/libraries/HookDecision.sol";
+import {MockTrustedRouter} from "../src/mocks/MockTrustedRouter.sol";
 
 /// @notice Stand-in PoolManager so AmlHook.onlyPoolManager can be exercised.
 contract MockPoolManager {
@@ -168,15 +170,82 @@ contract AmlHookTest is Test {
     }
 
     function test_EmptyHookDataRevertsNotRouter() public {
-        // Without end-user in hookData, must NOT evaluate the router — fail closed.
-        vm.expectRevert(AmlHook.MissingSwapSubject.selector);
+        // Without end-user in hookData and without a trusted router, fail closed.
+        vm.expectRevert(AmlHookLogic.MissingSwapSubject.selector);
         manager.callBeforeSwap(IHooks(address(hook)), router, key, params, "");
     }
 
     function test_ZeroAddressHookDataReverts() public {
         bytes memory data = abi.encode(address(0));
-        vm.expectRevert(AmlHook.MissingSwapSubject.selector);
+        vm.expectRevert(AmlHookLogic.MissingSwapSubject.selector);
         manager.callBeforeSwap(IHooks(address(hook)), router, key, params, data);
+    }
+
+    function test_ResolveViaTrustedRouterWithoutHookData() public {
+        oracle.updateScore(walletC, 0, 0, address(0), 0, "");
+        MockTrustedRouter trusted = new MockTrustedRouter();
+        trusted.setMsgSender(walletC);
+        hook.setTrustedRouter(address(trusted), true);
+
+        (bytes4 sel,, uint24 fee) =
+            manager.callBeforeSwap(IHooks(address(hook)), address(trusted), key, params, "");
+        assertEq(sel, hook.beforeSwap.selector);
+        assertEq(fee, 0);
+
+        vm.expectEmit(true, false, false, true, address(hook));
+        emit SwapObserved(walletC, 0, HookDecision.ALLOW, 0, 0, address(0));
+        manager.callAfterSwap(
+            IHooks(address(hook)), address(trusted), key, params, BalanceDelta.wrap(0), ""
+        );
+    }
+
+    function test_ResolveViaTrustedRouterWithMatchingHookData() public {
+        oracle.updateScore(walletB, 65, 1, walletA, 800, "");
+        MockTrustedRouter trusted = new MockTrustedRouter();
+        trusted.setMsgSender(walletB);
+        hook.setTrustedRouter(address(trusted), true);
+
+        bytes memory data = abi.encode(walletB);
+        (,, uint24 fee) =
+            manager.callBeforeSwap(IHooks(address(hook)), address(trusted), key, params, data);
+        assertTrue(fee.isOverride());
+        assertEq(fee.removeOverrideFlag(), 80_000);
+    }
+
+    function test_SubjectMismatch_RevertsOnDiscrepancy() public {
+        MockTrustedRouter trusted = new MockTrustedRouter();
+        trusted.setMsgSender(walletB);
+        hook.setTrustedRouter(address(trusted), true);
+
+        bytes memory data = abi.encode(walletC);
+        // SubjectMismatch(declared from hookData, fromRouter)
+        vm.expectRevert(
+            abi.encodeWithSelector(AmlHookLogic.SubjectMismatch.selector, walletC, walletB)
+        );
+        manager.callBeforeSwap(IHooks(address(hook)), address(trusted), key, params, data);
+    }
+
+    function test_MissingSwapSubject_WithoutTrustedRouterOrHookData() public {
+        // Untrusted EOA as sender + empty hookData → same fail-closed as legacy path.
+        vm.expectRevert(AmlHookLogic.MissingSwapSubject.selector);
+        manager.callBeforeSwap(IHooks(address(hook)), address(0xDEAD), key, params, "");
+    }
+
+    function test_FallbackHookData_UnchangedWithoutTrustedRouter() public {
+        // Untrusted router address: still resolves solely from matching hookData.
+        oracle.updateScore(walletC, 0, 0, address(0), 0, "");
+        bytes memory data = abi.encode(walletC);
+        (bytes4 sel,, uint24 fee) =
+            manager.callBeforeSwap(IHooks(address(hook)), router, key, params, data);
+        assertEq(sel, hook.beforeSwap.selector);
+        assertEq(fee, 0);
+    }
+
+    function test_SetTrustedRouter_OnlyOwner() public {
+        MockTrustedRouter trusted = new MockTrustedRouter();
+        vm.prank(router);
+        vm.expectRevert(AmlHookLogic.NotOwner.selector);
+        hook.setTrustedRouter(address(trusted), true);
     }
 
     function test_NonPoolManagerCannotCallBeforeSwap() public {

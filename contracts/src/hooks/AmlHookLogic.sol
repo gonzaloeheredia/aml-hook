@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {ISanctionRegistry} from "../interfaces/ISanctionRegistry.sol";
 import {IComplianceOracle} from "../interfaces/IComplianceOracle.sol";
 import {IRiskPolicy} from "../interfaces/IRiskPolicy.sol";
+import {IMsgSender} from "../interfaces/IMsgSender.sol";
 import {IERC20Minimal} from "../interfaces/IERC20Minimal.sol";
 import {HookDecision} from "../libraries/HookDecision.sol";
 
@@ -12,12 +13,16 @@ import {HookDecision} from "../libraries/HookDecision.sol";
 ///         plus hook-local §3.8 elevations (never-written score, activity-window cap).
 /// @dev Pool-local state (activity window, lastKnownBalance) closes the keeper-latency gap
 ///      while RiskPolicy stays a pure mapping. Mitigations elevate ALLOW → FEE_OVERRIDE only.
+///      Subject resolution prefers a trusted router (`IMsgSender`) over bare hookData.
 abstract contract AmlHookLogic {
     ISanctionRegistry public immutable sanctionRegistry;
     IComplianceOracle public immutable complianceOracle;
     IRiskPolicy public immutable riskPolicy;
 
     address public owner;
+
+    /// @notice Routers allowed to report the end-user via `IMsgSender.msgSender()`.
+    mapping(address => bool) public trustedRouters;
 
     /// @notice Max age of an oracle score before it is treated as stale (seconds).
     /// @dev Default 60s suits high-volume institutional pools (whitepaper §3.8 interval band).
@@ -54,11 +59,18 @@ abstract contract AmlHookLogic {
     error NotOwner();
     error WalletBlocked(address wallet, uint8 score, string reason);
     error SanctionHit(address wallet);
+    /// @notice No verified end-user from trusted router or hookData (fail-closed §3.5).
+    error MissingSwapSubject();
+    /// @notice Trusted router subject and hookData address disagree.
+    /// @param declared Address decoded from hookData (cross-check).
+    /// @param fromRouter Address returned by `IMsgSender.msgSender()` on the trusted router.
+    error SubjectMismatch(address declared, address fromRouter);
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     event StalenessThresholdUpdated(uint256 previous, uint256 current);
     event InflowThresholdUpdated(uint256 previous, uint256 current);
+    event TrustedRouterUpdated(address indexed router, bool trusted);
 
     /// @notice afterSwap audit trail for off-chain scoring + reporting (§3.4 / §3.6 / §3.9 Step 7).
     event SwapObserved(
@@ -126,6 +138,60 @@ abstract contract AmlHookLogic {
     function setInflowThresholdBps(uint256 inflowThresholdBps_) external onlyOwner {
         emit InflowThresholdUpdated(inflowThresholdBps, inflowThresholdBps_);
         inflowThresholdBps = inflowThresholdBps_;
+    }
+
+    /// @notice Owner grants or revokes trusted-router status (same admin pattern as SanctionRegistry).
+    /// @dev Enablement criterion is an operational off-chain fact, not verified on-chain by this
+    ///      contract. Before calling with `trusted = true`, the owner must confirm that `router`
+    ///      belongs to a curated list of direct integrators (e.g. Uniswap Labs routers and other
+    ///      protocols with a known integration relationship) and that its `IMsgSender.msgSender()`
+    ///      implementation was reviewed to return the real end-user and that no third party can
+    ///      overwrite that value within the same transaction. The contract cannot enforce these
+    ///      properties; the guarantee depends on the owner's audit process prior to this call.
+    function setTrustedRouter(address router, bool trusted) external onlyOwner {
+        trustedRouters[router] = trusted;
+        emit TrustedRouterUpdated(router, trusted);
+    }
+
+    /// @notice Resolve the compliance subject for beforeSwap.
+    /// @dev Trusted router is the primary source of truth: when the PoolManager-reported swap
+    ///      initiator (`router` — that call's `msg.sender` to `PoolManager.swap`) is registered,
+    ///      `IMsgSender(router).msgSender()` is invoked in try/catch and a non-zero return is the
+    ///      verified end-user. When `hookData` also encodes a non-zero address, it is a cross-check
+    ///      only — mismatch reverts `SubjectMismatch(declared, fromRouter)`. If the router is
+    ///      untrusted, the call fails, or returns zero, fall back to decoding `abi.encode(endUser)`
+    ///      from hookData (`MissingSwapSubject` if absent). Never scores the router itself.
+    /// @param router PoolManager-reported swap initiator (`sender` in beforeSwap).
+    /// @param hookData Optional `abi.encode(endUser)` cross-check / legacy fallback.
+    function _resolveWallet(address router, bytes calldata hookData)
+        internal
+        view
+        returns (address wallet)
+    {
+        if (trustedRouters[router]) {
+            address fromRouter;
+            try IMsgSender(router).msgSender() returns (address subject) {
+                fromRouter = subject;
+            } catch {
+                // External call failed — fall through to hookData path.
+            }
+            if (fromRouter != address(0)) {
+                address declared = _tryDecodeHookSubject(hookData);
+                if (declared != address(0) && declared != fromRouter) {
+                    revert SubjectMismatch(declared, fromRouter);
+                }
+                return fromRouter;
+            }
+        }
+
+        wallet = _tryDecodeHookSubject(hookData);
+        if (wallet == address(0)) revert MissingSwapSubject();
+    }
+
+    /// @dev Best-effort decode of `abi.encode(address)` from hookData; zero if missing/invalid.
+    function _tryDecodeHookSubject(bytes calldata hookData) private pure returns (address subject) {
+        if (hookData.length < 32) return address(0);
+        subject = abi.decode(hookData, (address));
     }
 
     /// @notice Per-wallet pool activity tracked by the hook (independent of the oracle; Mitigation C).

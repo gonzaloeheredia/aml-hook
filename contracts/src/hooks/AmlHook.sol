@@ -21,14 +21,10 @@ import {Currency} from "v4-core/src/types/Currency.sol";
 /// @notice Orchestrator at swap time (whitepaper §3.1 / §3.5 / §3.9):
 ///         PoolManager → beforeSwap / afterSwap → SanctionRegistry (L1) → ComplianceOracle (L2)
 ///         → RiskPolicy (L3). Does not compute behavioral scores off-chain; only reads/decides.
-/// @dev Swap subject MUST be `abi.encode(endUser)` in hookData — never the router (§3.5).
-///      §3.8 mitigations: never-written score, stale+activity floor, inflow heuristic,
-///      activity-window cap. afterSwap writes pool-local memory and emits SwapObserved (§3.4 / §3.6).
+/// @dev Subject resolution: trusted router `IMsgSender.msgSender()` primary; hookData cross-check /
+///      fallback (§3.5). §3.8 mitigations: never-written score, stale+activity, inflow, activity cap.
 contract AmlHook is BaseHook, AmlHookLogic {
     using LPFeeLibrary for uint24;
-
-    /// @notice Router called without encoding the end-user wallet in hookData (fail-closed §3.5).
-    error MissingSwapSubject();
 
     /// @dev Transient cache so afterSwap can emit the trail without a second oracle read race.
     address private _swapWallet;
@@ -80,16 +76,17 @@ contract AmlHook is BaseHook, AmlHookLogic {
 
     /// @inheritdoc BaseHook
     /// @notice Point-of-execution control before funds move (§1.3 / §3.9 Step 5).
-    /// @dev Resolves end-user from hookData → L1 sanctions → L2 score → L3 decide + §3.8 floors.
+    /// @dev Resolves end-user (trusted router → hookData) → L1 → L2 → L3 + §3.8 floors.
     ///      On FEE_OVERRIDE returns `lpFee` with OVERRIDE_FEE_FLAG for the PoolManager.
-    ///      On REVERT / SanctionHit / MissingSwapSubject the whole swap tx reverts (no second chance).
+    ///      On REVERT / SanctionHit / MissingSwapSubject / SubjectMismatch the swap reverts.
     function _beforeSwap(
-        address, /* sender — router; never the compliance subject */
+        address sender,
         PoolKey calldata key,
         SwapParams calldata params,
         bytes calldata hookData
     ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
-        address wallet = _resolveWallet(hookData);
+        // `sender` = PoolManager.swap caller (router). Not the PoolManager; not the scored subject.
+        address wallet = _resolveWallet(sender, hookData);
         address token = _inputToken(key, params);
         (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk) =
             _evaluateWithMitigationEvents(wallet, token);
@@ -132,14 +129,6 @@ contract AmlHook is BaseHook, AmlHookLogic {
         delete _swapRisk;
 
         return (this.afterSwap.selector, 0);
-    }
-
-    /// @dev Decode compliance subject from hookData (`abi.encode(endUser)`). Fail closed (§3.5):
-    ///      never fall back to msg.sender / router — scoring a router would bypass or brick the pool.
-    function _resolveWallet(bytes calldata hookData) private pure returns (address wallet) {
-        if (hookData.length < 32) revert MissingSwapSubject();
-        wallet = abi.decode(hookData, (address));
-        if (wallet == address(0)) revert MissingSwapSubject();
     }
 
     /// @dev Input currency of this swap (direction from `zeroForOne`) — used by §3.8 Mitigation D
