@@ -84,7 +84,7 @@ contract AmlHookTest is Test {
                 registry,
                 oracle,
                 policy,
-                uint64(300),
+                uint256(300),
                 uint64(3600),
                 uint32(3)
             ),
