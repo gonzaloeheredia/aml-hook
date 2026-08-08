@@ -18,16 +18,19 @@ import {LPFeeLibrary} from "v4-core/src/libraries/LPFeeLibrary.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 
 /// @title AMLHook — Uniswap v4 compliance hook (REAL on-chain logic)
-/// @notice PoolManager → beforeSwap/afterSwap → SanctionRegistry → ComplianceOracle → RiskPolicy
-/// @dev Swap subject MUST be `abi.encode(endUser)` in hookData — never the router.
-///      §3.8 mitigations: unset score, stale+activity floor, inflow heuristic, activity-window cap.
+/// @notice Orchestrator at swap time (whitepaper §3.1 / §3.5 / §3.9):
+///         PoolManager → beforeSwap / afterSwap → SanctionRegistry (L1) → ComplianceOracle (L2)
+///         → RiskPolicy (L3). Does not compute behavioral scores off-chain; only reads/decides.
+/// @dev Swap subject MUST be `abi.encode(endUser)` in hookData — never the router (§3.5).
+///      §3.8 mitigations: never-written score, stale+activity floor, inflow heuristic,
+///      activity-window cap. afterSwap writes pool-local memory and emits SwapObserved (§3.4 / §3.6).
 contract AmlHook is BaseHook, AmlHookLogic {
     using LPFeeLibrary for uint24;
 
-    /// @notice Router called without encoding the end-user wallet in hookData.
+    /// @notice Router called without encoding the end-user wallet in hookData (fail-closed §3.5).
     error MissingSwapSubject();
 
-    /// @dev Transient cache so afterSwap can emit without a second oracle read race.
+    /// @dev Transient cache so afterSwap can emit the trail without a second oracle read race.
     address private _swapWallet;
     address private _swapToken;
     HookDecision private _swapDecision;
@@ -55,6 +58,7 @@ contract AmlHook is BaseHook, AmlHookLogic {
     {}
 
     /// @inheritdoc BaseHook
+    /// @notice Declares beforeSwap + afterSwap (+ dynamic fee) — the two intervention points in §3.1 / §3.9.
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: false,
@@ -75,8 +79,12 @@ contract AmlHook is BaseHook, AmlHookLogic {
     }
 
     /// @inheritdoc BaseHook
+    /// @notice Point-of-execution control before funds move (§1.3 / §3.9 Step 5).
+    /// @dev Resolves end-user from hookData → L1 sanctions → L2 score → L3 decide + §3.8 floors.
+    ///      On FEE_OVERRIDE returns `lpFee` with OVERRIDE_FEE_FLAG for the PoolManager.
+    ///      On REVERT / SanctionHit / MissingSwapSubject the whole swap tx reverts (no second chance).
     function _beforeSwap(
-        address, /* sender */
+        address, /* sender — router; never the compliance subject */
         PoolKey calldata key,
         SwapParams calldata params,
         bytes calldata hookData
@@ -86,6 +94,7 @@ contract AmlHook is BaseHook, AmlHookLogic {
         (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk) =
             _evaluateWithMitigationEvents(wallet, token);
 
+        // Cache for afterSwap audit trail (SwapObserved) once settlement succeeds.
         _swapWallet = wallet;
         _swapToken = token;
         _swapDecision = decision;
@@ -94,15 +103,19 @@ contract AmlHook is BaseHook, AmlHookLogic {
 
         uint24 lpFee;
         if (decision == HookDecision.FEE_OVERRIDE) {
+            // Dynamic fee for this swap only (Output 2 — §3.3); PoolManager applies override.
             lpFee = uint24(feeBps) * 100 | LPFeeLibrary.OVERRIDE_FEE_FLAG;
         } else {
-            lpFee = 0;
+            lpFee = 0; // ALLOW → pool base fee (e.g. 0.30%); REVERT already reverted above.
         }
 
         return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, lpFee);
     }
 
     /// @inheritdoc BaseHook
+    /// @notice Layer 4 / memory write after a successful swap (§3.2 Layer 4, §3.4, §3.9 Step 7).
+    /// @dev Updates pool-local activity + inflow baseline, then emits SwapObserved for the
+    ///      off-chain scoring engine and reporting module. Structural difference vs static KYC hooks.
     function _afterSwap(address, PoolKey calldata, SwapParams calldata, BalanceDelta, bytes calldata)
         internal
         override
@@ -121,12 +134,16 @@ contract AmlHook is BaseHook, AmlHookLogic {
         return (this.afterSwap.selector, 0);
     }
 
+    /// @dev Decode compliance subject from hookData (`abi.encode(endUser)`). Fail closed (§3.5):
+    ///      never fall back to msg.sender / router — scoring a router would bypass or brick the pool.
     function _resolveWallet(bytes calldata hookData) private pure returns (address wallet) {
         if (hookData.length < 32) revert MissingSwapSubject();
         wallet = abi.decode(hookData, (address));
         if (wallet == address(0)) revert MissingSwapSubject();
     }
 
+    /// @dev Input currency of this swap (direction from `zeroForOne`) — used by §3.8 Mitigation D
+    ///      to compare `balanceOf` vs `lastKnownBalance` for the inflow heuristic.
     function _inputToken(PoolKey calldata key, SwapParams calldata params)
         private
         pure

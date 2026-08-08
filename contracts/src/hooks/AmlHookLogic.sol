@@ -8,7 +8,10 @@ import {IERC20Minimal} from "../interfaces/IERC20Minimal.sol";
 import {HookDecision} from "../libraries/HookDecision.sol";
 
 /// @title Shared beforeSwap decision logic for AMLHook
-/// @dev L1 → L2 → L3, plus §3.8 oracle-latency mitigations (unset / stale / inflow / activity cap).
+/// @notice Implements the read path in whitepaper §3.5: L1 → L2 → derived latency signals → L3,
+///         plus hook-local §3.8 elevations (never-written score, activity-window cap).
+/// @dev Pool-local state (activity window, lastKnownBalance) closes the keeper-latency gap
+///      while RiskPolicy stays a pure mapping. Mitigations elevate ALLOW → FEE_OVERRIDE only.
 abstract contract AmlHookLogic {
     ISanctionRegistry public immutable sanctionRegistry;
     IComplianceOracle public immutable complianceOracle;
@@ -21,13 +24,14 @@ abstract contract AmlHookLogic {
     uint256 public stalenessThreshold;
 
     /// @notice Rolling window for per-wallet pool activity counters (seconds).
+    /// @dev Mitigation C (§3.8): burst ops across consecutive blocks while the keeper lags.
     uint64 public immutable activityWindow;
 
     /// @notice Ops inside the activity window that force FEE_OVERRIDE instead of ALLOW.
     uint32 public immutable maxOpsInWindow;
 
     /// @notice Balance-delta share (bps of current balance) that flags a significant inflow.
-    /// @dev Default 5000 = 50%.
+    /// @dev Default 5000 = 50% — Mitigation D (§3.8) / use-case Wallet D.
     uint256 public inflowThresholdBps;
 
     /// @dev Default punitive fee when elevating ALLOW due to hook-local latency mitigations (8%).
@@ -56,6 +60,7 @@ abstract contract AmlHookLogic {
     event StalenessThresholdUpdated(uint256 previous, uint256 current);
     event InflowThresholdUpdated(uint256 previous, uint256 current);
 
+    /// @notice afterSwap audit trail for off-chain scoring + reporting (§3.4 / §3.6 / §3.9 Step 7).
     event SwapObserved(
         address indexed wallet,
         uint8 score,
@@ -72,7 +77,7 @@ abstract contract AmlHookLogic {
         address indexed wallet, bytes32 reason, uint24 feeBps, uint8 oracleScore
     );
 
-    /// @notice Significant balance increase detected while the oracle score predates that baseline.
+    /// @notice Significant balance increase detected while the oracle score predates that baseline (Mitigation D).
     event InflowHeuristicTriggered(address indexed wallet, uint256 deltaBps, uint256 timestamp);
 
     bytes32 public constant REASON_SCORE_NEVER_WRITTEN = keccak256("SCORE_NEVER_WRITTEN");
@@ -111,17 +116,19 @@ abstract contract AmlHookLogic {
         owner = newOwner;
     }
 
+    /// @notice Owner retunes Mitigation B staleness window (§3.8; institutional vs retail pools).
     function setStalenessThreshold(uint256 stalenessThreshold_) external onlyOwner {
         emit StalenessThresholdUpdated(stalenessThreshold, stalenessThreshold_);
         stalenessThreshold = stalenessThreshold_;
     }
 
+    /// @notice Owner retunes Mitigation D inflow threshold in bps of current balance (§3.8).
     function setInflowThresholdBps(uint256 inflowThresholdBps_) external onlyOwner {
         emit InflowThresholdUpdated(inflowThresholdBps, inflowThresholdBps_);
         inflowThresholdBps = inflowThresholdBps_;
     }
 
-    /// @notice Per-wallet pool activity tracked by the hook (independent of the oracle).
+    /// @notice Per-wallet pool activity tracked by the hook (independent of the oracle; Mitigation C).
     function poolActivity(address wallet)
         external
         view
@@ -131,12 +138,14 @@ abstract contract AmlHookLogic {
         return (a.windowStart, a.opCount, a.lastSwapAt);
     }
 
-    /// @notice Evaluate a swap subject. Reverts on REVERT / sanctions.
-    /// @param wallet End-user compliance subject.
+    /// @notice Evaluate a swap subject (view path). Reverts on REVERT / sanctions.
+    /// @param wallet End-user compliance subject from hookData — not the router (§3.5).
     /// @param token Input token of the swap (address(0) skips the inflow heuristic).
     /// @return decision ALLOW or FEE_OVERRIDE
     /// @return feeBps Override fee when FEE_OVERRIDE; 0 on ALLOW
     /// @return risk Snapshot from the oracle
+    /// @dev Pipeline: L1 `isSanctioned` → L2 `getRisk` → derive isStale / ops / inflow →
+    ///      L3 `RiskPolicy.decide` → hook-local Mitigations A & C if still ALLOW.
     function _evaluate(address wallet, address token)
         internal
         view
@@ -146,15 +155,18 @@ abstract contract AmlHookLogic {
             IComplianceOracle.WalletRisk memory risk
         )
     {
+        // Layer 1 — static sanctions (§3.2): fail closed, no score read on hit.
         if (sanctionRegistry.isSanctioned(wallet)) {
             revert SanctionHit(wallet);
         }
 
+        // Layer 2 — cached behavioral score (§3.2 / §3.8): hook never computes score on-chain.
         risk = complianceOracle.getRisk(wallet);
         uint32 operationCount = _opsInCurrentWindow(wallet);
         bool isStale = _isStale(risk.updatedAt);
         (bool hasSignificantInflow,) = _inflowSignal(wallet, token, risk.updatedAt);
 
+        // Layer 3 — ternary decision + floors B/D (§3.3 / §3.8).
         (decision, feeBps) = riskPolicy.decide(
             risk.score, risk.feeBps, isStale, operationCount, hasSignificantInflow
         );
@@ -163,13 +175,15 @@ abstract contract AmlHookLogic {
             revert WalletBlocked(wallet, risk.score, "SCORE_REVERT_BAND");
         }
 
+        // Mitigations A (never written) and C (activity-window cap) stay hook-local.
         if (decision == HookDecision.ALLOW) {
             (decision, feeBps) = _applyHookLocalMitigations(wallet, risk);
         }
     }
 
     /// @dev Elevates ALLOW → FEE_OVERRIDE for hook-local signals not passed into RiskPolicy
-    ///      (never-written score; activity-window cap). Stale+activity and inflow floors live in RiskPolicy.
+    ///      (Mitigation A: never-written score; Mitigation C: activity-window cap).
+    ///      Stale+activity (B) and inflow (D) floors live in RiskPolicy.decide.
     function _applyHookLocalMitigations(
         address wallet,
         IComplianceOracle.WalletRisk memory risk
@@ -177,16 +191,18 @@ abstract contract AmlHookLogic {
         decision = HookDecision.ALLOW;
         feeBps = 0;
 
+        // Mitigation A: updatedAt == 0 means unknown wallet, not confirmed-clean score 0.
         if (risk.updatedAt == 0) {
             return (HookDecision.FEE_OVERRIDE, _latencyFee(risk));
         }
 
+        // Mitigation C: burst activity in the rolling window while keeper score may lag.
         if (_opsInCurrentWindow(wallet) >= maxOpsInWindow) {
             return (HookDecision.FEE_OVERRIDE, _latencyFee(risk));
         }
     }
 
-    /// @dev Same checks as view path, but emits mitigation / inflow events (for beforeSwap).
+    /// @dev Same checks as `_evaluate`, but emits mitigation / inflow events for beforeSwap audit trail.
     function _evaluateWithMitigationEvents(address wallet, address token)
         internal
         returns (
@@ -213,11 +229,12 @@ abstract contract AmlHookLogic {
             revert WalletBlocked(wallet, risk.score, "SCORE_REVERT_BAND");
         }
 
+        // Mitigation D audit: generic recent-funds pattern, not origin attribution (§3.8).
         if (hasSignificantInflow) {
             emit InflowHeuristicTriggered(wallet, deltaBps, block.timestamp);
         }
 
-        // Audit when RiskPolicy floored ALLOW→FEE_OVERRIDE via stale+activity (score still in ALLOW band).
+        // Audit when RiskPolicy floored ALLOW→FEE_OVERRIDE via Mitigation B (score still ≤ 30).
         if (
             risk.score <= 30 && isStale && operationCount > 0
                 && decision == HookDecision.FEE_OVERRIDE
@@ -231,12 +248,14 @@ abstract contract AmlHookLogic {
             return (decision, feeBps, risk);
         }
 
+        // Mitigation A — never written: clean wallets must be published with score 0 + non-zero updatedAt.
         if (risk.updatedAt == 0) {
             feeBps = _latencyFee(risk);
             emit LatencyMitigationApplied(wallet, REASON_SCORE_NEVER_WRITTEN, feeBps, risk.score);
             return (HookDecision.FEE_OVERRIDE, feeBps, risk);
         }
 
+        // Mitigation C — activity-window cap.
         if (_opsInCurrentWindow(wallet) >= maxOpsInWindow) {
             feeBps = _latencyFee(risk);
             emit LatencyMitigationApplied(wallet, REASON_ACTIVITY_WINDOW_CAP, feeBps, risk.score);
@@ -246,21 +265,24 @@ abstract contract AmlHookLogic {
         return (HookDecision.ALLOW, 0, risk);
     }
 
+    /// @dev Prefer keeper feeBps; else 8% latency fee (Wallet D / §3.8 designed product behavior).
     function _latencyFee(IComplianceOracle.WalletRisk memory risk) private pure returns (uint24) {
         if (risk.feeBps > 0 && risk.feeBps <= 1000) return risk.feeBps;
         return LATENCY_FEE_BPS;
     }
 
+    /// @dev Mitigation B freshness check: score older than `stalenessThreshold` is stale.
     function _isStale(uint64 updatedAt) private view returns (bool) {
         if (updatedAt == 0) return true;
         return block.timestamp > uint256(updatedAt) + stalenessThreshold;
     }
 
-    /// @notice Balance-delta inflow heuristic for oracle-latency Mitigation 3.
-    /// @dev Extra external call: `token.balanceOf(wallet)` in beforeSwap. Cold ERC-20 balanceOf is
-    ///      typically ~2.1k–2.6k gas; warm slot reads are lower. This is the structural gas cost of
-    ///      keeping a pool-local baseline so the hook can bound exposure while the keeper catches up
-    ///      (whitepaper §3.8). Skipped when `token` is address(0).
+    /// @notice Balance-delta inflow heuristic — oracle-latency Mitigation D (§3.8 / Wallet D).
+    /// @dev Closes the gap A–C leave open: wallet published clean (score 0, updatedAt ≠ 0),
+    ///      receives a large P2P transfer, swaps before keeper `updateScore`. Compares
+    ///      `token.balanceOf(wallet)` to `lastKnownBalance`; if delta share > inflowThresholdBps
+    ///      and oracle `updatedAt` still predates the baseline, passes hasSignificantInflow.
+    ///      Extra gas for balanceOf is intentional. Skipped when `token` is address(0).
     function _inflowSignal(address wallet, address token, uint64 scoreUpdatedAt)
         private
         view
@@ -280,13 +302,14 @@ abstract contract AmlHookLogic {
         deltaBps = (delta * 10_000) / currentBalance;
 
         // Oracle must still predate the last known baseline; a fresher score means the keeper
-        // already had a chance to incorporate post-inflow information.
+        // already had a chance to incorporate post-inflow information (N-hop scoring remains off-chain).
         uint256 baselineTs = lastKnownBalanceTimestamp[wallet][token];
         if (deltaBps > inflowThresholdBps && uint256(scoreUpdatedAt) <= baselineTs) {
             hasSignificantInflow = true;
         }
     }
 
+    /// @dev Ops counted inside the current Mitigation C window (0 if window elapsed / never started).
     function _opsInCurrentWindow(address wallet) private view returns (uint32) {
         PoolActivity storage a = _activity[wallet];
         if (a.windowStart == 0) return 0;
@@ -294,7 +317,7 @@ abstract contract AmlHookLogic {
         return a.opCount;
     }
 
-    /// @notice Record a successful pool swap for latency / activity mitigations (afterSwap).
+    /// @notice Record a successful pool swap for latency / activity mitigations (afterSwap; §3.8 / §3.9 Step 7).
     function _recordActivity(address wallet) internal {
         PoolActivity storage a = _activity[wallet];
         if (a.windowStart == 0 || block.timestamp >= uint256(a.windowStart) + uint256(activityWindow)) {
@@ -308,7 +331,7 @@ abstract contract AmlHookLogic {
         a.lastSwapAt = uint64(block.timestamp);
     }
 
-    /// @notice Refresh the inflow-heuristic baseline after a successful swap (afterSwap).
+    /// @notice Refresh the Mitigation D baseline after a successful swap (afterSwap; §3.8).
     function _updateKnownBalance(address wallet, address token) internal {
         if (token == address(0) || token.code.length == 0) return;
         uint256 bal = IERC20Minimal(token).balanceOf(wallet);
@@ -316,7 +339,7 @@ abstract contract AmlHookLogic {
         lastKnownBalanceTimestamp[wallet][token] = block.timestamp;
     }
 
-    /// @notice Emit afterSwap audit trail (called only when settlement succeeded).
+    /// @notice Emit afterSwap audit trail once settlement succeeded (§3.6 reporting input / §3.4 film update).
     function _emitSwapObserved(
         address wallet,
         HookDecision decision,
