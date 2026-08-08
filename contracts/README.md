@@ -39,7 +39,9 @@ User → Router → PoolManager → AmlHook
 | **RiskPolicy** | Ternary bands + §3.8 floors (stale+activity, significant inflow) |
 | **AmlHook** / **AmlHookLogic** | `beforeSwap` / `afterSwap`; `lpFeeOverride`; inflow baseline |
 
-`hookData` must be `abi.encode(endUser)` — never the router (§3.5 fail-closed).
+Subject resolution (§3.5): trusted routers (owner `setTrustedRouter`) report the end-user via
+`IMsgSender.msgSender()` as the primary source; `hookData` (`abi.encode(endUser)`) is a cross-check
+when both are present (`SubjectMismatch` on disagreement) and the fail-closed fallback otherwise.
 
 ### Ternary bands (§3.3)
 

@@ -11,14 +11,17 @@ import {ComplianceOracle} from "../src/oracle/ComplianceOracle.sol";
 import {RiskPolicy} from "../src/policy/RiskPolicy.sol";
 import {AmlHook} from "../src/hooks/AmlHook.sol";
 import {MockPoolManager} from "../src/mocks/MockPoolManager.sol";
+import {MockTrustedRouter} from "../src/mocks/MockTrustedRouter.sol";
 
 /// @notice Deploys the REAL on-chain AML stack (registry, oracle, policy, hook).
 /// @dev What is real vs mock in this script:
 ///      - REAL: SanctionRegistry, ComplianceOracle, RiskPolicy, AmlHook (CREATE2).
 ///      - MOCK: PoolManager defaults to MockPoolManager (no live Uniswap swaps).
+///      - MOCK: MockTrustedRouter registered via setTrustedRouter for Anvil subject resolution.
 ///      - Keeper: deployer (Anvil #0) is set as ComplianceOracle keeper in the constructor.
 ///      Optional env:
 ///      - POOL_MANAGER: real PoolManager address (else MockPoolManager)
+///      - TRUSTED_ROUTER: existing router to trust (else deploy MockTrustedRouter)
 ///      - EXTRA_KEEPER: additional address granted setKeeper(true)
 ///      - PRIVATE_KEY: broadcaster (defaults to Anvil account #0)
 contract DeployAmlStack is Script {
@@ -82,12 +85,23 @@ contract DeployAmlStack is Script {
         );
         require(address(hook) == hookAddr, "hook address mismatch");
 
+        // Trusted router for IMsgSender primary subject resolution (Anvil demo).
+        address trustedRouter = vm.envOr("TRUSTED_ROUTER", address(0));
+        if (trustedRouter == address(0)) {
+            MockTrustedRouter mockRouter = new MockTrustedRouter();
+            mockRouter.setMsgSender(deployer);
+            trustedRouter = address(mockRouter);
+            console2.log("MockTrustedRouter", trustedRouter);
+        }
+        hook.setTrustedRouter(trustedRouter, true);
+
         console2.log("Deployer / Keeper", deployer);
         console2.log("PoolManager", poolManagerAddr);
         console2.log("SanctionRegistry", address(registry));
         console2.log("ComplianceOracle", address(oracle));
         console2.log("RiskPolicy", address(policy));
         console2.log("AmlHook", address(hook));
+        console2.log("TrustedRouter", trustedRouter);
         console2.log("chainId", block.chainid);
 
         string memory json = string.concat(
@@ -115,6 +129,9 @@ contract DeployAmlStack is Script {
             '",\n',
             '  "AmlHook": "',
             vm.toString(address(hook)),
+            '",\n',
+            '  "TrustedRouter": "',
+            vm.toString(trustedRouter),
             '"\n',
             "}\n"
         );
