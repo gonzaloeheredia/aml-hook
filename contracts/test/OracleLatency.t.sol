@@ -77,11 +77,11 @@ contract OracleLatencyTest is Test {
 
         (HookDecision d, uint24 fee,) = hook.evaluate(wallet);
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
-        // RiskPolicy intermediate fallback for score < 55
-        assertEq(fee, policy.PROPORTIONAL_FEE_BPS());
+        // Latency floor: 8% when keeper omitted feeBps
+        assertEq(fee, policy.LATENCY_FEE_BPS());
 
         vm.expectEmit(true, false, false, true, address(hook));
-        emit LatencyMitigationApplied(wallet, hook.REASON_STALE_WITH_POOL_ACTIVITY(), 300, 10);
+        emit LatencyMitigationApplied(wallet, hook.REASON_STALE_WITH_POOL_ACTIVITY(), 800, 10);
         hook.evaluateLive(wallet);
     }
 
@@ -160,7 +160,7 @@ contract OracleLatencyTest is Test {
 
         (HookDecision d, uint24 fee,) = hook.evaluateWithToken(wallet, address(token));
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
-        assertEq(fee, policy.PROPORTIONAL_FEE_BPS());
+        assertEq(fee, policy.LATENCY_FEE_BPS());
 
         vm.expectEmit(true, false, false, true, address(hook));
         emit InflowHeuristicTriggered(wallet, 6000, block.timestamp);
@@ -196,7 +196,7 @@ contract OracleLatencyTest is Test {
 
         (HookDecision d, uint24 fee,) = hook.evaluateWithToken(wallet, address(token));
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
-        assertEq(fee, policy.PROPORTIONAL_FEE_BPS());
+        assertEq(fee, policy.LATENCY_FEE_BPS());
     }
 
     function test_InflowBelowThreshold_DoesNotElevate() public {

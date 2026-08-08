@@ -15,7 +15,7 @@ The score is computed **off-chain** by the **Oracle Keeper** — a Compliance Of
 | Doc | What it is |
 |---|---|
 | [`docs/Whitepaper.md`](docs/Whitepaper.md) | Product thesis, regulatory framing, why this exists |
-| [`docs/Use_Case.md`](docs/Use_Case.md) | A/B/C exploit → N-hop demo scenario |
+| [`docs/Use_Case.md`](docs/Use_Case.md) | A/B/C/D exploit → N-hop + oracle-latency (Wallet D) scenario |
 | [`docs/Instructivo_Contracts_Local.md`](docs/Instructivo_Contracts_Local.md) | Plain-language walkthrough of every contract + local Anvil |
 | [`agents/oracle-coa/`](agents/oracle-coa/) | COA skill specs — AI Compliance Officer / AML analyst (Oracle Keeper) |
 
@@ -74,8 +74,8 @@ User → Router → PoolManager
 | **AmlHook** | Uniswap v4 hook — `beforeSwap` / `afterSwap` |
 | **SanctionRegistry** | L1 — sanctions screen (fail-closed) |
 | **ComplianceOracle** | L2 — score / hop / origin written by the keeper |
-| **RiskPolicy** | L3 — score → ALLOW / FEE_OVERRIDE / REVERT |
-| **Oracle Keeper (COA)** | Off-chain AI Compliance Officer / AML analyst — ingests information sources, scores wallets, then `updateScore` before the next swap |
+| **RiskPolicy** | L3 — score → ALLOW / FEE_OVERRIDE / REVERT (+ §3.8 latency floors) |
+| **Oracle Keeper (COA)** | Off-chain AI Compliance Officer / AML analyst — ingests information sources, scores wallets, then `updateScore` before the next swap (deferred for Wallet D) |
 
 In this repo, **`apps/api`** is the demo keeper (deterministic mock of that COA; live LLM and vendor feeds are the production path). **`apps/frontend`** drives the UI. Pool swaps in the UI are still settled in the API ledger until a real PoolManager is wired; scores can already be published/read on Anvil.
 
@@ -116,9 +116,9 @@ import { getDeployment, complianceOracleAbi, amlHookAbi } from "@aml-hook/sdk";
 const d = getDeployment(31337);
 ```
 
-## Demo use case (A → B → C)
+## Demo use case (A → B → C → D)
 
-Attacker **A** (score 100) is blocked at the pool, then moves USDC via P2P. The Oracle Keeper (COA / AI AML analyst) applies **N-hop decay** (`score ≈ 100 × 0.65^hops`; closer hop wins) and writes scores before the next swap.
+Attacker **A** (score 100) is blocked at the pool, then moves USDC via P2P. The Oracle Keeper (COA / AI AML analyst) applies **N-hop decay** (`score ≈ 100 × 0.65^hops`; closer hop wins) and writes scores before the next swap — except on the **Wallet D** path, where `updateScore` is deferred so the demo can show §3.8 oracle-latency Mitigation D (inflow heuristic).
 
 | Step | Action | Result |
 |---|---|---|
@@ -128,8 +128,13 @@ Attacker **A** (score 100) is blocked at the pool, then moves USDC via P2P. The 
 | 3 | B swaps | FEE_OVERRIDE 8% |
 | 4 | B → C (P2P) | C ≈ 42 |
 | 5 | C swaps | FEE_OVERRIDE 3% |
+| 6 | A → D (P2P); keeper not yet published | D oracle score still **0** (pending) |
+| 7 | D swaps under stale score | FEE_OVERRIDE **8%** (inflow heuristic) |
+| 8 | Keeper catch-up | D ≈ **65** |
 
-Full narrative: [`docs/Use_Case.md`](docs/Use_Case.md).
+Latency floors elevate ALLOW → FEE_OVERRIDE only (never soften REVERT). When no keeper `feeBps` is present, the latency/inflow fee is **8%** (`LATENCY_FEE_BPS`).
+
+Full narrative: [`docs/Use_Case.md`](docs/Use_Case.md) (§7 Wallet D).
 
 ## Guided UI (6 stages)
 
@@ -139,7 +144,7 @@ Full narrative: [`docs/Use_Case.md`](docs/Use_Case.md).
 | 2 | Hook | beforeSwap / decision flow |
 | 3 | Fees | Fee + settled Sold USDC / Bought ETH |
 | 4 | AML stats | Score, report overview |
-| 5 | Opinion | COA legal/technical opinion (A–D) |
+| 5 | Opinion | COA legal/technical opinion (FinCEN Who–How sections) |
 | 6 | Event | `SwapObserved` / afterSwap payload |
 
 REVERT is decided in `beforeSwap` — `afterSwap` never runs for that attempt.

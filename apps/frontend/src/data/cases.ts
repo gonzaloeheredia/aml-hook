@@ -5,12 +5,13 @@
  * - A = exploit attacker → REVERT
  * - B and C both start clean (ALLOW)
  * - A→B or A→C → 1-hop · ~65 · 8%; tainted peer → 2-hop · ~42 · 3%
+ * - D = latency path: A→D then swap before keeper → inflow FEE_OVERRIDE 8% → catch-up ~65
  * Live hop state comes from MetaMask simulation (`hopScoring` + `withHopOverlay`).
  */
 
 export type Decision = "allow" | "fee_override" | "block";
 
-export type DemoCaseId = "A" | "B" | "C";
+export type DemoCaseId = "A" | "B" | "C" | "D";
 
 export interface DemoCase {
   id: DemoCaseId;
@@ -114,8 +115,8 @@ export interface DemoCase {
   };
 }
 
-/** Display order: alphabetical A → B → C */
-export const CASE_ORDER: DemoCaseId[] = ["A", "B", "C"];
+/** Display order: alphabetical A → B → C → D */
+export const CASE_ORDER: DemoCaseId[] = ["A", "B", "C", "D"];
 
 const CLEAN_AGENT_NOTE =
   "Internal operator documentation. The agent never files with any authority.";
@@ -156,7 +157,7 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
     typology: "Exploit cash-out",
     summary: [
       "Keeper score 100 — exploit cluster confirmed.",
-      "Pool swaps REVERT (fail-closed). P2P outflows to B start N-hop contamination.",
+      "Pool swaps REVERT (fail-closed). P2P outflows to B/C/D start N-hop contamination.",
       "Origin score for decay: 100 × 0.65^hops.",
     ],
     signals: [
@@ -434,6 +435,102 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
         mainFacts: "Wallet C clean baseline; no hop from A; standard fee.",
         basis: "SCORE_BELOW_FEE_OVERRIDE_THRESHOLD",
         nextReview: "On inbound from A (1-hop) or tainted B (2-hop)",
+      },
+      poolReport: { ...SHARED_POOL_REPORT },
+      note: CLEAN_AGENT_NOTE,
+    },
+  },
+  D: {
+    id: "D",
+    label: "Latency path — inflow heuristic",
+    shortLabel: "Wallet D · Latency",
+    wallet: "0x4838B106FCe9647Bdf1E7877BF73cE8B0BAD5f97",
+    walletLabel: "Wallet D · Clean (latency)",
+    score: 0,
+    riskLabel: "Low Risk",
+    decision: "allow",
+    decisionLabel: "Allow",
+    baseFeeBps: 30,
+    appliedFeeBps: 30,
+    feeMultiplier: 1,
+    exploitConfirmed: false,
+    activity: {
+      hopDistance: null,
+      origin: "—",
+      windowLabel: "latency",
+      totalUsd: 0,
+      amountUsd: 1000,
+      txCount: 0,
+    },
+    typology: "None",
+    summary: [
+      "Keeper score 0 — clean baseline for the oracle-latency demo.",
+      "After A → D (before keeper): stale score 0 · inflow heuristic → FEE_OVERRIDE 8%.",
+      "Keeper catch-up then writes decay score ≈ 65 (1-hop).",
+    ],
+    signals: [
+      { label: "Exploit / sanctions", value: "Clear", tone: "ok" },
+      { label: "Keeper score", value: "0 / 100", tone: "ok" },
+      { label: "Hop distance", value: "—", tone: "ok" },
+      { label: "Applied fee", value: "0.30%", tone: "ok" },
+    ],
+    tags: [
+      { label: "Latency path", tone: "ok" },
+      { label: "ALLOW", tone: "ok" },
+    ],
+    flowPath: "allow",
+    swapSell: "0",
+    swapBuy: "0",
+    sellToken: "USDC",
+    buyToken: "ETH",
+    gasUsed: 191_200,
+    totalTimeSec: 1.9,
+    stepTimesSec: {
+      sign: 0.12,
+      unlock: 0.18,
+      before: 0.22,
+      l1: 0.15,
+      l2: 0.44,
+      decide: 0.3,
+      out: 0.49,
+    },
+    agent: {
+      status: "Legal opinion · ALLOW",
+      hookOutput: "ALLOW",
+      documentType: "legal-opinion",
+      recipient: "Pool operator Compliance Officer",
+      confidence: "HIGH",
+      humanReview: false,
+      retentionYears: 5,
+      auditHash: "0xd0c1…000d",
+      technicalOpinion: {
+        issued: true,
+        objectAndScope:
+          "Subject: Wallet D. Role: pool participant used to demonstrate oracle-latency Mitigation D (inflow heuristic).",
+        typologies:
+          "Instrument: Uniswap v4 RWA pool swap (USDC→ETH). Baseline clean; A→D P2P then immediate swap exercises §3.8.",
+        sanctionsCheck:
+          "Oracle evaluation at live session. Ledger retains dated transfers; this narrative summarizes the period under review.",
+        sourcesConsulted: [
+          "Venue: AML Hook demo RWA pool (Uniswap v4). Account under review: Wallet D. Latency window demo path.",
+        ],
+        riskAndScoring:
+          "Why not treated as suspicious at baseline: score 0/100 · ALLOW band. After A→D before keeper catch-up, inflow elevates to FEE_OVERRIDE 8%.",
+        decisionExecuted:
+          "How / control: baseline ALLOW; under stale score + significant inflow, beforeSwap floors to FEE_OVERRIDE then keeper catch-up publishes ~65.",
+        legalBasis:
+          "FATF Rec. 1 & 10. Temporary friction pending keeper confirmation — not a determination of guilt.",
+        recommendations:
+          "Demo: A → D P2P, then swap D before catch-up. Expect 8% inflow fee, then score 65.",
+        traceability: "Retention 5 years. Support draft — not submitted.",
+      },
+      sarAnnex: null,
+      decisionRecord: {
+        score: "0",
+        output: "ALLOW",
+        mainFacts: "Wallet D clean latency baseline; no hop published yet; standard fee.",
+        basis: "SCORE_BELOW_FEE_OVERRIDE_THRESHOLD",
+        nextReview: "On A→D P2P then swap inside keeper window",
       },
       poolReport: { ...SHARED_POOL_REPORT },
       note: CLEAN_AGENT_NOTE,

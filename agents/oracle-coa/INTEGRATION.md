@@ -18,26 +18,30 @@ The TypeScript runner lives in `apps/api/src/oracle/`:
 
 No live Anthropic / OpenSanctions / Etherscan calls. Facts are derived from
 wallets, P2P transfers, and `SwapObserved` / `WalletBlocked` events. N-hop
-decay (`100 × 0.65^hops`) stays the demo backbone so A/B/C remain demonstrable.
+decay (`100 × 0.65^hops`) stays the demo backbone so A/B/C/D remain demonstrable.
 
 ## Triggers
 
 ```
 POST /transfers  → reevaluate(from) + reevaluate(to)   // before next swap
+                 → exception: to=D defers keeper (stale score 0 for inflow demo)
 POST /swaps      → afterSwap SwapObserved → reevaluate(wallet)
                  → or WalletBlocked → reevaluate(wallet)
-POST /reset      → clear + seed oracle for A/B/C
+                 → if D keeperPending: catch-up publish (~65) after latency swap
+POST /oracle/:id/catch-up → manual deferred publish (Wallet D)
+POST /reset      → clear + seed oracle for A–D
 ```
 
-`beforeSwap` (simulated in quotes / swap route) **only reads** `walletScore()`
-from the oracle cache.
+`beforeSwap` (simulated in quotes / swap route) reads the oracle cache, then
+applies the §3.8 inflow floor when D has a significant USDC delta and pending keeper.
 
 ## API
 
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/oracle` | All cached ScoreResults |
-| `GET` | `/oracle/:id` | ScoreResult + Opinion for A/B/C |
+| `GET` | `/oracle/:id` | ScoreResult + Opinion for A–D |
+| `POST` | `/oracle/:id/catch-up` | Publish deferred keeper score (Wallet D) |
 | `GET` | `/oracle/publishes` | Keeper `updateScore` trail (mock or rpc tx) |
 | `GET` | `/wallets/:id/compliance` | Pack for frontend Opinion (oracle-backed) |
 

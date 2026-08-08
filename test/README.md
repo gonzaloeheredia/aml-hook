@@ -20,13 +20,15 @@ API default: `http://localhost:4000` (override with `API_BASE`).
 node test/flow-uniswap-metamask.mjs
 ```
 
-**Risk is hop-based, not swap-count:**
+**Risk is hop-based, not swap-count** (plus Wallet D latency path in the API/UI):
 
-| Event | Effect on B/C |
+| Event | Effect |
 |---|---|
-| 2–3 Uniswap swaps while clean | Still green · score 0 · 0.30% |
+| 2–3 Uniswap swaps while clean (B/C) | Still green · score 0 · 0.30% |
 | MetaMask **A → B** (or A → C) | Hop **1** · score ~65 · fee **8%** |
 | MetaMask **B → C** (or C → B) after that | Hop **2** · score ~42 · fee **3%** |
 | Extra B ↔ A after hop 1 | B stays hop **1** (closer hop wins) |
+| MetaMask **A → D** then D swap (API) | Stale score **0** · inflow **FEE_OVERRIDE 8%** · catch-up ~**65** |
 
-Script steps: clean multi-swaps → A REVERT → A→B → B→A (still hop 1) → B→C (hop 2) → B @ 8% vs C @ 3%.
+Script steps: clean multi-swaps → A REVERT → A→B → B→A (still hop 1) → B→C (hop 2) → B @ 8% vs C @ 3%.  
+Wallet D latency path: exercise via API (`POST /transfers` A→D, `POST /swaps` D) or the frontend walkthrough — see [`apps/api/README.md`](../apps/api/README.md).

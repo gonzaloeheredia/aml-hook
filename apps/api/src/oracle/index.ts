@@ -3,6 +3,7 @@
  */
 
 export {
+  catchUpKeeper,
   ensureOracleEvaluation,
   reevaluateAfterBlock,
   reevaluateAfterSwap,
@@ -10,6 +11,7 @@ export {
   reevaluateWallet,
   resetOracle,
   seedOracleAll,
+  walletKeeperPending,
 } from "./agent.js";
 export {
   getPublisherStatus,

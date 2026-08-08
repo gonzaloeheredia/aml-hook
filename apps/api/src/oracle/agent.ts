@@ -2,10 +2,21 @@
  * Off-chain Compliance Officer / oracle agent runner.
  *
  * Runs the virtual AI AML analyst pipeline (skills + connected sources), then
- * scores deterministically for the A/B/C use case and publishes via the keeper.
+ * scores deterministically for the A/B/C/D use case and publishes via the keeper.
+ *
+ * Wallet D (§3.8 / use-case §7): after inbound P2P, updateScore is deferred so the
+ * next swap can demonstrate the inflow heuristic under a stale score of 0.
  */
 
-import { listEvents, listTransfers, listWallets, getWallet } from "../store.js";
+import {
+  clearKeeperPending,
+  getWallet,
+  isKeeperPending,
+  listEvents,
+  listTransfers,
+  listWallets,
+  markKeeperPending,
+} from "../store.js";
 import type { WalletId } from "../types.js";
 import { buildFacts, scoreFromFacts } from "./factScoring.js";
 import {
@@ -99,7 +110,7 @@ export async function reevaluateWallet(
 }
 
 /**
- * Seeds oracle scores for A/B/C at process start or after reset.
+ * Seeds oracle scores for A–D at process start or after reset.
  */
 export async function seedOracleAll(): Promise<void> {
   for (const w of listWallets()) {
@@ -117,16 +128,51 @@ export async function resetOracle(): Promise<void> {
 }
 
 /**
- * After a P2P transfer: reevaluate recipient (contamination) and sender.
+ * After a P2P transfer: reevaluate sender always; recipient immediately unless
+ * the recipient is Wallet D (deferred keeper — stale score 0 until catch-up).
  */
 export async function reevaluateAfterTransfer(
   from: WalletId,
   to: WalletId,
-): Promise<{ from: OracleEvaluation; to: OracleEvaluation }> {
+): Promise<{
+  from: OracleEvaluation;
+  to: OracleEvaluation | null;
+  keeperPending: boolean;
+}> {
+  const fromEval = await reevaluateWallet(from, "transfer");
+
+  // Wallet D latency path: ledger hops update, but updateScore waits for catch-up.
+  if (to === "D") {
+    markKeeperPending("D");
+    return {
+      from: fromEval,
+      to: getOracleEvaluation("D"),
+      keeperPending: true,
+    };
+  }
+
+  clearKeeperPending(to);
   return {
-    from: await reevaluateWallet(from, "transfer"),
+    from: fromEval,
     to: await reevaluateWallet(to, "transfer"),
+    keeperPending: false,
   };
+}
+
+/**
+ * Keeper catch-up: publish the decay score after the deferred window (Wallet D → ~65).
+ */
+export async function catchUpKeeper(walletId: WalletId): Promise<OracleEvaluation> {
+  const evaluation = await reevaluateWallet(walletId, "transfer");
+  clearKeeperPending(walletId);
+  return evaluation;
+}
+
+/**
+ * True when this wallet still awaits a deferred updateScore (Wallet D demo).
+ */
+export function walletKeeperPending(walletId: WalletId): boolean {
+  return isKeeperPending(walletId);
 }
 
 /**

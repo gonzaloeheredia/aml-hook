@@ -4,9 +4,12 @@ pragma solidity ^0.8.26;
 import {IComplianceOracle} from "../interfaces/IComplianceOracle.sol";
 
 /// @title Layer 2 — ComplianceOracle (REAL on-chain storage)
-/// @notice Stores keeper-written scores + COA recommended feeBps. Hook only reads; keeper writes.
-/// @dev Not a mock: scores persist on-chain. The off-chain COA that *computes* score/fee
-///      may still be a TypeScript mock; publishing uses `updateScore` (real tx when RPC is set).
+/// @notice On-chain behavioral score store (whitepaper §3.2 Layer 2 / §3.5 / §3.8):
+///         the off-chain Oracle Keeper publishes scores; AMLHook only reads at beforeSwap.
+/// @dev Not a mock: scores persist on-chain. The off-chain engine that *computes* score/fee
+///      (graph, N-hop decay, exploit feeds) may still be TypeScript; publishing uses `updateScore`.
+///      `updatedAt` enables Mitigations A/B/D (never-written vs confirmed-clean; staleness; inflow).
+///      Hook never writes this store — only the keeper does between swaps.
 contract ComplianceOracle is IComplianceOracle {
     address public owner;
     mapping(address => bool) public keepers;
@@ -37,16 +40,22 @@ contract ComplianceOracle is IComplianceOracle {
     }
 
     /// @inheritdoc IComplianceOracle
+    /// @notice Full WalletRisk snapshot for beforeSwap (score, hop metadata, feeBps, updatedAt).
     function getRisk(address wallet) external view returns (WalletRisk memory) {
         return _risk[wallet];
     }
 
     /// @inheritdoc IComplianceOracle
+    /// @notice Convenience read of the 0–100 behavioral score only.
     function getScore(address wallet) external view returns (uint8) {
         return _risk[wallet].score;
     }
 
     /// @inheritdoc IComplianceOracle
+    /// @notice Keeper publication of a pre-calculated risk profile (§3.8).
+    /// @dev Off-chain engine owns N-hop decay / typology scoring; this call only persists results.
+    ///      Prefer writing when the new score would change the hook's decision tier (gas-efficient).
+    ///      Setting score 0 with non-zero `updatedAt` marks a confirmed-clean wallet (Mitigation A).
     function updateScore(
         address wallet,
         uint8 score,
@@ -67,6 +76,7 @@ contract ComplianceOracle is IComplianceOracle {
         emit ScoreUpdated(wallet, score, hopDistance, origin, feeBps, ts);
     }
 
+    /// @notice Grant or revoke keeper write rights for `updateScore`.
     function setKeeper(address keeper, bool allowed) external onlyOwner {
         keepers[keeper] = allowed;
         emit KeeperUpdated(keeper, allowed);

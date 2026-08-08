@@ -14,7 +14,7 @@ import {
   type ScoreSource,
 } from "./oracle/onchainReader.js";
 import { getOracleFeeBps, getOracleScore } from "./oracle/store.js";
-import type { Decision, Wallet, WalletId } from "./types.js";
+import type { Decision, LatencyMitigation, Wallet, WalletId } from "./types.js";
 
 /** Contamination weight retained per hop. */
 export const DECAY_FACTOR = 0.65;
@@ -28,6 +28,10 @@ export const DEFAULT_SWAP_USDC = 1_000;
 export const EXPLOIT_SOURCE: WalletId = "A";
 /** Standard pool fee in basis points (0.30%). */
 export const BASE_FEE_BPS = 30;
+/** §3.8 latency / inflow floor when keeper feeBps is absent (8%). */
+export const LATENCY_FEE_BPS = 800;
+/** Balance-delta share (bps of current USDC) that flags significant inflow. */
+export const INFLOW_THRESHOLD_BPS = 5000;
 
 /**
  * Fallback N-hop score when the oracle has not written a value yet.
@@ -151,8 +155,59 @@ export function toHookOutput(decision: Decision): "ALLOW" | "FEE_OVERRIDE" | "RE
 }
 
 /**
- * Type guard: returns true when `value` is a demo wallet id (A, B, or C).
+ * Type guard: returns true when `value` is a demo wallet id (A–D).
  */
 export function isWalletId(value: string): value is WalletId {
-  return value === "A" || value === "B" || value === "C";
+  return value === "A" || value === "B" || value === "C" || value === "D";
+}
+
+/**
+ * Inflow heuristic (§3.8 Mitigation D / Wallet D): delta as share of current USDC in bps.
+ */
+export function inflowDeltaBps(currentUsdc: number, lastKnownUsdc: number): number {
+  if (currentUsdc <= 0) return 0;
+  const delta = currentUsdc > lastKnownUsdc ? currentUsdc - lastKnownUsdc : 0;
+  return Math.floor((delta * 10_000) / currentUsdc);
+}
+
+/**
+ * Applies §3.8 FEE_OVERRIDE floors on top of the score-band decision.
+ * Elevates ALLOW only; never softens REVERT or an existing FEE_OVERRIDE.
+ */
+export function applyLatencyFloor(input: {
+  score: number;
+  feeBps: number;
+  hasSignificantInflow: boolean;
+}): {
+  decision: Decision;
+  feeBps: number;
+  latencyMitigation: LatencyMitigation;
+} {
+  const baseDecision = decisionFromScore(input.score);
+  if (baseDecision === "block") {
+    return { decision: "block", feeBps: 0, latencyMitigation: null };
+  }
+  if (baseDecision === "fee_override") {
+    return {
+      decision: "fee_override",
+      feeBps: input.feeBps,
+      latencyMitigation: null,
+    };
+  }
+  if (input.hasSignificantInflow) {
+    const feeBps =
+      input.feeBps > 0 && input.feeBps !== BASE_FEE_BPS
+        ? input.feeBps
+        : LATENCY_FEE_BPS;
+    return {
+      decision: "fee_override",
+      feeBps: feeBps > 0 ? feeBps : LATENCY_FEE_BPS,
+      latencyMitigation: "INFLOW_HEURISTIC",
+    };
+  }
+  return {
+    decision: "allow",
+    feeBps: BASE_FEE_BPS,
+    latencyMitigation: null,
+  };
 }

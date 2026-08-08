@@ -31,17 +31,18 @@ Default: [http://localhost:4000](http://localhost:4000)
 |---|---|---|
 | `GET` | `/health` | Liveness + mode (`in-memory`, `oracle: coa-mock`) |
 | `GET` | `/wallets` | All wallets + live oracle score/decision |
-| `GET` | `/wallets/:id` | One wallet (`A` \| `B` \| `C`) + quote |
+| `GET` | `/wallets/:id` | One wallet (`A`–`D`) + quote |
 | `GET` | `/wallets/:id/compliance` | **Oracle opinion** for Opinion UI |
-| `GET` | `/wallets/:id/quote` | USDC→ETH quote (`?amountUsd=1000`) |
+| `GET` | `/wallets/:id/quote` | USDC→ETH quote (`?amountUsd=1000`); D may show inflow FEE_OVERRIDE 8% |
 | `GET` | `/oracle` | All cached ScoreResults |
 | `GET` | `/oracle/:id` | ScoreResult + opinion for one wallet |
+| `POST` | `/oracle/:id/catch-up` | Publish deferred keeper score (Wallet D latency path) |
 | `GET` | `/oracle/publishes` | Keeper `updateScore` trail (mock or rpc) |
-| `POST` | `/transfers` | P2P USDC → hop update → **oracle reevaluate** from/to |
-| `POST` | `/swaps` | Settle swap → event → **oracle reevaluate** |
+| `POST` | `/transfers` | P2P USDC → hop update → oracle reevaluate (`A→D` defers keeper) |
+| `POST` | `/swaps` | Settle swap → event → oracle reevaluate (D pending → catch-up ~65) |
 | `GET` | `/transfers` | Transfer history |
 | `GET` | `/events` | Simulated hook trail |
-| `POST` | `/reset` | Reseed A/B/C + oracle baseline |
+| `POST` | `/reset` | Reseed A–D + oracle baseline |
 
 ### Oracle flow
 
@@ -81,12 +82,31 @@ curl http://localhost:4000/oracle/B
 curl http://localhost:4000/wallets/B/compliance
 ```
 
+### Example — Wallet D latency / inflow (§3.8)
+
+```bash
+# A→D: ledger hop updates, but keeper updateScore is deferred (stale score 0)
+curl -X POST http://localhost:4000/transfers ^
+  -H "Content-Type: application/json" ^
+  -d "{\"from\":\"A\",\"to\":\"D\",\"amountUsd\":10000}"
+
+curl http://localhost:4000/wallets/D/quote
+# → FEE_OVERRIDE · feeBps 800 · latencyMitigation INFLOW_HEURISTIC · keeperPending true
+
+curl -X POST http://localhost:4000/swaps ^
+  -H "Content-Type: application/json" ^
+  -d "{\"walletId\":\"D\",\"amountUsd\":1000}"
+# → settles at 8%; response.keeperCatchUp.score ≈ 65
+```
+
 ## Use-case baseline
 
 - **A** exploit → REVERT  
 - **B** and **C** both start clean (ALLOW 0.30%)  
+- **D** starts clean with 0 USDC — latency / inflow path (§3.8)  
 - Receive from **A** → ~65 / 8% (1-hop)  
 - Receive from the other after it was tainted by A → ~42 / 3% (2-hop); closer hop wins  
+- **A → D** defers keeper `updateScore`; D swap under stale score 0 → **FEE_OVERRIDE 8%** (inflow); catch-up → score **65**  
 - **1 ETH = 1,000 USDC**
 
 ## On-chain keeper + beforeSwap score read

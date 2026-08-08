@@ -1,7 +1,7 @@
 # AML Hook · Frontend demo
 
 Hackathon UI for **Uniswap Hook Incubator 10 (UHI10)**.  
-Uniswap-styled demo of the AML Hook use case: **exploit cash-out detection**, **N-hop decay**, and ternary **ALLOW / FEE_OVERRIDE / REVERT**.
+Uniswap-styled demo of the AML Hook use case: **exploit cash-out detection**, **N-hop decay**, **oracle-latency / inflow (Wallet D)**, and ternary **ALLOW / FEE_OVERRIDE / REVERT**.
 
 > Scores and sanctions checks are **simulated** from the N-hop ledger — no live OpenSanctions / Etherscan / GoPlus (or OFAC) API calls.  
 > The UI talks to the in-memory API at `NEXT_PUBLIC_API_URL` (default `http://localhost:4000`).
@@ -32,13 +32,14 @@ Uniswap-styled demo of the AML Hook use case: **exploit cash-out detection**, **
 
 REVERT is `beforeSwap` only — no `afterSwap` emit for that attempt.
 
-**Navbar:** Connect chip shows `A · 0x…` with a **green / yellow / red** border from live risk (clean / FEE_OVERRIDE hop / REVERT exploit). No separate wallet tag. P2P USDC transfers run from the MetaMask simulator panel.
+**Navbar:** Connect chip shows `A · 0x…` with a **green / yellow / red** border from live risk (clean · hop/latency FEE_OVERRIDE · REVERT exploit). Wallet D shows **Latency** while keeper-pending. P2P USDC transfers run from the MetaMask simulator panel.
 
-### The three use-case wallets
+### The four use-case wallets
 
 1. **Wallet A (exploit)** — score 100 · `REVERT`
 2. **Wallet B (clean)** — same rules as C: A→B ≈ 65 / 8%; tainted C→B ≈ 42 / 3%
 3. **Wallet C (clean)** — same rules as B: A→C ≈ 65 / 8%; tainted B→C ≈ 42 / 3%
+4. **Wallet D (latency)** — starts clean (0 USDC); A→D defers keeper; swap under stale score 0 → inflow `FEE_OVERRIDE` 8%; catch-up → ~65
 
 N-hop formula: `derived_score = origin_score × (0.65 ^ hops) × exposed_proportion`  
 Closer hop wins if a wallet is contaminated more than once.
@@ -65,7 +66,8 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 2. Connect **Wallet A** → swap → REVERT
 3. Open **MetaMask Simulator** → Send USDC **A→B**, then **B→C**
 4. Swap with **B** → FEE_OVERRIDE 8%; with **C** → FEE_OVERRIDE 3%
-5. From **Fees**, advance → **AML stats** → **Opinion** → **Event**
+5. Send USDC **A→D**, connect **D** → swap → FEE_OVERRIDE 8% (inflow / stale score 0); keeper catch-up → score 65
+6. From **Fees**, advance → **AML stats** → **Opinion** → **Event**
 
 ## Data source
 

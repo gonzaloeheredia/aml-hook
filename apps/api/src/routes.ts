@@ -4,12 +4,16 @@
  * MOCK: ledger (wallets / transfers / simulated pool swaps), COA opinions.
  * REAL optional: keeper publishes + scoreSource=onchain reads ComplianceOracle.
  * Check GET /health → publisher.mode (`mock`|`rpc`) and scoreSource (`memory`|`onchain`).
+ *
+ * Wallet D: A→D defers keeper updateScore; D swap applies §3.8 inflow FEE_OVERRIDE 8%,
+ * then catch-up publishes decay score ~65.
  */
 
 import type { FastifyInstance } from "fastify";
 import { buildCompliancePack, buildSwapQuote } from "./compliance.js";
 import { applyPoolSwap, applyTransfer } from "./ledger.js";
 import {
+  catchUpKeeper,
   ensureOracleEvaluation,
   getPublisherStatus,
   listOracleEvaluations,
@@ -19,14 +23,9 @@ import {
   reevaluateAfterTransfer,
   resetOracle,
   seedOracleAll,
+  walletKeeperPending,
 } from "./oracle/index.js";
-import {
-  decisionFromScore,
-  isWalletId,
-  resolveWalletRisk,
-  toHookOutput,
-  walletScore,
-} from "./scoring.js";
+import { isWalletId, resolveWalletRisk, walletScore } from "./scoring.js";
 import { preferOnChainScore } from "./oracle/onchainReader.js";
 import {
   appendEvent,
@@ -37,9 +36,12 @@ import {
   listTransfers,
   listWallets,
   resetStore,
+  setLastKnownUsdc,
   setWallets,
 } from "./store.js";
 import type { WalletId } from "./types.js";
+
+const WALLET_IDS_HINT = "A, B, C, or D";
 
 /** Body shape for POST /transfers. */
 type TransferBody = {
@@ -75,49 +77,54 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     scoreSource: preferOnChainScore() ? "onchain" : "memory",
     publisher: getPublisherStatus(),
     persistence: "none — state resets on process restart",
+    wallets: ["A", "B", "C", "D"],
   }));
 
   /** Lists all wallets with live oracle score, decision, and applied fee. */
   app.get("/wallets", async () => {
     const wallets = await Promise.all(
       listWallets().map(async (w) => {
-        const { score, feeBps, source } = await resolveWalletRisk(w);
-        const decision = decisionFromScore(score);
+        const quote = await buildSwapQuote(w);
+        const { score, source } = await resolveWalletRisk(w);
         return {
           ...w,
-          score,
+          score: quote.score,
           scoreSource: source,
-          decision,
-          hookOutput: toHookOutput(decision),
-          appliedFeeBps: feeBps,
+          decision: quote.decision,
+          hookOutput: quote.hookOutput,
+          appliedFeeBps: quote.feeBps,
+          keeperPending: quote.keeperPending,
+          latencyMitigation: quote.latencyMitigation,
         };
       }),
     );
     return { wallets };
   });
 
-  /** Returns one wallet (A/B/C) plus a current swap quote. */
+  /** Returns one wallet (A–D) plus a current swap quote. */
   app.get<{ Params: { id: string } }>("/wallets/:id", async (req, reply) => {
     const id = req.params.id.toUpperCase();
     if (!isWalletId(id)) {
-      return reply.code(400).send({ error: "Wallet id must be A, B, or C" });
+      return reply.code(400).send({ error: `Wallet id must be ${WALLET_IDS_HINT}` });
     }
     const wallet = getWallet(id);
     if (!wallet) {
       return reply.code(404).send({ error: "Wallet not found" });
     }
-    const { score, feeBps, source } = await resolveWalletRisk(wallet);
-    const decision = decisionFromScore(score);
+    const quote = await buildSwapQuote(wallet);
+    const { source } = await resolveWalletRisk(wallet);
     return {
       wallet: {
         ...wallet,
-        score,
+        score: quote.score,
         scoreSource: source,
-        decision,
-        hookOutput: toHookOutput(decision),
-        appliedFeeBps: feeBps,
+        decision: quote.decision,
+        hookOutput: quote.hookOutput,
+        appliedFeeBps: quote.feeBps,
+        keeperPending: quote.keeperPending,
+        latencyMitigation: quote.latencyMitigation,
       },
-      quote: await buildSwapQuote(wallet),
+      quote,
     };
   });
 
@@ -130,7 +137,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const id = req.params.id.toUpperCase();
       if (!isWalletId(id)) {
-        return reply.code(400).send({ error: "Wallet id must be A, B, or C" });
+        return reply.code(400).send({ error: `Wallet id must be ${WALLET_IDS_HINT}` });
       }
       const wallet = getWallet(id);
       if (!wallet) {
@@ -146,7 +153,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const id = req.params.id.toUpperCase();
       if (!isWalletId(id)) {
-        return reply.code(400).send({ error: "Wallet id must be A, B, or C" });
+        return reply.code(400).send({ error: `Wallet id must be ${WALLET_IDS_HINT}` });
       }
       const wallet = getWallet(id);
       if (!wallet) {
@@ -168,9 +175,38 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const id = req.params.id.toUpperCase();
       if (!isWalletId(id)) {
-        return reply.code(400).send({ error: "Wallet id must be A, B, or C" });
+        return reply.code(400).send({ error: `Wallet id must be ${WALLET_IDS_HINT}` });
       }
-      return await ensureOracleEvaluation(id);
+      return {
+        ...(await ensureOracleEvaluation(id)),
+        keeperPending: walletKeeperPending(id),
+      };
+    },
+  );
+
+  /**
+   * Keeper catch-up for a deferred publish (Wallet D after A→D latency window).
+   * Writes decay score (~65 for 1-hop) so subsequent swaps use N-hop fees.
+   */
+  app.post<{ Params: { id: string } }>(
+    "/oracle/:id/catch-up",
+    async (req, reply) => {
+      const id = req.params.id.toUpperCase();
+      if (!isWalletId(id)) {
+        return reply.code(400).send({ error: `Wallet id must be ${WALLET_IDS_HINT}` });
+      }
+      const wallet = getWallet(id);
+      if (!wallet) {
+        return reply.code(404).send({ error: "Wallet not found" });
+      }
+      const evaluation = await catchUpKeeper(id);
+      return {
+        ok: true,
+        keeperPending: false,
+        scoreResult: evaluation.scoreResult,
+        onChainPublish: evaluation.onChainPublish,
+        compliance: await buildCompliancePack(getWallet(id)!),
+      };
     },
   );
 
@@ -190,7 +226,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /**
    * Executes a P2P USDC transfer, updates hop contamination,
-   * reevaluates oracle scores for from/to, returns recipient compliance.
+   * reevaluates oracle scores for from/to (D recipient defers keeper),
+   * returns recipient compliance.
    */
   app.post<{ Body: TransferBody }>("/transfers", async (req, reply) => {
     const fromRaw = String(req.body?.from ?? "").toUpperCase();
@@ -198,7 +235,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const amountUsd = Number(req.body?.amountUsd);
 
     if (!isWalletId(fromRaw) || !isWalletId(toRaw)) {
-      return reply.code(400).send({ error: "from/to must be A, B, or C" });
+      return reply.code(400).send({ error: `from/to must be ${WALLET_IDS_HINT}` });
     }
     if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
       return reply.code(400).send({ error: "amountUsd must be a positive number" });
@@ -214,7 +251,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     setWallets(result.wallets);
     appendTransfer(result.record);
 
-    // Oracle COA + keeper publish (ComplianceOracle.updateScore) before next swap
+    // Oracle COA + keeper publish — recipient D stays on stale score 0 until catch-up
     const oracle = await reevaluateAfterTransfer(fromRaw, toRaw);
 
     return {
@@ -222,15 +259,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       wallets: listWallets().map((w) => ({
         ...w,
         score: walletScore(w),
+        keeperPending: walletKeeperPending(w.id),
       })),
       oracle: {
         from: oracle.from.scoreResult,
-        to: oracle.to.scoreResult,
+        to: oracle.to?.scoreResult ?? null,
+        keeperPending: oracle.keeperPending,
       },
       onChainPublish: {
         from: oracle.from.onChainPublish,
-        to: oracle.to.onChainPublish,
+        to: oracle.to?.onChainPublish ?? null,
       },
+      keeperPending: oracle.keeperPending,
       recipientCompliance: await buildCompliancePack(
         result.wallets[toRaw as WalletId],
       ),
@@ -244,11 +284,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
    * Settles a pool swap against the in-memory ledger.
    * REVERT → WalletBlocked + oracle refresh.
    * ALLOW / FEE_OVERRIDE → afterSwap SwapObserved + oracle reevaluate for next beforeSwap.
+   * Wallet D with pending keeper: afterSwap also runs catch-up → score ~65.
    */
   app.post<{ Body: SwapBody }>("/swaps", async (req, reply) => {
     const idRaw = String(req.body?.walletId ?? "").toUpperCase();
     if (!isWalletId(idRaw)) {
-      return reply.code(400).send({ error: "walletId must be A, B, or C" });
+      return reply.code(400).send({ error: `walletId must be ${WALLET_IDS_HINT}` });
     }
     const wallet = getWallet(idRaw);
     if (!wallet) {
@@ -307,6 +348,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     setWallets(next);
     const updated = next[idRaw];
+    setLastKnownUsdc(idRaw, updated.usdc);
+
     appendEvent({
       id: `ev-${Date.now()}`,
       walletId: idRaw,
@@ -321,24 +364,37 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       kind: "SwapObserved",
     });
 
-    // afterSwap → oracle COA + keeper publish before next beforeSwap
-    const oracle = await reevaluateAfterSwap(idRaw);
+    // Deferred keeper catch-up for Wallet D after the latency swap.
+    const catchUp = walletKeeperPending(idRaw)
+      ? await catchUpKeeper(idRaw)
+      : null;
+    const oracle = catchUp ?? (await reevaluateAfterSwap(idRaw));
+
+    const after = getWallet(idRaw)!;
 
     return {
       settled: true,
       quote,
       wallet: {
-        ...updated,
-        score: walletScore(updated),
+        ...after,
+        score: walletScore(after),
+        keeperPending: walletKeeperPending(idRaw),
       },
       ethReceived: quote.ethOut,
       oracle: oracle.scoreResult,
       onChainPublish: oracle.onChainPublish,
-      compliance: await buildCompliancePack(updated),
+      keeperCatchUp: catchUp
+        ? {
+            published: true,
+            score: catchUp.scoreResult.finalScore,
+            feeBps: catchUp.scoreResult.recommendedFeeBps,
+          }
+        : null,
+      compliance: await buildCompliancePack(after),
     };
   });
 
-  /** Reseeds A/B/C, clears history, and reseeds oracle scores. */
+  /** Reseeds A–D, clears history, and reseeds oracle scores. */
   app.post("/reset", async () => {
     const store = resetStore();
     await resetOracle();
@@ -347,6 +403,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       wallets: Object.values(store.wallets).map((w) => ({
         ...w,
         score: walletScore(w),
+        keeperPending: false,
       })),
       transfers: store.transfers,
       events: store.events,

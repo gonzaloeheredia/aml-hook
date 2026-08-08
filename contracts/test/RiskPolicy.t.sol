@@ -70,8 +70,8 @@ contract RiskPolicyTest is Test {
     function test_StaleWithOps_FloorsAllowToFeeOverride() public view {
         (HookDecision d, uint24 fee) = policy.decide(10, 0, true, 1, false);
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
-        // score < 55 → proportional intermediate fallback
-        assertEq(fee, policy.PROPORTIONAL_FEE_BPS());
+        // Latency floor uses 8%, not score-band proportional fallback
+        assertEq(fee, policy.LATENCY_FEE_BPS());
     }
 
     function test_StaleWithoutOps_StillAllows() public view {
@@ -83,13 +83,13 @@ contract RiskPolicyTest is Test {
     function test_SignificantInflow_FloorsAllowToFeeOverride() public view {
         (HookDecision d, uint24 fee) = policy.decide(5, 0, false, 0, true);
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
-        assertEq(fee, policy.PROPORTIONAL_FEE_BPS());
+        assertEq(fee, policy.LATENCY_FEE_BPS());
     }
 
     function test_StaleAndInflow_DoNotStackBeyondFloor() public view {
         (HookDecision d, uint24 fee) = policy.decide(10, 0, true, 2, true);
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
-        assertEq(fee, policy.PROPORTIONAL_FEE_BPS());
+        assertEq(fee, policy.LATENCY_FEE_BPS());
     }
 
     function test_LatencyFloor_DoesNotSoftenRevert() public view {
@@ -114,6 +114,7 @@ contract RiskPolicyTest is Test {
         assertEq(policy.STANDARD_FEE_BPS(), 30);
         assertEq(policy.PUNITIVE_FEE_BPS(), 800);
         assertEq(policy.PROPORTIONAL_FEE_BPS(), 300);
+        assertEq(policy.LATENCY_FEE_BPS(), 800);
         assertEq(policy.MAX_OVERRIDE_FEE_BPS(), 1000);
     }
 }

@@ -8,7 +8,7 @@ Use Case — Exploit Detection, Propagation and N-Hop Decay
 
 AML Hook is a compliance layer deployed natively as a Uniswap v4 hook. It intercepts every swap at beforeSwap and afterSwap, applies a ternary risk decision, and emits a structured on-chain event that constitutes the operator's audit trail. The hook operates without interrupting the normal swap execution path for clean addresses.
 
-This document describes a complete three-wallet scenario that exercises all three decision outputs of the hook in a single run: full block (revert), punitive dynamic fee, and proportional dynamic fee. The scenario is grounded in an exploit cash-out attack followed by two-hop fund propagation through intermediary wallets.
+This document describes a four-wallet scenario that exercises all three decision outputs of the hook, plus the oracle-latency inflow heuristic: full block (revert), punitive dynamic fee, proportional dynamic fee, and FEE_OVERRIDE under a stale score. The scenario is grounded in an exploit cash-out attack, two-hop fund propagation through intermediary wallets, and a third path that swaps inside the keeper's processing window.
 
 ### Actors
 
@@ -21,12 +21,16 @@ Wallet A    Exploit attacker. Drains an external lending protocol and attempts t
 Wallet B    Starts clean (same rules as C). Receives from A → 1-hop (~65). Receives from tainted C → 2-hop (~42). Closer hop wins.     0 (clean)
 
 Wallet C    Starts clean (same rules as B). Receives from A → 1-hop (~65). Receives from tainted B → 2-hop (~42). Closer hop wins.     0 (clean)
+
+Wallet D    Fourth actor. Starts clean, score 0, no prior transaction history. Receives a direct P2P (peer-to-peer, wallet-to-wallet     0 (clean)
+            transfer outside the pool) transfer from Wallet A seconds before attempting a swap, before the keeper has processed that
+            transfer.
 ----------- -------------------------------------------------------------------------------------------------------------------------- -------------------------
 ```
 
-The walkthrough below uses one propagation path (A → B → C) to exercise all three hook outputs in a single run. The scoring engine treats B and C symmetrically for any P2P path.
+The walkthrough below uses one propagation path (A → B → C) to exercise all three hook outputs in a single run, then a third path (A → D) that isolates the causal latency gap from whitepaper section 3.8. The scoring engine treats B and C symmetrically for any P2P path.
 
-The pool is configured as a Real World Asset (RWA) pool on Uniswap v4, with AML Hook attached and dynamic fee permissions enabled. The off-chain scoring keeper monitors transfer events continuously and writes updated scores on-chain before any swap is attempted.
+The pool is configured as a Real World Asset (RWA) pool on Uniswap v4, with AML Hook attached and dynamic fee permissions enabled. The off-chain scoring keeper monitors transfer events continuously and, on the A → B → C path, writes updated scores on-chain before the corresponding swap is attempted. The A → D path deliberately places the swap inside the window before that write lands.
 
 ### 1.1 System Call Path and Contract Layers
 
@@ -245,6 +249,12 @@ Step   Actor    Action                                                          
 4      B → C    P2P transfer outside pool. Keeper writes score 42 to Wallet C.   —       Off-chain keeper update       —
 
 5      C        Swap attempt with 2-hop contaminated funds                       42      FEE OVERRIDE (proportional)   3.00%
+
+6      A → D    P2P transfer; keeper updateScore for D not yet confirmed         —       Off-chain (pending)           —
+
+7      D        Swap under stale score 0; inflow heuristic elevates              0       FEE OVERRIDE (inflow)         8.00%
+
+8      —        Keeper catch-up: writes decay score 65 for Wallet D              65      Off-chain keeper update       —
 ------ -------- ---------------------------------------------------------------- ------- ----------------------------- -------
 ```
 
@@ -286,8 +296,83 @@ Immutable on-chain event log         FATF Recommendation 11: record retention, m
 ------------------------------------ ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ```
 
+## 7. Latency Mitigation Scenario: Wallet D
+
+This scenario isolates the causal latency gap described in section 3.8 of the whitepaper. Unlike the A, B, C sequence, where the keeper writes each score before the corresponding swap is attempted, this scenario places the swap attempt inside the window during which the keeper has not yet processed the inbound transfer.
+
+#### Step 6 — Third Propagation Path: Wallet A → Wallet D (P2P Transfer), Immediate Swap Attempt
+
+```text
+----------------------- ---------------------------------------------------------------------------------------------------------------------------------------------------------
+Event                   Detail
+
+Actor                   Wallet A → Wallet D
+
+Action                  Wallet A transfers the tainted funds directly to Wallet D, outside the AMM (Automated Market Maker), at the ERC-20 (Ethereum Request for Comments 20)
+                        token level.
+
+Keeper status           The transfer is detected by the off-chain monitor but the updateScore transaction for Wallet D has not yet been confirmed on-chain.
+
+Elapsed time            Approximately 8 seconds between the transfer's confirmation and Wallet D submitting a swap.
+
+Oracle state at swap    ComplianceOracle still holds Wallet D's prior score: 0, with updatedAt predating the transfer.
+----------------------- ---------------------------------------------------------------------------------------------------------------------------------------------------------
+```
+
+#### Step 7 — Swap Attempt Under a Stale Score (Wallet D)
+
+```text
+----------------------- ---------------------------------------------------------------------------------------------------------------------------------------------------------
+Event                   Detail
+
+Actor                   Wallet D
+
+Action                  Attempts to swap USDC into ETH in the AML Hook pool.
+
+beforeSwap, Layer 1     OFAC (Office of Foreign Assets Control) screening: no match.
+
+beforeSwap, Layer 2     Keeper score: 0. Read in isolation, this would resolve to ALLOW.
+score read
+
+beforeSwap, balance     The hook queries token.balanceOf(D). lastKnownBalance[D] was 0. currentBalance equals the full transferred amount. deltaBps equals 10000 (100 percent of
+heuristic               current balance), exceeding the configured inflowThresholdBps of 5000. The inflow timestamp postdates the oracle's updatedAt for Wallet D, so the stored
+                        score of 0 does not yet reflect this transfer.
+
+RiskPolicy decision     hasSignificantInflow resolves to true. The floor described in the mitigation forces a minimum output of FEE_OVERRIDE, overriding what the stale score of
+                        0 would otherwise permit. No keeper-recommended feeBps is available yet, so the desired product behavior applies the intermediate latency fee of 8 percent.
+
+Execution               Swap executes at 8 percent instead of the standard 0.30 percent. Economic friction is applied despite a stored score that has not yet incorporated the
+                        inflow.
+
+afterSwap, event        address: D, score: 0 (stale), decision: FEE_OVERRIDE, fee: 8.00 percent, trigger: InflowHeuristicTriggered, deltaBps: 10000, timestamp: T5. hop_distance
+emitted                 and origin are not populated, because the heuristic detects the pattern, not the source.
+
+Hook output             FEE_OVERRIDE by inflow heuristic. The gap between the transfer and the keeper's update did not translate into an unconditioned swap.
+----------------------- ---------------------------------------------------------------------------------------------------------------------------------------------------------
+```
+
+#### Step 8 — Keeper Catch-Up
+
+Shortly after Step 7, the keeper processes the A to D transfer and writes Wallet D's decay-based score: 100 times 0.65 to the first power, equaling 65, one hop from Wallet A. From this point forward, Wallet D's swaps are evaluated against that score rather than against the inflow heuristic, which only governs the window before the keeper catches up.
+
+### Comparison: With and Without the Heuristic
+
+```text
+----------------------------------------------------------- ------------------- ------------
+Condition                                                   Hook Output         Fee
+
+Without inflow heuristic (score read alone)                 ALLOW               0.30 percent
+
+With inflow heuristic (Step 7, as designed)                 FEE_OVERRIDE        8.00 percent
+----------------------------------------------------------- ------------------- ------------
+```
+
+### Stated Limitation
+
+The heuristic identifies a behavioral pattern, a large inflow immediately followed by a swap attempt, not the origin of the funds. It cannot distinguish a transfer from a tainted wallet from a legitimate large deposit, such as a withdrawal from a centralized exchange. A wallet with a genuinely clean funding source that happens to deposit a large balance and swap immediately will incur the same intermediate fee. This is an accepted false positive cost, applied only within the narrow window before the keeper writes an updated score, and it is not a determination of guilt, only a temporary friction pending confirmation.
+
 ## 8. Conclusion
 
-This scenario demonstrates the complete decision space of AML Hook in a single execution run. A direct attack by the exploit source triggers an immediate revert. An attempt to route contaminated funds through intermediary wallets is detected and penalized with mathematically decaying fees proportional to hop distance. Every decision is recorded on-chain with full traceability.
+This scenario demonstrates the complete decision space of AML Hook in a single execution run. A direct attack by the exploit source triggers an immediate revert. An attempt to route contaminated funds through intermediary wallets is detected and penalized with mathematically decaying fees proportional to hop distance. A third path that swaps before the keeper publishes the decay score is caught by the balance-inflow heuristic and still receives FEE_OVERRIDE at 8 percent rather than an unconditioned ALLOW. Every decision is recorded on-chain with full traceability.
 
-The two attack vectors covered — direct exploit cash-out and multi-hop fund propagation — represent the primary evasion strategies used in DeFi exploits. AML Hook addresses both at the execution layer, without requiring the attacker to appear on any external list, and without introducing latency into the normal swap path for clean addresses.
+The attack vectors covered — direct exploit cash-out, multi-hop fund propagation, and cash-out inside the oracle latency window — represent primary evasion strategies used in DeFi exploits. AML Hook addresses them at the execution layer, without requiring the attacker to appear on any external list, and without introducing latency into the normal swap path for clean addresses with a fresh keeper score.
