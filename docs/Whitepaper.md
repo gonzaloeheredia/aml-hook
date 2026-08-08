@@ -190,10 +190,15 @@ RiskPolicy           Layer 3 — ternary map   Called by AmlHook with score +   
                                              recommendedFeeBps → ALLOW /                                                                  talk to Uniswap
                                              FEE_OVERRIDE / REVERT + feeBps
 -------------------- ----------------------- ------------------------------------------ -------------------------------------------------- --------------------------------
-Oracle Keeper        Off-chain publisher     Off-chain graph, exploit feeds,            updateScore on ComplianceOracle                   Execute inside beforeSwap
-(not a contract)                             SwapObserved trail
+Oracle Keeper / COA  Off-chain analyst +     Off-chain graph, exploit feeds,            updateScore on ComplianceOracle;                 Write FeeEscrow or run
+(not a contract)     publisher               SwapObserved trail, COA memos (sec. 8)     keeper-only FeeEscrow resolutions                 inside beforeSwap
+-------------------- ----------------------- ------------------------------------------ -------------------------------------------------- --------------------------------
+FeeEscrow            Sec. 3.7 fee hold       feeToken custody; getEscrow                Depositor: deposit; Keeper: releaseEarly,       Hold swap output; let COA
+                     (48h)                                                               resolveCheckpoint2, releaseDefault               write on-chain
 -------------------- ----------------------- ------------------------------------------ -------------------------------------------------- --------------------------------
 ```
+
+FeeEscrow destinations: releaseEarly and releaseDefault (and non-illicit resolveCheckpoint2) send the retained fee to poolRecipient. Confiscation on resolveCheckpoint2(illicitConfirmed=true) sends it only to lpCompensationFund for LP compensation - never to the pool.
 
 Read path at beforeSwap: PoolManager → AmlHook → resolve swap subject (trusted router `IMsgSender.msgSender()` primary, optional `hookData` cross-check) → SanctionRegistry (fail closed on match) → ComplianceOracle (WalletRisk) → AmlHookLogic derives isStale, operationCount and hasSignificantInflow → RiskPolicy.decide (score bands plus FEE_OVERRIDE floor) → optional hook-local elevation for never-written scores or the activity-window cap. Write path at afterSwap: AmlHook updates per-wallet activity counters and lastKnownBalance, then emits SwapObserved for the off-chain engine. Write path between swaps: the keeper alone publishes fresh scores into ComplianceOracle; the hook never writes the oracle. Owner-maintained trusted-router registry (`setTrustedRouter`) is updated out of band, not during the swap.
 
@@ -235,9 +240,19 @@ This allows pool operators to generate auditable reports to present to regulator
 
 ### 3.7 Fee Escrow Mechanism
 
-For medium-risk swaps, with a score between 31 and 70, the differential fee does not go directly to the pool. It goes to an escrow contract with a 48-hour timelock. During that period, if the oracle confirms that the wallet was part of a fraud scheme, because it appeared on a Chainalysis list, because related wallets were flagged, or because the pattern completed, the fee is not released to the pool but instead goes to a compensation fund for the affected LPs.
+For medium-risk swaps, with a score between 31 and 70 (FEE_OVERRIDE), the differential fee does not go directly to the pool. Only that fee slice is deposited into the on-chain FeeEscrow contract under a 48-hour window. The user's swap output settles in the same block as today: FeeEscrow never holds the full swap and never delays user capital.
 
-If there is no fraud confirmation within 48 hours, the fee is released normally. The mechanism has two concrete effects: it creates a real economic cost for the attacker even if it manages to pass the initial filter, and it funds the compensation of the LPs. It turns compliance from a passive cost into an active pool-protection asset.
+At deposit, FeeEscrow records the subject wallet, the retained amount, the deposit timestamp and the origin transaction hash, and emits FeeDeposited for the immutable audit trail in section 3.6.
+
+The Compliance Officer Agent (COA) analyzes the case off-chain. It has no write function on FeeEscrow. Every on-chain release or confiscation is executed exclusively by a keeper with restricted access, following the same administrative pattern as SanctionRegistry.setSanctioned and AmlHook.setTrustedRouter. Before submitting a transaction, the keeper applies an off-chain sanity rule on the COA output (for example a minimum confidence threshold).
+
+Checkpoint 1, at or after 24 hours and before the 48-hour window closes. The keeper may invoke releaseEarly, which transfers the retained fee to the pool recipient. Checkpoint 1 never confiscates under any circumstance.
+
+Checkpoint 2, at or after 48 hours. The keeper invokes the COA again with any information accumulated since Checkpoint 1 and then calls resolveCheckpoint2. If the conclusion meets the keeper's sanity threshold for illicit activity, the retained fee is confiscated to lpCompensationFund — a compensation fund for liquidity providers (LPs). Confiscated fees never go to the pool. If the conclusion does not meet that threshold, the fee is released to the pool recipient. If the window elapses with no prior resolution, releaseDefault sends the fee to the pool recipient under the same default path.
+
+FeeEscrow emits FeeReleasedEarly, FeeConfiscated and FeeReleasedDefault on each terminal transition. It does not alter RiskPolicy, ComplianceOracle or AmlHookLogic; it integrates only at the point where the differential fee is separated from the rest of the swap output.
+
+The mechanism has two concrete effects: it creates a real economic cost for the attacker even if the initial filter allowed the swap under FEE_OVERRIDE, and it funds LP compensation when fraud is later confirmed. It turns compliance from a passive cost into an active pool-protection asset.
 
 ### 3.8 Oracle Latency and Update Frequency
 
