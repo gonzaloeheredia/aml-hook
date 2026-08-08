@@ -29,6 +29,8 @@ import {
   type ApiCompliancePack,
 } from "@/lib/api";
 import {
+  applyPoolSwap,
+  applyTransfer,
   caseIdForSimWallet,
   ethOutFromSwap,
   initialSimWallets,
@@ -54,6 +56,7 @@ const EMPTY_STATS: Record<DemoCaseId, SwapStats> = {
   A: { count: 0, tradedUsd: 0, tradedEth: 0 },
   B: { count: 0, tradedUsd: 0, tradedEth: 0 },
   C: { count: 0, tradedUsd: 0, tradedEth: 0 },
+  D: { count: 0, tradedUsd: 0, tradedEth: 0 },
 };
 
 type ApiStatus = "connecting" | "online" | "offline";
@@ -233,7 +236,15 @@ export default function HomePage() {
     amountUsd: number,
   ): Promise<string | null> => {
     if (apiStatus !== "online") {
-      return apiError ?? `API offline — start backend at ${API_BASE}`;
+      // Offline fallback: local ledger + Wallet D keeper-pending latency window.
+      const result = applyTransfer(simWallets, from, to, amountUsd);
+      if (!result) {
+        return "Transfer failed — insufficient USDC or invalid route";
+      }
+      setSimWallets(result.wallets);
+      setTransfers((prev) => [...prev, result.record]);
+      setCompliance(null);
+      return null;
     }
     try {
       const res = await postTransfer(from, to, amountUsd);
@@ -250,7 +261,7 @@ export default function HomePage() {
   };
 
   /**
-   * Reseeds A/B/C to the use-case baseline and returns the demo to Swap.
+   * Reseeds A–D to the use-case baseline and returns the demo to Swap.
    */
   const handleRestartData = useCallback(async () => {
     setRunning(false);
@@ -346,6 +357,18 @@ export default function HomePage() {
         demoCase.decision === "block"
           ? 0
           : ethOutFromSwap(amount, demoCase.appliedFeeBps);
+      if (demoCase.decision !== "block") {
+        setSimWallets((prev) => {
+          const next = applyPoolSwap(
+            prev,
+            caseId,
+            amount,
+            demoCase.appliedFeeBps,
+            demoCase.decision,
+          );
+          return next ?? prev;
+        });
+      }
       setSwapStats((prev) => {
         const current = prev[caseId];
         return {

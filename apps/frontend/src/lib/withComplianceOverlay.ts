@@ -51,8 +51,10 @@ export function withComplianceOverlay(
         ? "Fee override"
         : "Allow";
 
-  const hopTag =
-    hopDistance == null
+  const inflow = pack.latencyMitigation === "INFLOW_HEURISTIC";
+  const hopTag = inflow
+    ? "Inflow heuristic"
+    : hopDistance == null
       ? "Clean path"
       : hopDistance === 0
         ? "Exploit source"
@@ -80,9 +82,11 @@ export function withComplianceOverlay(
     },
     typology: pack.exploitConfirmed
       ? "Exploit cash-out"
-      : hopDistance
-        ? "N-hop propagation"
-        : "None",
+      : inflow
+        ? "Oracle latency · inflow"
+        : hopDistance
+          ? "N-hop propagation"
+          : "None",
     flowPath: decision,
     sellToken: "USDC",
     buyToken: "ETH",
@@ -97,7 +101,7 @@ export function withComplianceOverlay(
       },
       {
         label: "Keeper score",
-        value: `${score} / 100`,
+        value: `${score} / 100${pack.keeperPending ? " (stale)" : ""}`,
         tone:
           decision === "block"
             ? "bad"

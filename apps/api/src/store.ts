@@ -9,15 +9,16 @@ import { EXPLOIT_SOURCE } from "./scoring.js";
 import type { HookEvent, TransferRecord, Wallet, WalletId } from "./types.js";
 
 /**
- * Builds the initial A/B/C wallet ledger from the use case:
- * A = exploit source; B and C both start clean (symmetric N-hop recipients).
+ * Builds the initial A/B/C/D wallet ledger from the use case:
+ * A = exploit source; B and C start clean (symmetric N-hop);
+ * D starts clean with 0 USDC — latency / inflow path (Wallet D §7).
  */
 function seedWallets(): Record<WalletId, Wallet> {
   return {
     A: {
       id: "A",
       accountLabel: "Account A · Exploit",
-      role: "Exploit attacker — REVERT on pool; contaminates B or C via P2P",
+      role: "Exploit attacker — REVERT on pool; contaminates B, C, or D via P2P",
       address: "0x8576aCC5C05D6Ce88f4e49bf65BdF0C62F91353C",
       usdc: 10_000_000,
       eth: 5,
@@ -47,6 +48,17 @@ function seedWallets(): Record<WalletId, Wallet> {
       originId: null,
       exploitConfirmed: false,
     },
+    D: {
+      id: "D",
+      accountLabel: "Account D · Clean",
+      role: "Latency path — A→D then swap before keeper → inflow FEE_OVERRIDE 8%",
+      address: "0x4838B106FCe9647Bdf1E7877BF73cE8B0BAD5f97",
+      usdc: 0,
+      eth: 2,
+      hopDistance: null,
+      originId: null,
+      exploitConfirmed: false,
+    },
   };
 }
 
@@ -55,13 +67,28 @@ type Store = {
   wallets: Record<WalletId, Wallet>;
   transfers: TransferRecord[];
   events: HookEvent[];
+  /** Inflow heuristic baseline (USDC) per wallet — refreshed afterSwap. */
+  lastKnownUsdc: Record<WalletId, number>;
+  /** Recipients awaiting deferred keeper updateScore (Wallet D demo). */
+  keeperPending: Set<WalletId>;
 };
+
+function seedLastKnown(wallets: Record<WalletId, Wallet>): Record<WalletId, number> {
+  return {
+    A: wallets.A.usdc,
+    B: wallets.B.usdc,
+    C: wallets.C.usdc,
+    D: wallets.D.usdc,
+  };
+}
 
 /** Mutable singleton store for the demo API. */
 let store: Store = {
   wallets: seedWallets(),
   transfers: [],
   events: [],
+  lastKnownUsdc: seedLastKnown(seedWallets()),
+  keeperPending: new Set(),
 };
 
 /**
@@ -76,16 +103,19 @@ export function getStore(): Store {
  * (seeded wallets, empty transfers and events).
  */
 export function resetStore(): Store {
+  const wallets = seedWallets();
   store = {
-    wallets: seedWallets(),
+    wallets,
     transfers: [],
     events: [],
+    lastKnownUsdc: seedLastKnown(wallets),
+    keeperPending: new Set(),
   };
   return store;
 }
 
 /**
- * Returns wallets A, B, and C as an array.
+ * Returns wallets A–D as an array.
  */
 export function listWallets(): Wallet[] {
   return (Object.keys(store.wallets) as WalletId[]).map((id) => store.wallets[id]);
@@ -131,6 +161,31 @@ export function appendEvent(event: HookEvent): void {
  */
 export function listEvents(): HookEvent[] {
   return [...store.events];
+}
+
+/** Last observed USDC balance used by the §3.8 inflow heuristic. */
+export function getLastKnownUsdc(id: WalletId): number {
+  return store.lastKnownUsdc[id] ?? 0;
+}
+
+/** Refresh inflow baseline after a successful swap (afterSwap). */
+export function setLastKnownUsdc(id: WalletId, usdc: number): void {
+  store.lastKnownUsdc[id] = usdc;
+}
+
+/** Mark that the keeper has not yet published a post-transfer score. */
+export function markKeeperPending(id: WalletId): void {
+  store.keeperPending.add(id);
+}
+
+/** Clear deferred-keeper flag after catch-up publish. */
+export function clearKeeperPending(id: WalletId): void {
+  store.keeperPending.delete(id);
+}
+
+/** True while updateScore for this wallet is intentionally deferred. */
+export function isKeeperPending(id: WalletId): boolean {
+  return store.keeperPending.has(id);
 }
 
 export { EXPLOIT_SOURCE };

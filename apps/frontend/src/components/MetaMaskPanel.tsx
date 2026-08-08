@@ -247,7 +247,7 @@ export function MetaMaskPanel({
               </button>
               <h3 className="text-xl font-bold text-white">Send USDC</h3>
               <p className="mt-1 text-sm text-white/50">
-                Moves USDC between A / B / C. Sender balance goes down, recipient goes up.
+                Moves USDC between A / B / C / D. Sender balance goes down, recipient goes up.
               </p>
 
               <label className="mt-6 text-[11px] uppercase tracking-wider text-white/40">

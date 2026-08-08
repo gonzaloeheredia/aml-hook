@@ -4,7 +4,11 @@
  */
 
 import type { DemoCaseId } from "@/data/cases";
-import type { SimWallet, TransferRecord } from "@/lib/hopScoring";
+import {
+  initialSimWallets,
+  type SimWallet,
+  type TransferRecord,
+} from "@/lib/hopScoring";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
@@ -13,11 +17,20 @@ export const API_BASE =
 export type ApiDecision = "allow" | "fee_override" | "block";
 export type ApiHookOutput = "ALLOW" | "FEE_OVERRIDE" | "REVERT";
 
+export type ApiLatencyMitigation =
+  | "INFLOW_HEURISTIC"
+  | "SCORE_NEVER_WRITTEN"
+  | "STALE_WITH_POOL_ACTIVITY"
+  | "ACTIVITY_WINDOW_CAP"
+  | null;
+
 export type ApiWallet = SimWallet & {
   score?: number;
   decision?: ApiDecision;
   hookOutput?: ApiHookOutput;
   appliedFeeBps?: number;
+  keeperPending?: boolean;
+  latencyMitigation?: ApiLatencyMitigation;
 };
 
 export type ApiTechnicalOpinion = {
@@ -48,6 +61,8 @@ export type ApiCompliancePack = {
   usdc: number;
   eth: number;
   riskLabel: string;
+  keeperPending: boolean;
+  latencyMitigation: ApiLatencyMitigation;
   summary: string[];
   agent: {
     status: string;
@@ -114,6 +129,9 @@ export type ApiSwapQuote = {
   hookOutput: ApiHookOutput;
   score: number;
   canSettle: boolean;
+  oracleScore?: number;
+  keeperPending?: boolean;
+  latencyMitigation?: ApiLatencyMitigation;
 };
 
 export class ApiError extends Error {
@@ -139,18 +157,23 @@ export function toSimWallet(w: ApiWallet): SimWallet {
     hopDistance: w.hopDistance,
     originId: w.originId,
     exploitConfirmed: w.exploitConfirmed,
+    keeperPending: w.keeperPending,
   };
 }
 
 /**
- * Maps an API wallet list into a Record keyed by A/B/C.
+ * Maps an API wallet list into a Record keyed by A–D (fills missing seeds).
  */
 export function walletsRecord(
   list: ApiWallet[],
 ): Record<DemoCaseId, SimWallet> {
-  const out = {} as Record<DemoCaseId, SimWallet>;
+  const out = initialSimWallets();
   for (const w of list) {
-    out[w.id] = toSimWallet(w);
+    out[w.id] = {
+      ...out[w.id],
+      ...toSimWallet(w),
+      lastKnownUsdc: out[w.id].lastKnownUsdc,
+    };
   }
   return out;
 }
@@ -221,6 +244,7 @@ export function postTransfer(
     transfer: TransferRecord;
     wallets: ApiWallet[];
     recipientCompliance: ApiCompliancePack;
+    keeperPending?: boolean;
   }>(`/transfers`, {
     method: "POST",
     body: JSON.stringify({ from, to, amountUsd }),
@@ -236,6 +260,7 @@ export function postSwap(walletId: DemoCaseId, amountUsd?: number) {
     wallet: ApiWallet;
     ethReceived?: number;
     compliance: ApiCompliancePack;
+    keeperCatchUp?: { published: boolean; score: number; feeBps: number } | null;
   }>(`/swaps`, {
     method: "POST",
     body: JSON.stringify({
@@ -245,7 +270,16 @@ export function postSwap(walletId: DemoCaseId, amountUsd?: number) {
   });
 }
 
-/** POST /reset — reseed A/B/C baseline */
+/** POST /oracle/:id/catch-up — publish deferred keeper score (Wallet D). */
+export function postKeeperCatchUp(id: DemoCaseId) {
+  return request<{
+    ok: boolean;
+    keeperPending: boolean;
+    compliance: ApiCompliancePack;
+  }>(`/oracle/${id}/catch-up`, { method: "POST" });
+}
+
+/** POST /reset — reseed A–D baseline */
 export function postReset() {
   return request<{
     ok: boolean;

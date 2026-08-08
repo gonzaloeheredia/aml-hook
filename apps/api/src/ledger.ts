@@ -17,11 +17,12 @@ import type { Decision, TransferRecord, Wallet, WalletId } from "./types.js";
  * Applies a P2P USDC transfer between two wallets.
  * Risk/score changes ONLY here — pool swaps never raise behavioral score.
  *
- * Hop rules (B and C start clean / green / score 0):
+ * Hop rules (B, C, D start clean / green / score 0):
  * - Receive from exploit A → hop 1 → score ≈ 65 → fee 8%
  * - Receive from a 1-hop peer (e.g. tainted B→C or C→B) → hop 2 → score ≈ 42 → fee 3%
- * - A second inbound from A (or B↔A after A→B) keeps the closer hop (min); hop 1 wins over hop 2
+ * - A second inbound from A keeps the closer hop (min); hop 1 wins over hop 2
  * - Clean→clean P2P does not contaminate
+ * - Wallet D: ledger hop updates immediately; keeper publish may be deferred (API layer)
  *
  * Returns the next wallet map + transfer record, or null on failure.
  */

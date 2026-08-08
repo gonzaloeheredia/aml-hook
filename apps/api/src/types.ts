@@ -1,10 +1,18 @@
 /**
  * Shared types for the in-memory AML Hook demo API.
- * Mirrors the frontend use-case model (A exploit · B 1-hop · C clean→2-hop).
+ * Mirrors the frontend use-case model (A exploit · B/C N-hop · D latency/inflow).
  */
 
 /** Demo wallet identifiers used across the use case. */
-export type WalletId = "A" | "B" | "C";
+export type WalletId = "A" | "B" | "C" | "D";
+
+/** §3.8 latency mitigation reason when ALLOW is elevated to FEE_OVERRIDE. */
+export type LatencyMitigation =
+  | "INFLOW_HEURISTIC"
+  | "SCORE_NEVER_WRITTEN"
+  | "STALE_WITH_POOL_ACTIVITY"
+  | "ACTIVITY_WINDOW_CAP"
+  | null;
 
 /** Internal ternary decision used by scoring / settlement. */
 export type Decision = "allow" | "fee_override" | "block";
@@ -95,6 +103,10 @@ export type CompliancePack = {
   usdc: number;
   eth: number;
   riskLabel: string;
+  /** True while A→D (or inbound to D) awaits keeper updateScore. */
+  keeperPending: boolean;
+  /** §3.8 floor applied on the current quote path, if any. */
+  latencyMitigation: LatencyMitigation;
   summary: string[];
   agent: {
     status: string;
@@ -138,4 +150,8 @@ export type SwapQuote = {
   hookOutput: HookOutput;
   score: number;
   canSettle: boolean;
+  /** Oracle/keeper score before §3.8 floors (may still be stale 0 for Wallet D). */
+  oracleScore: number;
+  keeperPending: boolean;
+  latencyMitigation: LatencyMitigation;
 };

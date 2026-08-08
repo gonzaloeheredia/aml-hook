@@ -5,7 +5,7 @@ type Props = {
   connected: boolean;
   /** Connected wallet address, or null if disconnected */
   address: string | null;
-  /** Active demo wallet id (A / B / C), shown on the connect chip */
+  /** Active demo wallet id (A / B / C / D), shown on the connect chip */
   walletId?: string | null;
   /** Border class for risk tone: green / yellow / red */
   riskBorderClass?: string;

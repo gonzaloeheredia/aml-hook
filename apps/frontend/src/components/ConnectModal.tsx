@@ -7,9 +7,9 @@ import type { SimWallet } from "@/lib/hopScoring";
 type Props = {
   open: boolean;
   onClose: () => void;
-  /** Called when the user picks Wallet A / B / C */
+  /** Called when the user picks Wallet A / B / C / D */
   onConnect: (caseId: DemoCaseId) => void;
-  /** Live ledger — B stays green until A or C transfers in */
+  /** Live ledger — B/C/D stay green until contaminated or D enters latency window */
   wallets: Record<DemoCaseId, SimWallet>;
 };
 
@@ -21,8 +21,8 @@ function shorten(addr: string) {
 }
 
 /**
- * Connect modal — wallets A / B / C in alphabetical order.
- * Row border: green clean · yellow after hop · red exploit.
+ * Connect modal — wallets A / B / C / D in alphabetical order.
+ * Row border: green clean · yellow after hop / latency · red exploit.
  */
 export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
   if (!open) return null;
@@ -75,9 +75,11 @@ export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
                     {shorten(wallet.address)}
                   </span>
                   <span className="mt-0.5 block text-[11px] opacity-80">
-                    {wallet.hopDistance != null
-                      ? `${wallet.hopDistance}-hop · fee override expected`
-                      : c.label}
+                    {wallet.keeperPending
+                      ? "Keeper pending · inflow 8% on next swap"
+                      : wallet.hopDistance != null
+                        ? `${wallet.hopDistance}-hop · fee override expected`
+                        : c.label}
                   </span>
                 </span>
               </button>
