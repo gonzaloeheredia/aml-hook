@@ -9,6 +9,7 @@ import {HookDecision} from "../src/libraries/HookDecision.sol";
 import {AmlHookLogic} from "../src/hooks/AmlHookLogic.sol";
 
 import {AmlHookHarness} from "./AmlHookHarness.sol";
+import {MockERC20} from "./MockERC20.sol";
 
 /// @notice Unit tests for whitepaper §3.8 oracle-latency mitigations.
 contract OracleLatencyTest is Test {
@@ -16,6 +17,7 @@ contract OracleLatencyTest is Test {
     ComplianceOracle oracle;
     RiskPolicy policy;
     AmlHookHarness hook;
+    MockERC20 token;
 
     address keeper = address(0xBEEF);
     address wallet = address(0xC0FFEE);
@@ -24,12 +26,15 @@ contract OracleLatencyTest is Test {
         address indexed wallet, bytes32 reason, uint24 feeBps, uint8 oracleScore
     );
 
+    event InflowHeuristicTriggered(address indexed wallet, uint256 deltaBps, uint256 timestamp);
+
     function setUp() public {
         registry = new SanctionRegistry(address(this));
         oracle = new ComplianceOracle(address(this));
         policy = new RiskPolicy();
-        // maxAge=100, window=1000, maxOps=3
+        // staleness=100, window=1000, maxOps=3
         hook = new AmlHookHarness(registry, oracle, policy, 100, 1000, 3);
+        token = new MockERC20();
         oracle.setKeeper(keeper, true);
         vm.warp(1_000_000);
     }
@@ -57,7 +62,7 @@ contract OracleLatencyTest is Test {
     function test_StaleWithoutPoolActivity_StillAllows() public {
         vm.prank(keeper);
         oracle.updateScore(wallet, 0, 0, address(0), 0, "");
-        // Age past maxScoreAge but wallet never swapped in this pool → no elevation.
+        // Age past stalenessThreshold but wallet never swapped in this pool → no elevation.
         vm.warp(block.timestamp + 101);
         (HookDecision d,,) = hook.evaluate(wallet);
         assertEq(uint8(d), uint8(HookDecision.ALLOW));
@@ -67,16 +72,16 @@ contract OracleLatencyTest is Test {
         vm.prank(keeper);
         oracle.updateScore(wallet, 10, 0, address(0), 0, ""); // updatedAt = 1_000_000
         vm.warp(block.timestamp + 50);
-        hook.recordActivity(wallet); // lastSwapAt = 1_000_050
+        hook.recordActivity(wallet); // opCount in window = 1
         vm.warp(block.timestamp + 100); // now = 1_000_150; age = 150 > 100 → stale
-        // lastSwapAt (1_000_050) > updatedAt (1_000_000) → activity since write
 
         (HookDecision d, uint24 fee,) = hook.evaluate(wallet);
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
-        assertEq(fee, 800);
+        // RiskPolicy intermediate fallback for score < 55
+        assertEq(fee, policy.PROPORTIONAL_FEE_BPS());
 
         vm.expectEmit(true, false, false, true, address(hook));
-        emit LatencyMitigationApplied(wallet, hook.REASON_STALE_WITH_POOL_ACTIVITY(), 800, 10);
+        emit LatencyMitigationApplied(wallet, hook.REASON_STALE_WITH_POOL_ACTIVITY(), 300, 10);
         hook.evaluateLive(wallet);
     }
 
@@ -92,7 +97,6 @@ contract OracleLatencyTest is Test {
         vm.prank(keeper);
         oracle.updateScore(wallet, 0, 0, address(0), 0, "");
 
-        // maxOpsInWindow = 3 → elevate when opCount >= 3 already recorded
         hook.recordActivity(wallet);
         hook.recordActivity(wallet);
         hook.recordActivity(wallet);
@@ -112,14 +116,8 @@ contract OracleLatencyTest is Test {
         hook.recordActivity(wallet);
 
         vm.warp(block.timestamp + 1001); // past activityWindow=1000
-        // Window expired → opCount treated as 0 for mitigation
         (HookDecision d,,) = hook.evaluate(wallet);
-        // Score may be stale (age > 100) but no activity since write in the sense...
-        // updatedAt=1e6, lastSwapAt was ~1e6, after warp lastSwapAt still old.
-        // Stale? age = 1001 > 100 yes. Activity since? lastSwapAt > updatedAt?
-        // If all records happened same second as write, lastSwapAt ≈ updatedAt, not >
-        // After 3 records without warp, lastSwapAt == updatedAt (same block/time).
-        // So stale+activity may be false; activity window reset → ALLOW.
+        // Window expired → operationCount 0; stale alone does not elevate → ALLOW
         assertEq(uint8(d), uint8(HookDecision.ALLOW));
     }
 
@@ -135,6 +133,82 @@ contract OracleLatencyTest is Test {
         oracle.updateScore(wallet, 65, 1, wallet, 300, "");
         (HookDecision d, uint24 fee,) = hook.evaluate(wallet);
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
-        assertEq(fee, 300); // keeper fee preserved; mitigations only elevate ALLOW
+        assertEq(fee, 300);
+    }
+
+    function test_SetStalenessThreshold_OnlyOwner() public {
+        hook.setStalenessThreshold(200);
+        assertEq(hook.stalenessThreshold(), 200);
+        vm.prank(address(0xDEAD));
+        vm.expectRevert(AmlHookLogic.NotOwner.selector);
+        hook.setStalenessThreshold(50);
+    }
+
+    function test_InflowAboveThreshold_WithStaleOracle_Elevates() public {
+        // Baseline: wallet holds 100, oracle wrote score 0 at that time.
+        token.mint(wallet, 100 ether);
+        hook.updateKnownBalance(wallet, address(token));
+        uint256 baselineTs = block.timestamp;
+
+        vm.prank(keeper);
+        oracle.updateScore(wallet, 0, 0, address(0), 0, "");
+        assertEq(uint256(oracle.getRisk(wallet).updatedAt), baselineTs);
+
+        // Large inflow after baseline; oracle not refreshed → floor.
+        vm.warp(block.timestamp + 10);
+        token.mint(wallet, 150 ether); // delta = 150 / 250 = 6000 bps > 5000
+
+        (HookDecision d, uint24 fee,) = hook.evaluateWithToken(wallet, address(token));
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, policy.PROPORTIONAL_FEE_BPS());
+
+        vm.expectEmit(true, false, false, true, address(hook));
+        emit InflowHeuristicTriggered(wallet, 6000, block.timestamp);
+        hook.evaluateLiveWithToken(wallet, address(token));
+    }
+
+    function test_InflowAboveThreshold_WithFreshOracle_Allows() public {
+        token.mint(wallet, 100 ether);
+        hook.updateKnownBalance(wallet, address(token));
+
+        vm.warp(block.timestamp + 10);
+        token.mint(wallet, 150 ether);
+
+        // Keeper refreshes after the inflow → oracle incorporated the new state.
+        vm.prank(keeper);
+        oracle.updateScore(wallet, 0, 0, address(0), 0, "");
+
+        (HookDecision d, uint24 fee,) = hook.evaluateWithToken(wallet, address(token));
+        assertEq(uint8(d), uint8(HookDecision.ALLOW));
+        assertEq(fee, 0);
+    }
+
+    function test_CombinedStaleAndInflow_SingleFloor() public {
+        token.mint(wallet, 100 ether);
+        hook.updateKnownBalance(wallet, address(token));
+
+        vm.prank(keeper);
+        oracle.updateScore(wallet, 10, 0, address(0), 0, "");
+
+        hook.recordActivity(wallet);
+        vm.warp(block.timestamp + 101); // stale
+        token.mint(wallet, 150 ether); // significant inflow; scoreUpdatedAt <= baseline
+
+        (HookDecision d, uint24 fee,) = hook.evaluateWithToken(wallet, address(token));
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, policy.PROPORTIONAL_FEE_BPS());
+    }
+
+    function test_InflowBelowThreshold_DoesNotElevate() public {
+        token.mint(wallet, 100 ether);
+        hook.updateKnownBalance(wallet, address(token));
+        vm.prank(keeper);
+        oracle.updateScore(wallet, 0, 0, address(0), 0, "");
+
+        vm.warp(block.timestamp + 10);
+        token.mint(wallet, 40 ether); // delta = 40/140 ≈ 2857 bps < 5000
+
+        (HookDecision d,,) = hook.evaluateWithToken(wallet, address(token));
+        assertEq(uint8(d), uint8(HookDecision.ALLOW));
     }
 }

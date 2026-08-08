@@ -52,8 +52,8 @@ contract DeployAmlStack is Script {
             console2.log("ExtraKeeper", extraKeeper);
         }
 
-        // §3.8 latency mitigations: maxScoreAge=5m, activityWindow=1h, maxOpsInWindow=3
-        uint64 maxScoreAge = uint64(vm.envOr("MAX_SCORE_AGE", uint256(5 minutes)));
+        // §3.8 latency mitigations: stalenessThreshold=5m, activityWindow=1h, maxOpsInWindow=3
+        uint256 stalenessThreshold = vm.envOr("MAX_SCORE_AGE", uint256(5 minutes));
         uint64 activityWindow = uint64(vm.envOr("ACTIVITY_WINDOW", uint256(1 hours)));
         uint32 maxOpsInWindow = uint32(vm.envOr("MAX_OPS_IN_WINDOW", uint256(3)));
 
@@ -63,7 +63,7 @@ contract DeployAmlStack is Script {
             address(registry),
             address(oracle),
             address(policy),
-            maxScoreAge,
+            stalenessThreshold,
             activityWindow,
             maxOpsInWindow
         );
@@ -76,7 +76,7 @@ contract DeployAmlStack is Script {
             registry,
             oracle,
             policy,
-            maxScoreAge,
+            stalenessThreshold,
             activityWindow,
             maxOpsInWindow
         );

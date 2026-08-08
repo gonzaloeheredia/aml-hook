@@ -15,11 +15,12 @@ import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/src/types/BeforeSwapDelta.sol";
 import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 import {LPFeeLibrary} from "v4-core/src/libraries/LPFeeLibrary.sol";
+import {Currency} from "v4-core/src/types/Currency.sol";
 
 /// @title AMLHook — Uniswap v4 compliance hook (REAL on-chain logic)
 /// @notice PoolManager → beforeSwap/afterSwap → SanctionRegistry → ComplianceOracle → RiskPolicy
 /// @dev Swap subject MUST be `abi.encode(endUser)` in hookData — never the router.
-///      §3.8 mitigations: unset score, stale+activity, activity-window cap (see AmlHookLogic).
+///      §3.8 mitigations: unset score, stale+activity floor, inflow heuristic, activity-window cap.
 contract AmlHook is BaseHook, AmlHookLogic {
     using LPFeeLibrary for uint24;
 
@@ -28,6 +29,7 @@ contract AmlHook is BaseHook, AmlHookLogic {
 
     /// @dev Transient cache so afterSwap can emit without a second oracle read race.
     address private _swapWallet;
+    address private _swapToken;
     HookDecision private _swapDecision;
     uint24 private _swapFeeBps;
     IComplianceOracle.WalletRisk private _swapRisk;
@@ -37,7 +39,7 @@ contract AmlHook is BaseHook, AmlHookLogic {
         ISanctionRegistry sanctionRegistry_,
         IComplianceOracle complianceOracle_,
         IRiskPolicy riskPolicy_,
-        uint64 maxScoreAge_,
+        uint256 stalenessThreshold_,
         uint64 activityWindow_,
         uint32 maxOpsInWindow_
     )
@@ -46,7 +48,7 @@ contract AmlHook is BaseHook, AmlHookLogic {
             sanctionRegistry_,
             complianceOracle_,
             riskPolicy_,
-            maxScoreAge_,
+            stalenessThreshold_,
             activityWindow_,
             maxOpsInWindow_
         )
@@ -73,16 +75,19 @@ contract AmlHook is BaseHook, AmlHookLogic {
     }
 
     /// @inheritdoc BaseHook
-    function _beforeSwap(address /* sender */, PoolKey calldata, SwapParams calldata, bytes calldata hookData)
-        internal
-        override
-        returns (bytes4, BeforeSwapDelta, uint24)
-    {
+    function _beforeSwap(
+        address, /* sender */
+        PoolKey calldata key,
+        SwapParams calldata params,
+        bytes calldata hookData
+    ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
         address wallet = _resolveWallet(hookData);
+        address token = _inputToken(key, params);
         (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk) =
-            _evaluateWithMitigationEvents(wallet);
+            _evaluateWithMitigationEvents(wallet, token);
 
         _swapWallet = wallet;
+        _swapToken = token;
         _swapDecision = decision;
         _swapFeeBps = feeBps;
         _swapRisk = risk;
@@ -104,9 +109,11 @@ contract AmlHook is BaseHook, AmlHookLogic {
         returns (bytes4, int128)
     {
         _recordActivity(_swapWallet);
+        _updateKnownBalance(_swapWallet, _swapToken);
         _emitSwapObserved(_swapWallet, _swapDecision, _swapFeeBps, _swapRisk);
 
         delete _swapWallet;
+        delete _swapToken;
         delete _swapDecision;
         delete _swapFeeBps;
         delete _swapRisk;
@@ -118,5 +125,14 @@ contract AmlHook is BaseHook, AmlHookLogic {
         if (hookData.length < 32) revert MissingSwapSubject();
         wallet = abi.decode(hookData, (address));
         if (wallet == address(0)) revert MissingSwapSubject();
+    }
+
+    function _inputToken(PoolKey calldata key, SwapParams calldata params)
+        private
+        pure
+        returns (address)
+    {
+        Currency c = params.zeroForOne ? key.currency0 : key.currency1;
+        return Currency.unwrap(c);
     }
 }

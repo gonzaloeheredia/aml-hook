@@ -34,7 +34,7 @@ contract AmlStackTest is Test {
         registry = new SanctionRegistry(address(this));
         oracle = new ComplianceOracle(address(this));
         policy = new RiskPolicy();
-        // maxScoreAge=300s, activityWindow=3600s, maxOps=3
+        // stalenessThreshold=300s, activityWindow=3600s, maxOps=3
         hook = new AmlHookHarness(registry, oracle, policy, 300, 3600, 3);
         oracle.setKeeper(keeper, true);
     }
