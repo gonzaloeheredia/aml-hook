@@ -15,7 +15,7 @@ bash "$ROOT/scripts/ensure-anvil-wsl.sh"
 echo "Deploying AML stack …"
 cd "$ROOT/contracts"
 mkdir -p deployments
-forge script script/DeployAmlStack.s.sol:DeployAmlStack \
+forge script script/Deploy.sol:Deploy \
   --rpc-url "$RPC" \
   --broadcast \
   --private-key "$ANVIL_KEY"

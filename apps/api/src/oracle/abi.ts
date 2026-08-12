@@ -1,6 +1,7 @@
 /**
  * Minimal ABI for ComplianceOracle.updateScore / getRisk (Layer 2).
- * Mirrors contracts/src/interfaces/IComplianceOracle.sol
+ * Mirrors contracts/src/interfaces/oracles/IComplianceOracle.sol
+ * (`updateScore` is AccessManaged — caller must hold `_ORACLE_KEEPER`).
  */
 
 export const complianceOracleAbi = [

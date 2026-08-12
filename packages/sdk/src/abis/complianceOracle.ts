@@ -1,6 +1,6 @@
 /**
  * Minimal ABI for ComplianceOracle (Layer 2).
- * Keep in sync with apps/api/src/oracle/abi.ts and contracts/src/interfaces/IComplianceOracle.sol
+ * Keep in sync with apps/api/src/oracle/abi.ts and contracts/src/interfaces/oracles/IComplianceOracle.sol
  */
 export const complianceOracleAbi = [
   {

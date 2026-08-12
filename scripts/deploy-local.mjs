@@ -6,7 +6,7 @@
  *
  * Or manually:
  *   anvil
- *   cd contracts && forge script script/DeployAmlStack.s.sol:DeployAmlStack --rpc-url http://127.0.0.1:8545 --broadcast
+ *   cd contracts && forge script script/Deploy.sol:Deploy --rpc-url http://127.0.0.1:8545 --broadcast
  *   node scripts/sync-deployment.mjs
  */
 
@@ -78,7 +78,7 @@ async function main() {
 
   console.log("Deploying AML stack …");
   execSync(
-    `forge script script/DeployAmlStack.s.sol:DeployAmlStack --rpc-url ${rpc} --broadcast --private-key ${anvilKey}`,
+    `forge script script/Deploy.sol:Deploy --rpc-url ${rpc} --broadcast --private-key ${anvilKey}`,
     { cwd: contracts, stdio: "inherit", shell: true },
   );
 

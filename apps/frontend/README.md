@@ -77,5 +77,9 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 
 ## Related docs (repo root)
 
-- `docs/Whitepaper.md`
-- `docs/Use_Case.md`
+- `docs/Whitepaper.md` — product + AccessManager roles (§3.5)
+- `docs/Use_Case.md` — A/B/C/D demo narrative
+- `contracts/README.md` — Foundry layout (`src/contracts/…`, `script/Deploy.sol`)
+- `apps/api/README.md` — ledger + COA + on-chain `updateScore` (`_ORACLE_KEEPER`)
+
+Optional local stack: from repo root run `npm run deploy:local` (Anvil + AccessManager-wired contracts), then restart the API so quotes can read on-chain scores.

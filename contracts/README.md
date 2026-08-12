@@ -7,18 +7,23 @@ Foundry workspace for the on-chain AML Hook stack (Uniswap v4).
 ```text
 contracts/
 ├── src/
-│   ├── interfaces/     ISanctionRegistry · IComplianceOracle · IRiskPolicy
-│   ├── libraries/      HookDecision (ALLOW / FEE_OVERRIDE / REVERT)
-│   ├── registries/     SanctionRegistry          (Layer 1)
-│   ├── oracle/         ComplianceOracle          (Layer 2)
-│   ├── policy/         RiskPolicy                (Layer 3)
-│   └── hooks/
-│       ├── BaseHook.sol      # PoolManager-gated IHooks
-│       ├── AmlHookLogic.sol  # L1 → L2 → L3 + §3.8 latency signals
-│       └── AmlHook.sol       # beforeSwap / afterSwap
-├── test/               AmlStack · AmlHook · RiskPolicy · OracleLatency
-├── script/             DeployAmlStack.s.sol
-├── lib/                forge-std · v4-core · v4-periphery (local, gitignored)
+│   ├── contracts/            Implementations by role
+│   │   ├── hooks/            AmlHook · AmlHookLogic
+│   │   ├── oracles/          ComplianceOracle          (Layer 2)
+│   │   ├── policies/         RiskPolicy                (Layer 3)
+│   │   ├── registries/       SanctionRegistry          (Layer 1)
+│   │   ├── escrow/           FeeEscrow
+│   │   └── external/         BaseHook
+│   ├── interfaces/           Same role subfolders (hooks/oracles/… + external/)
+│   └── libraries/            HookDecision · Roles
+├── test/
+│   ├── unit/<role>/          Mirrors src/contracts (+ by function when needed)
+│   ├── unit/Deploy.t.sol     Deploy wiring / AccessManager verification
+│   ├── integration/          AmlStack
+│   ├── mocks/                MockERC20
+│   └── utils/                Helpers (AccessManager wiring + hook deploy)
+├── script/                   Deploy.sol (+ mocks/)
+├── lib/                      forge-std · v4-core · v4-periphery · openzeppelin-contracts
 ├── foundry.toml
 └── remappings.txt
 ```
@@ -28,18 +33,20 @@ contracts/
 ```text
 User → Router → PoolManager → AmlHook
                                  ├─ SanctionRegistry (L1)
-                                 ├─ ComplianceOracle (L2)  ← updateScore (keeper)
+                                 ├─ ComplianceOracle (L2)  ← updateScore (oracle keeper)
                                  └─ RiskPolicy (L3)        ← score + latency floors
 ```
 
 | Contract | Role |
 |---|---|
+| **AccessManager** | Shared OpenZeppelin authority (`Roles`: registry / oracle keepers, hook governor) |
 | **SanctionRegistry** | Sanctions hit → REVERT before score |
 | **ComplianceOracle** | Score / hop / origin / `feeBps` / `updatedAt`; keeper writes |
 | **RiskPolicy** | Ternary bands + §3.8 floors (stale+activity, significant inflow) |
 | **AmlHook** / **AmlHookLogic** | `beforeSwap` / `afterSwap`; `lpFeeOverride`; inflow baseline |
+| **FeeEscrow** | Separate owner / keepers / depositors (not on the shared AccessManager) |
 
-Subject resolution (§3.5): trusted routers (owner `setTrustedRouter`) report the end-user via
+Subject resolution (§3.5): trusted routers (`hookGovernor` `setTrustedRouter`) report the end-user via
 `IMsgSender.msgSender()` as the primary source; `hookData` (`abi.encode(endUser)`) is a cross-check
 when both are present (`SubjectMismatch` on disagreement) and the fail-closed fallback otherwise.
 
@@ -73,14 +80,15 @@ cd contracts
 forge install foundry-rs/forge-std --no-git --shallow
 forge install Uniswap/v4-core --no-git --shallow
 forge install Uniswap/v4-periphery --no-git --shallow
+forge install OpenZeppelin/openzeppelin-contracts --no-git --shallow
 forge build
 forge test
 ```
 
-Focused latency / policy tests:
+Focused latency / policy / deploy tests:
 
 ```bash
-forge test --match-contract "RiskPolicyTest|OracleLatencyTest" -vv
+forge test --match-contract "UnitRiskPolicyDecideTest|UnitRiskPolicyLatencyFloorTest|UnitAmlHookLogicTest|UnitDeployTest" -vv
 ```
 
 ## Local deploy (Anvil + keeper)
@@ -96,13 +104,13 @@ Manual:
 ```bash
 anvil   # :8545
 cd contracts
-forge script script/DeployAmlStack.s.sol:DeployAmlStack \
+forge script script/Deploy.sol:Deploy \
   --rpc-url http://127.0.0.1:8545 --broadcast
 cd ..
 node scripts/sync-deployment.mjs
 ```
 
-Deployer = Anvil account #0 = keeper on `ComplianceOracle`.  
+Deployer = Anvil account #0 (defaults for admin / registry keeper / oracle keeper / hook governor unless overridden via env).  
 Writes `contracts/deployments/31337.json` and copies to `packages/sdk/deployments/`.
 
 ## Boundary
