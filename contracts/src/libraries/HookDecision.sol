@@ -2,8 +2,24 @@
 pragma solidity ^0.8.26;
 
 /// @notice Ternary AML Hook output (whitepaper §3.3) — the product differentiator vs binary KYC.
-/// @dev ALLOW (0–30): standard pool fee. FEE_OVERRIDE (31–70): differential fee / EDD friction.
-///      REVERT (71–100 or L1 sanction hit): unconditional block, no fee path.
+///
+/// @dev Binary allowlists only answer "in or out". AML Hook answers three ways:
+///
+///        ALLOW         Score 0–30   → swap proceeds at the pool's standard fee (e.g. 0.30%).
+///                                      Confirmed-clean or low residual risk after N-hop decay.
+///
+///        FEE_OVERRIDE  Score 31–70  → swap proceeds at the pool's standard fee;
+///                                      the risk differential is taken in afterSwap into
+///                                      FeeEscrow (48h COA path). This is Output 2 / EDD
+///                                      economic friction without a hard block — the core
+///                                      differentiator. Also used when §3.8 latency floors
+///                                      elevate a would-be ALLOW (Wallet D / stale / inflow).
+///
+///        REVERT        Score 71–100 → unconditional block (exploit source, OFAC-grade, or
+///                      (+ L1 hit)     direct sanctioned link). No fee path. SanctionRegistry
+///                                      hits also revert before the score is even read.
+///
+///      FeeEscrow (§3.7) only applies to the differential fee from FEE_OVERRIDE settlements.
 enum HookDecision {
     ALLOW,
     FEE_OVERRIDE,

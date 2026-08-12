@@ -17,9 +17,18 @@ import {AmlHook} from "contracts/hooks/AmlHook.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
 import {SanctionRegistry} from "contracts/registries/SanctionRegistry.sol";
+import {IFeeEscrow} from "interfaces/escrow/IFeeEscrow.sol";
 
 /// @notice Stand-in PoolManager so `AmlHook.onlyPoolManager` can be exercised in hook tests.
+/// @dev `take` forwards ERC-20 from this stub to `to` (mint tokens here before FEE_OVERRIDE afterSwap tests).
 contract HookPoolManagerStub {
+    function take(Currency currency, address to, uint256 amount) external {
+        address token = Currency.unwrap(currency);
+        (bool ok, bytes memory data) =
+            token.call(abi.encodeWithSignature("transfer(address,uint256)", to, amount));
+        require(ok && (data.length == 0 || abi.decode(data, (bool))), "stub: take transfer failed");
+    }
+
     function callBeforeSwap(
         IHooks hook,
         address sender,
@@ -45,11 +54,6 @@ contract HookPoolManagerStub {
 /**
  * @title Helpers
  * @notice Shared fixtures and utilities for the AML stack's unit tests.
- * @dev Deliberately narrower than a general-purpose test-support base: there is no permissions
- *      adapter to mock and nothing here fuzzes arbitrary addresses against a foreign contract, so
- *      this file carries only what the suite actually exercises — deployment fields, the
- *      `AccessManager` wiring helper every restricted-function test needs, and the pool-manager stub
- *      hook tests need. Individual test contracts still run their own `setUp()`; this file does not.
  */
 contract Helpers is Test {
     using LPFeeLibrary for uint24;
@@ -74,18 +78,6 @@ contract Helpers is Test {
     address public walletB = address(0xB0B);
     address public walletC = address(0xC0FFEE);
 
-    /**
-     * @notice Points a set of functions at a role and grants that role to an account
-     * @dev Mirrors what the deploy script has to do for every `restricted` function. Without the
-     *      target wiring the function stays admin-only, so a test that forgets this step fails
-     *      closed rather than silently passing
-     * @param _manager The access manager governing the target
-     * @param _admin An address holding the manager's admin role
-     * @param _target The contract whose functions are being wired
-     * @param _selectors The functions to place behind the role
-     * @param _role The role id to require
-     * @param _account The address to grant the role to
-     */
     function _wireRole(
         AccessManager _manager,
         address _admin,
@@ -101,23 +93,21 @@ contract Helpers is Test {
     }
 
     /**
-     * @notice Deploys `AmlHook` at an address whose low bits already carry its permission flags
-     * @dev `deployCodeTo` sidesteps CREATE2 mining in tests: the flags are computed directly and the
-     *      hook's runtime code is placed at that address, which is all `Hooks.validateHookPermissions`
-     *      checks in the constructor
-     * @param _accessManager The manager the hook's `restricted` setters answer to
-     * @param _registry The sanctions registry the hook screens against
-     * @param _oracle The behavioral score store the hook reads
-     * @param _policy The ternary decision mapping the hook consults
-     * @return _hook The deployed hook
+     * @notice Deploys `AmlHook` at an address whose low bits already carry its permission flags.
+     * @param _feeEscrow FeeEscrow for afterSwap deposits, or address(0) to disable escrow path.
      */
     function _deployHook(
         AccessManager _accessManager,
         SanctionRegistry _registry,
         ComplianceOracle _oracle,
-        RiskPolicy _policy
+        RiskPolicy _policy,
+        IFeeEscrow _feeEscrow
     ) internal returns (AmlHook _hook) {
-        address flags = address(uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG));
+        address flags = address(
+            uint160(
+                Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
+            )
+        );
         deployCodeTo(
             "AmlHook.sol:AmlHook",
             abi.encode(
@@ -126,6 +116,7 @@ contract Helpers is Test {
                 _registry,
                 _oracle,
                 _policy,
+                _feeEscrow,
                 uint256(300),
                 uint64(3600),
                 uint32(3)
@@ -135,11 +126,16 @@ contract Helpers is Test {
         _hook = AmlHook(flags);
     }
 
-    /**
-     * @notice Builds a minimal dynamic-fee `PoolKey` pointed at the given hook
-     * @param _hook The hook address the key should carry
-     * @return _key The pool key
-     */
+    /// @dev Convenience: deploy hook with FeeEscrow disabled.
+    function _deployHook(
+        AccessManager _accessManager,
+        SanctionRegistry _registry,
+        ComplianceOracle _oracle,
+        RiskPolicy _policy
+    ) internal returns (AmlHook _hook) {
+        return _deployHook(_accessManager, _registry, _oracle, _policy, IFeeEscrow(address(0)));
+    }
+
     function _buildKey(address _hook) internal pure returns (PoolKey memory _key) {
         _key = PoolKey({
             currency0: Currency.wrap(address(1)),
@@ -150,7 +146,6 @@ contract Helpers is Test {
         });
     }
 
-    /// @notice A one-directional swap of arbitrary size, the shape every test in this suite reuses.
     function _buildParams() internal pure returns (SwapParams memory _params) {
         _params = SwapParams({zeroForOne: true, amountSpecified: -1e18, sqrtPriceLimitX96: 0});
     }

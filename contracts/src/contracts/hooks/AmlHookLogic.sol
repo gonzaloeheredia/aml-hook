@@ -11,43 +11,73 @@ import {IERC20Minimal} from "../../interfaces/external/IERC20Minimal.sol";
 import {HookDecision} from "../../libraries/HookDecision.sol";
 
 /// @title Shared beforeSwap decision logic for AMLHook
-/// @notice Implements the read path in whitepaper §3.5: L1 → L2 → derived latency signals → L3,
-///         plus hook-local §3.8 elevations (never-written score, activity-window cap).
-/// @dev Pool-local state (activity window, lastKnownBalance) closes the keeper-latency gap
-///      while RiskPolicy stays a pure mapping. Mitigations elevate ALLOW → FEE_OVERRIDE only.
-///      Subject resolution prefers a trusted router (`IMsgSender`) over bare hookData.
+/// @notice This is where the whitepaper's on-chain read path lives (§3.5 / §3.8 / §3.9).
 ///
-///      Authorization is delegated to the same `AccessManager` the registry and the oracle answer
-///      to, rather than to an owner of this contract's own. `setStalenessThreshold`,
-///      `setInflowThresholdBps` and `setTrustedRouter` are meant for a single hook-governor role:
-///      the only role that changes which routers are trusted and how the hook retunes its own
-///      thresholds. It cannot touch the swap path itself, which stays fixed in bytecode.
+/// @dev ═══════════════════════════════════════════════════════════════════════
+///      READER'S GUIDE (why this contract exists)
+///      ═══════════════════════════════════════════════════════════════════════
+///
+///      Uniswap v4 calls the hook at swap time. The hook must answer in the same
+///      transaction: ALLOW (base fee), FEE_OVERRIDE (punitive/proportional fee),
+///      or REVERT. It must NOT recompute the behavioral graph on-chain — that work
+///      is off-chain (Oracle Keeper / COA). On-chain we only:
+///        1) resolve WHO is swapping (end-user, never the router as subject),
+///        2) screen L1 sanctions → read L2 score → decide L3 ternary,
+///        3) close the keeper-latency gap with pool-local §3.8 signals.
+///
+///      Layers (whitepaper §3.2):
+///        L1 SanctionRegistry  — static OFAC-style list; hit = REVERT before score
+///        L2 ComplianceOracle  — keeper-written score / hop / feeBps / updatedAt
+///        L3 RiskPolicy        — pure mapping score(+floors) → decision + fee
+///        Hook-local           — Mitigations A & C (never-written, activity cap)
+///                               Mitigations B & D are floors inside RiskPolicy
+///
+///      Why pool-local state? If the keeper has not yet published after a P2P
+///      transfer (use-case Wallet D), a stale score 0 would wrongly ALLOW.
+///      Activity counters + lastKnownBalance let the hook elevate ALLOW→FEE_OVERRIDE
+///      without waiting for the oracle. Elevations never soften REVERT.
+///
+///      Governance: `AccessManaged` against the shared AccessManager.
+///      `_HOOK_GOVERNOR` may retune thresholds / trusted routers only — not the
+///      swap path itself (that is fixed in bytecode).
 abstract contract AmlHookLogic is AccessManaged {
     ISanctionRegistry public immutable sanctionRegistry;
     IComplianceOracle public immutable complianceOracle;
     IRiskPolicy public immutable riskPolicy;
 
     /// @notice Routers allowed to report the end-user via `IMsgSender.msgSender()`.
+    /// @dev Why: PoolManager's `sender` is usually the router, not the user. Scoring
+    ///      the router would either bypass control (clean router) or block everyone
+    ///      (contaminated router). Trusted routers implement `msgSender()` so we score
+    ///      the real economic actor (§3.5).
     mapping(address => bool) public trustedRouters;
 
     /// @notice Max age of an oracle score before it is treated as stale (seconds).
-    /// @dev Default 60s suits high-volume institutional pools (whitepaper §3.8 interval band).
+    /// @dev Mitigation B (§3.8). Default 60s = high-volume institutional keeper band.
+    ///      Retail pools may raise this via `_HOOK_GOVERNOR`.
     uint256 public stalenessThreshold;
 
     /// @notice Rolling window for per-wallet pool activity counters (seconds).
-    /// @dev Mitigation C (§3.8): burst ops across consecutive blocks while the keeper lags.
+    /// @dev Mitigation C (§3.8): catch burst swaps across consecutive blocks while
+    ///      the keeper has not yet moved the score tier.
     uint64 public immutable activityWindow;
 
     /// @notice Ops inside the activity window that force FEE_OVERRIDE instead of ALLOW.
+    /// @dev Why a cap: without it, an attacker can spam ALLOW swaps under a lagging
+    ///      clean score. Default 3 matches the local deploy / whitepaper example.
     uint32 public immutable maxOpsInWindow;
 
     /// @notice Balance-delta share (bps of current balance) that flags a significant inflow.
-    /// @dev Default 5000 = 50% — Mitigation D (§3.8) / use-case Wallet D.
+    /// @dev Mitigation D (§3.8) / use-case Wallet D. Default 5000 = 50%.
+    ///      Detects "large new funds then immediate swap" — not fund origin (N-hop does that).
     uint256 public inflowThresholdBps;
 
-    /// @dev Default punitive fee when elevating ALLOW due to hook-local latency mitigations (8%).
+    /// @dev Default punitive fee when elevating ALLOW due to hook-local latency mitigations.
+    ///      800 bps = 8% — designed product fee when keeper omitted `feeBps` (Wallet D path).
     uint24 public constant LATENCY_FEE_BPS = 800;
 
+    /// @dev Per-wallet pool activity for Mitigation C. Independent of the oracle so the
+    ///      hook can still elevate while `updateScore` is pending.
     struct PoolActivity {
         uint64 windowStart;
         uint32 opCount;
@@ -57,9 +87,12 @@ abstract contract AmlHookLogic is AccessManaged {
     mapping(address => PoolActivity) internal _activity;
 
     /// @notice Last observed ERC-20 balance per wallet and token (inflow heuristic baseline).
+    /// @dev Written in afterSwap so the *next* beforeSwap can measure a sudden increase.
     mapping(address => mapping(address => uint256)) public lastKnownBalance;
 
     /// @notice Timestamp when `lastKnownBalance` was last written for wallet/token.
+    /// @dev Compared to oracle `updatedAt`: if the score is older than this baseline,
+    ///      the keeper has not yet incorporated the inflow → Mitigation D can fire.
     mapping(address => mapping(address => uint256)) public lastKnownBalanceTimestamp;
 
     error WalletBlocked(address wallet, uint8 score, string reason);
@@ -76,6 +109,7 @@ abstract contract AmlHookLogic is AccessManaged {
     event TrustedRouterUpdated(address indexed router, bool trusted);
 
     /// @notice afterSwap audit trail for off-chain scoring + reporting (§3.4 / §3.6 / §3.9 Step 7).
+    /// @dev This is the "film" the COA watches: who swapped, at what score/decision/fee/hop.
     event SwapObserved(
         address indexed wallet,
         uint8 score,
@@ -88,6 +122,8 @@ abstract contract AmlHookLogic is AccessManaged {
     event WalletBlockedEvent(address indexed wallet, uint8 score, string reason);
 
     /// @notice ALLOW was elevated to FEE_OVERRIDE by a §3.8 latency mitigation.
+    /// @dev Reason codes let operators / regulators see *why* friction was applied
+    ///      without a score-band FEE_OVERRIDE.
     event LatencyMitigationApplied(
         address indexed wallet, bytes32 reason, uint24 feeBps, uint8 oracleScore
     );
@@ -111,16 +147,18 @@ abstract contract AmlHookLogic is AccessManaged {
         sanctionRegistry = sanctionRegistry_;
         complianceOracle = complianceOracle_;
         riskPolicy = riskPolicy_;
-        // 60s default: high-volume institutional keeper band (whitepaper §3.8).
+        // Sensible defaults if deploy passes 0 (whitepaper §3.8 institutional band).
         stalenessThreshold = stalenessThreshold_ == 0 ? 60 : stalenessThreshold_;
         activityWindow = activityWindow_ == 0 ? 1 hours : activityWindow_;
         maxOpsInWindow = maxOpsInWindow_ == 0 ? 3 : maxOpsInWindow_;
-        inflowThresholdBps = 5000;
+        inflowThresholdBps = 5000; // 50% — Wallet D / Mitigation D default
         emit StalenessThresholdUpdated(0, stalenessThreshold);
         emit InflowThresholdUpdated(0, inflowThresholdBps);
     }
 
-    /// @notice Hook governor retunes Mitigation B staleness window (§3.8; institutional vs retail pools).
+    /// @notice Hook governor retunes Mitigation B staleness window (§3.8).
+    /// @dev Why restricted: only `_HOOK_GOVERNOR` should change how aggressively we treat
+    ///      lagging scores (institutional 30–60s vs retail minutes). Keepers must not.
     function setStalenessThreshold(uint256 stalenessThreshold_) external restricted {
         emit StalenessThresholdUpdated(stalenessThreshold, stalenessThreshold_);
         stalenessThreshold = stalenessThreshold_;
@@ -133,26 +171,22 @@ abstract contract AmlHookLogic is AccessManaged {
     }
 
     /// @notice Hook governor grants or revokes trusted-router status.
-    /// @dev Enablement criterion is an operational off-chain fact, not verified on-chain by this
-    ///      contract. Before calling with `trusted = true`, the governor must confirm that `router`
-    ///      belongs to a curated list of direct integrators (e.g. Uniswap Labs routers and other
-    ///      protocols with a known integration relationship) and that its `IMsgSender.msgSender()`
-    ///      implementation was reviewed to return the real end-user and that no third party can
-    ///      overwrite that value within the same transaction. The contract cannot enforce these
-    ///      properties; the guarantee depends on the governor's audit process prior to this call.
+    /// @dev Enablement is an *operational attestation*, not an on-chain proof (§3.5).
+    ///      Before `trusted = true`, the governor must have reviewed that `router`:
+    ///        - is a curated integrator (e.g. Uniswap Labs router), and
+    ///        - `msgSender()` returns the real end-user and cannot be overwritten in-tx.
+    ///      The contract only stores that attestation.
     function setTrustedRouter(address router, bool trusted) external restricted {
         trustedRouters[router] = trusted;
         emit TrustedRouterUpdated(router, trusted);
     }
 
-    /// @notice Resolve the compliance subject for beforeSwap.
-    /// @dev Trusted router is the primary source of truth: when the PoolManager-reported swap
-    ///      initiator (`router` — that call's `msg.sender` to `PoolManager.swap`) is registered,
-    ///      `IMsgSender(router).msgSender()` is invoked in try/catch and a non-zero return is the
-    ///      verified end-user. When `hookData` also encodes a non-zero address, it is a cross-check
-    ///      only — mismatch reverts `SubjectMismatch(declared, fromRouter)`. If the router is
-    ///      untrusted, the call fails, or returns zero, fall back to decoding `abi.encode(endUser)`
-    ///      from hookData (`MissingSwapSubject` if absent). Never scores the router itself.
+    /// @notice Resolve the compliance subject for beforeSwap (§3.5).
+    /// @dev WHY THIS ORDER:
+    ///      1) If `router` is trusted → `IMsgSender(router).msgSender()` is primary truth.
+    ///         Optional hookData is a cross-check only (mismatch → SubjectMismatch).
+    ///      2) Else (untrusted / call failed / zero) → decode `abi.encode(endUser)` from hookData.
+    ///      3) If still zero → MissingSwapSubject (fail closed). Never score the router itself.
     /// @param router PoolManager-reported swap initiator (`sender` in beforeSwap).
     /// @param hookData Optional `abi.encode(endUser)` cross-check / legacy fallback.
     function _resolveWallet(address router, bytes calldata hookData)
@@ -162,6 +196,7 @@ abstract contract AmlHookLogic is AccessManaged {
     {
         if (trustedRouters[router]) {
             address fromRouter;
+            // try/catch: a broken router must not brick the pool — we fall back to hookData.
             try IMsgSender(router).msgSender() returns (address subject) {
                 fromRouter = subject;
             } catch {
@@ -169,6 +204,7 @@ abstract contract AmlHookLogic is AccessManaged {
             }
             if (fromRouter != address(0)) {
                 address declared = _tryDecodeHookSubject(hookData);
+                // Both present and disagree → someone is lying; abort before L1/L2/L3.
                 if (declared != address(0) && declared != fromRouter) {
                     revert SubjectMismatch(declared, fromRouter);
                 }
@@ -197,13 +233,14 @@ abstract contract AmlHookLogic is AccessManaged {
     }
 
     /// @notice Evaluate a swap subject (view path). Reverts on REVERT / sanctions.
-    /// @param wallet End-user compliance subject from hookData — not the router (§3.5).
+    /// @param wallet End-user compliance subject — not the router (§3.5).
     /// @param token Input token of the swap (address(0) skips the inflow heuristic).
     /// @return decision ALLOW or FEE_OVERRIDE
     /// @return feeBps Override fee when FEE_OVERRIDE; 0 on ALLOW
     /// @return risk Snapshot from the oracle
-    /// @dev Pipeline: L1 `isSanctioned` → L2 `getRisk` → derive isStale / ops / inflow →
-    ///      L3 `RiskPolicy.decide` → hook-local Mitigations A & C if still ALLOW.
+    /// @dev PIPELINE (same order as whitepaper §3.5 / §3.9 Step 5):
+    ///      L1 isSanctioned → L2 getRisk → derive isStale / ops / inflow →
+    ///      L3 RiskPolicy.decide → if still ALLOW, apply hook-local A & C.
     function _evaluate(address wallet, address token)
         internal
         view
@@ -213,35 +250,43 @@ abstract contract AmlHookLogic is AccessManaged {
             IComplianceOracle.WalletRisk memory risk
         )
     {
-        // Layer 1 — static sanctions (§3.2): fail closed, no score read on hit.
+        // ── Layer 1 — static sanctions (§3.2 / §4.1) ─────────────────────────
+        // Fail closed: OFAC/SDN-style hit must not consult the behavioral score.
         if (sanctionRegistry.isSanctioned(wallet)) {
             revert SanctionHit(wallet);
         }
 
-        // Layer 2 — cached behavioral score (§3.2 / §3.8): hook never computes score on-chain.
+        // ── Layer 2 — keeper-written score (§3.2 / §3.8) ─────────────────────
+        // Hook never computes N-hop decay here; it only reads what the keeper published.
         risk = complianceOracle.getRisk(wallet);
+
+        // Derive §3.8 signals the pure RiskPolicy cannot observe by itself
+        // (RiskPolicy must stay free of block.timestamp / external calls).
         uint32 operationCount = _opsInCurrentWindow(wallet);
         bool isStale = _isStale(risk.updatedAt);
         (bool hasSignificantInflow,) = _inflowSignal(wallet, token, risk.updatedAt);
 
-        // Layer 3 — ternary decision + floors B/D (§3.3 / §3.8).
+        // ── Layer 3 — ternary bands + floors B/D (§3.3 / §3.8) ───────────────
         (decision, feeBps) = riskPolicy.decide(
             risk.score, risk.feeBps, isStale, operationCount, hasSignificantInflow
         );
 
+        // High band (71–100) or policy REVERT: unconditional block (§3.3 Output 3).
         if (decision == HookDecision.REVERT) {
             revert WalletBlocked(wallet, risk.score, "SCORE_REVERT_BAND");
         }
 
-        // Mitigations A (never written) and C (activity-window cap) stay hook-local.
+        // Mitigations A (never written) and C (activity-window cap) stay hook-local
+        // because they do not need to live inside the pure policy mapping.
         if (decision == HookDecision.ALLOW) {
             (decision, feeBps) = _applyHookLocalMitigations(wallet, risk);
         }
     }
 
-    /// @dev Elevates ALLOW → FEE_OVERRIDE for hook-local signals not passed into RiskPolicy
-    ///      (Mitigation A: never-written score; Mitigation C: activity-window cap).
-    ///      Stale+activity (B) and inflow (D) floors live in RiskPolicy.decide.
+    /// @dev Elevates ALLOW → FEE_OVERRIDE for hook-local signals not passed into RiskPolicy.
+    ///      A: never-written score (unknown ≠ confirmed-clean).
+    ///      C: activity-window cap (burst while keeper lags).
+    ///      B (stale+ops) and D (inflow) already floored inside RiskPolicy.decide.
     function _applyHookLocalMitigations(
         address wallet,
         IComplianceOracle.WalletRisk memory risk
@@ -249,18 +294,20 @@ abstract contract AmlHookLogic is AccessManaged {
         decision = HookDecision.ALLOW;
         feeBps = 0;
 
-        // Mitigation A: updatedAt == 0 means unknown wallet, not confirmed-clean score 0.
+        // Mitigation A: updatedAt == 0 means "never published", not "score 0 clean".
+        // A legitimately clean wallet must be written explicitly with score 0 + non-zero updatedAt.
         if (risk.updatedAt == 0) {
             return (HookDecision.FEE_OVERRIDE, _latencyFee(risk));
         }
 
-        // Mitigation C: burst activity in the rolling window while keeper score may lag.
+        // Mitigation C: too many ops in the rolling window → economic friction, not hard block.
         if (_opsInCurrentWindow(wallet) >= maxOpsInWindow) {
             return (HookDecision.FEE_OVERRIDE, _latencyFee(risk));
         }
     }
 
-    /// @dev Same checks as `_evaluate`, but emits mitigation / inflow events for beforeSwap audit trail.
+    /// @dev Same checks as `_evaluate`, but emits mitigation / inflow events for the audit trail.
+    ///      Used by beforeSwap so operators can prove *why* FEE_OVERRIDE was applied (§3.6).
     function _evaluateWithMitigationEvents(address wallet, address token)
         internal
         returns (
@@ -287,7 +334,7 @@ abstract contract AmlHookLogic is AccessManaged {
             revert WalletBlocked(wallet, risk.score, "SCORE_REVERT_BAND");
         }
 
-        // Mitigation D audit: generic recent-funds pattern, not origin attribution (§3.8).
+        // Mitigation D audit: generic "recent funds → swap" pattern (not origin attribution).
         if (hasSignificantInflow) {
             emit InflowHeuristicTriggered(wallet, deltaBps, block.timestamp);
         }
@@ -306,7 +353,7 @@ abstract contract AmlHookLogic is AccessManaged {
             return (decision, feeBps, risk);
         }
 
-        // Mitigation A — never written: clean wallets must be published with score 0 + non-zero updatedAt.
+        // Mitigation A — never written.
         if (risk.updatedAt == 0) {
             feeBps = _latencyFee(risk);
             emit LatencyMitigationApplied(wallet, REASON_SCORE_NEVER_WRITTEN, feeBps, risk.score);
@@ -323,23 +370,25 @@ abstract contract AmlHookLogic is AccessManaged {
         return (HookDecision.ALLOW, 0, risk);
     }
 
-    /// @dev Prefer keeper feeBps; else 8% latency fee (Wallet D / §3.8 designed product behavior).
+    /// @dev Prefer keeper-written feeBps when in range; else 8% latency fee
+    ///      (Wallet D / §3.8 designed product behavior when keeper omitted fee).
     function _latencyFee(IComplianceOracle.WalletRisk memory risk) private pure returns (uint24) {
         if (risk.feeBps > 0 && risk.feeBps <= 1000) return risk.feeBps;
         return LATENCY_FEE_BPS;
     }
 
-    /// @dev Mitigation B freshness check: score older than `stalenessThreshold` is stale.
+    /// @dev Mitigation B freshness: score older than `stalenessThreshold` is stale.
+    ///      updatedAt == 0 is also treated stale (overlaps Mitigation A's "never written").
     function _isStale(uint64 updatedAt) private view returns (bool) {
         if (updatedAt == 0) return true;
         return block.timestamp > uint256(updatedAt) + stalenessThreshold;
     }
 
     /// @notice Balance-delta inflow heuristic — oracle-latency Mitigation D (§3.8 / Wallet D).
-    /// @dev Closes the gap A–C leave open: wallet published clean (score 0, updatedAt ≠ 0),
-    ///      receives a large P2P transfer, swaps before keeper `updateScore`. Compares
-    ///      `token.balanceOf(wallet)` to `lastKnownBalance`; if delta share > inflowThresholdBps
-    ///      and oracle `updatedAt` still predates the baseline, passes hasSignificantInflow.
+    /// @dev WHY: Mitigations A–C miss the path "wallet was published clean, then receives a large
+    ///      P2P transfer, then swaps before keeper updateScore". We compare token.balanceOf(wallet)
+    ///      to lastKnownBalance; if the delta share exceeds inflowThresholdBps AND the oracle's
+    ///      updatedAt still predates the baseline, we signal hasSignificantInflow to RiskPolicy.
     ///      Extra gas for balanceOf is intentional. Skipped when `token` is address(0).
     function _inflowSignal(address wallet, address token, uint64 scoreUpdatedAt)
         private
@@ -357,10 +406,11 @@ abstract contract AmlHookLogic is AccessManaged {
 
         uint256 previous = lastKnownBalance[wallet][token];
         uint256 delta = currentBalance > previous ? currentBalance - previous : 0;
+        // Share of *current* balance that appeared since the last baseline (in bps).
         deltaBps = (delta * 10_000) / currentBalance;
 
-        // Oracle must still predate the last known baseline; a fresher score means the keeper
-        // already had a chance to incorporate post-inflow information (N-hop scoring remains off-chain).
+        // If the keeper already wrote after the baseline, N-hop / typology had a chance to run —
+        // do not double-apply the heuristic on top of a fresh score.
         uint256 baselineTs = lastKnownBalanceTimestamp[wallet][token];
         if (deltaBps > inflowThresholdBps && uint256(scoreUpdatedAt) <= baselineTs) {
             hasSignificantInflow = true;
@@ -375,7 +425,9 @@ abstract contract AmlHookLogic is AccessManaged {
         return a.opCount;
     }
 
-    /// @notice Record a successful pool swap for latency / activity mitigations (afterSwap; §3.8 / §3.9 Step 7).
+    /// @notice Record a successful pool swap for latency / activity mitigations (afterSwap; §3.9 Step 7).
+    /// @dev Why afterSwap (not beforeSwap): only count ops that actually settled. Resets the
+    ///      rolling window when it has elapsed so old bursts do not permanently elevate.
     function _recordActivity(address wallet) internal {
         PoolActivity storage a = _activity[wallet];
         if (a.windowStart == 0 || block.timestamp >= uint256(a.windowStart) + uint256(activityWindow)) {
@@ -390,6 +442,7 @@ abstract contract AmlHookLogic is AccessManaged {
     }
 
     /// @notice Refresh the Mitigation D baseline after a successful swap (afterSwap; §3.8).
+    /// @dev So the *next* beforeSwap measures inflow against post-swap reality, not a stale baseline.
     function _updateKnownBalance(address wallet, address token) internal {
         if (token == address(0) || token.code.length == 0) return;
         uint256 bal = IERC20Minimal(token).balanceOf(wallet);
@@ -397,7 +450,8 @@ abstract contract AmlHookLogic is AccessManaged {
         lastKnownBalanceTimestamp[wallet][token] = block.timestamp;
     }
 
-    /// @notice Emit afterSwap audit trail once settlement succeeded (§3.6 reporting input / §3.4 film update).
+    /// @notice Emit afterSwap audit trail once settlement succeeded (§3.6 / §3.4).
+    /// @dev Off-chain engine consumes this to update the wallet's cumulative risk before the next swap.
     function _emitSwapObserved(
         address wallet,
         HookDecision decision,

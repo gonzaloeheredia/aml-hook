@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {BaseHook} from "../external/BaseHook.sol";
+import {BaseHook} from "v4-periphery/src/utils/BaseHook.sol";
 import {AmlHookLogic} from "./AmlHookLogic.sol";
 import {ISanctionRegistry} from "../../interfaces/registries/ISanctionRegistry.sol";
 import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol";
 import {IRiskPolicy} from "../../interfaces/policies/IRiskPolicy.sol";
+import {IFeeEscrow} from "../../interfaces/escrow/IFeeEscrow.sol";
 import {HookDecision} from "../../libraries/HookDecision.sol";
 
 import {Hooks} from "v4-core/src/libraries/Hooks.sol";
@@ -14,29 +15,44 @@ import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/src/types/BeforeSwapDelta.sol";
 import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
-import {LPFeeLibrary} from "v4-core/src/libraries/LPFeeLibrary.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 
-/// @title AMLHook — Uniswap v4 compliance hook (REAL on-chain logic)
-/// @notice Orchestrator at swap time (whitepaper §3.1 / §3.5 / §3.9):
-///         PoolManager → beforeSwap / afterSwap → SanctionRegistry (L1) → ComplianceOracle (L2)
-///         → RiskPolicy (L3). Does not compute behavioral scores off-chain; only reads/decides.
-/// @dev Subject resolution: trusted router `IMsgSender.msgSender()` primary; hookData cross-check /
-///      fallback (§3.5). §3.8 mitigations: never-written score, stale+activity, inflow, activity cap.
-///
-///      Governance for the thresholds and trusted-router list this contract exposes lives in
-///      `AmlHookLogic`, which this contract inherits and which is `AccessManaged` against the same
-///      manager as the registry and the oracle. This contract itself declares no restricted
-///      function of its own; it only wires `beforeSwap` / `afterSwap` into that shared logic.
-contract AmlHook is BaseHook, AmlHookLogic {
-    using LPFeeLibrary for uint24;
+/// @dev Minimal ERC-20 surface for approving FeeEscrow.deposit's transferFrom.
+interface IERC20Approve {
+    function approve(address spender, uint256 amount) external returns (bool);
+    function transfer(address to, uint256 amount) external returns (bool);
+}
 
-    /// @dev Transient cache so afterSwap can emit the trail without a second oracle read race.
+/// @title AMLHook — Uniswap v4 compliance hook (REAL on-chain logic)
+/// @notice Orchestrator at swap time (whitepaper §3.1 / §3.5 / §3.7 / §3.9).
+/// @dev Uses the official BaseHook from @uniswap/v4-periphery (`v4-periphery/src/utils/BaseHook.sol`).
+///
+///      FEE SPLIT (whitepaper §3.7 + FeeEscrow via afterSwap):
+///      Pool = standard LP fee. Escrow = risk differential on FEE_OVERRIDE only.
+///      beforeSwap does not set punitive lpFeeOverride; afterSwap takes the
+///      differential via poolManager.take → FeeEscrow.deposit.
+///      differentialBps = max(0, feeBps - STANDARD_FEE_BPS).
+contract AmlHook is BaseHook, AmlHookLogic {
+    /// @notice Pool base fee in bps (0.30%) — left to the PoolManager; not overridden.
+    uint24 public constant STANDARD_FEE_BPS = 30;
+
+    /// @notice Escrow for FEE_OVERRIDE differential fees (§3.7). address(0) disables take/deposit.
+    IFeeEscrow public immutable feeEscrow;
+
+    /// @dev Transient cache so afterSwap can emit SwapObserved and escrow without a second oracle read.
     address private _swapWallet;
     address private _swapToken;
     HookDecision private _swapDecision;
     uint24 private _swapFeeBps;
     IComplianceOracle.WalletRisk private _swapRisk;
+
+    /// @notice Emitted when the risk differential was taken and deposited into FeeEscrow.
+    event RiskFeeEscrowed(
+        address indexed wallet, address indexed token, uint256 amount, uint256 escrowId, uint24 feeBps
+    );
+
+    error FeeTransferFailed();
+    error FeeApproveFailed();
 
     constructor(
         IPoolManager poolManager_,
@@ -44,6 +60,7 @@ contract AmlHook is BaseHook, AmlHookLogic {
         ISanctionRegistry sanctionRegistry_,
         IComplianceOracle complianceOracle_,
         IRiskPolicy riskPolicy_,
+        IFeeEscrow feeEscrow_,
         uint256 stalenessThreshold_,
         uint64 activityWindow_,
         uint32 maxOpsInWindow_
@@ -58,10 +75,12 @@ contract AmlHook is BaseHook, AmlHookLogic {
             activityWindow_,
             maxOpsInWindow_
         )
-    {}
+    {
+        feeEscrow = feeEscrow_;
+    }
 
     /// @inheritdoc BaseHook
-    /// @notice Declares beforeSwap + afterSwap (+ dynamic fee) — the two intervention points in §3.1 / §3.9.
+    /// @notice beforeSwap + afterSwap + afterSwapReturnDelta (required to take the risk fee).
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: false,
@@ -75,59 +94,65 @@ contract AmlHook is BaseHook, AmlHookLogic {
             beforeDonate: false,
             afterDonate: false,
             beforeSwapReturnDelta: false,
-            afterSwapReturnDelta: false,
+            afterSwapReturnDelta: true,
             afterAddLiquidityReturnDelta: false,
             afterRemoveLiquidityReturnDelta: false
         });
     }
 
     /// @inheritdoc BaseHook
-    /// @notice Point-of-execution control before funds move (§1.3 / §3.9 Step 5).
-    /// @dev Resolves end-user (trusted router → hookData) → L1 → L2 → L3 + §3.8 floors.
-    ///      On FEE_OVERRIDE returns `lpFee` with OVERRIDE_FEE_FLAG for the PoolManager.
-    ///      On REVERT / SanctionHit / MissingSwapSubject / SubjectMismatch the swap reverts.
+    /// @notice Point-of-execution control before funds move (§3.9 Step 5).
+    /// @dev On FEE_OVERRIDE we intentionally return lpFee = 0 so the pool keeps its
+    ///      standard fee. The risk differential is collected in afterSwap → FeeEscrow.
     function _beforeSwap(
         address sender,
         PoolKey calldata key,
         SwapParams calldata params,
         bytes calldata hookData
     ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
-        // `sender` = PoolManager.swap caller (router). Not the PoolManager; not the scored subject.
         address wallet = _resolveWallet(sender, hookData);
         address token = _inputToken(key, params);
+
         (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk) =
             _evaluateWithMitigationEvents(wallet, token);
 
-        // Cache for afterSwap audit trail (SwapObserved) once settlement succeeds.
         _swapWallet = wallet;
         _swapToken = token;
         _swapDecision = decision;
         _swapFeeBps = feeBps;
         _swapRisk = risk;
 
-        uint24 lpFee;
-        if (decision == HookDecision.FEE_OVERRIDE) {
-            // Dynamic fee for this swap only (Output 2 — §3.3); PoolManager applies override.
-            lpFee = uint24(feeBps) * 100 | LPFeeLibrary.OVERRIDE_FEE_FLAG;
-        } else {
-            lpFee = 0; // ALLOW → pool base fee (e.g. 0.30%); REVERT already reverted above.
-        }
-
-        return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, lpFee);
+        // ALLOW and FEE_OVERRIDE: do not override pool LP fee (standard path).
+        // REVERT already reverted inside evaluate.
+        return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
     /// @inheritdoc BaseHook
-    /// @notice Layer 4 / memory write after a successful swap (§3.2 Layer 4, §3.4, §3.9 Step 7).
-    /// @dev Updates pool-local activity + inflow baseline, then emits SwapObserved for the
-    ///      off-chain scoring engine and reporting module. Structural difference vs static KYC hooks.
-    function _afterSwap(address, PoolKey calldata, SwapParams calldata, BalanceDelta, bytes calldata)
-        internal
-        override
-        returns (bytes4, int128)
-    {
-        _recordActivity(_swapWallet);
-        _updateKnownBalance(_swapWallet, _swapToken);
-        _emitSwapObserved(_swapWallet, _swapDecision, _swapFeeBps, _swapRisk);
+    /// @notice afterSwap: pool-local memory + SwapObserved + optional FeeEscrow deposit (§3.7 / §3.9 Step 7).
+    /// @dev On FEE_OVERRIDE with a live feeEscrow, takes differentialBps of actual output
+    ///      (exactIn) or input (exactOut) via poolManager.take, then FeeEscrow.deposit.
+    ///      Returns the same amount as int128 so PoolManager nets the hook delta (afterSwapReturnDelta).
+    function _afterSwap(
+        address,
+        PoolKey calldata key,
+        SwapParams calldata params,
+        BalanceDelta delta,
+        bytes calldata
+    ) internal override returns (bytes4, int128) {
+        address wallet = _swapWallet;
+        HookDecision decision = _swapDecision;
+        uint24 feeBps = _swapFeeBps;
+        IComplianceOracle.WalletRisk memory risk = _swapRisk;
+        address swapToken = _swapToken;
+
+        _recordActivity(wallet);
+        _updateKnownBalance(wallet, swapToken);
+        _emitSwapObserved(wallet, decision, feeBps, risk);
+
+        int128 hookDelta = 0;
+        if (decision == HookDecision.FEE_OVERRIDE && address(feeEscrow) != address(0) && feeBps > 0) {
+            hookDelta = _escrowRiskFee(wallet, key, params, delta, feeBps);
+        }
 
         delete _swapWallet;
         delete _swapToken;
@@ -135,11 +160,62 @@ contract AmlHook is BaseHook, AmlHookLogic {
         delete _swapFeeBps;
         delete _swapRisk;
 
-        return (this.afterSwap.selector, 0);
+        return (this.afterSwap.selector, hookDelta);
     }
 
-    /// @dev Input currency of this swap (direction from `zeroForOne`) — used by §3.8 Mitigation D
-    ///      to compare `balanceOf` vs `lastKnownBalance` for the inflow heuristic.
+    /// @dev Take differential risk fee from the swap and deposit into FeeEscrow.
+    ///      Follows Uniswap v4 afterSwap custom-accounting guide (unspecified currency).
+    function _escrowRiskFee(
+        address wallet,
+        PoolKey calldata key,
+        SwapParams calldata params,
+        BalanceDelta delta,
+        uint24 feeBps
+    ) private returns (int128 hookDelta) {
+        // Differential above the pool's standard fee (keeps total friction ≈ feeBps).
+        uint256 differentialBps =
+            feeBps > STANDARD_FEE_BPS ? uint256(feeBps) - uint256(STANDARD_FEE_BPS) : uint256(feeBps);
+        if (differentialBps == 0) return 0;
+
+        bool isExactIn = params.amountSpecified < 0;
+        bool outputIsToken0 = !params.zeroForOne;
+
+        // Fee is charged on the unspecified currency (guide): output for exactIn, input for exactOut.
+        Currency feeCurrency;
+        int256 basisAmount;
+        if (isExactIn) {
+            feeCurrency = outputIsToken0 ? key.currency0 : key.currency1;
+            basisAmount = outputIsToken0 ? delta.amount0() : delta.amount1();
+        } else {
+            bool inputIsToken0 = params.zeroForOne;
+            feeCurrency = inputIsToken0 ? key.currency0 : key.currency1;
+            // Input amount owed by the user is negative in the swap delta.
+            int256 inputDelta = inputIsToken0 ? delta.amount0() : delta.amount1();
+            basisAmount = inputDelta < 0 ? -inputDelta : int256(0);
+        }
+
+        if (basisAmount <= 0) return 0;
+
+        uint256 feeAmount = (uint256(basisAmount) * differentialBps) / 10_000;
+        if (feeAmount == 0) return 0;
+        if (feeAmount > uint256(uint128(type(int128).max))) revert FeeTransferFailed();
+
+        address token = Currency.unwrap(feeCurrency);
+        // FeeEscrow is single-token custody; skip if this swap's fee currency differs.
+        if (token != address(feeEscrow.feeToken())) return 0;
+
+        // Pull tokens to this hook, then push into escrow (hook must be a depositor).
+        poolManager.take(feeCurrency, address(this), feeAmount);
+        if (!IERC20Approve(token).approve(address(feeEscrow), feeAmount)) revert FeeApproveFailed();
+
+        bytes32 originTxHash = keccak256(abi.encode(wallet, token, feeAmount, block.number, block.timestamp));
+        uint256 escrowId = feeEscrow.deposit(wallet, originTxHash, feeAmount);
+
+        emit RiskFeeEscrowed(wallet, token, feeAmount, escrowId, feeBps);
+        return int128(int256(feeAmount));
+    }
+
+    /// @dev Input currency of this swap — used by §3.8 Mitigation D.
     function _inputToken(PoolKey calldata key, SwapParams calldata params)
         private
         pure

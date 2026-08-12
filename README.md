@@ -5,7 +5,7 @@ Compliance layer for **Uniswap v4** (UHI10). The hook intercepts swaps at `befor
 | Score | Output | Effect |
 |---|---|---|
 | 0–30 | **ALLOW** | Standard pool fee (0.30%) |
-| 31–70 | **FEE_OVERRIDE** | Dynamic fee (`lpFeeOverride`, e.g. 3%–8%); differential slice in **FeeEscrow** for 48h (confiscation → LP compensation, never the pool) |
+| 31–70 | **FEE_OVERRIDE** | Pool keeps standard fee; risk differential (e.g. total friction 3%–8%) taken in `afterSwap` → **FeeEscrow** 48h (confiscation → LP compensation, never the pool) |
 | 71–100 | **REVERT** | Fail-closed (exploit / sanctions exposure) |
 
 The score is computed **off-chain** by the **Oracle Keeper** — a Compliance Officer Agent (COA): an AI AML analyst that will connect to external information sources (sanctions feeds, exploit monitors, on-chain graph signals) — and stored **on-chain** (`ComplianceOracle`). The hook only reads; it does not invent the score.

@@ -6,6 +6,8 @@ State lives in process memory — **resets when the server restarts**. No Postgr
 
 **Oracle COA (MOCK_MODE):** scores and Opinion are produced by `apps/api/src/oracle/` using the skill pack in [`agents/oracle-coa/`](../../agents/oracle-coa/). Facts come from the N-hop ledger + swap/event trail. There are **no live calls** to Anthropic, OpenSanctions, Etherscan, GoPlus, Chainalysis, TRM, or OFAC APIs.
 
+**FEE_OVERRIDE settlement (aligned with contracts):** the COA publishes `recommendedFeeBps` as total intended friction. On-chain, the pool keeps its standard fee; `afterSwap` takes the differential into `FeeEscrow`. Opinion copy must not describe settlement as `lpFeeOverride`.
+
 ## What it replaces (conceptually)
 
 | Frontend today | API endpoint |

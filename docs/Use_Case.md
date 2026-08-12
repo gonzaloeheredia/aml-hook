@@ -8,7 +8,7 @@ Use Case — Exploit Detection, Propagation and N-Hop Decay
 
 AML Hook is a compliance layer deployed natively as a Uniswap v4 hook. It intercepts every swap at beforeSwap and afterSwap, applies a ternary risk decision, and emits a structured on-chain event that constitutes the operator's audit trail. The hook operates without interrupting the normal swap execution path for clean addresses.
 
-This document describes a four-wallet scenario that exercises all three decision outputs of the hook, plus the oracle-latency inflow heuristic: full block (revert), punitive dynamic fee, proportional dynamic fee, and FEE_OVERRIDE under a stale score. The scenario is grounded in an exploit cash-out attack, two-hop fund propagation through intermediary wallets, and a third path that swaps inside the keeper's processing window.
+This document describes a four-wallet scenario that exercises all three decision outputs of the hook, plus the oracle-latency inflow heuristic: full block (revert), FEE_OVERRIDE with punitive total friction (pool standard fee + FeeEscrow differential), FEE_OVERRIDE with proportional friction, and FEE_OVERRIDE under a stale score. The scenario is grounded in an exploit cash-out attack, two-hop fund propagation through intermediary wallets, and a third path that swaps inside the keeper's processing window.
 
 ### Actors
 
@@ -30,7 +30,7 @@ Wallet D    Fourth actor. Starts clean, score 0, no prior transaction history. R
 
 The walkthrough below uses one propagation path (A → B → C) to exercise all three hook outputs in a single run, then a third path (A → D) that isolates the causal latency gap from whitepaper section 3.8. The scoring engine treats B and C symmetrically for any P2P path.
 
-The pool is configured as a Real World Asset (RWA) pool on Uniswap v4, with AML Hook attached and dynamic fee permissions enabled. The off-chain scoring keeper monitors transfer events continuously and, on the A → B → C path, writes updated scores on-chain before the corresponding swap is attempted. The A → D path deliberately places the swap inside the window before that write lands.
+The pool is configured as a Real World Asset (RWA) pool on Uniswap v4, with AML Hook attached (beforeSwap, afterSwap, afterSwapReturnDelta). The off-chain scoring keeper monitors transfer events continuously and, on the A → B → C path, writes updated scores on-chain before the corresponding swap is attempted. The A → D path deliberately places the swap inside the window before that write lands.
 
 ### 1.1 System Call Path and Contract Layers
 
@@ -72,7 +72,7 @@ User → Router → PoolManager
   ComplianceOracle      Layer 2. On-chain store of behavioral score, hop distance, and origin.
                         Writes: `_ORACLE_KEEPER` via updateScore (demo API key must hold this role).
 
-  RiskPolicy            Layer 3. Maps score to ALLOW / FEE_OVERRIDE / REVERT (and lpFeeOverride when applicable). Pure — no AccessManager.
+  RiskPolicy            Layer 3. Maps score to ALLOW / FEE_OVERRIDE / REVERT (+ recommendedFeeBps). Pure — no AccessManager.
 
   Oracle Keeper / COA   Off-chain AI AML analyst. Scores wallets, publishes updateScore, and drives FeeEscrow resolutions.
                         The COA never writes on-chain; the oracle keeper / FeeEscrow keeper alone submit txs after sanity checks.
@@ -93,7 +93,7 @@ Score Range   Hook Response                                      Fee Applied    
 
 0 – 30        Allow                                              Standard (0.30%)    No risk indicators. Normal execution.
 
-31 – 70       Allow with punitive fee override (lpFeeOverride)   Dynamic (3% – 8%)   Suspected contamination, not yet confirmed. Enhanced Due Diligence (EDD) equivalent. Creates economic friction without blocking.
+31 – 70       Allow with FEE_OVERRIDE (pool standard fee + differential → FeeEscrow)   Dynamic (3% – 8% total friction)   Suspected contamination, not yet confirmed. Enhanced Due Diligence (EDD) equivalent. Creates economic friction without blocking.
 
 71 – 100      Revert                                             N/A                 Confirmed exposure: exploit cluster, OFAC match, or direct link to sanctioned entity. No discretion.
 ------------- -------------------------------------------------- ------------------- ----------------------------------------------------------------------------------------------------------------------------------
@@ -207,9 +207,9 @@ Action                      Attempts to swap USDC → ETH in the AML Hook pool.
 
 beforeSwap — Layer 1        OFAC screening: no match.
 
-beforeSwap — Score read     Keeper score: 65. Falls in tier 31–70. No revert. lpFeeOverride applied: 8%.
+beforeSwap — Score read     Keeper score: 65. Falls in tier 31–70. No revert. Pool keeps standard fee; afterSwap takes differential into FeeEscrow (~8% total intended friction).
 
-Execution                   Swap executes. Differential fee (8%) deposited into FeeEscrow (48h hold). User output settles in-block; net proceeds to Wallet B reduced.
+Execution                   Swap executes. Pool keeps standard fee; risk differential (~8% total intended friction minus standard) deposited into FeeEscrow (48h hold). User output settles in-block; net proceeds to Wallet B reduced.
 
 afterSwap — Event emitted   { address: B, score: 65, decision: FEE_OVERRIDE, fee: 8.00%, hop_distance: 1, origin: A, timestamp: T2 }
 
@@ -233,9 +233,9 @@ Action                      Attempts to swap USDC → ETH in the AML Hook pool.
 
 beforeSwap — Layer 1        OFAC screening: no match.
 
-beforeSwap — Score read     Keeper score: 42. Falls in tier 31–70. lpFeeOverride applied: 3% (proportional to lower contamination).
+beforeSwap — Score read     Keeper score: 42. Falls in tier 31–70. Pool keeps standard fee; afterSwap takes differential into FeeEscrow (~3% total intended friction, proportional to lower contamination).
 
-Execution                   Swap executes. Differential fee (3%) deposited into FeeEscrow (48h hold). User output settles in-block; fee reflects two-hop distance.
+Execution                   Swap executes. Pool keeps standard fee; risk differential (~3% total intended friction minus standard) deposited into FeeEscrow (48h hold). User output settles in-block; fee reflects two-hop distance.
 
 afterSwap — Event emitted   { address: C, score: 42, decision: FEE_OVERRIDE, fee: 3.00%, hop_distance: 2, origin: A, timestamp: T4 }
 
@@ -246,24 +246,25 @@ Hook output                 PROPORTIONAL FEE — two-hop contamination. Penalty 
 
 ## 3.1 Fee Escrow on FEE_OVERRIDE Paths (Steps 3 and 5)
 
-On every FEE_OVERRIDE settlement (Wallet B at 8 percent, Wallet C at 3 percent), only the differential fee is deposited into FeeEscrow. User swap output settles in the same block; the escrow never retains the full swap.
+On every FEE_OVERRIDE settlement (Wallet B at ~8 percent total friction, Wallet C at ~3 percent), the pool keeps its standard LP fee. Only the risk differential is taken in afterSwap and deposited into FeeEscrow. User swap output settles in the same block; the escrow never retains the full swap.
 
 Deposit records wallet, amount, timestamp and origin transaction hash (FeeDeposited).
 
-`	ext
---------------------------- ---------------------------------------------------------------------------------
-Phase                       Resolution
---------------------------- ---------------------------------------------------------------------------------
-0 to 24h                    Fee retained in FeeEscrow. COA may analyze off-chain; no on-chain write by COA.
-Checkpoint 1 (>=24h, <48h)  Keeper may call releaseEarly after COA + sanity check. Fee goes to the pool.
-                            Checkpoint 1 cannot confiscate.
-Checkpoint 2 (>=48h)        Keeper calls resolveCheckpoint2 with COA conclusion.
-                            Illicit (confidence above keeper threshold) -> lpCompensationFund (LP compensation).
-                            Confiscated fees never go to the pool.
-                            Not illicit -> pool recipient (FeeReleasedDefault).
-No resolution by 48h        Keeper calls releaseDefault -> pool recipient.
---------------------------- ---------------------------------------------------------------------------------
-`
+There are two COA consultations on the escrow path; the FeeEscrow keeper alone submits the on-chain transfer after an off-chain sanity check on the COA output:
+
+```text
+-------------------- ----------------------- -------------------------------------------------------------- --------------------------------
+Moment               COA / keeper action     On-chain call                                                  Destination of retained fee
+-------------------- ----------------------- -------------------------------------------------------------- --------------------------------
+0–24h                Optional COA review     None (fee stays in FeeEscrow)                                  Still held
+Checkpoint 1         First COA consult +     releaseEarly → FeeReleasedEarly                                Always poolRecipient (pool).
+(≥24h, <48h)         keeper sanity check                                                                    Never confiscates.
+Checkpoint 2         Second COA consult +    resolveCheckpoint2(illicitConfirmed)                           Illicit → lpCompensationFund
+(≥48h)               keeper sanity check     → FeeConfiscated or FeeReleasedDefault                         (LP compensation; never the pool).
+                                                                                                            Not illicit → poolRecipient.
+No resolution by 48h —                       releaseDefault → FeeReleasedDefault                            poolRecipient (same default path).
+-------------------- ----------------------- -------------------------------------------------------------- --------------------------------
+```
 
 Events FeeReleasedEarly, FeeConfiscated and FeeReleasedDefault complete the audit trail for the operator.
 
@@ -323,7 +324,7 @@ Hook Behavior                        Regulatory Principle
 
 Score 71–100: unconditional revert   OFAC mandatory blocking obligation. Financial Action Task Force (FATF) Recommendation 6: targeted financial sanctions, no discretion.
 
-Score 31–70: punitive fee override   FATF Recommendation 10: Enhanced Due Diligence for higher-risk situations. Risk-based approach: not all risk justifies a block; friction and monitoring are the appropriate response at intermediate risk.
+Score 31–70: FEE_OVERRIDE + FeeEscrow   FATF Recommendation 10: Enhanced Due Diligence for higher-risk situations. Risk-based approach: not all risk justifies a block; friction and monitoring are the appropriate response at intermediate risk. Settlement is pool standard fee plus escrowed differential, not a punitive lpFeeOverride to LPs.
 
 N-hop decay scoring                  FATF Virtual Assets Red Flag Indicators (2020): indirect exposure to illicit funds constitutes a risk indicator. The system must trace fund origin, not just direct counterparty.
 

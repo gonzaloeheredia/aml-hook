@@ -5,10 +5,10 @@ import {AccessManager} from "@openzeppelin/contracts/access/manager/AccessManage
 import {IAccessManaged} from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
-import {LPFeeLibrary} from "v4-core/src/libraries/LPFeeLibrary.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 
+import {AmlHook} from "contracts/hooks/AmlHook.sol";
 import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
@@ -20,8 +20,6 @@ import {Helpers, HookPoolManagerStub} from "test/utils/Helpers.t.sol";
 
 /// @notice `_resolveWallet` / trusted-router subject resolution (IMsgSender primary + hookData check).
 contract UnitAmlHookResolveWalletTest is Helpers {
-    using LPFeeLibrary for uint24;
-
     PoolKey key;
     SwapParams params;
 
@@ -87,8 +85,14 @@ contract UnitAmlHookResolveWalletTest is Helpers {
         bytes memory data = abi.encode(walletB);
         (,, uint24 fee) =
             manager.callBeforeSwap(IHooks(address(hook)), address(trusted), key, params, data);
-        assertTrue(fee.isOverride());
-        assertEq(fee.removeOverrideFlag(), 80_000);
+        // beforeSwap no longer sets lpFeeOverride; pool keeps standard fee.
+        assertEq(fee, 0);
+
+        vm.expectEmit(true, false, false, true, address(hook));
+        emit SwapObserved(walletB, 65, HookDecision.FEE_OVERRIDE, 800, 1, walletA);
+        manager.callAfterSwap(
+            IHooks(address(hook)), address(trusted), key, params, BalanceDelta.wrap(0), data
+        );
     }
 
     function test_SubjectMismatch_RevertsOnDiscrepancy() external {
@@ -124,5 +128,28 @@ contract UnitAmlHookResolveWalletTest is Helpers {
         vm.prank(router);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, router));
         hook.setTrustedRouter(address(trusted), true);
+    }
+
+    /// @dev Manager admin is not the hook governor.
+    function test_SetTrustedRouter_RevertsForManagerAdmin() external {
+        MockTrustedRouter trusted = new MockTrustedRouter();
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, owner));
+        hook.setTrustedRouter(address(trusted), true);
+    }
+
+    /// @dev Unwired hook selectors stay admin-only (forgotten wiring fails closed).
+    function test_SetStalenessThreshold_WhenSelectorWasNeverWired() external {
+        // Fresh stack: hook authority is accessManager but no target function role was set.
+        AccessManager mgr = new AccessManager(owner);
+        SanctionRegistry reg = new SanctionRegistry(address(mgr));
+        ComplianceOracle ora = new ComplianceOracle(address(mgr));
+        RiskPolicy pol = new RiskPolicy();
+        manager = new HookPoolManagerStub();
+        AmlHook unwired = _deployHook(mgr, reg, ora, pol);
+
+        vm.prank(hookGovernor);
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, hookGovernor));
+        unwired.setStalenessThreshold(120);
     }
 }

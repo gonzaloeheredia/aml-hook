@@ -68,7 +68,7 @@ function buildLiveTechnicalOpinion(
       decision === "block"
         ? "WalletBlocked (no settlement)."
         : decision === "fee_override"
-          ? `lpFeeOverride ${feePct}% on settlement.`
+          ? `FEE_OVERRIDE: pool standard fee + FeeEscrow differential (~${feePct}% total friction).`
           : "standard pool fee 0.30%."
     }`,
   ].join(" ");
@@ -97,7 +97,7 @@ function buildLiveTechnicalOpinion(
     decision === "block" || wallet.exploitConfirmed
       ? "How / control: beforeSwap fail-closed REVERT; afterSwap not reached; WalletBlocked recorded. Subject may still move USDC off-pool via P2P."
       : decision === "fee_override"
-        ? `How / control: swap allowed with economic friction (lpFeeOverride ${feePct}%). afterSwap SwapObserved emitted.`
+        ? `How / control: swap allowed with economic friction (pool standard fee + FeeEscrow differential ~${feePct}% total). afterSwap SwapObserved emitted.`
         : "How / control: swap allowed at standard fee; afterSwap SwapObserved emitted; score remains in ALLOW band.";
 
   return {
@@ -295,9 +295,9 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
             ? `Contamination at ${wallet.hopDistance} hop(s) from origin ${wallet.originId ?? "A"} · score ${score}.`
             : "Clean wallet. No contamination from A yet — ALLOW at standard fee.",
       latencyMitigation === "INFLOW_HEURISTIC"
-        ? `§3.8 inflow heuristic → lpFeeOverride ${(appliedFeeBps / 100).toFixed(2)}% under stale score ${score}.`
+        ? `§3.8 inflow heuristic → FEE_OVERRIDE ${(appliedFeeBps / 100).toFixed(2)}% total friction (FeeEscrow differential) under stale score ${score}.`
         : decision === "fee_override"
-          ? `lpFeeOverride ${(appliedFeeBps / 100).toFixed(2)}% applied as EDD friction.`
+          ? `FEE_OVERRIDE ${(appliedFeeBps / 100).toFixed(2)}% total friction — pool standard fee + FeeEscrow differential.`
           : decision === "block"
             ? "beforeSwap reverts atomically — no settlement."
             : "Standard pool fee 0.30%.",

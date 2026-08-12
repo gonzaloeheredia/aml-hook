@@ -225,7 +225,7 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
       return {
         id: "out",
         title: "Result · Fee override",
-        subtitle: "N-hop · lpFeeOverride",
+        subtitle: "N-hop · FeeEscrow",
         kind: "action",
       };
     }

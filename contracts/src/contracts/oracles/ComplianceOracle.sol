@@ -6,17 +6,31 @@ import {AccessManaged} from "@openzeppelin/contracts/access/manager/AccessManage
 import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol";
 
 /// @title Layer 2 — ComplianceOracle (REAL on-chain storage)
-/// @notice On-chain behavioral score store (whitepaper §3.2 Layer 2 / §3.5 / §3.8):
-///         the off-chain Oracle Keeper publishes scores; AMLHook only reads at beforeSwap.
-/// @dev Not a mock: scores persist on-chain. The off-chain engine that *computes* score/fee
-///      (graph, N-hop decay, exploit feeds) may still be TypeScript; publishing uses `updateScore`.
-///      `updatedAt` enables Mitigations A/B/D (never-written vs confirmed-clean; staleness; inflow).
-///      Hook never writes this store — only the keeper does between swaps.
+/// @notice On-chain behavioral score store (whitepaper §3.2 Layer 2 / §3.5 / §3.8).
 ///
-///      Authorization is delegated to the shared `AccessManager` rather than an owner of this
-///      contract's own, so a compromised keeper key is revoked in one place regardless of how many
-///      contracts it could otherwise reach. `updateScore` is meant for the oracle-keeper role,
-///      deliberately distinct from the role that writes the sanctions list.
+/// @dev ═══════════════════════════════════════════════════════════════════════
+///      WHY THIS STORE EXISTS
+///      ═══════════════════════════════════════════════════════════════════════
+///
+///      beforeSwap must finish in one transaction. It cannot run the off-chain graph
+///      (N-hop decay, exploit feeds, typology). So the Oracle Keeper / COA computes
+///      off-chain and *publishes* here via `updateScore`. AMLHook only reads.
+///
+///      Each WalletRisk carries:
+///        score        0–100 behavioral risk (feeds RiskPolicy bands)
+///        hopDistance  N-hop distance from origin (audit / reporting)
+///        origin       contaminated source wallet (e.g. exploit Wallet A)
+///        feeBps       keeper-recommended FEE_OVERRIDE fee (COA)
+///        updatedAt    publication timestamp — powers §3.8 Mitigations A/B/D
+///
+///      WHY updatedAt matters:
+///        updatedAt == 0  → never written (unknown ≠ clean) → Mitigation A
+///        too old         → stale → Mitigation B (with pool activity)
+///        older than inflow baseline → Mitigation D can fire (Wallet D)
+///
+///      Confirmed-clean wallets must be written explicitly: score 0 + non-zero updatedAt.
+///
+///      Auth: shared AccessManager role `_ORACLE_KEEPER` (not the sanctions writer).
 contract ComplianceOracle is AccessManaged, IComplianceOracle {
     mapping(address => WalletRisk) private _risk;
 
@@ -40,8 +54,10 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
 
     /// @inheritdoc IComplianceOracle
     /// @notice Keeper publication of a pre-calculated risk profile (§3.8).
-    /// @dev Off-chain engine owns N-hop decay / typology scoring; this call only persists results.
-    ///      Setting score 0 with non-zero `updatedAt` marks a confirmed-clean wallet (Mitigation A).
+    /// @dev Off-chain engine owns N-hop decay / typology; this call only persists results.
+    ///      Setting score 0 with a fresh `updatedAt` marks confirmed-clean (Mitigation A).
+    ///      `signature` is reserved for future attestation; unused in the current stack.
+    ///      Restricted to `_ORACLE_KEEPER` — a compromised key is revoked on the AccessManager.
     function updateScore(
         address wallet,
         uint8 score,

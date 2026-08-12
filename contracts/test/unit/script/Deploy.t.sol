@@ -5,6 +5,7 @@ import {IAccessManaged} from "@openzeppelin/contracts/access/manager/IAccessMana
 
 import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
+import {FeeEscrow} from "contracts/escrow/FeeEscrow.sol";
 import {SanctionRegistry} from "contracts/registries/SanctionRegistry.sol";
 import {Roles} from "libraries/Roles.sol";
 import {Deploy} from "script/Deploy.sol";
@@ -95,6 +96,14 @@ contract UnitDeployTest is Helpers {
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, owner));
         sanctionRegistry.setSanctioned(account, true);
+
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, owner));
+        complianceOracle.updateScore(account, 65, 1, address(0), 0, "");
+
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, owner));
+        hook.setStalenessThreshold(1);
     }
 
     /// @dev The step that is easy to skip: without it the deploying key stays a permanent admin.
@@ -132,6 +141,13 @@ contract UnitDeployTest is Helpers {
         // router ended up trusted, which the ResolveWallet suite exercises against MockTrustedRouter
         // directly. This test only confirms the hook itself came up under the shared manager.
         assertTrue(hook.authority() == address(accessManager));
+    }
+
+    function test_DeployWhenRunWiresFeeEscrowAsHookDepositor() external view {
+        FeeEscrow escrow = deployment.feeEscrow();
+        assertEq(address(hook.feeEscrow()), address(escrow));
+        assertTrue(escrow.depositors(address(hook)));
+        assertTrue(escrow.feeToken() != address(0));
     }
 
     /*///////////////////////////////////////////////////////////////

@@ -154,6 +154,35 @@ contract UnitAmlHookLogicTest is Helpers {
         harness.setStalenessThreshold(50);
     }
 
+    function test_SetInflowThresholdBps_RestrictedToGovernor() external {
+        assertEq(harness.inflowThresholdBps(), 5000);
+
+        vm.prank(hookGovernor);
+        harness.setInflowThresholdBps(2500);
+        assertEq(harness.inflowThresholdBps(), 2500);
+
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
+        harness.setInflowThresholdBps(1000);
+    }
+
+    function test_SetInflowThresholdBps_ChangesMitigationSensitivity() external {
+        // Raise threshold above the 6000 bps inflow so the same mint no longer floors.
+        vm.prank(hookGovernor);
+        harness.setInflowThresholdBps(7000);
+
+        token.mint(walletA, 100 ether);
+        harness.updateKnownBalance(walletA, address(token));
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, "");
+
+        vm.warp(block.timestamp + 10);
+        token.mint(walletA, 150 ether); // 6000 bps < 7000 → no elevation
+
+        (HookDecision d,,) = harness.evaluateWithToken(walletA, address(token));
+        assertEq(uint8(d), uint8(HookDecision.ALLOW));
+    }
+
     function test_InflowAboveThreshold_WithStaleOracle_Elevates() external {
         // Baseline: wallet holds 100, oracle wrote score 0 at that time.
         token.mint(walletA, 100 ether);

@@ -4,6 +4,8 @@ This folder is **not** the Foundry suite — Solidity tests live in [`contracts/
 
 Scripts here exercise the same API routes the frontend uses (`/swaps`, `/transfers`, `/compliance`) **without opening a browser**. Swaps/transfers are **mocked in the API ledger**; with `npm run deploy:local` the keeper can still write **real** `updateScore` txs on Anvil.
 
+Foundry Solidity tests (mirroring `contracts/src/`) live in [`contracts/test/`](../contracts/test/) — see that folder's README for the layout.
+
 ## Prerequisites
 
 ```bash
