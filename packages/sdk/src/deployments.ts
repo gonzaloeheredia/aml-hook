@@ -1,16 +1,36 @@
 import type { Address } from "./types.js";
 import deployment31337 from "../deployments/31337.json" with { type: "json" };
 
+/**
+ * Anvil / local deployment addresses from `script/Deploy.sol`.
+ * Refresh with `npm run deploy:local` (writes AccessManager + role holders).
+ */
 export type ChainDeployment = {
   chainId: number;
   deployer: Address;
-  keeper: Address;
-  poolManager: Address;
   SanctionRegistry: Address;
   ComplianceOracle: Address;
   RiskPolicy: Address;
   AmlHook: Address;
+  /** Shared OpenZeppelin AccessManager (AccessManaged targets) */
+  AccessManager?: Address;
+  admin?: Address;
+  registryKeeper?: Address;
+  /** Key granted `_ORACLE_KEEPER` — must match apps/api KEEPER_PRIVATE_KEY for RPC publish */
+  oracleKeeper?: Address;
+  hookGovernor?: Address;
+  poolManager?: Address;
+  /**
+   * @deprecated Pre-AccessManager Deploy JSON used a single `keeper` field.
+   * Prefer `oracleKeeper`.
+   */
+  keeper?: Address;
 };
+
+/** Address that should hold `_ORACLE_KEEPER` for `updateScore`. */
+export function getOracleKeeperAddress(d: ChainDeployment): Address {
+  return (d.oracleKeeper ?? d.keeper ?? d.deployer) as Address;
+}
 
 /**
  * Returns checked-in deployment addresses for a chain.

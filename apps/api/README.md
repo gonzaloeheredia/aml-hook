@@ -112,7 +112,7 @@ curl -X POST http://localhost:4000/swaps ^
 ## On-chain keeper + beforeSwap score read
 
 ```bash
-# repo root — Anvil + deploy + apps/api/.env.local
+# repo root — Anvil + Deploy (AccessManager + L1/L2/L3 + hook) + apps/api/.env.local
 npm run deploy:local
 
 # then restart API
@@ -121,6 +121,8 @@ cd apps/api && npm run dev
 
 `.env.local` sets `ORACLE_RPC_*`, `COMPLIANCE_ORACLE_ADDRESS`, `KEEPER_PRIVATE_KEY`, `SCORE_SOURCE=onchain`.
 
+Local deploy defaults Anvil account #0 for **admin**, **registry keeper**, **oracle keeper** and **hook governor**. The API's `KEEPER_PRIVATE_KEY` must be a key that holds AccessManager role `_ORACLE_KEEPER` (role id `2`) or `updateScore` reverts with `AccessManagedUnauthorized`.
+
 | Mode | Behavior |
 |---|---|
 | no rpc env | publish **mock**; quotes use **memory** COA |
@@ -128,3 +130,5 @@ cd apps/api && npm run dev
 
 Check: `GET /health` → `scoreSource` / `publisher.mode`.  
 Trail: `GET /oracle/publishes` → `status: "submitted"` + `txHash`.
+
+See also [`contracts/README.md`](../../contracts/README.md) for `script/Deploy.sol` env overrides (`ORACLE_KEEPER`, `HOOK_GOVERNOR`, …).

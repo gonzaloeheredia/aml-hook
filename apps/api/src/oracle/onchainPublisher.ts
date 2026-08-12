@@ -3,7 +3,8 @@
  *
  * Writes COA finalScore + recommendedFeeBps (feeBps on-chain).
  * Without RPC env, issues a virtual keeper receipt (txHash) so the trail looks live.
- * With RPC env, broadcasts a real updateScore tx.
+ * With RPC env, broadcasts a real updateScore tx — the signing key must hold
+ * AccessManager role `_ORACLE_KEEPER` on the deployed oracle (Deploy wires Anvil #0 by default).
  */
 
 import { createHash } from "node:crypto";
