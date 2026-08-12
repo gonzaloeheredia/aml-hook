@@ -285,4 +285,148 @@ contract UnitFeeEscrowTest is Helpers {
         assertEq(token.balanceOf(fund), 0);
         assertEq(token.balanceOf(pool), amount);
     }
+
+    /*///////////////////////////////////////////////////////////////
+                              ADMIN
+    //////////////////////////////////////////////////////////////*/
+
+    function test_Constructor_RevertsOnZeroAddress() external {
+        vm.expectRevert(FeeEscrow.ZeroAddress.selector);
+        new FeeEscrow(address(0), address(token), pool, fund);
+
+        vm.expectRevert(FeeEscrow.ZeroAddress.selector);
+        new FeeEscrow(owner, address(0), pool, fund);
+
+        vm.expectRevert(FeeEscrow.ZeroAddress.selector);
+        new FeeEscrow(owner, address(token), address(0), fund);
+
+        vm.expectRevert(FeeEscrow.ZeroAddress.selector);
+        new FeeEscrow(owner, address(token), pool, address(0));
+    }
+
+    function test_Deposit_RevertsOnZeroWalletOrAmount() external {
+        vm.startPrank(depositor);
+        vm.expectRevert(FeeEscrow.ZeroAddress.selector);
+        escrow.deposit(address(0), ORIGIN_TX, 1 ether);
+
+        vm.expectRevert(FeeEscrow.ZeroAmount.selector);
+        escrow.deposit(walletA, ORIGIN_TX, 0);
+        vm.stopPrank();
+    }
+
+    function test_GetEscrow_RevertsOnUnknownId() external {
+        vm.expectRevert(FeeEscrow.UnknownEscrow.selector);
+        escrow.getEscrow(0);
+
+        vm.expectRevert(FeeEscrow.UnknownEscrow.selector);
+        escrow.getEscrow(1);
+    }
+
+    function test_SetKeeper_OwnerCanGrantAndRevoke() external {
+        address extra = makeAddr("extraKeeper");
+        vm.prank(owner);
+        escrow.setKeeper(extra, true);
+        assertTrue(escrow.keepers(extra));
+
+        vm.prank(owner);
+        escrow.setKeeper(extra, false);
+        assertFalse(escrow.keepers(extra));
+    }
+
+    function test_SetKeeper_RevertsForNonOwnerAndZero() external {
+        vm.prank(stranger);
+        vm.expectRevert(FeeEscrow.NotOwner.selector);
+        escrow.setKeeper(stranger, true);
+
+        vm.prank(owner);
+        vm.expectRevert(FeeEscrow.ZeroAddress.selector);
+        escrow.setKeeper(address(0), true);
+    }
+
+    function test_SetDepositor_OwnerCanGrantAndRevoke() external {
+        address extra = makeAddr("extraDepositor");
+        vm.prank(owner);
+        escrow.setDepositor(extra, true);
+        assertTrue(escrow.depositors(extra));
+
+        vm.prank(owner);
+        escrow.setDepositor(extra, false);
+        assertFalse(escrow.depositors(extra));
+    }
+
+    function test_SetDepositor_RevertsForNonOwnerAndZero() external {
+        vm.prank(stranger);
+        vm.expectRevert(FeeEscrow.NotOwner.selector);
+        escrow.setDepositor(stranger, true);
+
+        vm.prank(owner);
+        vm.expectRevert(FeeEscrow.ZeroAddress.selector);
+        escrow.setDepositor(address(0), true);
+    }
+
+    function test_SetPoolRecipient() external {
+        address nextPool = makeAddr("nextPool");
+        vm.prank(owner);
+        escrow.setPoolRecipient(nextPool);
+        assertEq(escrow.poolRecipient(), nextPool);
+
+        vm.prank(stranger);
+        vm.expectRevert(FeeEscrow.NotOwner.selector);
+        escrow.setPoolRecipient(pool);
+
+        vm.prank(owner);
+        vm.expectRevert(FeeEscrow.ZeroAddress.selector);
+        escrow.setPoolRecipient(address(0));
+    }
+
+    function test_SetLpCompensationFund() external {
+        address nextFund = makeAddr("nextFund");
+        vm.prank(owner);
+        escrow.setLpCompensationFund(nextFund);
+        assertEq(escrow.lpCompensationFund(), nextFund);
+
+        vm.prank(stranger);
+        vm.expectRevert(FeeEscrow.NotOwner.selector);
+        escrow.setLpCompensationFund(fund);
+
+        vm.prank(owner);
+        vm.expectRevert(FeeEscrow.ZeroAddress.selector);
+        escrow.setLpCompensationFund(address(0));
+    }
+
+    function test_TransferOwnership() external {
+        address nextOwner = makeAddr("nextOwner");
+        vm.prank(owner);
+        escrow.transferOwnership(nextOwner);
+        assertEq(escrow.owner(), nextOwner);
+
+        // Previous owner lost admin; new owner can still mutate.
+        vm.prank(owner);
+        vm.expectRevert(FeeEscrow.NotOwner.selector);
+        escrow.setPoolRecipient(pool);
+
+        vm.prank(nextOwner);
+        escrow.setPoolRecipient(pool);
+        assertEq(escrow.poolRecipient(), pool);
+
+        vm.prank(nextOwner);
+        vm.expectRevert(FeeEscrow.ZeroAddress.selector);
+        escrow.transferOwnership(address(0));
+    }
+
+    function test_UpdatedPoolRecipient_UsedOnReleaseEarly() external {
+        address nextPool = makeAddr("routingPool");
+        uint256 amount = 15 ether;
+        uint256 id = _deposit(amount);
+
+        vm.prank(owner);
+        escrow.setPoolRecipient(nextPool);
+
+        vm.warp(block.timestamp + 24 hours);
+        vm.prank(keeper);
+        escrow.releaseEarly(id);
+
+        assertEq(token.balanceOf(nextPool), amount);
+        assertEq(token.balanceOf(pool), 0);
+    }
 }

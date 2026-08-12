@@ -22,6 +22,9 @@ interface IFeeEscrow {
         EscrowStatus status;
     }
 
+    /// @notice ERC-20 this escrow custodies (must match the swap fee currency to deposit).
+    function feeToken() external view returns (address);
+
     /// @notice Deposit the differential fee into the 48h escrow.
     /// @dev Only an authorized depositor (e.g. settlement path). Pulls `feeToken` via transferFrom.
     /// @return escrowId Identifier for later keeper resolution.

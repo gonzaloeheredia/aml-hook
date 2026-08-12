@@ -90,7 +90,7 @@ event detected
                                           │
                                           ▼
                                   AMLHook.afterSwap()
-                                    emits SwapObserved
+                                    SwapObserved + FeeEscrow deposit on FEE_OVERRIDE
       │                                   │
       └───────────◀───────────────────────┘
         incremental recompute
@@ -98,8 +98,8 @@ event detected
 
 **Demo N-hop backbone:** `derived_score = 100 × 0.65^hops` (closest hop wins).
 Canonical wallets: A (score 100 / REVERT), B/C hop-1 (~65 / FEE_OVERRIDE 8%),
-hop-2 (~42 / FEE_OVERRIDE 3%).
-
+hop-2 (~42 / FEE_OVERRIDE 3%). On FEE_OVERRIDE, intended friction is
+`recommendedFeeBps`; settlement = pool standard fee + differential in FeeEscrow.
 ---
 
 ## System prompt
@@ -194,7 +194,7 @@ protocol        report            intelligence     remediation
 ### Incremental post-swap flow
 
 ```
-afterSwap emits SwapObserved
+afterSwap emits SwapObserved (+ FeeEscrow deposit on FEE_OVERRIDE)
           │
           ▼
   task-swap-intake (POST_SWAP mode)
@@ -277,9 +277,18 @@ The agent never:
 
 | Score | `riskLevel` | `hookOutput` |
 |---|---|---|
-| 0–30 | `STANDARD` | `ALLOW` (standard fee, e.g. 0.30%) |
-| 31–70 | `ELEVATED` | `FEE_OVERRIDE` (punitive / proportional `lpFeeOverride`) |
+| 0–30 | `STANDARD` | `ALLOW` (pool standard fee, e.g. 0.30%) |
+| 31–70 | `ELEVATED` | `FEE_OVERRIDE` (risk differential → `FeeEscrow` 48h; pool keeps standard fee) |
 | 71–100 | `BLOCK` | `REVERT` |
+
+**FEE_OVERRIDE settlement (on-chain).** `beforeSwap` does **not** set a punitive
+`lpFeeOverride`. The pool charges its standard LP fee. In `afterSwap`, the hook
+takes the risk differential (`recommendedFeeBps − standardFeeBps`, e.g. 800−30)
+via `poolManager.take` and deposits it into `FeeEscrow`. The COA never writes
+escrow; a FeeEscrow keeper resolves after off-chain COA review (Checkpoint 1/2).
+
+`recommendedFeeBps` remains the COA/oracle source of truth for total intended
+friction (demo quotes + keeper `updateScore` fee field).
 
 Schema keys match `apps/api/src/oracle/types.ts`: `finalScore`, `riskLevel`,
 `hookOutput`, `scoreBreakdown`, `triggeringFacts`, `regulatoryFlags`,

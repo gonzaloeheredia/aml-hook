@@ -47,7 +47,7 @@ export type ScoreResult = {
   finalScore: number;
   riskLevel: RiskLevel;
   hookOutput: HookOutput;
-  /** COA recommended pool fee in bps — source of truth for FEE_OVERRIDE (and display on ALLOW). */
+  /** COA recommended total fee friction in bps (e.g. 800). On FEE_OVERRIDE the pool keeps ~30 bps; differential goes to FeeEscrow. */
   recommendedFeeBps: number;
   scoreBreakdown: ScoreBreakdown;
   triggeringFacts: FactEvent[];

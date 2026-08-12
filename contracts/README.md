@@ -13,14 +13,15 @@ contracts/
 │   │   ├── policies/         RiskPolicy                (Layer 3)
 │   │   ├── registries/       SanctionRegistry          (Layer 1)
 │   │   ├── escrow/           FeeEscrow
-│   │   └── external/         BaseHook
+│   │   └── external/         (third-party adapters live under lib/; no local BaseHook)
 │   ├── interfaces/           Same role subfolders (hooks/oracles/… + external/)
 │   └── libraries/            HookDecision · Roles
 ├── test/
 │   ├── unit/<role>/          Mirrors src/contracts (+ by function when needed)
-│   ├── unit/Deploy.t.sol     Deploy wiring / AccessManager verification
+│   ├── unit/script/          Deploy.t.sol (AccessManager wiring)
+│   ├── unit/libraries/       Roles / HookDecision ordinals
 │   ├── integration/          AmlStack
-│   ├── mocks/                MockERC20
+│   ├── mocks/                MockERC20 · BareBaseHook
 │   └── utils/                Helpers (AccessManager wiring + hook deploy)
 ├── script/                   Deploy.sol (+ mocks/)
 ├── lib/                      forge-std · v4-core · v4-periphery · openzeppelin-contracts
@@ -43,8 +44,8 @@ User → Router → PoolManager → AmlHook
 | **SanctionRegistry** | Sanctions hit → REVERT before score |
 | **ComplianceOracle** | Score / hop / origin / `feeBps` / `updatedAt`; keeper writes |
 | **RiskPolicy** | Ternary bands + §3.8 floors (stale+activity, significant inflow) |
-| **AmlHook** / **AmlHookLogic** | `beforeSwap` / `afterSwap`; `lpFeeOverride`; inflow baseline |
-| **FeeEscrow** | Separate owner / keepers / depositors (not on the shared AccessManager) |
+| **AmlHook** / **AmlHookLogic** | `beforeSwap` / `afterSwap` (+ `afterSwapReturnDelta`); pool standard fee; differential → FeeEscrow; inflow baseline |
+| **FeeEscrow** | 48h hold of FEE_OVERRIDE differential only; own owner / keepers / depositors (not AccessManager) |
 
 Subject resolution (§3.5): trusted routers (`hookGovernor` `setTrustedRouter`) report the end-user via
 `IMsgSender.msgSender()` as the primary source; `hookData` (`abi.encode(endUser)`) is a cross-check
@@ -52,10 +53,10 @@ when both are present (`SubjectMismatch` on disagreement) and the fail-closed fa
 
 ### Ternary bands (§3.3)
 
-| Score | Output | Fee |
+| Score | Output | Fee settlement |
 |---|---|---|
 | 0–30 | ALLOW | Pool base (0.30%) |
-| 31–70 | FEE_OVERRIDE | Keeper `feeBps`, else ~8% (1-hop) / ~3% (2-hop) |
+| 31–70 | FEE_OVERRIDE | Pool base + differential (`feeBps − 30`) → FeeEscrow; keeper `feeBps` or ~8% / ~3% hop fallbacks |
 | 71–100 | REVERT | — |
 
 ### Oracle latency (§3.8)

@@ -10,11 +10,14 @@ import {HookMiner} from "v4-periphery/test/shared/HookMiner.sol";
 import {SanctionRegistry} from "../src/contracts/registries/SanctionRegistry.sol";
 import {ComplianceOracle} from "../src/contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "../src/contracts/policies/RiskPolicy.sol";
+import {FeeEscrow} from "../src/contracts/escrow/FeeEscrow.sol";
 import {AmlHook} from "../src/contracts/hooks/AmlHook.sol";
 import {AmlHookLogic} from "../src/contracts/hooks/AmlHookLogic.sol";
+import {IFeeEscrow} from "../src/interfaces/escrow/IFeeEscrow.sol";
 import {Roles} from "../src/libraries/Roles.sol";
 import {MockPoolManager} from "./mocks/MockPoolManager.sol";
 import {MockTrustedRouter} from "./mocks/MockTrustedRouter.sol";
+import {MockFeeToken} from "./mocks/MockFeeToken.sol";
 
 /// @notice Deploys the REAL on-chain AML stack (manager, registry, oracle, policy, hook) and wires
 ///         its access manager.
@@ -28,11 +31,13 @@ import {MockTrustedRouter} from "./mocks/MockTrustedRouter.sol";
 ///      key, which is what the role assertions catch.
 ///
 ///      What is real vs mock in this script:
-///      - REAL: AccessManager, SanctionRegistry, ComplianceOracle, RiskPolicy, AmlHook (CREATE2).
+///      - REAL: AccessManager, SanctionRegistry, ComplianceOracle, RiskPolicy, FeeEscrow, AmlHook (CREATE2).
 ///      - MOCK: PoolManager defaults to MockPoolManager (no live Uniswap swaps).
 ///      - MOCK: MockTrustedRouter registered via setTrustedRouter for Anvil subject resolution.
+///      - MOCK: MockFeeToken if FEE_TOKEN unset (FeeEscrow custody asset).
 ///      Optional env:
 ///      - POOL_MANAGER: real PoolManager address (else MockPoolManager)
+///      - FEE_TOKEN / POOL_RECIPIENT / LP_COMPENSATION_FUND: FeeEscrow wiring
 ///      - TRUSTED_ROUTER: existing router to trust (else deploy MockTrustedRouter)
 ///      - PRIVATE_KEY: broadcaster (defaults to Anvil account #0)
 ///      - ADMIN / REGISTRY_KEEPER / ORACLE_KEEPER / HOOK_GOVERNOR: default to the deployer for a
@@ -70,6 +75,9 @@ contract Deploy is Script {
 
     /// @notice The deployed hook
     AmlHook public hook;
+
+    /// @notice 48h differential-fee escrow (§3.7) — hook deposits risk fees on FEE_OVERRIDE
+    FeeEscrow public feeEscrow;
 
     /// @notice PoolManager used by the hook (real or MockPoolManager)
     address public poolManager;
@@ -153,13 +161,27 @@ contract Deploy is Script {
         }
         poolManager = poolManagerAddr;
 
-        uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG);
+        // FeeEscrow custody token + recipients (env overrides for real deploys).
+        address feeTokenAddr = vm.envOr("FEE_TOKEN", address(0));
+        if (feeTokenAddr == address(0)) {
+            feeTokenAddr = address(new MockFeeToken());
+            console2.log("MockFeeToken", feeTokenAddr);
+        }
+        address poolRecipient = vm.envOr("POOL_RECIPIENT", configurer);
+        address lpFund = vm.envOr("LP_COMPENSATION_FUND", configurer);
+        feeEscrow = new FeeEscrow(configurer, feeTokenAddr, poolRecipient, lpFund);
+
+        // beforeSwap + afterSwap + afterSwapReturnDelta (risk fee take path).
+        uint160 flags = uint160(
+            Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
+        );
         bytes memory constructorArgs = abi.encode(
             IPoolManager(poolManagerAddr),
             address(accessManager),
             address(sanctionRegistry),
             address(complianceOracle),
             address(riskPolicy),
+            address(feeEscrow),
             stalenessThreshold,
             activityWindow,
             maxOpsInWindow
@@ -178,11 +200,15 @@ contract Deploy is Script {
             sanctionRegistry,
             complianceOracle,
             riskPolicy,
+            IFeeEscrow(address(feeEscrow)),
             stalenessThreshold,
             activityWindow,
             maxOpsInWindow
         );
         require(address(hook) == hookAddr, "hook address mismatch");
+
+        // Hook must be a depositor to push differential fees into escrow after take().
+        feeEscrow.setDepositor(address(hook), true);
 
         accessManager.setTargetFunctionRole(
             address(sanctionRegistry), _registrySelectors(), Roles._REGISTRY_KEEPER
@@ -223,6 +249,7 @@ contract Deploy is Script {
         console2.log("SanctionRegistry", address(sanctionRegistry));
         console2.log("ComplianceOracle", address(complianceOracle));
         console2.log("RiskPolicy", address(riskPolicy));
+        console2.log("FeeEscrow", address(feeEscrow));
         console2.log("AmlHook", address(hook));
         console2.log("TrustedRouter", trustedRouter);
         console2.log("PoolManager", poolManagerAddr);
@@ -337,6 +364,9 @@ contract Deploy is Script {
             '",\n',
             '  "RiskPolicy": "',
             vm.toString(address(riskPolicy)),
+            '",\n',
+            '  "FeeEscrow": "',
+            vm.toString(address(feeEscrow)),
             '",\n',
             '  "AmlHook": "',
             vm.toString(address(hook)),

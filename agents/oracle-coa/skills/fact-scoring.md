@@ -316,7 +316,7 @@ Keys **must** match `apps/api/src/oracle/types.ts`:
 | Range | riskLevel | hookOutput | Basis |
 |---|---|---|---|
 | 0–30 | `STANDARD` | `ALLOW` | FATF Rec. 1 & 10 — proportional controls |
-| 31–70 | `ELEVATED` | `FEE_OVERRIDE` | Rec. 10 EDD — economic friction, not hard block |
+| 31–70 | `ELEVATED` | `FEE_OVERRIDE` | Rec. 10 EDD — economic friction, not hard block (pool standard fee + differential → FeeEscrow) |
 | 71–99 | `BLOCK` | `REVERT` | Rec. 20 / BSA — reasonable suspicion |
 | 100 | `BLOCK` | `REVERT` + blocking protocol | Rec. 6 / IEEPA — unconditional designation path |
 

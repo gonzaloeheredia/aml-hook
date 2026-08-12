@@ -73,4 +73,39 @@ contract UnitRiskPolicyDecideTest is Helpers {
         assertEq(riskPolicy.LATENCY_FEE_BPS(), 800);
         assertEq(riskPolicy.MAX_OVERRIDE_FEE_BPS(), 1000);
     }
+
+    /// @dev Fuzz: any decide() fee must stay under the override cap (portable from aml-hook-dev).
+    function test_DecideWhenAnythingIsChargedStaysUnderThePoolMaximum(
+        uint8 score,
+        uint24 recommendedFeeBps,
+        bool isStale,
+        uint32 operationCount,
+        bool hasSignificantInflow
+    ) external view {
+        (, uint24 applied) =
+            riskPolicy.decide(score, recommendedFeeBps, isStale, operationCount, hasSignificantInflow);
+        assertLe(applied, riskPolicy.MAX_OVERRIDE_FEE_BPS());
+    }
+
+    function test_DecideWhenScoreIsClean(uint8 score) external view {
+        score = uint8(bound(score, 0, 30));
+        (HookDecision d, uint24 fee) = riskPolicy.decide(score, 800, false, 0, false);
+        assertEq(uint8(d), uint8(HookDecision.ALLOW));
+        assertEq(fee, 0);
+    }
+
+    function test_DecideWhenScoreIsInTheDifferentialBand(uint8 score) external view {
+        score = uint8(bound(score, 31, 70));
+        (HookDecision d, uint24 fee) = riskPolicy.decide(score, 0, false, 0, false);
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertGt(fee, 0);
+        assertLe(fee, riskPolicy.MAX_OVERRIDE_FEE_BPS());
+    }
+
+    function test_DecideWhenScoreIsInTheBlockBand(uint8 score) external view {
+        score = uint8(bound(score, 71, 100));
+        (HookDecision d, uint24 fee) = riskPolicy.decide(score, 800, false, 0, false);
+        assertEq(uint8(d), uint8(HookDecision.REVERT));
+        assertEq(fee, 0);
+    }
 }

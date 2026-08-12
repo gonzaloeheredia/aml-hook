@@ -6,18 +6,25 @@ import {AccessManaged} from "@openzeppelin/contracts/access/manager/AccessManage
 import {ISanctionRegistry} from "../../interfaces/registries/ISanctionRegistry.sol";
 
 /// @title Layer 1 — SanctionRegistry (REAL on-chain list)
-/// @notice Static sanctions screening (whitepaper §3.2 Layer 1 / §3.5 / §4.1 OFAC/SDN):
-///         fast on-chain lookup with no oracle dependency at execution time.
-/// @dev Minimal on-chain storage (not a stub). Population of OFAC / mirrors is off-chain /
-///      admin for now — the registry itself and `isSanctioned` reads are live contracts.
-///      A hit forces unconditional REVERT in beforeSwap before Layer 2 or Layer 3 run.
+/// @notice Static sanctions screening (whitepaper §3.2 Layer 1 / §3.5 / §4.1 OFAC/SDN).
 ///
-///      Authorization is delegated to the same `AccessManager` the oracle and the hook answer to,
-///      instead of an owner of this contract's own. `setSanctioned` is meant for a sanctions-writer
-///      role held by the designation pipeline, deliberately distinct from the role that publishes
-///      behavioral scores: the two are different jobs on different infrastructure, and a shared key
-///      would let either one write the other's data. Until the manager is configured, the function
-///      stays admin-only, which is the safe direction for a missing configuration.
+/// @dev ═══════════════════════════════════════════════════════════════════════
+///      WHY A SEPARATE LAYER BEFORE THE SCORE
+///      ═══════════════════════════════════════════════════════════════════════
+///
+///      Some obligations are objective and binary (e.g. OFAC/SDN match). Those must
+///      REVERT immediately — no FEE_OVERRIDE discretion, no behavioral score read.
+///      That is why AMLHook checks this registry *first* in beforeSwap.
+///
+///      Population of the list is off-chain / ops (event-driven list updates). This
+///      contract is the live on-chain lookup with no oracle dependency at swap time.
+///
+///      Auth: shared AccessManager role `_REGISTRY_KEEPER`, deliberately distinct from
+///      `_ORACLE_KEEPER`. A sanctions pipeline key must not be able to publish scores,
+///      and vice versa. Until wired, `restricted` stays admin-only (fail closed).
+///
+///      Delisting uses the same call with `sanctioned = false`: a sanction blocks an
+///      account; it does not seize funds from it (FeeEscrow confiscation is separate).
 contract SanctionRegistry is AccessManaged, ISanctionRegistry {
     mapping(address => bool) private _sanctioned;
 
@@ -32,9 +39,7 @@ contract SanctionRegistry is AccessManaged, ISanctionRegistry {
     }
 
     /// @inheritdoc ISanctionRegistry
-    /// @notice Writer role update for a single address (event-driven OFAC-style writes; §3.8).
-    /// @dev Delisting is the same call with `sanctioned = false`: a sanction blocks an account,
-    ///      it does not seize from it.
+    /// @notice Writer-role update for a single address (event-driven OFAC-style writes; §3.8).
     function setSanctioned(address account, bool sanctioned) external restricted {
         _sanctioned[account] = sanctioned;
         emit SanctionUpdated(account, sanctioned);

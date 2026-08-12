@@ -97,16 +97,18 @@ misstated).
 
 ## Step 4: FEE_OVERRIDE remediation
 
-If a score that founded a `FEE_OVERRIDE` is reversed:
+If a score that founded a `FEE_OVERRIDE` is reversed while the differential fee
+is still Active in `FeeEscrow`:
 
 | Outcome | Escrow treatment |
 |---|---|
-| Score reduced to ALLOW band | Release escrowed fee to participant / reverse per pool policy |
-| Score remains ELEVATED on other sustained facts | Escrow follows original timelock rules |
+| Score reduced to ALLOW band | Keeper may `releaseEarly` / release to `poolRecipient` per pool policy (never refund to the swap subject as default) |
+| Score remains ELEVATED on other sustained facts | Escrow follows Checkpoint 1/2 rules |
 | Challenge frivolous | Escrow continues; optional challenger cost |
+| Later illicit confirmation at Checkpoint 2 | `resolveCheckpoint2(true)` → `lpCompensationFund` only |
 
-Every remediation records original and new `auditHash`.
-
+Every remediation records original and new `auditHash`. The COA recommends;
+only the FeeEscrow keeper writes.
 ---
 
 ## Step 5: Periodic review of sustained blocks

@@ -11,31 +11,51 @@ interface IERC20Fee {
 
 /// @title FeeEscrow — 48h differential-fee hold for FEE_OVERRIDE swaps (§3.7)
 /// @notice Retains only the differential fee (not swap output). User capital settles in-block.
-/// @dev Access model mirrors ComplianceOracle / SanctionRegistry before their move to
-///      `AccessManager`:
-///      - depositors write deposits (settlement / hook integration point)
-///      - keepers alone release or confiscate (COA never writes on-chain)
-///      Checkpoint 1 (≥24h, <48h): early release to pool only (never confiscates).
-///      Checkpoint 2 (≥48h): illicit → lpCompensationFund (LP compensation, never the pool);
-///      clean → pool. Default (≥48h, no resolution): pool.
 ///
-///      This contract keeps its own owner/keeper/depositor pattern rather than the shared
-///      `AccessManager` the rest of the stack now answers to. Folding it in is a separate
-///      decision — deposit/release/confiscate authority here is a different shape of problem
-///      (per-role membership checked inline in the settlement path, not just admin setters) and
-///      deserves its own review before it moves.
+/// @dev ═══════════════════════════════════════════════════════════════════════
+///      WHY ESCROW THE FEE AT ALL?
+///      ═══════════════════════════════════════════════════════════════════════
+///
+///      On FEE_OVERRIDE (score 31–70), the product applies economic friction without
+///      hard-blocking. The *differential* fee slice is parked here for 48h so a
+///      Compliance Officer Agent (COA) can review off-chain. User swap output still
+///      settles in the same block — we never hold the full swap.
+///
+///      Two COA consultations → keeper-only on-chain transfers:
+///
+///        Moment              Call                         Destination
+///        ─────────────────   ──────────────────────────   ─────────────────────────────
+///        0–24h               (optional COA, no write)     still held
+///        Checkpoint 1        releaseEarly                 always poolRecipient
+///          (≥24h, <48h)      after 1st COA + sanity       (never confiscates)
+///        Checkpoint 2        resolveCheckpoint2(…)        illicit → lpCompensationFund
+///          (≥48h)            after 2nd COA + sanity       (LP compensation; NEVER pool)
+///                                                         clean   → poolRecipient
+///        No resolution       releaseDefault               poolRecipient
+///
+///      WHY split destinations? Confiscation funds LP compensation when fraud is
+///      later confirmed — compliance becomes pool protection, not only a cost (§3.7).
+///      Early release can never confiscate: Checkpoint 1 is "clear to pool" only.
+///
+///      Access: own owner / keepers / depositors (NOT the shared AccessManager).
+///      The COA never writes on-chain; only a FeeEscrow keeper submits txs after
+///      an off-chain sanity check on the COA output.
 contract FeeEscrow is IFeeEscrow {
+    /// @dev Full hold window before Checkpoint 2 / default release may run.
     uint64 public constant ESCROW_WINDOW = 48 hours;
+    /// @dev Earliest moment Checkpoint 1 (early release to pool) is allowed.
     uint64 public constant CHECKPOINT1_MIN_AGE = 24 hours;
 
     address public owner;
-    IERC20Fee public immutable feeToken;
+    IERC20Fee private immutable _feeToken;
     /// @notice Destination for clean / default / early releases (normal pool fee path).
     address public poolRecipient;
     /// @notice Destination for confiscated fees — LP compensation fund only (§3.7). Never the pool.
     address public lpCompensationFund;
 
+    /// @dev Keepers alone call releaseEarly / resolveCheckpoint2 / releaseDefault.
     mapping(address => bool) public keepers;
+    /// @dev Depositors (settlement / hook integration) alone call deposit.
     mapping(address => bool) public depositors;
 
     uint256 public nextEscrowId = 1;
@@ -96,9 +116,10 @@ contract FeeEscrow is IFeeEscrow {
             revert ZeroAddress();
         }
         owner = owner_;
-        feeToken = IERC20Fee(feeToken_);
+        _feeToken = IERC20Fee(feeToken_);
         poolRecipient = poolRecipient_;
         lpCompensationFund = lpCompensationFund_;
+        // Bootstrap: owner can deposit and resolve until roles are specialized.
         keepers[owner_] = true;
         depositors[owner_] = true;
         emit OwnershipTransferred(address(0), owner_);
@@ -106,6 +127,11 @@ contract FeeEscrow is IFeeEscrow {
         emit DepositorUpdated(owner_, true);
         emit PoolRecipientUpdated(poolRecipient_);
         emit LpCompensationFundUpdated(lpCompensationFund_);
+    }
+
+    /// @inheritdoc IFeeEscrow
+    function feeToken() external view returns (address) {
+        return address(_feeToken);
     }
 
     modifier onlyOwner() {
@@ -124,6 +150,9 @@ contract FeeEscrow is IFeeEscrow {
     }
 
     /// @inheritdoc IFeeEscrow
+    /// @notice Pull the differential fee from the depositor into this contract for 48h.
+    /// @dev `wallet` is the compliance subject (for the audit trail), not necessarily msg.sender.
+    ///      `originTxHash` links the escrow row to the FEE_OVERRIDE swap that created it.
     function deposit(address wallet, bytes32 originTxHash, uint256 amount)
         external
         onlyDepositor
@@ -132,7 +161,7 @@ contract FeeEscrow is IFeeEscrow {
         if (wallet == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
 
-        if (!feeToken.transferFrom(msg.sender, address(this), amount)) revert TransferFailed();
+        if (!_feeToken.transferFrom(msg.sender, address(this), amount)) revert TransferFailed();
 
         escrowId = nextEscrowId++;
         uint64 ts = uint64(block.timestamp);
@@ -148,7 +177,10 @@ contract FeeEscrow is IFeeEscrow {
     }
 
     /// @inheritdoc IFeeEscrow
-    /// @dev Checkpoint 1: after 24h and before the 48h window closes. Pool only.
+    /// @notice Checkpoint 1 (≥24h, <48h): first COA consult → early release to the pool only.
+    /// @dev WHY never confiscate here: the 24h window is for early clearance to the normal
+    ///      fee path, not for seizing. Confiscation is reserved for Checkpoint 2 after more time
+    ///      and a second COA pass (§3.7).
     function releaseEarly(uint256 escrowId) external onlyKeeper {
         EscrowRecord storage rec = _requireActive(escrowId);
         uint256 age = block.timestamp - uint256(rec.depositedAt);
@@ -165,7 +197,9 @@ contract FeeEscrow is IFeeEscrow {
     }
 
     /// @inheritdoc IFeeEscrow
-    /// @dev Checkpoint 2: keeper applies COA conclusion after off-chain sanity checks.
+    /// @notice Checkpoint 2 (≥48h): second COA consult → confiscate to LPs or release to pool.
+    /// @param illicitConfirmed Keeper's post-sanity conclusion from the COA (true = confiscate).
+    /// @dev Illicit → lpCompensationFund (never pool). Clean → poolRecipient (FeeReleasedDefault).
     function resolveCheckpoint2(uint256 escrowId, bool illicitConfirmed) external onlyKeeper {
         EscrowRecord storage rec = _requireActive(escrowId);
         if (block.timestamp < uint256(rec.depositedAt) + uint256(ESCROW_WINDOW)) {
@@ -190,7 +224,9 @@ contract FeeEscrow is IFeeEscrow {
     }
 
     /// @inheritdoc IFeeEscrow
-    /// @dev Same destination as a non-illicit checkpoint-2 result (§3.7 default path).
+    /// @notice Default path if nobody resolved at Checkpoint 2: release to the pool.
+    /// @dev Same destination as a non-illicit Checkpoint 2 result (§3.7). Fail-open to pool
+    ///      rather than freezing fees forever when ops miss the window.
     function releaseDefault(uint256 escrowId) external onlyKeeper {
         EscrowRecord storage rec = _requireActive(escrowId);
         if (block.timestamp < uint256(rec.depositedAt) + uint256(ESCROW_WINDOW)) {
@@ -245,10 +281,11 @@ contract FeeEscrow is IFeeEscrow {
     function _requireActive(uint256 escrowId) private view returns (EscrowRecord storage rec) {
         if (escrowId == 0 || escrowId >= nextEscrowId) revert UnknownEscrow();
         rec = _escrows[escrowId];
+        // Terminal statuses cannot be resolved twice (no double pay).
         if (rec.status != EscrowStatus.Active) revert NotActive();
     }
 
     function _transferOut(address to, uint256 amount) private {
-        if (!feeToken.transfer(to, amount)) revert TransferFailed();
+        if (!_feeToken.transfer(to, amount)) revert TransferFailed();
     }
 }

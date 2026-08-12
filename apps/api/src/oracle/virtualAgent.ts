@@ -113,9 +113,9 @@ const SKILL_CATALOG: Record<
       w.exploitConfirmed
         ? "Decision draft: REVERT (fail-closed)."
         : w.hopDistance === 1
-          ? "Decision draft: FEE_OVERRIDE (punitive)."
+          ? "Decision draft: FEE_OVERRIDE (punitive differential → FeeEscrow)."
           : w.hopDistance === 2
-            ? "Decision draft: FEE_OVERRIDE (proportional)."
+            ? "Decision draft: FEE_OVERRIDE (proportional differential → FeeEscrow)."
             : "Decision draft: ALLOW (standard fee).",
   },
   "task-regulatory-report": {

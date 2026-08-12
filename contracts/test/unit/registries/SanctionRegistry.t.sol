@@ -9,6 +9,7 @@ import {ISanctionRegistry} from "interfaces/registries/ISanctionRegistry.sol";
 import {Roles} from "libraries/Roles.sol";
 import {Helpers} from "test/utils/Helpers.t.sol";
 
+/// @notice Unit coverage for `SanctionRegistry` (incl. portable fuzz/isolation from aml-hook-dev).
 contract UnitSanctionRegistryTest is Helpers {
     function setUp() public {
         accessManager = new AccessManager(owner);
@@ -23,58 +24,61 @@ contract UnitSanctionRegistryTest is Helpers {
         assertEq(new SanctionRegistry(initialAuthority).authority(), initialAuthority);
     }
 
-    function test_DefaultNotSanctioned() external view {
-        assertFalse(sanctionRegistry.isSanctioned(walletA));
+    function test_IsSanctionedWhenAccountWasNeverListed(address account) external view {
+        assertFalse(sanctionRegistry.isSanctioned(account));
     }
 
-    function test_KeeperCanSanctionAndClear() external {
-        vm.expectEmit(true, false, false, true, address(sanctionRegistry));
-        emit ISanctionRegistry.SanctionUpdated(walletA, true);
-        vm.prank(keeper);
-        sanctionRegistry.setSanctioned(walletA, true);
-        assertTrue(sanctionRegistry.isSanctioned(walletA));
+    function test_SetSanctionedWhenCallerHasTheRole(address account, address other) external {
+        vm.assume(account != other);
 
         vm.expectEmit(true, false, false, true, address(sanctionRegistry));
-        emit ISanctionRegistry.SanctionUpdated(walletA, false);
+        emit ISanctionRegistry.SanctionUpdated(account, true);
+
         vm.prank(keeper);
-        sanctionRegistry.setSanctioned(walletA, false);
-        assertFalse(sanctionRegistry.isSanctioned(walletA));
+        sanctionRegistry.setSanctioned(account, true);
+
+        assertTrue(sanctionRegistry.isSanctioned(account));
+        assertFalse(sanctionRegistry.isSanctioned(other));
     }
 
-    function test_NonKeeperCannotSanction() external {
+    function test_SetSanctionedWhenDelistingAnAccount(address account) external {
+        vm.startPrank(keeper);
+        sanctionRegistry.setSanctioned(account, true);
+        sanctionRegistry.setSanctioned(account, false);
+        vm.stopPrank();
+        assertFalse(sanctionRegistry.isSanctioned(account));
+    }
+
+    function test_NonKeeperCannotSanction(address account) external {
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
-        sanctionRegistry.setSanctioned(walletA, true);
+        sanctionRegistry.setSanctioned(account, true);
     }
 
-    /// @dev The manager admin governs roles and is not granted this one, so it cannot write the list.
-    function test_ManagerAdminCannotSanction() external {
+    function test_ManagerAdminCannotSanction(address account) external {
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, owner));
-        sanctionRegistry.setSanctioned(walletA, true);
+        sanctionRegistry.setSanctioned(account, true);
     }
 
-    /// @dev Revoking on the shared manager stops future writes; what was written stands until overwritten.
-    function test_RevokeRoleWhenKeeperIsCompromised() external {
+    function test_RevokeRoleWhenKeeperIsCompromised(address account) external {
         vm.prank(keeper);
-        sanctionRegistry.setSanctioned(walletA, true);
+        sanctionRegistry.setSanctioned(account, true);
 
         vm.prank(owner);
         accessManager.revokeRole(Roles._REGISTRY_KEEPER, keeper);
 
         vm.prank(keeper);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, keeper));
-        sanctionRegistry.setSanctioned(walletA, false);
+        sanctionRegistry.setSanctioned(account, false);
 
-        assertTrue(sanctionRegistry.isSanctioned(walletA));
+        assertTrue(sanctionRegistry.isSanctioned(account));
     }
 
-    /// @dev A function nobody wired stays admin-only, so a forgotten deploy step fails closed.
-    function test_SetSanctionedWhenTargetIsUnwired() external {
+    function test_SetSanctionedWhenTargetIsUnwired(address account) external {
         SanctionRegistry unwired = new SanctionRegistry(address(accessManager));
-
         vm.prank(keeper);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, keeper));
-        unwired.setSanctioned(walletA, true);
+        unwired.setSanctioned(account, true);
     }
 }

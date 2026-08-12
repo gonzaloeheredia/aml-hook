@@ -15,7 +15,7 @@ export const DEMO_STAGES: {
 }[] = [
   { id: "swap", label: "Swap", hint: "Get started" },
   { id: "hook", label: "Hook", hint: "beforeSwap" },
-  { id: "fees", label: "Fees", hint: "lpFeeOverride" },
+  { id: "fees", label: "Fees", hint: "FeeEscrow differential" },
   { id: "stats", label: "AML stats", hint: "Score · detection" },
   { id: "opinion", label: "Opinion", hint: "Legal / technical opinion" },
   { id: "event", label: "Event", hint: "afterSwap payload · pool chain" },

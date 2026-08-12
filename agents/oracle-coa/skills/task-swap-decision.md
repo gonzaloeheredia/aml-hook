@@ -47,8 +47,8 @@ Overrides admit no weighting.
 
 | Range | hookOutput | Hook effect |
 |---|---|---|
-| 0–30 | `ALLOW` | Swap at standard fee. Verification event emitted |
-| 31–70 | `FEE_OVERRIDE` | Swap with configured multiplier / `lpFeeOverride`. Monitoring event with basis |
+| 0–30 | `ALLOW` | Swap at pool standard fee. Verification event emitted |
+| 31–70 | `FEE_OVERRIDE` | Swap at pool standard fee; risk differential taken in `afterSwap` → `FeeEscrow` (48h). Monitoring event with basis |
 | 71–99 | `REVERT` | Swap reverted. Reason recorded on-chain |
 | 100 | `REVERT` + block | Revert + blocking protocol |
 
@@ -58,6 +58,9 @@ monitoring — `FEE_OVERRIDE` is the on-chain translation: proportional economic
 friction, event trail, participant not excluded.
 
 `riskLevel`: 0–30 → `STANDARD` · 31–70 → `ELEVATED` · 71–100 → `BLOCK`.
+
+`recommendedFeeBps` is total intended friction (e.g. 800 = 8%). On-chain split:
+pool keeps ~30 bps; escrow holds `recommendedFeeBps − 30` when above standard.
 
 ---
 
@@ -74,17 +77,24 @@ These controls do **not** apply to Step 1 overrides.
 
 ---
 
-## Step 4: FEE_OVERRIDE destination
+## Step 4: FEE_OVERRIDE destination (`FeeEscrow`)
 
-FEE_OVERRIDE is not credited to the pool immediately. It deposits to an escrow
-contract with configurable timelock (default 48 hours).
+FEE_OVERRIDE does **not** inflate the pool LP fee via `lpFeeOverride`. Only the
+differential risk fee is deposited into `FeeEscrow` under a 48h window. User
+swap output settles in-block. The COA has **no** write path on `FeeEscrow`;
+the FeeEscrow keeper alone submits transfers after an off-chain sanity check.
 
-| Scenario within timelock | Fee destination |
-|---|---|
-| Wallet confirmed in a fraud scheme (later designation, linked wallets, completed pattern) | Compensation fund for affected LPs |
-| No confirmation at expiry | Normal release to the pool |
+| Moment | Keeper call | Destination |
+|---|---|---|
+| 0–24h | (optional COA; no write) | Still held |
+| Checkpoint 1 (≥24h, <48h | `releaseEarly` | Always `poolRecipient` (never confiscates) |
+| Checkpoint 2 ≥48h, illicit | `resolveCheckpoint2(true)` | `lpCompensationFund` only (never pool) |
+| Checkpoint 2 ≥48h, clean | `resolveCheckpoint2(false)` | `poolRecipient` |
+| No resolution after window | `releaseDefault` | `poolRecipient` |
 
-Every escrow deposit records the `auditHash` of the supporting `ScoreResult`.
+Every escrow deposit should be linkable to the supporting `ScoreResult`
+(`auditHash` / origin tx). `recommendedFeeBps` from this skill is what the
+oracle keeper publishes on-chain for the hook to size the differential.
 
 ---
 

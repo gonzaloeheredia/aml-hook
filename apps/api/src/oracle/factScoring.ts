@@ -266,7 +266,7 @@ export function scoreFromFacts(
   const riskLevel =
     finalScore >= 71 ? "BLOCK" : finalScore >= 31 ? "ELEVATED" : "STANDARD";
 
-  // COA owns the recommended fee (source of truth for hook FEE_OVERRIDE + demo quotes).
+  // COA owns the recommended fee (total friction; hook splits pool standard vs FeeEscrow differential).
   const recommendedFeeBps = feeBpsFromHop(finalScore, wallet.hopDistance);
 
   const payload = JSON.stringify({

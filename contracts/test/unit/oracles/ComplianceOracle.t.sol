@@ -9,10 +9,12 @@ import {IComplianceOracle} from "interfaces/oracles/IComplianceOracle.sol";
 import {Roles} from "libraries/Roles.sol";
 import {Helpers} from "test/utils/Helpers.t.sol";
 
+/// @notice Unit coverage for `ComplianceOracle` (incl. portable assertions from aml-hook-dev suite).
 contract UnitComplianceOracleTest is Helpers {
     address origin = address(0x1111);
 
     function setUp() public {
+        vm.warp(1_700_000_000);
         accessManager = new AccessManager(owner);
         complianceOracle = new ComplianceOracle(address(accessManager));
 
@@ -25,19 +27,63 @@ contract UnitComplianceOracleTest is Helpers {
         assertEq(new ComplianceOracle(initialAuthority).authority(), initialAuthority);
     }
 
-    function test_UnsetRiskIsZero() external view {
-        // Storage defaults only. The hook treats updatedAt == 0 as unknown (FEE_OVERRIDE), not ALLOW.
-        IComplianceOracle.WalletRisk memory risk = complianceOracle.getRisk(walletA);
+    /// @dev Mitigation A: unknown wallet is score 0 with updatedAt 0.
+    function test_GetRiskWhenWalletWasNeverPublished(address wallet) external view {
+        IComplianceOracle.WalletRisk memory risk = complianceOracle.getRisk(wallet);
         assertEq(risk.score, 0);
-        assertEq(risk.hopDistance, 0);
-        assertEq(risk.origin, address(0));
-        assertEq(risk.feeBps, 0);
         assertEq(risk.updatedAt, 0);
-        assertEq(complianceOracle.getScore(walletA), 0);
+        assertEq(risk.origin, address(0));
+        assertEq(complianceOracle.getScore(wallet), 0);
+    }
+
+    /// @dev Confirmed-clean: score 0 with non-zero updatedAt.
+    function test_GetRiskWhenWalletIsPublishedClean(address wallet) external {
+        vm.prank(keeper);
+        complianceOracle.updateScore(wallet, 0, 0, address(0), 0, "");
+
+        IComplianceOracle.WalletRisk memory risk = complianceOracle.getRisk(wallet);
+        assertEq(risk.score, 0);
+        assertEq(risk.updatedAt, uint64(block.timestamp));
+    }
+
+    function test_UpdateScoreWhenCallerHasTheRole(
+        address wallet,
+        uint8 score,
+        uint8 hopDistance,
+        address originAddr,
+        uint24 feeBps
+    ) external {
+        score = uint8(bound(score, 0, 100));
+        feeBps = uint24(bound(feeBps, 0, 1000));
+
+        vm.expectEmit(true, false, false, true, address(complianceOracle));
+        emit IComplianceOracle.ScoreUpdated(
+            wallet, score, hopDistance, originAddr, feeBps, uint64(block.timestamp)
+        );
+
+        vm.prank(keeper);
+        complianceOracle.updateScore(wallet, score, hopDistance, originAddr, feeBps, "");
+
+        IComplianceOracle.WalletRisk memory risk = complianceOracle.getRisk(wallet);
+        assertEq(risk.score, score);
+        assertEq(risk.hopDistance, hopDistance);
+        assertEq(risk.origin, originAddr);
+        assertEq(risk.feeBps, feeBps);
+        assertEq(risk.updatedAt, uint64(block.timestamp));
+    }
+
+    /// @dev Packing guard: with uint64 `updatedAt` the profile spans two slots (not one as in
+    ///      the uint40 aml-hook-dev layout). Fail if an accidental third slot is written.
+    function test_UpdateScoreWhenCallerHasTheRoleWritesPackedSlots(address wallet) external {
+        vm.record();
+        vm.prank(keeper);
+        complianceOracle.updateScore(wallet, 100, 3, address(0xBEEF), 800, "");
+
+        (, bytes32[] memory writes) = vm.accesses(address(complianceOracle));
+        assertEq(_countDistinct(writes), 2);
     }
 
     function test_KeeperCanUpdateScoreWithFee() external {
-        vm.warp(1_700_000_000);
         vm.expectEmit(true, false, false, true, address(complianceOracle));
         emit IComplianceOracle.ScoreUpdated(walletA, 65, 1, origin, 800, uint64(block.timestamp));
         vm.prank(keeper);
@@ -64,10 +110,11 @@ contract UnitComplianceOracleTest is Helpers {
         complianceOracle.updateScore(walletA, 50, 1, origin, 300, "");
     }
 
-    function test_ScoreAbove100Reverts() external {
+    function test_UpdateScoreWhenScoreIsAboveOneHundred(address wallet, uint8 score) external {
+        score = uint8(bound(score, 101, type(uint8).max));
         vm.prank(keeper);
         vm.expectRevert(ComplianceOracle.ScoreOutOfRange.selector);
-        complianceOracle.updateScore(walletA, 101, 0, origin, 0, "");
+        complianceOracle.updateScore(wallet, score, 0, origin, 0, "");
     }
 
     function test_Score100Allowed() external {
@@ -76,30 +123,61 @@ contract UnitComplianceOracleTest is Helpers {
         assertEq(complianceOracle.getScore(walletA), 100);
     }
 
-    function test_OverwriteRisk() external {
-        vm.startPrank(keeper);
-        complianceOracle.updateScore(walletA, 65, 1, origin, 800, "");
-        complianceOracle.updateScore(walletA, 42, 2, origin, 300, "");
-        vm.stopPrank();
+    function test_UpdateScoreWhenPublishedTwice(address wallet) external {
+        vm.prank(keeper);
+        complianceOracle.updateScore(wallet, 65, 1, origin, 800, "");
 
-        IComplianceOracle.WalletRisk memory risk = complianceOracle.getRisk(walletA);
+        vm.warp(block.timestamp + 1 days);
+
+        vm.prank(keeper);
+        complianceOracle.updateScore(wallet, 42, 2, origin, 300, "");
+
+        IComplianceOracle.WalletRisk memory risk = complianceOracle.getRisk(wallet);
         assertEq(risk.score, 42);
-        assertEq(risk.feeBps, 300);
         assertEq(risk.hopDistance, 2);
+        assertEq(risk.feeBps, 300);
+        assertEq(risk.updatedAt, uint64(block.timestamp));
     }
 
-    /// @dev Revoking on the shared manager stops future writes; what was written stands until overwritten.
-    function test_RevokeRoleWhenKeeperIsCompromised() external {
+    function test_RevokeRoleWhenKeeperIsCompromised(address wallet) external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 65, 1, origin, 800, "");
+        complianceOracle.updateScore(wallet, 65, 1, origin, 800, "");
 
         vm.prank(owner);
         accessManager.revokeRole(Roles._ORACLE_KEEPER, keeper);
 
         vm.prank(keeper);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, keeper));
-        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, "");
+        complianceOracle.updateScore(wallet, 0, 0, address(0), 0, "");
 
-        assertEq(complianceOracle.getScore(walletA), 65);
+        assertEq(complianceOracle.getScore(wallet), 65);
+    }
+
+    /// @dev Sanctions role and scoring role must not be interchangeable.
+    function test_UpdateScoreWhenCallerHoldsTheSanctionsRole(address wallet) external {
+        vm.prank(owner);
+        accessManager.grantRole(Roles._REGISTRY_KEEPER, stranger, 0);
+
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
+        complianceOracle.updateScore(wallet, 50, 1, address(0), 0, "");
+    }
+
+    /// @dev Unwired target stays admin-only (forgotten deploy step fails closed).
+    function test_UpdateScoreWhenTargetIsUnwired(address wallet) external {
+        ComplianceOracle unwired = new ComplianceOracle(address(accessManager));
+        vm.prank(keeper);
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, keeper));
+        unwired.updateScore(wallet, 50, 1, address(0), 0, "");
+    }
+
+    function _countDistinct(bytes32[] memory slots) internal pure returns (uint256 count) {
+        for (uint256 i; i < slots.length; ++i) {
+            bool seen;
+            for (uint256 j; j < i; ++j) {
+                if (slots[j] == slots[i]) seen = true;
+            }
+            if (!seen) ++count;
+        }
     }
 }

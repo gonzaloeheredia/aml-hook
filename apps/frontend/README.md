@@ -12,7 +12,7 @@ Uniswap-styled demo of the AML Hook use case: **exploit cash-out detection**, **
 |---|---|---|
 | 1 | **Swap** | Uniswap entry point — connect wallet + `Get started` |
 | 2 | **Hook** | Flow simulator for the hook lifecycle |
-| 3 | **Fees** | Pool fee, `lpFeeOverride`, gas · **Sold (USDC)** / **Bought (ETH)** |
+| 3 | **Fees** | Pool standard fee + FeeEscrow differential (FEE_OVERRIDE) · gas · **Sold (USDC)** / **Bought (ETH)** |
 | 4 | **AML stats** | Score gauge, report overview, detection data |
 | 5 | **Opinion** | Legal / technical opinion (A–D) from **oracle COA** via `/compliance` |
 | 6 | **Event** | `afterSwap` pool-chain payload only |

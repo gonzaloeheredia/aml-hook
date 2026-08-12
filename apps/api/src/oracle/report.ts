@@ -65,7 +65,7 @@ export function buildOpinionFromScore(
       decision === "block"
         ? "WalletBlocked (no settlement)."
         : decision === "fee_override"
-          ? `lpFeeOverride ${feePct}% on settlement.`
+          ? `FEE_OVERRIDE: pool standard fee retained; risk differential (~${feePct}% total intended friction) taken in afterSwap into FeeEscrow (48h COA path).`
           : "standard pool fee 0.30%."
     }`,
   ].join(" ");
@@ -126,7 +126,7 @@ export function buildOpinionFromScore(
     decision === "block"
       ? "Method of operation / control response: beforeSwap fail-closed REVERT; afterSwap not reached; WalletBlocked recorded. Subject may still move USDC off-pool via P2P, which updates downstream oracle scores."
       : decision === "fee_override"
-        ? `Method of operation / control response: swap allowed with economic friction (lpFeeOverride ${feePct}%). afterSwap SwapObserved emitted; oracle reevaluated for the next beforeSwap.`
+        ? `Method of operation / control response: swap allowed with economic friction (recommendedFeeBps ${feeBps}; pool standard fee + FeeEscrow differential). afterSwap SwapObserved emitted; oracle reevaluated for the next beforeSwap.`
         : "Method of operation / control response: swap allowed at standard fee; afterSwap SwapObserved emitted; oracle score remains in ALLOW band for subsequent swaps.",
     `Modus summary: ${
       wallet.exploitConfirmed
