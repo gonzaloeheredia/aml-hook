@@ -50,7 +50,7 @@ That restriction is simultaneously the limitation and the value of the hook. The
 
 This produces three concrete applications with no banking equivalent. First, screening at execution time: the match against a Specially Designated Nationals (SDN) address is verified before the swap, not after, so the institutional integrator has evidence that every transaction was evaluated at the moment of execution rather than audited retroactively, which turns the compliance record from a log of what happened into evidence of active control. Second, exposure granularity: a banking system sees its client's wallet address, not the full history of that address or its prior counterparties, while a hook with on-chain data access can evaluate the transaction graph of the originating address, including where its funds come from and how many hops separate it from a designated address, a visibility no bank has in real time at the moment of executing an order. Third, immutable traceability of the control itself: the fact that the hook evaluated the transaction and did not block it is recorded on-chain permanently and non-repudiably, which for an integrator subject to audit constitutes due diligence evidence that no off-chain system can generate with the same level of verifiability, since it does not depend on internal logs or the integrity of a centralized database.
 
-All of this operates within a precise perimeter. The hook evaluates and acts on what it can observe on-chain, at the moment of execution, without custody and without documentary obligations of its own. It does not replace a full compliance program and it does not file SARs. It is infrastructure that makes exposure observable at the only moment when an on-chain intervention is technically possible, and that generates immutable evidence that the evaluation occurred. The use case is built on the gap identified throughout this document: institutional integrators on Uniswap v4 need evidence of active control at the point of execution, and no infrastructure currently provides it natively.
+All of this operates within a precise perimeter. The hook evaluates and acts on what it can observe on-chain, at the moment of execution, without documentary obligations of its own and without taking custody of swap output or user principal. The only on-chain hold is the FEE_OVERRIDE differential in FeeEscrow (section 3.7). It does not replace a full compliance program and it does not file SARs. It is infrastructure that makes exposure observable at the only moment when an on-chain intervention is technically possible, and that generates immutable evidence that the evaluation occurred. The use case is built on the gap identified throughout this document: institutional integrators on Uniswap v4 need evidence of active control at the point of execution, and no infrastructure currently provides it natively.
 
 ## 2. The Product
 
@@ -58,7 +58,7 @@ All of this operates within a precise perimeter. The hook evaluates and acts on 
 
 AML Hook is a modular compliance layer that operates natively as a Uniswap v4 hook. Unlike existing solutions, which verify identity only once at onboarding, AML Hook verifies compliance on every swap, in real time, directly at the pool's execution layer.
 
-The hook intercepts the swap lifecycle at two moments, beforeSwap and afterSwap. It runs static screening and dynamic scoring on both parties, builds a cumulative risk profile, and decides whether the operation executes, is conditioned, or is reverted. The cycle closes with a reporting module that allows auditable reports to be presented to regulators.
+The hook intercepts the swap lifecycle at two moments, beforeSwap and afterSwap. It runs static screening and dynamic scoring on the resolved swap subject, builds a cumulative risk profile, and decides whether the operation executes, is conditioned via FeeEscrow, or is reverted. The cycle closes with a reporting module that allows auditable reports to be presented to regulators.
 
 ### 2.2 Product Objectives
 
@@ -68,21 +68,21 @@ Reduction of regulatory exposure before the SEC, CFTC and equivalents. DeFi prot
 
 Enabling institutional funds with strict KYC requirements. Institutional funds are prohibited from interacting with anonymous pools. AML Hook creates the infrastructure necessary for those funds to be LPs on Uniswap v4, ensuring that every counterparty meets due diligence obligations. This applies in particular to protocols issuing RWA (Real World Assets), where the underlying asset carries regulatory transfer restrictions.
 
-Generation of additional revenue through risk-differentiated fees. AML Hook introduces a native monetization model at the execution layer. The pool fee adjusts dynamically based on each party's risk score, turning compliance from a cost into revenue. The pool's LPs capture a risk premium from wallets with a history of exposure to mixers or high-risk clusters, low-score wallets receive preferential terms that incentivize compliance, and pools with AML Hook can justify higher yields to institutional investors.
+Generation of additional revenue through risk-differentiated fees. AML Hook introduces a native monetization model at the execution layer. The pool keeps its standard LP fee on every swap that executes; beforeSwap does not inflate that fee. On FEE_OVERRIDE, afterSwap takes only the risk differential into FeeEscrow (section 3.7). After the hold window, that retained fee is released to the pool or confiscated to an LP compensation fund when illicit activity is confirmed. Clean wallets transact at the standard fee. Intermediate-risk wallets fund pool protection without rewriting the LP fee itself, and pools with AML Hook can justify that protection path to institutional investors.
 
 ## 3. Hook Architecture
 
 ### 3.1 The Swap Lifecycle
 
-The hook operates at two moments in the lifecycle of every swap on Uniswap v4.
+The hook operates at two moments in the lifecycle of every swap on Uniswap v4. It evaluates the resolved swap subject (trusted-router `msgSender()` or `hookData`), not a seller/buyer pair, and it never routes swap output into custody.
 
 ```text
 ----------------- -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 Moment            Action
 
-beforeSwap        Verifies the seller. Checks whether the source wallet holds valid authorization. If not, it blocks the operation before it executes.
+beforeSwap        Resolves the end-user subject, then runs Layer 1 sanctions, Layer 2 score read, and Layer 3 decision. REVERT cancels the swap before funds move. ALLOW and FEE_OVERRIDE leave the pool at its standard LP fee; FEE_OVERRIDE is cached for afterSwap.
 
-afterSwap         Verifies the buyer. Confirms that the destination wallet is also authorized. If not, it can revert or route the funds to a temporary custody contract. Updates the wallet's risk profile.
+afterSwap         Updates pool-local activity and lastKnownBalance, and emits SwapObserved for the off-chain engine. On FEE_OVERRIDE, takes only the risk differential into FeeEscrow. Does not screen a counterparty, does not revert, and does not hold user principal.
 ----------------- -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ```
 
@@ -161,11 +161,19 @@ User → Router → PoolManager
           ┌────────────┼────────────┐
           ▼            ▼            ▼
    SanctionRegistry  ComplianceOracle  RiskPolicy
-     (Layer 1)         (Layer 2)         (Layer 3, decision)
+     (Layer 1)         (Layer 2)         (Layer 3)
                           ▲
-                          │ updateScore(wallet, score, hopDistance, origin, signature)
+                          │ updateScore(...)  ← _ORACLE_KEEPER
+              Oracle Keeper / COA (off-chain)
                           │
-                    Oracle Keeper (off-chain)
+                          │ FeeEscrow keeper resolutions
+                          ▼
+                     FeeEscrow
+              (FEE_OVERRIDE differential fee, 48h)
+              early / default → pool
+              confiscate → LP compensation (never pool)
+
+AccessManager (shared) → _REGISTRY_KEEPER · _ORACLE_KEEPER · _HOOK_GOVERNOR
 ```
 
 AMLHook is the Uniswap v4 hook the PoolManager invokes. SanctionRegistry is Layer 1 (static sanctions). ComplianceOracle is Layer 2 (behavioral score store written by the off-chain Oracle Keeper). RiskPolicy is Layer 3 (ternary decision: ALLOW, FEE_OVERRIDE, or REVERT). The keeper monitors external exploit feeds and ERC-20 peer-to-peer transfers and publishes scores via updateScore before the next swap.
@@ -215,7 +223,7 @@ Continuously processes the on-chain transaction graph. For each wallet it calcul
 
 ### On-chain oracle
 
-A contract that stores the state of each wallet and that the hook can query: the direct blacklist (OFAC, FATF lists, local lists), the risk score calculated by the off-chain engine, the timestamp of the last update, and the validity of the KYC token issued by an external provider, such as Civic or Polygon ID with ZK-proof.
+A contract that stores the state of each wallet and that the hook can query: the risk score calculated by the off-chain engine, hop distance and origin, the keeper-recommended fee, and the timestamp of the last update. Static sanctions live in SanctionRegistry (Layer 1), not in this store. Identity credentials such as Civic or Polygon ID are outside the current oracle surface.
 
 ### Multi-layer architecture with fallback
 
@@ -363,7 +371,7 @@ Record retention (Rec. 11). Immutable audit log of every decision, with timestam
 
 Suspicious transaction reporting (Rec. 20). Automatic or manual trigger of an STR (Suspicious Transaction Report) when the risk score exceeds the defined threshold. The activation standard is reasonable suspicion, not certainty. Waiting for certainty is non-compliance.
 
-The perimeter of the product must remain explicit alongside these obligations. AML Hook does not file SARs or STRs on its own behalf, does not constitute blocking in the regulatory sense of the term, and does not qualify as a money transmitter. What it produces is the evidentiary basis, the on-chain screening record and the behavioral audit trail, that the operator's own compliance function uses to meet Recommendations 3, 10, 11 and 20. Stating plainly what the product does not do is, for an institutional integrator evaluating it, more valuable than a broad claim of capability left undefined.
+The perimeter of the product must remain explicit alongside these obligations. AML Hook does not file SARs or STRs on its own behalf and does not qualify as a money transmitter. A sanctions or high-score hit reverts the swap in beforeSwap before any delivery obligation arises; FeeEscrow holds only the FEE_OVERRIDE differential, not user capital and not blocked property in the OFAC sense. What the product produces is the evidentiary basis, the on-chain screening record and the behavioral audit trail, that the operator's own compliance function uses to meet Recommendations 3, 10, 11 and 20. Stating plainly what the product does not do is, for an institutional integrator evaluating it, more valuable than a broad claim of capability left undefined.
 
 ## 5. Competitive Differentiation
 
