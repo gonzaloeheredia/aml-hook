@@ -202,7 +202,8 @@ afterSwap emits SwapObserved (+ FeeEscrow deposit on FEE_OVERRIDE)
           ├─ score valid, no new S/MX/GEO facts ─▶ swap-behavior-analysis
           │                                        + incremental fact-scoring → oracle
           ├─ score expired or invalidated ───────▶ full flow
-          └─ recipient sanctions hit ────────────▶ task-blocking-protocol
+          └─ new sanctions/TF fact on the subject ─▶ task-blocking-protocol
+             (notify operator; hook cannot unwind a confirmed swap)
 ```
 
 Mock flows (`agent.ts`):

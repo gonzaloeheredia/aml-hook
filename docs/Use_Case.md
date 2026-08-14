@@ -30,7 +30,7 @@ Wallet D    Fourth actor. Starts clean, score 0, no prior transaction history. R
 
 The walkthrough below uses one propagation path (A → B → C) to exercise all three hook outputs in a single run, then a third path (A → D) that isolates the causal latency gap from whitepaper section 3.8. The scoring engine treats B and C symmetrically for any P2P path.
 
-The pool is configured as a Real World Asset (RWA) pool on Uniswap v4, with AML Hook attached (beforeSwap, afterSwap, afterSwapReturnDelta). The off-chain scoring keeper monitors transfer events continuously and, on the A → B → C path, writes updated scores on-chain before the corresponding swap is attempted. The A → D path deliberately places the swap inside the window before that write lands.
+The pool is configured as a Real World Asset (RWA) pool on Uniswap v4, with AML Hook attached (beforeSwap, afterSwap, afterSwapReturnDelta). The off-chain scoring keeper monitors transfer events continuously and, on the A → B → C path, writes updated scores on-chain before the corresponding swap is attempted. The A → D path deliberately places the swap inside the window before that write lands. Call path, AccessManager roles, and FeeEscrow settlement are specified in the whitepaper (sections 3.5 and 3.7).
 
 ## 2. Risk Scoring Model
 
@@ -42,7 +42,7 @@ Score Range   Hook Response                                      Fee Applied    
 
 0 – 30        Allow                                              Standard (0.30%)    No risk indicators. Normal execution.
 
-31 – 70       Allow with FEE_OVERRIDE (pool standard fee + differential → FeeEscrow)   Dynamic (3% – 8% total friction)   Suspected contamination, not yet confirmed. Enhanced Due Diligence (EDD) equivalent. Creates economic friction without blocking.
+31 – 70       Allow with FEE_OVERRIDE (pool standard fee + differential → FeeEscrow)   Dynamic (3% – 8% total friction)   Suspected contamination, not yet confirmed. Enhanced Due Diligence (EDD) equivalent. The swap still executes; friction is the escrowed differential, distinct from REVERT (which denies the swap in beforeSwap).
 
 71 – 100      Revert                                             N/A                 Confirmed exposure: exploit cluster, OFAC match, or direct link to sanctioned entity. No discretion.
 ------------- -------------------------------------------------- ------------------- ----------------------------------------------------------------------------------------------------------------------------------
@@ -326,7 +326,7 @@ heuristic               current balance), exceeding the configured inflowThresho
 RiskPolicy decision     hasSignificantInflow resolves to true. The floor described in the mitigation forces a minimum output of FEE_OVERRIDE, overriding what the stale score of
                         0 would otherwise permit. No keeper-recommended feeBps is available yet, so the desired product behavior applies the intermediate latency fee of 8 percent.
 
-Execution               Swap executes at 8 percent instead of the standard 0.30 percent. Economic friction is applied despite a stored score that has not yet incorporated the
+Execution               Swap executes. Pool keeps the standard 0.30 percent LP fee; the 8 percent total intended friction is that base plus the risk differential deposited into FeeEscrow. User output settles in-block. Economic friction is applied despite a stored score that has not yet incorporated the
                         inflow.
 
 afterSwap, event        address: D, score: 0 (stale), decision: FEE_OVERRIDE, fee: 8.00 percent, trigger: InflowHeuristicTriggered, deltaBps: 10000, timestamp: T5. hop_distance
