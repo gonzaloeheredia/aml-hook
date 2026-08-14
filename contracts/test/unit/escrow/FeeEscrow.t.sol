@@ -394,13 +394,27 @@ contract UnitFeeEscrowTest is Helpers {
         escrow.setLpCompensationFund(address(0));
     }
 
-    function test_TransferOwnership() external {
+    function test_TransferOwnership_TwoStep() external {
         address nextOwner = makeAddr("nextOwner");
         vm.prank(owner);
         escrow.transferOwnership(nextOwner);
-        assertEq(escrow.owner(), nextOwner);
+        assertEq(escrow.owner(), owner);
+        assertEq(escrow.pendingOwner(), nextOwner);
 
-        // Previous owner lost admin; new owner can still mutate.
+        // Propose does not transfer admin yet.
+        vm.prank(nextOwner);
+        vm.expectRevert(FeeEscrow.NotOwner.selector);
+        escrow.setPoolRecipient(pool);
+
+        vm.prank(stranger);
+        vm.expectRevert(FeeEscrow.NotPendingOwner.selector);
+        escrow.acceptOwnership();
+
+        vm.prank(nextOwner);
+        escrow.acceptOwnership();
+        assertEq(escrow.owner(), nextOwner);
+        assertEq(escrow.pendingOwner(), address(0));
+
         vm.prank(owner);
         vm.expectRevert(FeeEscrow.NotOwner.selector);
         escrow.setPoolRecipient(pool);
@@ -412,6 +426,66 @@ contract UnitFeeEscrowTest is Helpers {
         vm.prank(nextOwner);
         vm.expectRevert(FeeEscrow.ZeroAddress.selector);
         escrow.transferOwnership(address(0));
+    }
+
+    function test_BatchReleaseEarly() external {
+        uint256 a = _deposit(10 ether);
+        uint256 b = _deposit(20 ether);
+        vm.warp(block.timestamp + 24 hours);
+
+        uint256[] memory ids = new uint256[](2);
+        ids[0] = a;
+        ids[1] = b;
+        vm.prank(keeper);
+        escrow.batchReleaseEarly(ids);
+
+        assertEq(token.balanceOf(pool), 30 ether);
+        assertEq(uint8(escrow.getEscrow(a).status), uint8(IFeeEscrow.EscrowStatus.ReleasedEarly));
+        assertEq(uint8(escrow.getEscrow(b).status), uint8(IFeeEscrow.EscrowStatus.ReleasedEarly));
+    }
+
+    function test_BatchResolveCheckpoint2() external {
+        uint256 cleanId = _deposit(5 ether);
+        uint256 illicitId = _deposit(7 ether);
+        vm.warp(block.timestamp + 48 hours);
+
+        uint256[] memory ids = new uint256[](2);
+        ids[0] = cleanId;
+        ids[1] = illicitId;
+        bool[] memory flags = new bool[](2);
+        flags[0] = false;
+        flags[1] = true;
+
+        vm.prank(keeper);
+        escrow.batchResolveCheckpoint2(ids, flags);
+
+        assertEq(token.balanceOf(pool), 5 ether);
+        assertEq(token.balanceOf(fund), 7 ether);
+        assertEq(uint8(escrow.getEscrow(cleanId).status), uint8(IFeeEscrow.EscrowStatus.ReleasedDefault));
+        assertEq(uint8(escrow.getEscrow(illicitId).status), uint8(IFeeEscrow.EscrowStatus.Confiscated));
+    }
+
+    function test_BatchResolveCheckpoint2_RevertsOnLengthMismatch() external {
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = 1;
+        bool[] memory flags = new bool[](2);
+        vm.prank(keeper);
+        vm.expectRevert(FeeEscrow.LengthMismatch.selector);
+        escrow.batchResolveCheckpoint2(ids, flags);
+    }
+
+    function test_BatchReleaseDefault() external {
+        uint256 a = _deposit(3 ether);
+        uint256 b = _deposit(4 ether);
+        vm.warp(block.timestamp + 48 hours);
+
+        uint256[] memory ids = new uint256[](2);
+        ids[0] = a;
+        ids[1] = b;
+        vm.prank(keeper);
+        escrow.batchReleaseDefault(ids);
+
+        assertEq(token.balanceOf(pool), 7 ether);
     }
 
     function test_UpdatedPoolRecipient_UsedOnReleaseEarly() external {

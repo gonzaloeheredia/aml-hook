@@ -8,6 +8,8 @@ import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol"
 import {IRiskPolicy} from "../../interfaces/policies/IRiskPolicy.sol";
 import {IFeeEscrow} from "../../interfaces/escrow/IFeeEscrow.sol";
 import {HookDecision} from "../../libraries/HookDecision.sol";
+import {FeeBps} from "../../libraries/FeeBps.sol";
+import {SwapCache} from "../../libraries/SwapCache.sol";
 
 import {Hooks} from "v4-core/src/libraries/Hooks.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
@@ -34,17 +36,10 @@ interface IERC20Approve {
 ///      differentialBps = max(0, feeBps - STANDARD_FEE_BPS).
 contract AmlHook is BaseHook, AmlHookLogic {
     /// @notice Pool base fee in bps (0.30%) — left to the PoolManager; not overridden.
-    uint24 public constant STANDARD_FEE_BPS = 30;
+    uint24 public constant STANDARD_FEE_BPS = FeeBps.STANDARD;
 
     /// @notice Escrow for FEE_OVERRIDE differential fees (§3.7). address(0) disables take/deposit.
     IFeeEscrow public immutable feeEscrow;
-
-    /// @dev Transient cache so afterSwap can emit SwapObserved and escrow without a second oracle read.
-    address private _swapWallet;
-    address private _swapToken;
-    HookDecision private _swapDecision;
-    uint24 private _swapFeeBps;
-    IComplianceOracle.WalletRisk private _swapRisk;
 
     /// @notice Emitted when the risk differential was taken and deposited into FeeEscrow.
     event RiskFeeEscrowed(
@@ -116,11 +111,7 @@ contract AmlHook is BaseHook, AmlHookLogic {
         (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk) =
             _evaluateWithMitigationEvents(wallet, token);
 
-        _swapWallet = wallet;
-        _swapToken = token;
-        _swapDecision = decision;
-        _swapFeeBps = feeBps;
-        _swapRisk = risk;
+        SwapCache.store(wallet, token, decision, feeBps, risk);
 
         // ALLOW and FEE_OVERRIDE: do not override pool LP fee (standard path).
         // REVERT already reverted inside evaluate.
@@ -139,11 +130,14 @@ contract AmlHook is BaseHook, AmlHookLogic {
         BalanceDelta delta,
         bytes calldata
     ) internal override returns (bytes4, int128) {
-        address wallet = _swapWallet;
-        HookDecision decision = _swapDecision;
-        uint24 feeBps = _swapFeeBps;
-        IComplianceOracle.WalletRisk memory risk = _swapRisk;
-        address swapToken = _swapToken;
+        (
+            address wallet,
+            address swapToken,
+            HookDecision decision,
+            uint24 feeBps,
+            IComplianceOracle.WalletRisk memory risk
+        ) = SwapCache.load();
+        SwapCache.clear();
 
         _recordActivity(wallet);
         _updateKnownBalance(wallet, swapToken);
@@ -153,12 +147,6 @@ contract AmlHook is BaseHook, AmlHookLogic {
         if (decision == HookDecision.FEE_OVERRIDE && address(feeEscrow) != address(0) && feeBps > 0) {
             hookDelta = _escrowRiskFee(wallet, key, params, delta, feeBps);
         }
-
-        delete _swapWallet;
-        delete _swapToken;
-        delete _swapDecision;
-        delete _swapFeeBps;
-        delete _swapRisk;
 
         return (this.afterSwap.selector, hookDelta);
     }
@@ -172,9 +160,9 @@ contract AmlHook is BaseHook, AmlHookLogic {
         BalanceDelta delta,
         uint24 feeBps
     ) private returns (int128 hookDelta) {
-        // Differential above the pool's standard fee (keeps total friction ≈ feeBps).
+        // Differential above the pool's standard fee (keeps total friction ≈ max(feeBps, standard)).
         uint256 differentialBps =
-            feeBps > STANDARD_FEE_BPS ? uint256(feeBps) - uint256(STANDARD_FEE_BPS) : uint256(feeBps);
+            feeBps > STANDARD_FEE_BPS ? uint256(feeBps) - uint256(STANDARD_FEE_BPS) : 0;
         if (differentialBps == 0) return 0;
 
         bool isExactIn = params.amountSpecified < 0;

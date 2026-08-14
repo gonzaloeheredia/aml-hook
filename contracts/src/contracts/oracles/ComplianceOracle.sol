@@ -56,7 +56,9 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
     /// @notice Keeper publication of a pre-calculated risk profile (§3.8).
     /// @dev Off-chain engine owns N-hop decay / typology; this call only persists results.
     ///      Setting score 0 with a fresh `updatedAt` marks confirmed-clean (Mitigation A).
-    ///      `signature` is reserved for future attestation; unused in the current stack.
+    ///      TODO: `signature` is NOT verified. Authorization is AccessManager `_ORACLE_KEEPER`
+    ///      only. The bytes argument is reserved for a future attestation scheme and must not
+    ///      be treated as cryptographic proof in the current stack.
     ///      Restricted to `_ORACLE_KEEPER` — a compromised key is revoked on the AccessManager.
     function updateScore(
         address wallet,

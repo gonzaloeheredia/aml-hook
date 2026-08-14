@@ -42,6 +42,16 @@ interface IFeeEscrow {
     /// @notice Default release to the pool after the window with no prior resolution.
     function releaseDefault(uint256 escrowId) external;
 
+    /// @notice Checkpoint 1 for many escrow ids (same rules as `releaseEarly`).
+    function batchReleaseEarly(uint256[] calldata escrowIds) external;
+
+    /// @notice Checkpoint 2 for many escrow ids. `illicitConfirmed` must match `escrowIds` 1:1.
+    function batchResolveCheckpoint2(uint256[] calldata escrowIds, bool[] calldata illicitConfirmed)
+        external;
+
+    /// @notice Default release for many escrow ids (same rules as `releaseDefault`).
+    function batchReleaseDefault(uint256[] calldata escrowIds) external;
+
     /// @notice Read a single escrow record.
     function getEscrow(uint256 escrowId) external view returns (EscrowRecord memory);
 }

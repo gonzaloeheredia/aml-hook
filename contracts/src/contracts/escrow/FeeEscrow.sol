@@ -47,6 +47,8 @@ contract FeeEscrow is IFeeEscrow {
     uint64 public constant CHECKPOINT1_MIN_AGE = 24 hours;
 
     address public owner;
+    /// @notice Two-step ownership: proposed owner must call `acceptOwnership`.
+    address public pendingOwner;
     IERC20Fee private immutable _feeToken;
     /// @notice Destination for clean / default / early releases (normal pool fee path).
     address public poolRecipient;
@@ -72,8 +74,11 @@ contract FeeEscrow is IFeeEscrow {
     error Checkpoint1WindowClosed();
     error EscrowWindowOpen();
     error TransferFailed();
+    error LengthMismatch();
+    error NotPendingOwner();
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
     event KeeperUpdated(address indexed keeper, bool allowed);
     event DepositorUpdated(address indexed depositor, bool allowed);
     event PoolRecipientUpdated(address indexed poolRecipient);
@@ -182,18 +187,15 @@ contract FeeEscrow is IFeeEscrow {
     ///      fee path, not for seizing. Confiscation is reserved for Checkpoint 2 after more time
     ///      and a second COA pass (§3.7).
     function releaseEarly(uint256 escrowId) external onlyKeeper {
-        EscrowRecord storage rec = _requireActive(escrowId);
-        uint256 age = block.timestamp - uint256(rec.depositedAt);
-        if (age < uint256(CHECKPOINT1_MIN_AGE)) revert Checkpoint1TooEarly();
-        if (age >= uint256(ESCROW_WINDOW)) revert Checkpoint1WindowClosed();
+        _releaseEarly(escrowId);
+    }
 
-        rec.status = EscrowStatus.ReleasedEarly;
-        address to = poolRecipient;
-        uint256 amount = rec.amount;
-        address wallet = rec.wallet;
-
-        _transferOut(to, amount);
-        emit FeeReleasedEarly(escrowId, wallet, amount, to);
+    /// @inheritdoc IFeeEscrow
+    function batchReleaseEarly(uint256[] calldata escrowIds) external onlyKeeper {
+        uint256 n = escrowIds.length;
+        for (uint256 i; i < n; ++i) {
+            _releaseEarly(escrowIds[i]);
+        }
     }
 
     /// @inheritdoc IFeeEscrow
@@ -201,25 +203,18 @@ contract FeeEscrow is IFeeEscrow {
     /// @param illicitConfirmed Keeper's post-sanity conclusion from the COA (true = confiscate).
     /// @dev Illicit → lpCompensationFund (never pool). Clean → poolRecipient (FeeReleasedDefault).
     function resolveCheckpoint2(uint256 escrowId, bool illicitConfirmed) external onlyKeeper {
-        EscrowRecord storage rec = _requireActive(escrowId);
-        if (block.timestamp < uint256(rec.depositedAt) + uint256(ESCROW_WINDOW)) {
-            revert EscrowWindowOpen();
-        }
+        _resolveCheckpoint2(escrowId, illicitConfirmed);
+    }
 
-        address wallet = rec.wallet;
-        uint256 amount = rec.amount;
-
-        if (illicitConfirmed) {
-            // Confiscated differential fees compensate LPs — never the pool recipient.
-            rec.status = EscrowStatus.Confiscated;
-            address to = lpCompensationFund;
-            _transferOut(to, amount);
-            emit FeeConfiscated(escrowId, wallet, amount, to);
-        } else {
-            rec.status = EscrowStatus.ReleasedDefault;
-            address to = poolRecipient;
-            _transferOut(to, amount);
-            emit FeeReleasedDefault(escrowId, wallet, amount, to);
+    /// @inheritdoc IFeeEscrow
+    function batchResolveCheckpoint2(uint256[] calldata escrowIds, bool[] calldata illicitConfirmed)
+        external
+        onlyKeeper
+    {
+        uint256 n = escrowIds.length;
+        if (n != illicitConfirmed.length) revert LengthMismatch();
+        for (uint256 i; i < n; ++i) {
+            _resolveCheckpoint2(escrowIds[i], illicitConfirmed[i]);
         }
     }
 
@@ -228,18 +223,15 @@ contract FeeEscrow is IFeeEscrow {
     /// @dev Same destination as a non-illicit Checkpoint 2 result (§3.7). Fail-open to pool
     ///      rather than freezing fees forever when ops miss the window.
     function releaseDefault(uint256 escrowId) external onlyKeeper {
-        EscrowRecord storage rec = _requireActive(escrowId);
-        if (block.timestamp < uint256(rec.depositedAt) + uint256(ESCROW_WINDOW)) {
-            revert EscrowWindowOpen();
+        _releaseDefault(escrowId);
+    }
+
+    /// @inheritdoc IFeeEscrow
+    function batchReleaseDefault(uint256[] calldata escrowIds) external onlyKeeper {
+        uint256 n = escrowIds.length;
+        for (uint256 i; i < n; ++i) {
+            _releaseDefault(escrowIds[i]);
         }
-
-        rec.status = EscrowStatus.ReleasedDefault;
-        address to = poolRecipient;
-        uint256 amount = rec.amount;
-        address wallet = rec.wallet;
-
-        _transferOut(to, amount);
-        emit FeeReleasedDefault(escrowId, wallet, amount, to);
     }
 
     /// @inheritdoc IFeeEscrow
@@ -272,10 +264,72 @@ contract FeeEscrow is IFeeEscrow {
         emit LpCompensationFundUpdated(lpCompensationFund_);
     }
 
+    /// @notice Propose a new owner. Completes only when `newOwner` calls `acceptOwnership`.
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
-        emit OwnershipTransferred(owner, newOwner);
-        owner = newOwner;
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner, newOwner);
+    }
+
+    /// @notice Complete a pending two-step ownership transfer.
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotPendingOwner();
+        address previous = owner;
+        owner = msg.sender;
+        pendingOwner = address(0);
+        emit OwnershipTransferred(previous, msg.sender);
+    }
+
+    function _releaseEarly(uint256 escrowId) private {
+        EscrowRecord storage rec = _requireActive(escrowId);
+        uint256 age = block.timestamp - uint256(rec.depositedAt);
+        if (age < uint256(CHECKPOINT1_MIN_AGE)) revert Checkpoint1TooEarly();
+        if (age >= uint256(ESCROW_WINDOW)) revert Checkpoint1WindowClosed();
+
+        rec.status = EscrowStatus.ReleasedEarly;
+        address to = poolRecipient;
+        uint256 amount = rec.amount;
+        address wallet = rec.wallet;
+
+        _transferOut(to, amount);
+        emit FeeReleasedEarly(escrowId, wallet, amount, to);
+    }
+
+    function _resolveCheckpoint2(uint256 escrowId, bool illicitConfirmed) private {
+        EscrowRecord storage rec = _requireActive(escrowId);
+        if (block.timestamp < uint256(rec.depositedAt) + uint256(ESCROW_WINDOW)) {
+            revert EscrowWindowOpen();
+        }
+
+        address wallet = rec.wallet;
+        uint256 amount = rec.amount;
+
+        if (illicitConfirmed) {
+            rec.status = EscrowStatus.Confiscated;
+            address to = lpCompensationFund;
+            _transferOut(to, amount);
+            emit FeeConfiscated(escrowId, wallet, amount, to);
+        } else {
+            rec.status = EscrowStatus.ReleasedDefault;
+            address to = poolRecipient;
+            _transferOut(to, amount);
+            emit FeeReleasedDefault(escrowId, wallet, amount, to);
+        }
+    }
+
+    function _releaseDefault(uint256 escrowId) private {
+        EscrowRecord storage rec = _requireActive(escrowId);
+        if (block.timestamp < uint256(rec.depositedAt) + uint256(ESCROW_WINDOW)) {
+            revert EscrowWindowOpen();
+        }
+
+        rec.status = EscrowStatus.ReleasedDefault;
+        address to = poolRecipient;
+        uint256 amount = rec.amount;
+        address wallet = rec.wallet;
+
+        _transferOut(to, amount);
+        emit FeeReleasedDefault(escrowId, wallet, amount, to);
     }
 
     function _requireActive(uint256 escrowId) private view returns (EscrowRecord storage rec) {

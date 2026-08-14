@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {IRiskPolicy} from "../../interfaces/policies/IRiskPolicy.sol";
+import {FeeBps} from "../../libraries/FeeBps.sol";
 import {HookDecision} from "../../libraries/HookDecision.sol";
 
 /// @title Layer 3 — RiskPolicy (REAL on-chain decision mapping)
@@ -29,11 +30,11 @@ import {HookDecision} from "../../libraries/HookDecision.sol";
 ///
 ///      No AccessManager: there is nothing to authorize — only math.
 contract RiskPolicy is IRiskPolicy {
-    uint24 public constant STANDARD_FEE_BPS = 30; // 0.30% — informational; pool applies base on ALLOW
-    uint24 public constant PUNITIVE_FEE_BPS = 800; // 8.00% fallback (~1-hop / score ~65)
-    uint24 public constant PROPORTIONAL_FEE_BPS = 300; // 3.00% fallback (~2-hop / score ~42)
-    uint24 public constant LATENCY_FEE_BPS = 800; // 8.00% — oracle-latency / inflow floor (§3.8)
-    uint24 public constant MAX_OVERRIDE_FEE_BPS = 1000; // 10% hard cap on any override
+    uint24 public constant STANDARD_FEE_BPS = FeeBps.STANDARD;
+    uint24 public constant PUNITIVE_FEE_BPS = FeeBps.PUNITIVE;
+    uint24 public constant PROPORTIONAL_FEE_BPS = FeeBps.PROPORTIONAL;
+    uint24 public constant LATENCY_FEE_BPS = FeeBps.LATENCY;
+    uint24 public constant MAX_OVERRIDE_FEE_BPS = FeeBps.MAX_OVERRIDE;
 
     /// @inheritdoc IRiskPolicy
     /// @notice Maps behavioral score + latency floor signals → ALLOW / FEE_OVERRIDE / REVERT.
@@ -83,19 +84,16 @@ contract RiskPolicy is IRiskPolicy {
         pure
         returns (uint24)
     {
-        if (recommendedFeeBps > 0 && recommendedFeeBps <= MAX_OVERRIDE_FEE_BPS) {
+        if (recommendedFeeBps > 0 && recommendedFeeBps <= FeeBps.MAX_OVERRIDE) {
             return recommendedFeeBps;
         }
-        return score >= 55 ? PUNITIVE_FEE_BPS : PROPORTIONAL_FEE_BPS;
+        return score >= 55 ? FeeBps.PUNITIVE : FeeBps.PROPORTIONAL;
     }
 
     /// @dev Latency / inflow floor fee (§3.8 Mitigations B & D, Wallet D path).
     ///      Prefer keeper fee; else always 8% — never the 2-hop 3% band fallback.
     ///      Why 8%: designed economic friction until the keeper catches up.
     function _resolveLatencyFee(uint24 recommendedFeeBps) private pure returns (uint24) {
-        if (recommendedFeeBps > 0 && recommendedFeeBps <= MAX_OVERRIDE_FEE_BPS) {
-            return recommendedFeeBps;
-        }
-        return LATENCY_FEE_BPS;
+        return FeeBps.resolveLatencyFee(recommendedFeeBps);
     }
 }

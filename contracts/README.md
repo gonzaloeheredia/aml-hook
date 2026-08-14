@@ -48,8 +48,9 @@ User → Router → PoolManager → AmlHook
 | **FeeEscrow** | 48h hold of FEE_OVERRIDE differential only; own owner / keepers / depositors (not AccessManager) |
 
 Subject resolution (§3.5): trusted routers (`hookGovernor` `setTrustedRouter`) report the end-user via
-`IMsgSender.msgSender()` as the primary source; `hookData` (`abi.encode(endUser)`) is a cross-check
-when both are present (`SubjectMismatch` on disagreement) and the fail-closed fallback otherwise.
+`IMsgSender.msgSender()` as the only subject (`TrustedRouterSubjectFailed` if the call reverts or
+returns zero — no `hookData` fallback). `hookData` (`abi.encode(endUser)`) is a cross-check when both
+are present (`SubjectMismatch` on disagreement) and the fail-closed path for untrusted routers.
 
 ### Ternary bands (§3.3)
 

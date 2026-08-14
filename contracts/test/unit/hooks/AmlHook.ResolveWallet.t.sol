@@ -113,6 +113,33 @@ contract UnitAmlHookResolveWalletTest is Helpers {
         manager.callBeforeSwap(IHooks(address(hook)), address(0xDEAD), key, params, "");
     }
 
+    function test_TrustedRouter_RevertingMsgSender_DoesNotFallBackToHookData() external {
+        MockTrustedRouter trusted = new MockTrustedRouter();
+        trusted.setMsgSender(walletC);
+        trusted.setRevertOnRead(true);
+        vm.prank(hookGovernor);
+        hook.setTrustedRouter(address(trusted), true);
+
+        bytes memory data = abi.encode(walletC);
+        vm.expectRevert(
+            abi.encodeWithSelector(AmlHookLogic.TrustedRouterSubjectFailed.selector, address(trusted))
+        );
+        manager.callBeforeSwap(IHooks(address(hook)), address(trusted), key, params, data);
+    }
+
+    function test_TrustedRouter_ZeroMsgSender_DoesNotFallBackToHookData() external {
+        MockTrustedRouter trusted = new MockTrustedRouter();
+        trusted.setMsgSender(address(0));
+        vm.prank(hookGovernor);
+        hook.setTrustedRouter(address(trusted), true);
+
+        bytes memory data = abi.encode(walletC);
+        vm.expectRevert(
+            abi.encodeWithSelector(AmlHookLogic.TrustedRouterSubjectFailed.selector, address(trusted))
+        );
+        manager.callBeforeSwap(IHooks(address(hook)), address(trusted), key, params, data);
+    }
+
     function test_FallbackHookData_UnchangedWithoutTrustedRouter() external {
         vm.prank(keeper);
         complianceOracle.updateScore(walletC, 0, 0, address(0), 0, "");
