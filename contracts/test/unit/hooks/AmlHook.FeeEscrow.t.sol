@@ -129,6 +129,39 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         assertEq(feeToken.balanceOf(address(escrow)), 0);
     }
 
+    function test_AfterSwap_FeeOverride_AtOrBelowStandardFee_TakesZeroDifferential() external {
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 30, "");
+
+        feeToken.mint(address(manager), 1e18);
+        bytes memory data = abi.encode(walletB);
+        manager.callBeforeSwap(IHooks(address(hook)), router, key, params, data);
+
+        (, int128 hookDelta) = manager.callAfterSwap(
+            IHooks(address(hook)), router, key, params, toBalanceDelta(-1e18, 1e18), data
+        );
+
+        assertEq(hookDelta, 0);
+        assertEq(feeToken.balanceOf(address(escrow)), 0);
+        assertEq(feeToken.balanceOf(address(manager)), 1e18);
+    }
+
+    function test_AfterSwap_FeeOverride_BelowStandardFee_TakesZeroDifferential() external {
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 20, "");
+
+        feeToken.mint(address(manager), 1e18);
+        bytes memory data = abi.encode(walletB);
+        manager.callBeforeSwap(IHooks(address(hook)), router, key, params, data);
+
+        (, int128 hookDelta) = manager.callAfterSwap(
+            IHooks(address(hook)), router, key, params, toBalanceDelta(-1e18, 1e18), data
+        );
+
+        assertEq(hookDelta, 0);
+        assertEq(feeToken.balanceOf(address(escrow)), 0);
+    }
+
     function test_AfterSwap_FeeOverride_ExactOut_DepositsOnInputCurrency() external {
         vm.prank(keeper);
         complianceOracle.updateScore(walletB, 65, 1, walletA, 800, "");

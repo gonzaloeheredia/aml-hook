@@ -154,6 +154,14 @@ contract UnitAmlHookLogicTest is Helpers {
         harness.setStalenessThreshold(50);
     }
 
+    function test_EvaluateViewAndLive_MatchOnUnsetScore() external {
+        (HookDecision dView, uint24 feeView,) = harness.evaluate(walletA);
+        (HookDecision dLive, uint24 feeLive,) = harness.evaluateLive(walletA);
+        assertEq(uint8(dView), uint8(dLive));
+        assertEq(feeView, feeLive);
+        assertEq(uint8(dView), uint8(HookDecision.FEE_OVERRIDE));
+    }
+
     function test_SetInflowThresholdBps_RestrictedToGovernor() external {
         assertEq(harness.inflowThresholdBps(), 5000);
 
@@ -164,6 +172,18 @@ contract UnitAmlHookLogicTest is Helpers {
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
         harness.setInflowThresholdBps(1000);
+
+        vm.prank(hookGovernor);
+        vm.expectRevert(AmlHookLogic.InflowThresholdOutOfRange.selector);
+        harness.setInflowThresholdBps(0);
+
+        vm.prank(hookGovernor);
+        vm.expectRevert(AmlHookLogic.InflowThresholdOutOfRange.selector);
+        harness.setInflowThresholdBps(99);
+
+        vm.prank(hookGovernor);
+        vm.expectRevert(AmlHookLogic.InflowThresholdOutOfRange.selector);
+        harness.setInflowThresholdBps(10_001);
     }
 
     function test_SetInflowThresholdBps_ChangesMitigationSensitivity() external {

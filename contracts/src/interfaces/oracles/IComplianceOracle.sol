@@ -34,7 +34,8 @@ interface IComplianceOracle {
     function getScore(address wallet) external view returns (uint8);
 
     /// @notice Keeper write of pre-calculated score + optional recommended fee (§3.8).
-    /// @dev `signature` reserved for future attestation; N-hop / typology math stays off-chain.
+    /// @dev `signature` is NOT verified (AccessManager auth only). Reserved for future
+    ///      attestation; do not treat a non-empty value as cryptographic proof.
     function updateScore(
         address wallet,
         uint8 score,

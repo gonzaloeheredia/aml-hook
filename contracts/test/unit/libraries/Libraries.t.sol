@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 
+import {FeeBps} from "libraries/FeeBps.sol";
 import {HookDecision} from "libraries/HookDecision.sol";
 import {Roles} from "libraries/Roles.sol";
 
@@ -14,6 +15,16 @@ contract UnitLibrariesTest is Test {
         assertEq(Roles._HOOK_GOVERNOR, 3);
         assertTrue(Roles._REGISTRY_KEEPER != 0);
         assertTrue(Roles._ORACLE_KEEPER != type(uint64).max);
+    }
+
+    function test_FeeBps_SharedLatencyResolution() external pure {
+        assertEq(FeeBps.STANDARD, 30);
+        assertEq(FeeBps.LATENCY, 800);
+        assertEq(FeeBps.MAX_OVERRIDE, 1000);
+        assertEq(FeeBps.MIN_INFLOW_THRESHOLD, 100);
+        assertEq(FeeBps.resolveLatencyFee(0), 800);
+        assertEq(FeeBps.resolveLatencyFee(500), 500);
+        assertEq(FeeBps.resolveLatencyFee(1001), 800);
     }
 
     function test_HookDecision_OrdinalsMatchTernarySpec() external pure {

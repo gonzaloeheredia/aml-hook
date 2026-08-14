@@ -8,6 +8,7 @@ import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol"
 import {IRiskPolicy} from "../../interfaces/policies/IRiskPolicy.sol";
 import {IMsgSender} from "../../interfaces/external/IMsgSender.sol";
 import {IERC20Minimal} from "../../interfaces/external/IERC20Minimal.sol";
+import {FeeBps} from "../../libraries/FeeBps.sol";
 import {HookDecision} from "../../libraries/HookDecision.sol";
 
 /// @title Shared beforeSwap decision logic for AMLHook
@@ -74,7 +75,8 @@ abstract contract AmlHookLogic is AccessManaged {
 
     /// @dev Default punitive fee when elevating ALLOW due to hook-local latency mitigations.
     ///      800 bps = 8% — designed product fee when keeper omitted `feeBps` (Wallet D path).
-    uint24 public constant LATENCY_FEE_BPS = 800;
+    ///      Same constant as RiskPolicy (`FeeBps.LATENCY`) so A/C cannot drift from B/D.
+    uint24 public constant LATENCY_FEE_BPS = FeeBps.LATENCY;
 
     /// @dev Per-wallet pool activity for Mitigation C. Independent of the oracle so the
     ///      hook can still elevate while `updateScore` is pending.
@@ -99,10 +101,13 @@ abstract contract AmlHookLogic is AccessManaged {
     error SanctionHit(address wallet);
     /// @notice No verified end-user from trusted router or hookData (fail-closed §3.5).
     error MissingSwapSubject();
+    /// @notice Trusted router `msgSender()` reverted or returned zero — fail closed, no hookData fallback.
+    error TrustedRouterSubjectFailed(address router);
     /// @notice Trusted router subject and hookData address disagree.
     /// @param declared Address decoded from hookData (cross-check).
     /// @param fromRouter Address returned by `IMsgSender.msgSender()` on the trusted router.
     error SubjectMismatch(address declared, address fromRouter);
+    error InflowThresholdOutOfRange();
 
     event StalenessThresholdUpdated(uint256 previous, uint256 current);
     event InflowThresholdUpdated(uint256 previous, uint256 current);
@@ -165,7 +170,14 @@ abstract contract AmlHookLogic is AccessManaged {
     }
 
     /// @notice Hook governor retunes Mitigation D inflow threshold in bps of current balance (§3.8).
+    /// @dev Floor `FeeBps.MIN_INFLOW_THRESHOLD` (1%) so a zero threshold cannot elevate every dust delta.
     function setInflowThresholdBps(uint256 inflowThresholdBps_) external restricted {
+        if (
+            inflowThresholdBps_ < FeeBps.MIN_INFLOW_THRESHOLD
+                || inflowThresholdBps_ > FeeBps.MAX_INFLOW_THRESHOLD
+        ) {
+            revert InflowThresholdOutOfRange();
+        }
         emit InflowThresholdUpdated(inflowThresholdBps, inflowThresholdBps_);
         inflowThresholdBps = inflowThresholdBps_;
     }
@@ -183,9 +195,10 @@ abstract contract AmlHookLogic is AccessManaged {
 
     /// @notice Resolve the compliance subject for beforeSwap (§3.5).
     /// @dev WHY THIS ORDER:
-    ///      1) If `router` is trusted → `IMsgSender(router).msgSender()` is primary truth.
+    ///      1) If `router` is trusted → `IMsgSender(router).msgSender()` is the only subject.
+    ///         Revert or zero → `TrustedRouterSubjectFailed` (no hookData fallback).
     ///         Optional hookData is a cross-check only (mismatch → SubjectMismatch).
-    ///      2) Else (untrusted / call failed / zero) → decode `abi.encode(endUser)` from hookData.
+    ///      2) Else (untrusted) → decode `abi.encode(endUser)` from hookData.
     ///      3) If still zero → MissingSwapSubject (fail closed). Never score the router itself.
     /// @param router PoolManager-reported swap initiator (`sender` in beforeSwap).
     /// @param hookData Optional `abi.encode(endUser)` cross-check / legacy fallback.
@@ -196,20 +209,19 @@ abstract contract AmlHookLogic is AccessManaged {
     {
         if (trustedRouters[router]) {
             address fromRouter;
-            // try/catch: a broken router must not brick the pool — we fall back to hookData.
+            // Fail closed: a reverting or zero msgSender() must not fall through to caller hookData.
             try IMsgSender(router).msgSender() returns (address subject) {
                 fromRouter = subject;
             } catch {
-                // External call failed — fall through to hookData path.
+                revert TrustedRouterSubjectFailed(router);
             }
-            if (fromRouter != address(0)) {
-                address declared = _tryDecodeHookSubject(hookData);
-                // Both present and disagree → someone is lying; abort before L1/L2/L3.
-                if (declared != address(0) && declared != fromRouter) {
-                    revert SubjectMismatch(declared, fromRouter);
-                }
-                return fromRouter;
+            if (fromRouter == address(0)) revert TrustedRouterSubjectFailed(router);
+            address declared = _tryDecodeHookSubject(hookData);
+            // Both present and disagree → someone is lying; abort before L1/L2/L3.
+            if (declared != address(0) && declared != fromRouter) {
+                revert SubjectMismatch(declared, fromRouter);
             }
+            return fromRouter;
         }
 
         wallet = _tryDecodeHookSubject(hookData);
@@ -250,6 +262,31 @@ abstract contract AmlHookLogic is AccessManaged {
             IComplianceOracle.WalletRisk memory risk
         )
     {
+        (decision, feeBps, risk,) = _evaluateCore(wallet, token);
+        if (decision == HookDecision.ALLOW) {
+            (decision, feeBps) = _applyHookLocalMitigations(wallet, risk);
+        }
+    }
+
+    /// @dev Shared L1 → L3 path. Hook-local A/C are applied by the caller so the view
+    ///      and event-emitting wrappers cannot drift.
+    struct EvalSignals {
+        bool isStale;
+        uint32 operationCount;
+        bool hasSignificantInflow;
+        uint256 deltaBps;
+    }
+
+    function _evaluateCore(address wallet, address token)
+        private
+        view
+        returns (
+            HookDecision decision,
+            uint24 feeBps,
+            IComplianceOracle.WalletRisk memory risk,
+            EvalSignals memory sig
+        )
+    {
         // ── Layer 1 — static sanctions (§3.2 / §4.1) ─────────────────────────
         // Fail closed: OFAC/SDN-style hit must not consult the behavioral score.
         if (sanctionRegistry.isSanctioned(wallet)) {
@@ -262,24 +299,18 @@ abstract contract AmlHookLogic is AccessManaged {
 
         // Derive §3.8 signals the pure RiskPolicy cannot observe by itself
         // (RiskPolicy must stay free of block.timestamp / external calls).
-        uint32 operationCount = _opsInCurrentWindow(wallet);
-        bool isStale = _isStale(risk.updatedAt);
-        (bool hasSignificantInflow,) = _inflowSignal(wallet, token, risk.updatedAt);
+        sig.operationCount = _opsInCurrentWindow(wallet);
+        sig.isStale = _isStale(risk.updatedAt);
+        (sig.hasSignificantInflow, sig.deltaBps) = _inflowSignal(wallet, token, risk.updatedAt);
 
         // ── Layer 3 — ternary bands + floors B/D (§3.3 / §3.8) ───────────────
         (decision, feeBps) = riskPolicy.decide(
-            risk.score, risk.feeBps, isStale, operationCount, hasSignificantInflow
+            risk.score, risk.feeBps, sig.isStale, sig.operationCount, sig.hasSignificantInflow
         );
 
         // High band (71–100) or policy REVERT: unconditional block (§3.3 Output 3).
         if (decision == HookDecision.REVERT) {
             revert WalletBlocked(wallet, risk.score, "SCORE_REVERT_BAND");
-        }
-
-        // Mitigations A (never written) and C (activity-window cap) stay hook-local
-        // because they do not need to live inside the pure policy mapping.
-        if (decision == HookDecision.ALLOW) {
-            (decision, feeBps) = _applyHookLocalMitigations(wallet, risk);
         }
     }
 
@@ -316,32 +347,17 @@ abstract contract AmlHookLogic is AccessManaged {
             IComplianceOracle.WalletRisk memory risk
         )
     {
-        if (sanctionRegistry.isSanctioned(wallet)) {
-            revert SanctionHit(wallet);
-        }
-
-        risk = complianceOracle.getRisk(wallet);
-        uint32 operationCount = _opsInCurrentWindow(wallet);
-        bool isStale = _isStale(risk.updatedAt);
-        (bool hasSignificantInflow, uint256 deltaBps) =
-            _inflowSignal(wallet, token, risk.updatedAt);
-
-        (decision, feeBps) = riskPolicy.decide(
-            risk.score, risk.feeBps, isStale, operationCount, hasSignificantInflow
-        );
-
-        if (decision == HookDecision.REVERT) {
-            revert WalletBlocked(wallet, risk.score, "SCORE_REVERT_BAND");
-        }
+        EvalSignals memory sig;
+        (decision, feeBps, risk, sig) = _evaluateCore(wallet, token);
 
         // Mitigation D audit: generic "recent funds → swap" pattern (not origin attribution).
-        if (hasSignificantInflow) {
-            emit InflowHeuristicTriggered(wallet, deltaBps, block.timestamp);
+        if (sig.hasSignificantInflow) {
+            emit InflowHeuristicTriggered(wallet, sig.deltaBps, block.timestamp);
         }
 
         // Audit when RiskPolicy floored ALLOW→FEE_OVERRIDE via Mitigation B (score still ≤ 30).
         if (
-            risk.score <= 30 && isStale && operationCount > 0
+            risk.score <= 30 && sig.isStale && sig.operationCount > 0
                 && decision == HookDecision.FEE_OVERRIDE
         ) {
             emit LatencyMitigationApplied(
@@ -353,28 +369,20 @@ abstract contract AmlHookLogic is AccessManaged {
             return (decision, feeBps, risk);
         }
 
-        // Mitigation A — never written.
-        if (risk.updatedAt == 0) {
-            feeBps = _latencyFee(risk);
-            emit LatencyMitigationApplied(wallet, REASON_SCORE_NEVER_WRITTEN, feeBps, risk.score);
-            return (HookDecision.FEE_OVERRIDE, feeBps, risk);
+        (decision, feeBps) = _applyHookLocalMitigations(wallet, risk);
+        if (decision == HookDecision.ALLOW) {
+            return (decision, 0, risk);
         }
 
-        // Mitigation C — activity-window cap.
-        if (_opsInCurrentWindow(wallet) >= maxOpsInWindow) {
-            feeBps = _latencyFee(risk);
-            emit LatencyMitigationApplied(wallet, REASON_ACTIVITY_WINDOW_CAP, feeBps, risk.score);
-            return (HookDecision.FEE_OVERRIDE, feeBps, risk);
-        }
-
-        return (HookDecision.ALLOW, 0, risk);
+        bytes32 reason = risk.updatedAt == 0 ? REASON_SCORE_NEVER_WRITTEN : REASON_ACTIVITY_WINDOW_CAP;
+        emit LatencyMitigationApplied(wallet, reason, feeBps, risk.score);
+        return (decision, feeBps, risk);
     }
 
     /// @dev Prefer keeper-written feeBps when in range; else 8% latency fee
     ///      (Wallet D / §3.8 designed product behavior when keeper omitted fee).
     function _latencyFee(IComplianceOracle.WalletRisk memory risk) private pure returns (uint24) {
-        if (risk.feeBps > 0 && risk.feeBps <= 1000) return risk.feeBps;
-        return LATENCY_FEE_BPS;
+        return FeeBps.resolveLatencyFee(risk.feeBps);
     }
 
     /// @dev Mitigation B freshness: score older than `stalenessThreshold` is stale.
@@ -434,9 +442,7 @@ abstract contract AmlHookLogic is AccessManaged {
             a.windowStart = uint64(block.timestamp);
             a.opCount = 1;
         } else {
-            unchecked {
-                a.opCount += 1;
-            }
+            a.opCount += 1;
         }
         a.lastSwapAt = uint64(block.timestamp);
     }
