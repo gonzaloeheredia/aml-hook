@@ -32,57 +32,6 @@ The walkthrough below uses one propagation path (A → B → C) to exercise all 
 
 The pool is configured as a Real World Asset (RWA) pool on Uniswap v4, with AML Hook attached (beforeSwap, afterSwap, afterSwapReturnDelta). The off-chain scoring keeper monitors transfer events continuously and, on the A → B → C path, writes updated scores on-chain before the corresponding swap is attempted. The A → D path deliberately places the swap inside the window before that write lands.
 
-### 1.1 System Call Path and Contract Layers
-
-Swap path and the on-chain modules the hook queries (plus AccessManager for write authorization), and the off-chain keeper that writes scores:
-
-```text
-User → Router → PoolManager
-                       │
-              beforeSwap │ afterSwap
-                       ▼
-                   AMLHook
-          ┌────────────┼────────────┐
-          ▼            ▼            ▼
-   SanctionRegistry  ComplianceOracle  RiskPolicy
-     (Layer 1)         (Layer 2)         (Layer 3, decision)
-                          ▲
-                          │ updateScore(wallet, score, hopDistance, origin, signature)
-                          │
-                    Oracle Keeper (off-chain)
-                          │
-              ┌───────────┴───────────┐
-              ▼                       ▼
-     External exploit-event       ERC-20 P2P transfer
-     monitors (Forta,             monitor (wallet-to-wallet)
-     Hypernative, protocol feeds)
-
-  --------------------- ------------------------------------------------------------------------------------------------
-  Component             Role
-
-  AccessManager         Shared OpenZeppelin authority. Wires `_REGISTRY_KEEPER`, `_ORACLE_KEEPER`, `_HOOK_GOVERNOR`
-                        (see `contracts/src/libraries/Roles.sol`). Unwired restricted functions stay admin-only (fail closed).
-
-  AMLHook               Uniswap v4 hook invoked by PoolManager at beforeSwap and afterSwap.
-                        Governor-only (`_HOOK_GOVERNOR`): setTrustedRouter, setStalenessThreshold, setInflowThresholdBps.
-
-  SanctionRegistry      Layer 1. On-chain sanctions screen. Confirmed match → immediate REVERT.
-                        Writes: `_REGISTRY_KEEPER` via setSanctioned.
-
-  ComplianceOracle      Layer 2. On-chain store of behavioral score, hop distance, and origin.
-                        Writes: `_ORACLE_KEEPER` via updateScore (demo API key must hold this role).
-
-  RiskPolicy            Layer 3. Maps score to ALLOW / FEE_OVERRIDE / REVERT (+ recommendedFeeBps). Pure — no AccessManager.
-
-  Oracle Keeper / COA   Off-chain AI AML analyst. Scores wallets, publishes updateScore, and drives FeeEscrow resolutions.
-                        The COA never writes on-chain; the oracle keeper / FeeEscrow keeper alone submit txs after sanity checks.
-
-  FeeEscrow             Holds the FEE_OVERRIDE differential fee for 48h (not the swap output). Own owner/keepers/depositors
-                        (not on AccessManager). Checkpoint 1 (>=24h: early release to the pool. Checkpoint 2 (>=48h):
-                        confiscation to lpCompensationFund (LP compensation — never the pool) or default release to the pool.
-  --------------------- ------------------------------------------------------------------------------------------------
-```
-
 ## 2. Risk Scoring Model
 
 ### 2.1 Ternary Decision Logic
