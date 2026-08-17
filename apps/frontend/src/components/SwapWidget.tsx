@@ -25,27 +25,13 @@ export function SwapWidget({
   onSimulate,
 }: Props) {
   const blocked = demoCase.decision === "block";
-  const warnTone = demoCase.decision === "fee_override";
   const insufficient = connected && !blocked && walletUsdc < demoCase.activity.amountUsd;
 
   return (
     <div className="mx-auto w-full max-w-[480px] animate-fadeUp">
       <div className="rounded-[24px] border border-uni-border bg-uni-surface/90 p-2 shadow-glow backdrop-blur">
-        <div className="mb-1 flex items-center justify-between px-3 pt-2">
+        <div className="mb-1 px-3 pt-2">
           <span className="text-base font-semibold">Swap</span>
-          {connected && (
-            <span
-              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                blocked
-                  ? "bg-uni-bad/15 text-uni-bad"
-                  : warnTone
-                    ? "bg-uni-warn/15 text-uni-warn"
-                    : "bg-uni-ok/15 text-uni-ok"
-              }`}
-            >
-              {demoCase.riskLabel}
-            </span>
-          )}
         </div>
 
         <div className="rounded-[20px] bg-uni-card p-4">

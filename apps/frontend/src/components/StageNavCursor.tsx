@@ -39,7 +39,17 @@ export function StageNavCursor({
   const [hint, setHint] = useState<Hint | null>(null);
   const [visible, setVisible] = useState(false);
 
-  const enabled = !disabled && MANUAL.has(stage);
+  const [desktopPointer, setDesktopPointer] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(hover: hover) and (pointer: fine) and (min-width: 1024px)");
+    const sync = () => setDesktopPointer(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  const enabled = !disabled && desktopPointer && MANUAL.has(stage);
 
   useEffect(() => {
     if (!enabled) {
