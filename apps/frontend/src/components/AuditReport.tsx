@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties } from "react";
 import type { DemoCase } from "@/data/cases";
 
 type Props = {
@@ -184,25 +184,268 @@ export function AmlStats({ demoCase, connectedAddress }: Omit<Props, "variant">)
   );
 }
 
+const LEGAL_PREFIXES = [
+  /^Subject:\s*/i,
+  /^Role:\s*/i,
+  /^Instrument \/ mechanism:\s*/i,
+  /^Instrument:\s*/i,
+  /^Observed pattern:\s*/i,
+  /^Pattern:\s*/i,
+  /^Hook instruments:\s*/i,
+  /^Hook:\s*/i,
+  /^Venue:\s*/i,
+  /^Account \/ address under review:\s*/i,
+  /^Account under review:\s*/i,
+  /^Why not treated as suspicious for enhanced action:\s*/i,
+  /^Why elevated:\s*/i,
+  /^How \/ control:\s*/i,
+  /^WHO:\s*/i,
+  /^WHAT:\s*/i,
+  /^WHEN:\s*/i,
+  /^WHERE:\s*/i,
+  /^WHY:\s*/i,
+  /^HOW:\s*/i,
+];
+
+/**
+ * Strips SAR-style labels so the same facts read as plain sentences.
+ */
+function softenNarrative(text: string): string {
+  return text
+    .split(". ")
+    .map((sentence) => {
+      let next = sentence.trim();
+      for (const prefix of LEGAL_PREFIXES) {
+        next = next.replace(prefix, "");
+      }
+      if (!next) return "";
+      return next.charAt(0).toUpperCase() + next.slice(1);
+    })
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * Formal closing opinion for the operator record — not a SAR and not a filing.
+ */
+function formalLegalOpinion(demoCase: DemoCase): {
+  title: string;
+  finding: string;
+  nature: string;
+  directions: string;
+  basis: string;
+  traceability: string;
+} {
+  const wallet = demoCase.walletLabel;
+  const score = demoCase.score;
+  const feePct = (demoCase.appliedFeeBps / 100).toFixed(2);
+  const opinion = demoCase.agent.technicalOpinion;
+  const facts = demoCase.agent.decisionRecord.mainFacts;
+
+  if (demoCase.decision === "block") {
+    return {
+      title: "Legal opinion",
+      finding: `On the facts evaluated in this session, this office finds that ${wallet} presents REVERT-band exposure (score ${score}/100; band 71–100). Controlling facts: ${facts} Pool policy is fail-closed. The attempted swap shall not settle. WalletBlocked is the controlling on-chain record. Off-pool movement of USDC remains possible and shall continue to be monitored.`,
+      nature:
+        "This instrument is an internal legal and technical opinion issued to the pool operator. It is not a Suspicious Activity Report, is not filed with FinCEN or any other authority, and shall not be treated as a response to a governmental request. The agent does not tip off the subject.",
+      directions: opinion.recommendations,
+      basis: opinion.legalBasis,
+      traceability: opinion.traceability,
+    };
+  }
+
+  if (demoCase.decision === "fee_override") {
+    return {
+      title: "Legal opinion",
+      finding: `On the facts evaluated in this session, this office finds that ${wallet} presents elevated, non-blocking risk (score ${score}/100; FEE_OVERRIDE band 31–70). Controlling facts: ${facts} The swap may settle. The pool retains the standard 0.30 percent fee; the risk differential is segregated to FeeEscrow. Total friction on this swap is approximately ${feePct} percent. This finding is a risk-based control. It is not a determination of guilt.`,
+      nature:
+        "This instrument is an internal legal and technical opinion issued to the pool operator, together with a SAR-support annex where indicated. The annex is a support draft only. It is not a FinCEN SAR and must not be filed by the agent.",
+      directions: opinion.recommendations,
+      basis: opinion.legalBasis,
+      traceability: opinion.traceability,
+    };
+  }
+
+  return {
+    title: "Legal opinion",
+    finding: `On the facts evaluated in this session, this office finds that ${wallet} does not present reasonable suspicion for enhanced action (score ${score}/100; ALLOW band 0–30). Controlling facts: ${facts} The simulated Layer-1 sanctions screen is clear. The subject may transact at the standard pool fee of 0.30 percent.`,
+    nature:
+      "This instrument is an internal legal opinion issued to the pool operator. It is not a Suspicious Activity Report, is not filed with FinCEN or any other authority, and shall not be treated as a response to a governmental request.",
+    directions: opinion.recommendations,
+    basis: opinion.legalBasis,
+    traceability: opinion.traceability,
+  };
+}
+
+function verdictCopy(demoCase: DemoCase): {
+  chip: string;
+  title: string;
+  subtitle: string;
+  accent: string;
+} {
+  if (demoCase.decision === "block") {
+    return {
+      chip: "Blocked",
+      title: "This swap was stopped",
+      subtitle:
+        "The hook reverted before any funds moved. Nothing was settled on the pool.",
+      accent: "#FF5370",
+    };
+  }
+  if (demoCase.decision === "fee_override") {
+    const feePct = (demoCase.appliedFeeBps / 100).toFixed(2);
+    return {
+      chip: "Extra fee",
+      title: "This swap can go through, with extra friction",
+      subtitle: `Standard 0.30% plus a risk differential — about ${feePct}% total on this swap.`,
+      accent: "#F0B90B",
+    };
+  }
+  return {
+    chip: "Allowed",
+    title: "This wallet can swap normally",
+    subtitle:
+      "Standard pool fee 0.30%. No extra review file was opened for this wallet.",
+    accent: "#4DB6FF",
+  };
+}
+
 /**
  * Opinion module — Compliance Officer Agent legal / technical opinion.
- * Neutral dark palette aligned with the AML stats subject bar.
+ * Scannable verdict first; legal jargon stays behind "Technical details".
  */
 export function LegalOpinion({ demoCase }: Pick<Props, "demoCase">) {
+  const verdict = verdictCopy(demoCase);
+  const opinion = demoCase.agent.technicalOpinion;
+  const record = demoCase.agent.decisionRecord;
+  const annex = demoCase.agent.sarAnnex;
+  const legal = formalLegalOpinion(demoCase);
+  const feeLabel =
+    demoCase.decision === "block"
+      ? "No settlement"
+      : `${(demoCase.appliedFeeBps / 100).toFixed(2)}%`;
+
   return (
     <section className="relative mx-auto w-full max-w-[1000px] pb-2 pt-0">
-      <div className="rounded-2xl border border-uni-border bg-uni-card/80 px-4 py-5 sm:px-6 md:px-8 md:py-6">
-        <div className="mx-auto max-w-3xl rounded-xl border border-uni-border/80 px-4 py-3 md:px-5 md:py-4">
+      <div
+        className="rounded-2xl border px-5 py-5 shadow-[0_0_40px_rgba(77,182,255,0.06)] sm:px-6 md:px-8 md:py-6"
+        style={{
+          borderColor: `${verdict.accent}55`,
+          background:
+            "linear-gradient(145deg, #13263d 0%, #0a1522 45%, #050a12 100%)",
+        }}
+      >
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <span
+              className="inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-wide"
+              style={{
+                color: verdict.accent,
+                background: `${verdict.accent}22`,
+              }}
+            >
+              {verdict.chip}
+            </span>
+            <h3 className="mt-2 text-balance text-xl font-bold tracking-tight text-white md:text-2xl">
+              {verdict.title}
+            </h3>
+            <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-white/70">
+              {verdict.subtitle}
+            </p>
+          </div>
+          <div
+            className="flex h-[4.5rem] w-[4.5rem] shrink-0 flex-col items-center justify-center rounded-full border sm:h-20 sm:w-20"
+            style={{ borderColor: `${verdict.accent}66` }}
+          >
+            <span
+              className="text-2xl font-bold leading-none"
+              style={{ color: verdict.accent }}
+            >
+              {demoCase.score}
+            </span>
+            <span className="mt-0.5 text-[9px] uppercase tracking-wider text-white/50">
+              / 100
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 border-t border-white/10 pt-4 sm:grid-cols-3">
+          <MetaCell label="Wallet" value={demoCase.walletLabel} />
+          <MetaCell label="Fee this swap" value={feeLabel} />
+          <MetaCell label="Look again" value={record.nextReview} />
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <StoryCard
+          question="Who is this wallet?"
+          answer={softenNarrative(opinion.objectAndScope)}
+        />
+        <StoryCard
+          question="What did they do?"
+          answer={softenNarrative(opinion.typologies)}
+        />
+        <StoryCard
+          question="Why this decision?"
+          answer={softenNarrative(opinion.riskAndScoring)}
+        />
+        <StoryCard
+          question="What did the hook do?"
+          answer={softenNarrative(opinion.decisionExecuted)}
+        />
+      </div>
+
+      {annex ? (
+        <div className="mt-3 rounded-2xl border border-uni-border bg-uni-card/60 px-5 py-4 md:px-6">
+          <details className="group">
+            <summary className="cursor-pointer list-none text-sm font-semibold text-white [&::-webkit-details-marker]:hidden">
+              Extra review file · drafted, not filed
+              <span className="ml-2 text-xs font-normal text-uni-muted group-open:hidden">
+                — tap to read
+              </span>
+            </summary>
+            <div className="mt-3 space-y-3">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <MetaCell label="Status" value={annex.status} />
+                <MetaCell label="Operation" value={annex.operationState} />
+                <MetaCell label="Period" value={annex.activityPeriod} />
+                <MetaCell label="Amount" value={annex.amountInvolved} />
+              </div>
+              <OpinionRow
+                label="What we saw"
+                value={softenNarrative(annex.narrativeDescription)}
+              />
+              <OpinionRow
+                label="Why it matters"
+                value={softenNarrative(annex.narrativeEvidence)}
+              />
+              <OpinionRow
+                label="Closing"
+                value={softenNarrative(annex.narrativeConclusion)}
+              />
+            </div>
+          </details>
+        </div>
+      ) : null}
+
+      <details className="group mt-3 rounded-2xl border border-uni-border/70 bg-black/20 px-5 py-3 md:px-6">
+        <summary className="cursor-pointer list-none text-xs font-medium text-uni-muted [&::-webkit-details-marker]:hidden">
+          Technical details
+          <span className="ml-1.5 font-normal group-open:hidden">
+            · hash, timing, venue
+          </span>
+        </summary>
+        <div className="mt-3 space-y-3">
           <div className="grid gap-2 sm:grid-cols-3">
             <MetaCell label="Recipient" value={demoCase.agent.recipient} />
             <MetaCell label="Audit hash" value={demoCase.agent.auditHash} mono />
             <MetaCell
               label="Retention"
-              value={`${demoCase.agent.retentionYears} years (FATF Rec. 11 · BSA)`}
+              value={`${demoCase.agent.retentionYears} years`}
             />
           </div>
           {demoCase.agent.run ? (
-            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-3">
               <MetaCell
                 label="COA run"
                 value={`${demoCase.agent.run.runId} · ${demoCase.agent.run.durationMs}ms`}
@@ -219,180 +462,39 @@ export function LegalOpinion({ demoCase }: Pick<Props, "demoCase">) {
               />
             </div>
           ) : null}
+          <OpinionRow
+            label="When"
+            value={softenNarrative(opinion.sanctionsCheck)}
+          />
+          <OpinionRow
+            label="Where"
+            value={softenNarrative(opinion.sourcesConsulted.join(" "))}
+          />
         </div>
+      </details>
 
-        <div className="mx-auto mt-2 max-w-3xl">
-          <ReportSection
-            title={
-              demoCase.decision === "allow"
-                ? "A. Legal opinion · SAR narrative model"
-                : "A. Technical opinion · SAR narrative model"
-            }
-          >
-            <div className="space-y-3">
-              <OpinionRow
-                label="1. Who — subject(s)"
-                value={demoCase.agent.technicalOpinion.objectAndScope}
-              />
-              <OpinionRow
-                label="2. What — instruments & patterns"
-                value={demoCase.agent.technicalOpinion.typologies}
-              />
-              <OpinionRow
-                label="3. When — timing"
-                value={demoCase.agent.technicalOpinion.sanctionsCheck}
-              />
-              <OpinionRow
-                label="4. Where — venue & addresses"
-                value={demoCase.agent.technicalOpinion.sourcesConsulted.join(" · ")}
-              />
-              <OpinionRow
-                label="5. Why — why unusual / elevated"
-                value={demoCase.agent.technicalOpinion.riskAndScoring}
-              />
-              <OpinionRow
-                label="6. How — method of operation & control"
-                value={demoCase.agent.technicalOpinion.decisionExecuted}
-              />
-              <OpinionRow
-                label="7. Legal basis"
-                value={demoCase.agent.technicalOpinion.legalBasis}
-              />
-              <OpinionRow
-                label="8. Recommendations"
-                value={demoCase.agent.technicalOpinion.recommendations}
-              />
-              <OpinionRow
-                label="9. Traceability"
-                value={demoCase.agent.technicalOpinion.traceability}
-              />
-            </div>
-          </ReportSection>
-
-          <ReportSection title="B. SAR support annex">
-            {demoCase.agent.sarAnnex ? (
-              <div className="space-y-3">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <MetaCell label="Status" value={demoCase.agent.sarAnnex.status} />
-                  <MetaCell
-                    label="Operation state"
-                    value={demoCase.agent.sarAnnex.operationState}
-                  />
-                  <MetaCell
-                    label="Activity period"
-                    value={demoCase.agent.sarAnnex.activityPeriod}
-                  />
-                  <MetaCell
-                    label="Amount involved"
-                    value={demoCase.agent.sarAnnex.amountInvolved}
-                  />
-                </div>
-                <OpinionRow
-                  label="Who / What"
-                  value={demoCase.agent.sarAnnex.narrativeDescription}
-                />
-                <OpinionRow
-                  label="When / Where"
-                  value={demoCase.agent.sarAnnex.narrativeAnalysis}
-                />
-                <OpinionRow
-                  label="Why"
-                  value={demoCase.agent.sarAnnex.narrativeEvidence}
-                />
-                <OpinionRow
-                  label="How · closing"
-                  value={demoCase.agent.sarAnnex.narrativeConclusion}
-                />
-                <div>
-                  <div className="mb-2 text-[11px] font-medium text-uni-muted">
-                    Before you file — keep these in mind
-                  </div>
-                  <ul className="space-y-1.5 text-xs leading-relaxed text-white/90">
-                    {demoCase.agent.sarAnnex.warnings.map((w) => (
-                      <li key={w} className="flex gap-2">
-                        <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-white/40" />
-                        <span>{w}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <p className="text-xs leading-relaxed text-white/85">
-                  No SAR-support annex was drafted for this wallet. That annex
-                  only opens when reasonable suspicion is reached and the
-                  operator looks BSA-covered. Here, those gates were not
-                  crossed.
-                </p>
-                <OpinionRow
-                  label="Drafting gate"
-                  value="Reasonable suspicion = false. BSA-covered likelihood not triggered. No annex file opened."
-                />
-                <OpinionRow
-                  label="What to watch next"
-                  value="Keep ordinary SwapObserved logging. Re-open the annex workflow if an N-hop score moves into FEE_OVERRIDE or REVERT."
-                />
-              </div>
-            )}
-          </ReportSection>
-
-          <ReportSection
-            title={
-              demoCase.decision === "allow"
-                ? "C. Legal opinion record"
-                : "C. Decision record"
-            }
-          >
-            <div className="grid gap-2 sm:grid-cols-2">
-              <MetaCell label="Score" value={demoCase.agent.decisionRecord.score} />
-              <MetaCell label="Output" value={demoCase.agent.decisionRecord.output} />
-              <MetaCell
-                label="Basis code"
-                value={demoCase.agent.decisionRecord.basis}
-                mono
-              />
-              <MetaCell
-                label="Next review"
-                value={demoCase.agent.decisionRecord.nextReview}
-              />
-            </div>
-            <div className="mt-3">
-              <OpinionRow
-                label="Main facts"
-                value={demoCase.agent.decisionRecord.mainFacts}
-              />
-            </div>
-          </ReportSection>
-
-          <ReportSection title="D. Authority request compilation">
-            <div className="space-y-3">
-              <p className="text-xs leading-relaxed text-white/85">
-                If an authority asks for material, the agent only gathers what
-                was requested (file index, audit hash, on-chain events, and
-                source timestamps). It does not draft, sign, or send any
-                response itself.
-              </p>
-              <OpinionRow
-                label="What gets compiled"
-                value="Legal / technical opinion, optional SAR-support annex (if any), SwapObserved / ScoreUpdated / WalletBlocked events, sanctions oracle receipts, and retention metadata."
-              />
-              <OpinionRow
-                label="Who receives it"
-                value="Operator legal counsel or the pool Compliance Officer — never FinCEN, OFAC, or other authorities directly."
-              />
-              <OpinionRow
-                label="Hard limits"
-                value="No tip-off to the subject. No autonomous filing. No changes to on-chain evidence. A human must own the outbound package."
-              />
-            </div>
-          </ReportSection>
-
-          <p className="mt-4 border-t border-uni-border pt-3 text-xs leading-relaxed text-uni-muted">
-            {demoCase.agent.note}
-          </p>
+      <article className="mt-3 rounded-2xl border border-uni-border bg-uni-card/90 px-5 py-5 md:px-7 md:py-6">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-uni-muted">
+          Issued to {demoCase.agent.recipient}
+        </p>
+        <h4 className="mt-1.5 text-lg font-semibold tracking-tight text-white">
+          {legal.title}
+        </h4>
+        <div className="mt-3 grid gap-2 border-y border-uni-border/80 py-3 sm:grid-cols-3">
+          <MetaCell label="Disposition" value={record.output} />
+          <MetaCell label="Score" value={`${record.score} / 100`} />
+          <MetaCell label="Record hash" value={demoCase.agent.auditHash} mono />
         </div>
-      </div>
+        <div className="mt-4 space-y-3 text-sm leading-relaxed text-white/85">
+          <p>{legal.finding}</p>
+          <p>{legal.nature}</p>
+        </div>
+        <div className="mt-4 space-y-3">
+          <OpinionRow label="Legal basis" value={legal.basis} />
+          <OpinionRow label="Directions to the operator" value={legal.directions} />
+          <OpinionRow label="Record and retention" value={legal.traceability} />
+        </div>
+      </article>
     </section>
   );
 }
@@ -434,19 +536,17 @@ function MetaCell({
   );
 }
 
-function ReportSection({
-  title,
-  children,
+function StoryCard({
+  question,
+  answer,
 }: {
-  title: string;
-  children: ReactNode;
+  question: string;
+  answer: string;
 }) {
   return (
-    <div className="mt-3 rounded-xl border border-uni-border bg-uni-card/60 p-3 md:mt-4 md:p-4">
-      <h4 className="mb-2.5 text-sm font-semibold tracking-tight text-white">
-        {title}
-      </h4>
-      {children}
+    <div className="rounded-2xl border border-uni-border bg-uni-card/80 px-4 py-4 md:px-5">
+      <h4 className="text-sm font-semibold text-white">{question}</h4>
+      <p className="mt-2 text-sm leading-relaxed text-white/75">{answer}</p>
     </div>
   );
 }

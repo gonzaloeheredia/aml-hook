@@ -639,13 +639,13 @@ export default function HomePage() {
         : `Offline · ${API_BASE}`;
 
   return (
-    <main className="relative min-h-screen overflow-x-hidden">
+    <main className="relative min-h-dvh overflow-x-hidden">
       <StageNavCursor
         stage={stage}
         unlockedThrough={unlockedThrough}
         disabled={modalOpen || metaMaskOpen}
       />
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-[720px]">
+      <div className="pointer-events-none fixed inset-0">
         <div className="bokeh">
           <span className="orb-1" />
           <span className="orb-2" />
@@ -664,9 +664,6 @@ export default function HomePage() {
           }
           onConnectClick={() => setModalOpen(true)}
           onMetaMaskClick={() => setMetaMaskOpen(true)}
-          onRestartData={() => {
-            void handleRestartData();
-          }}
         />
 
         {apiStatus !== "online" && (
@@ -732,7 +729,7 @@ export default function HomePage() {
                 Opinion
               </p>
               <h2 className="mt-1.5 text-balance text-2xl font-extrabold tracking-tight md:text-3xl">
-                Opinion
+                AML Analysis
               </h2>
             </div>
           )}
@@ -748,8 +745,8 @@ export default function HomePage() {
             </div>
           )}
 
-          <div className="relative flex items-start gap-4 lg:gap-6">
-            <div className="z-20 shrink-0 self-start">
+          <div className="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
+            <div className="relative z-20 w-full shrink-0 lg:w-14 lg:self-start">
               <StageRail
                 stage={stage}
                 unlockedThrough={unlockedThrough}
@@ -836,6 +833,37 @@ export default function HomePage() {
           </div>
         </section>
       </div>
+
+      <button
+        type="button"
+        onClick={() => {
+          void handleRestartData();
+        }}
+        data-no-stage-nav
+        title="Restart data"
+        aria-label="Restart data"
+        className="fixed bottom-5 right-5 z-30 inline-flex items-center gap-2 rounded-full border border-white/20 bg-[#1a1a1e]/95 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_28px_rgba(0,0,0,0.45)] backdrop-blur-md transition hover:bg-[#25252b]"
+      >
+        <span
+          className="flex h-7 w-7 items-center justify-center rounded-full border border-white/25 bg-[#2a2a2e]"
+          aria-hidden
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M21 12a9 9 0 1 1-2.6-6.3" />
+            <polyline points="21 3 21 9 15 9" />
+          </svg>
+        </span>
+        <span className="hidden sm:inline">Restart data</span>
+      </button>
 
       <ConnectModal
         open={modalOpen}
