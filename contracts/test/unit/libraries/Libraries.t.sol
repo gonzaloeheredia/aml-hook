@@ -6,6 +6,7 @@ import {Test} from "forge-std/Test.sol";
 import {FeeBps} from "libraries/FeeBps.sol";
 import {HookDecision} from "libraries/HookDecision.sol";
 import {Roles} from "libraries/Roles.sol";
+import {UniversalRouters} from "libraries/UniversalRouters.sol";
 
 /// @notice Unit coverage for `src/libraries/` (constants / enum ordinals must not drift).
 contract UnitLibrariesTest is Test {
@@ -31,5 +32,14 @@ contract UnitLibrariesTest is Test {
         assertEq(uint8(HookDecision.ALLOW), 0);
         assertEq(uint8(HookDecision.FEE_OVERRIDE), 1);
         assertEq(uint8(HookDecision.REVERT), 2);
+    }
+
+    function test_UniversalRouters_AppUniswapOrgAddresses() external pure {
+        assertEq(UniversalRouters.appRouter(1), 0x66a9893cC07D91D95644AEDD05D03f95e1dBA8Af);
+        assertEq(UniversalRouters.appRouter(130), 0xEf740bf23aCaE26f6492B10de645D6B98dC8Eaf3);
+        assertEq(UniversalRouters.appRouter(8453), 0x6fF5693b99212Da76ad316178A184AB56D299b43);
+        assertEq(UniversalRouters.appRouter(31337), address(0));
+        assertTrue(UniversalRouters.appRouterV211(1) != UniversalRouters.appRouter(1));
+        assertTrue(UniversalRouters.appRouterV211(1) != address(0));
     }
 }

@@ -9,6 +9,7 @@ import {FeeEscrow} from "contracts/escrow/FeeEscrow.sol";
 import {SanctionRegistry} from "contracts/registries/SanctionRegistry.sol";
 import {Roles} from "libraries/Roles.sol";
 import {Deploy} from "script/Deploy.sol";
+import {UniversalRouters} from "libraries/UniversalRouters.sol";
 import {Helpers} from "test/utils/Helpers.t.sol";
 
 /// @dev Exposes the script's internal entry points so the wiring can be exercised without broadcasting.
@@ -136,11 +137,33 @@ contract UnitDeployTest is Helpers {
     }
 
     function test_DeployWhenRunSeedsATrustedRouter() external view {
-        // The mock router the script deploys when TRUSTED_ROUTER is unset reports the configurer.
-        // Its address isn't asserted here (it's a fresh CREATE deploy); what matters is that some
-        // router ended up trusted, which the ResolveWallet suite exercises against MockTrustedRouter
-        // directly. This test only confirms the hook itself came up under the shared manager.
-        assertTrue(hook.authority() == address(accessManager));
+        // Anvil has no canonical Universal Router, so Deploy seeds MockTrustedRouter.
+        assertTrue(hook.trustedRouters(deployment.trustedRouter()));
+        assertTrue(deployment.trustedRouter() != address(0));
+    }
+
+    function test_DeployWhenRunOnEthereum_TrustsAppUniswapUniversalRouter() external {
+        DeployHarness live = new DeployHarness();
+        vm.chainId(1);
+        live.deploy(owner, registryKeeper, oracleKeeper, hookGovernor);
+
+        address ur = UniversalRouters.appRouter(1);
+        address v211 = UniversalRouters.appRouterV211(1);
+        assertTrue(live.hook().trustedRouters(ur));
+        assertTrue(live.hook().trustedRouters(v211));
+        assertEq(live.trustedRouter(), ur);
+        // No local mock on a chain that already has the Uniswap app router.
+        assertFalse(live.hook().trustedRouters(address(0)));
+    }
+
+    function test_DeployWhenRunOnUnichain_TrustsAppUniswapUniversalRouter() external {
+        DeployHarness live = new DeployHarness();
+        vm.chainId(130);
+        live.deploy(owner, registryKeeper, oracleKeeper, hookGovernor);
+
+        assertTrue(live.hook().trustedRouters(UniversalRouters.appRouter(130)));
+        assertTrue(live.hook().trustedRouters(UniversalRouters.appRouterV211(130)));
+        assertEq(live.trustedRouter(), UniversalRouters.appRouter(130));
     }
 
     function test_DeployWhenRunWiresFeeEscrowAsHookDepositor() external view {

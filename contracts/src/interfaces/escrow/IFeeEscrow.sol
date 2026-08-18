@@ -9,7 +9,7 @@ interface IFeeEscrow {
     enum EscrowStatus {
         Active,
         ReleasedEarly,
-        Confiscated,
+        Blocked,
         ReleasedDefault
     }
 
@@ -32,14 +32,15 @@ interface IFeeEscrow {
         external
         returns (uint256 escrowId);
 
-    /// @notice Checkpoint 1 (~24h): early release to the pool. Never confiscates.
+    /// @notice Checkpoint 1 (~24h): early credit to `lpCompensationFund`. Never blocks; never the pool.
     function releaseEarly(uint256 escrowId) external;
 
     /// @notice Checkpoint 2 (at/after 48h): COA-backed final resolution by the keeper.
-    /// @param illicitConfirmed True → LP compensation fund (never the pool); false → pool.
+    /// @param illicitConfirmed True → fee stays blocked in escrow; false → lpCompensationFund (never the pool).
     function resolveCheckpoint2(uint256 escrowId, bool illicitConfirmed) external;
 
-    /// @notice Default release to the pool after the window with no prior resolution.
+    /// @notice After the window with no prior resolution: credit LPs (`lpCompensationFund`).
+    /// @dev Wallet was not confirmed high-risk or sanctioned — same destination as Checkpoint 2 clean.
     function releaseDefault(uint256 escrowId) external;
 
     /// @notice Checkpoint 1 for many escrow ids (same rules as `releaseEarly`).

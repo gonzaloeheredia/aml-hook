@@ -15,6 +15,7 @@ import {AmlHook} from "../src/contracts/hooks/AmlHook.sol";
 import {AmlHookLogic} from "../src/contracts/hooks/AmlHookLogic.sol";
 import {IFeeEscrow} from "../src/interfaces/escrow/IFeeEscrow.sol";
 import {Roles} from "../src/libraries/Roles.sol";
+import {UniversalRouters} from "../src/libraries/UniversalRouters.sol";
 import {MockPoolManager} from "./mocks/MockPoolManager.sol";
 import {MockTrustedRouter} from "./mocks/MockTrustedRouter.sol";
 import {MockFeeToken} from "./mocks/MockFeeToken.sol";
@@ -33,12 +34,14 @@ import {MockFeeToken} from "./mocks/MockFeeToken.sol";
 ///      What is real vs mock in this script:
 ///      - REAL: AccessManager, SanctionRegistry, ComplianceOracle, RiskPolicy, FeeEscrow, AmlHook (CREATE2).
 ///      - MOCK: PoolManager defaults to MockPoolManager (no live Uniswap swaps).
-///      - MOCK: MockTrustedRouter registered via setTrustedRouter for Anvil subject resolution.
+///      - MOCK: MockTrustedRouter only when the chain has no canonical Universal Router
+///        (Anvil). On Uniswap-supported chains, Deploy registers the app.uniswap.org
+///        Universal Router (+ 2.1.1 when distinct) via setTrustedRouter.
 ///      - MOCK: MockFeeToken if FEE_TOKEN unset (FeeEscrow custody asset).
 ///      Optional env:
 ///      - POOL_MANAGER: real PoolManager address (else MockPoolManager)
-///      - FEE_TOKEN / POOL_RECIPIENT / LP_COMPENSATION_FUND: FeeEscrow wiring
-///      - TRUSTED_ROUTER: existing router to trust (else deploy MockTrustedRouter)
+///      - FEE_TOKEN / LP_COMPENSATION_FUND: FeeEscrow wiring
+///      - TRUSTED_ROUTER: extra router to trust in addition to the canonical Universal Router
 ///      - PRIVATE_KEY: broadcaster (defaults to Anvil account #0)
 ///      - ADMIN / REGISTRY_KEEPER / ORACLE_KEEPER / HOOK_GOVERNOR: default to the deployer for a
 ///        frictionless local run; a real deploy should set all four explicitly and to distinct keys.
@@ -81,6 +84,9 @@ contract Deploy is Script {
 
     /// @notice PoolManager used by the hook (real or MockPoolManager)
     address public poolManager;
+
+    /// @notice Primary trusted router (canonical Universal Router, env override, or local mock)
+    address public trustedRouter;
 
     function run() external {
         uint256 pk = vm.envOr("PRIVATE_KEY", ANVIL_PK);
@@ -133,7 +139,7 @@ contract Deploy is Script {
     /// @param oracleKeeper The key the scoring engine publishes with
     /// @param hookGovernor The key that retunes the hook's thresholds and trusted-router list
     /// @param poolManagerOverride A real `IPoolManager`, or zero to deploy `MockPoolManager`
-    /// @param trustedRouterOverride An existing router to trust, or zero to deploy `MockTrustedRouter`
+    /// @param trustedRouterOverride Extra router to trust (in addition to the canonical Universal Router)
     /// @param stalenessThreshold Seconds before a published score counts as stale (Mitigation B)
     /// @param activityWindow Seconds a burst of swaps is counted together (Mitigation C)
     /// @param maxOpsInWindow Ops inside `activityWindow` that force `FEE_OVERRIDE`
@@ -149,6 +155,21 @@ contract Deploy is Script {
         uint64 activityWindow,
         uint32 maxOpsInWindow
     ) internal {
+        _deployContracts(
+            configurer, poolManagerOverride, stalenessThreshold, activityWindow, maxOpsInWindow
+        );
+        _configureAccess(
+            configurer, admin, registryKeeper, oracleKeeper, hookGovernor, trustedRouterOverride
+        );
+    }
+
+    function _deployContracts(
+        address configurer,
+        address poolManagerOverride,
+        uint256 stalenessThreshold,
+        uint64 activityWindow,
+        uint32 maxOpsInWindow
+    ) private {
         accessManager = new AccessManager(configurer);
         sanctionRegistry = new SanctionRegistry(address(accessManager));
         complianceOracle = new ComplianceOracle(address(accessManager));
@@ -161,17 +182,14 @@ contract Deploy is Script {
         }
         poolManager = poolManagerAddr;
 
-        // FeeEscrow custody token + recipients (env overrides for real deploys).
         address feeTokenAddr = vm.envOr("FEE_TOKEN", address(0));
         if (feeTokenAddr == address(0)) {
             feeTokenAddr = address(new MockFeeToken());
             console2.log("MockFeeToken", feeTokenAddr);
         }
-        address poolRecipient = vm.envOr("POOL_RECIPIENT", configurer);
         address lpFund = vm.envOr("LP_COMPENSATION_FUND", configurer);
-        feeEscrow = new FeeEscrow(configurer, feeTokenAddr, poolRecipient, lpFund);
+        feeEscrow = new FeeEscrow(configurer, feeTokenAddr, lpFund);
 
-        // beforeSwap + afterSwap + afterSwapReturnDelta (risk fee take path).
         uint160 flags = uint160(
             Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
         );
@@ -187,9 +205,7 @@ contract Deploy is Script {
             maxOpsInWindow
         );
         // Broadcast scripts rewrite `new {salt}` through the deterministic CREATE2 factory; unit
-        // tests that call `_deploy` from a harness use that harness as the CREATE2 origin. The
-        // configurer parameter already encodes which of those is true (`address(this)` in tests,
-        // the broadcasting EOA in scripts), so reuse it to pick the miner origin.
+        // tests that call `_deploy` from a harness use that harness as the CREATE2 origin.
         address create2Origin = configurer == address(this) ? address(this) : CREATE2_DEPLOYER;
         (address hookAddr, bytes32 salt) =
             HookMiner.find(create2Origin, flags, type(AmlHook).creationCode, constructorArgs);
@@ -207,9 +223,17 @@ contract Deploy is Script {
         );
         require(address(hook) == hookAddr, "hook address mismatch");
 
-        // Hook must be a depositor to push differential fees into escrow after take().
         feeEscrow.setDepositor(address(hook), true);
+    }
 
+    function _configureAccess(
+        address configurer,
+        address admin,
+        address registryKeeper,
+        address oracleKeeper,
+        address hookGovernor,
+        address trustedRouterOverride
+    ) private {
         accessManager.setTargetFunctionRole(
             address(sanctionRegistry), _registrySelectors(), Roles._REGISTRY_KEEPER
         );
@@ -222,12 +246,12 @@ contract Deploy is Script {
         accessManager.grantRole(Roles._ORACLE_KEEPER, oracleKeeper, 0);
         accessManager.grantRole(Roles._HOOK_GOVERNOR, hookGovernor, 0);
 
-        // The configurer needs the governor role for exactly one call: seeding the trusted router
-        // below. It is revoked immediately after, the same way the admin role is renounced at the
-        // end of this function — nobody keeps a role here beyond what the deployed state requires.
+        // Configurer needs governor for the trusted-router seed, then gives it up.
         accessManager.grantRole(Roles._HOOK_GOVERNOR, configurer, 0);
 
-        address trustedRouter = trustedRouterOverride;
+        address canonical = UniversalRouters.appRouter(block.chainid);
+        trustedRouter = trustedRouterOverride;
+        if (trustedRouter == address(0)) trustedRouter = canonical;
         if (trustedRouter == address(0)) {
             MockTrustedRouter mockRouter = new MockTrustedRouter();
             mockRouter.setMsgSender(configurer);
@@ -235,6 +259,17 @@ contract Deploy is Script {
             console2.log("MockTrustedRouter", trustedRouter);
         }
         hook.setTrustedRouter(trustedRouter, true);
+        if (canonical != address(0) && canonical != trustedRouter) {
+            hook.setTrustedRouter(canonical, true);
+            console2.log("UniversalRouter", canonical);
+        } else if (canonical != address(0)) {
+            console2.log("UniversalRouter", canonical);
+        }
+        address v211 = UniversalRouters.appRouterV211(block.chainid);
+        if (v211 != address(0) && v211 != trustedRouter) {
+            hook.setTrustedRouter(v211, true);
+            console2.log("UniversalRouterV211", v211);
+        }
 
         if (configurer != hookGovernor) {
             accessManager.revokeRole(Roles._HOOK_GOVERNOR, configurer);
@@ -252,7 +287,7 @@ contract Deploy is Script {
         console2.log("FeeEscrow", address(feeEscrow));
         console2.log("AmlHook", address(hook));
         console2.log("TrustedRouter", trustedRouter);
-        console2.log("PoolManager", poolManagerAddr);
+        console2.log("PoolManager", poolManager);
     }
 
     /// @notice Re-reads the wiring from the manager and reverts on the first mismatch
@@ -370,6 +405,9 @@ contract Deploy is Script {
             '",\n',
             '  "AmlHook": "',
             vm.toString(address(hook)),
+            '",\n',
+            '  "trustedRouter": "',
+            vm.toString(trustedRouter),
             '",\n',
             '  "poolManager": "',
             vm.toString(poolManager),

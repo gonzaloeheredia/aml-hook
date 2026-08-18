@@ -60,16 +60,14 @@ contract UnitFeeEscrowTest is Helpers {
     event FeeReleasedEarly(
         uint256 indexed escrowId, address indexed wallet, uint256 amount, address indexed to
     );
-    event FeeConfiscated(
-        uint256 indexed escrowId, address indexed wallet, uint256 amount, address indexed to
-    );
+    event FeeBlocked(uint256 indexed escrowId, address indexed wallet, uint256 amount);
     event FeeReleasedDefault(
         uint256 indexed escrowId, address indexed wallet, uint256 amount, address indexed to
     );
 
     function setUp() public {
         token = new FeeToken();
-        escrow = new FeeEscrow(owner, address(token), pool, fund);
+        escrow = new FeeEscrow(owner, address(token), fund);
 
         vm.startPrank(owner);
         escrow.setKeeper(keeper, true);
@@ -92,7 +90,6 @@ contract UnitFeeEscrowTest is Helpers {
         assertTrue(escrow.keepers(keeper));
         assertTrue(escrow.depositors(depositor));
         assertEq(address(escrow.feeToken()), address(token));
-        assertEq(escrow.poolRecipient(), pool);
         assertEq(escrow.lpCompensationFund(), fund);
         assertEq(escrow.ESCROW_WINDOW(), 48 hours);
         assertEq(escrow.CHECKPOINT1_MIN_AGE(), 24 hours);
@@ -118,23 +115,23 @@ contract UnitFeeEscrowTest is Helpers {
         assertEq(token.balanceOf(depositor), 1_000_000 ether - amount);
     }
 
-    function test_ReleaseEarly_After24h_SendsToPool() external {
+    function test_ReleaseEarly_After24h_SendsToLpFund_NotPool() external {
         uint256 amount = 50 ether;
         uint256 id = _deposit(amount);
 
         vm.warp(block.timestamp + 24 hours);
 
         vm.expectEmit(true, true, true, true, address(escrow));
-        emit FeeReleasedEarly(id, walletA, amount, pool);
+        emit FeeReleasedEarly(id, walletA, amount, fund);
 
         vm.prank(keeper);
         escrow.releaseEarly(id);
 
         IFeeEscrow.EscrowRecord memory rec = escrow.getEscrow(id);
         assertEq(uint8(rec.status), uint8(IFeeEscrow.EscrowStatus.ReleasedEarly));
-        assertEq(token.balanceOf(pool), amount);
+        assertEq(token.balanceOf(fund), amount);
         assertEq(token.balanceOf(address(escrow)), 0);
-        assertEq(token.balanceOf(fund), 0);
+        assertEq(token.balanceOf(pool), 0);
     }
 
     function test_ReleaseEarly_RevertsBefore24h() external {
@@ -155,57 +152,75 @@ contract UnitFeeEscrowTest is Helpers {
         escrow.releaseEarly(id);
     }
 
-    function test_ResolveCheckpoint2_ConfiscatesToLpCompensation_NotPool() external {
+    function test_ResolveCheckpoint2_BlocksFeeOnSanction_DoesNotTransfer() external {
         uint256 amount = 75 ether;
         uint256 id = _deposit(amount);
         vm.warp(block.timestamp + 48 hours);
 
-        vm.expectEmit(true, true, true, true, address(escrow));
-        emit FeeConfiscated(id, walletA, amount, fund);
+        vm.expectEmit(true, true, false, true, address(escrow));
+        emit FeeBlocked(id, walletA, amount);
 
         vm.prank(keeper);
         escrow.resolveCheckpoint2(id, true);
 
         IFeeEscrow.EscrowRecord memory rec = escrow.getEscrow(id);
-        assertEq(uint8(rec.status), uint8(IFeeEscrow.EscrowStatus.Confiscated));
-        // Incautación -> compensación a LPs; el pool no recibe nada.
-        assertEq(token.balanceOf(fund), amount);
+        assertEq(uint8(rec.status), uint8(IFeeEscrow.EscrowStatus.Blocked));
+        // Sanción confirmada → el fee queda bloqueado en el escrow; nadie recibe transfer.
+        assertEq(token.balanceOf(address(escrow)), amount);
+        assertEq(token.balanceOf(fund), 0);
         assertEq(token.balanceOf(pool), 0);
-        assertEq(token.balanceOf(address(escrow)), 0);
         assertTrue(fund != pool);
     }
 
-    function test_ResolveCheckpoint2_NonIllicit_ReleasesToPool() external {
+    function test_ResolveCheckpoint2_BlockedCannotBeReleasedLater() external {
+        uint256 id = _deposit(10 ether);
+        vm.warp(block.timestamp + 48 hours);
+        vm.prank(keeper);
+        escrow.resolveCheckpoint2(id, true);
+
+        vm.prank(keeper);
+        vm.expectRevert(FeeEscrow.NotActive.selector);
+        escrow.releaseDefault(id);
+
+        vm.prank(keeper);
+        vm.expectRevert(FeeEscrow.NotActive.selector);
+        escrow.resolveCheckpoint2(id, false);
+    }
+
+    function test_ResolveCheckpoint2_CleanReleasesToLpFund_NotPool() external {
         uint256 amount = 40 ether;
         uint256 id = _deposit(amount);
         vm.warp(block.timestamp + 48 hours);
 
         vm.expectEmit(true, true, true, true, address(escrow));
-        emit FeeReleasedDefault(id, walletA, amount, pool);
+        emit FeeReleasedDefault(id, walletA, amount, fund);
 
         vm.prank(keeper);
         escrow.resolveCheckpoint2(id, false);
 
         IFeeEscrow.EscrowRecord memory rec = escrow.getEscrow(id);
         assertEq(uint8(rec.status), uint8(IFeeEscrow.EscrowStatus.ReleasedDefault));
-        assertEq(token.balanceOf(pool), amount);
-        assertEq(token.balanceOf(fund), 0);
+        assertEq(token.balanceOf(fund), amount);
+        assertEq(token.balanceOf(pool), 0);
+        assertEq(token.balanceOf(address(escrow)), 0);
     }
 
-    function test_ReleaseDefault_AfterWindow_SendsToPool() external {
+    function test_ReleaseDefault_AfterWindow_SendsToLpFund_NotPool() external {
         uint256 amount = 33 ether;
         uint256 id = _deposit(amount);
         vm.warp(block.timestamp + 48 hours);
 
         vm.expectEmit(true, true, true, true, address(escrow));
-        emit FeeReleasedDefault(id, walletA, amount, pool);
+        emit FeeReleasedDefault(id, walletA, amount, fund);
 
         vm.prank(keeper);
         escrow.releaseDefault(id);
 
         IFeeEscrow.EscrowRecord memory rec = escrow.getEscrow(id);
         assertEq(uint8(rec.status), uint8(IFeeEscrow.EscrowStatus.ReleasedDefault));
-        assertEq(token.balanceOf(pool), amount);
+        assertEq(token.balanceOf(fund), amount);
+        assertEq(token.balanceOf(pool), 0);
+        assertEq(token.balanceOf(address(escrow)), 0);
     }
 
     function test_ResolveCheckpoint2_RevertsWhileWindowOpen() external {
@@ -274,7 +289,7 @@ contract UnitFeeEscrowTest is Helpers {
         escrow.resolveCheckpoint2(id, true);
     }
 
-    function test_ReleaseEarlyNeverSendsToLpCompensationFund() external {
+    function test_ReleaseEarlyNeverSendsToPool() external {
         uint256 amount = 20 ether;
         uint256 id = _deposit(amount);
         vm.warp(block.timestamp + 30 hours);
@@ -282,8 +297,8 @@ contract UnitFeeEscrowTest is Helpers {
         vm.prank(keeper);
         escrow.releaseEarly(id);
 
-        assertEq(token.balanceOf(fund), 0);
-        assertEq(token.balanceOf(pool), amount);
+        assertEq(token.balanceOf(fund), amount);
+        assertEq(token.balanceOf(pool), 0);
     }
 
     /*///////////////////////////////////////////////////////////////
@@ -292,16 +307,13 @@ contract UnitFeeEscrowTest is Helpers {
 
     function test_Constructor_RevertsOnZeroAddress() external {
         vm.expectRevert(FeeEscrow.ZeroAddress.selector);
-        new FeeEscrow(address(0), address(token), pool, fund);
+        new FeeEscrow(address(0), address(token), fund);
 
         vm.expectRevert(FeeEscrow.ZeroAddress.selector);
-        new FeeEscrow(owner, address(0), pool, fund);
+        new FeeEscrow(owner, address(0), fund);
 
         vm.expectRevert(FeeEscrow.ZeroAddress.selector);
-        new FeeEscrow(owner, address(token), address(0), fund);
-
-        vm.expectRevert(FeeEscrow.ZeroAddress.selector);
-        new FeeEscrow(owner, address(token), pool, address(0));
+        new FeeEscrow(owner, address(token), address(0));
     }
 
     function test_Deposit_RevertsOnZeroWalletOrAmount() external {
@@ -364,21 +376,6 @@ contract UnitFeeEscrowTest is Helpers {
         escrow.setDepositor(address(0), true);
     }
 
-    function test_SetPoolRecipient() external {
-        address nextPool = makeAddr("nextPool");
-        vm.prank(owner);
-        escrow.setPoolRecipient(nextPool);
-        assertEq(escrow.poolRecipient(), nextPool);
-
-        vm.prank(stranger);
-        vm.expectRevert(FeeEscrow.NotOwner.selector);
-        escrow.setPoolRecipient(pool);
-
-        vm.prank(owner);
-        vm.expectRevert(FeeEscrow.ZeroAddress.selector);
-        escrow.setPoolRecipient(address(0));
-    }
-
     function test_SetLpCompensationFund() external {
         address nextFund = makeAddr("nextFund");
         vm.prank(owner);
@@ -404,7 +401,7 @@ contract UnitFeeEscrowTest is Helpers {
         // Propose does not transfer admin yet.
         vm.prank(nextOwner);
         vm.expectRevert(FeeEscrow.NotOwner.selector);
-        escrow.setPoolRecipient(pool);
+        escrow.setLpCompensationFund(fund);
 
         vm.prank(stranger);
         vm.expectRevert(FeeEscrow.NotPendingOwner.selector);
@@ -417,11 +414,11 @@ contract UnitFeeEscrowTest is Helpers {
 
         vm.prank(owner);
         vm.expectRevert(FeeEscrow.NotOwner.selector);
-        escrow.setPoolRecipient(pool);
+        escrow.setLpCompensationFund(fund);
 
         vm.prank(nextOwner);
-        escrow.setPoolRecipient(pool);
-        assertEq(escrow.poolRecipient(), pool);
+        escrow.setLpCompensationFund(fund);
+        assertEq(escrow.lpCompensationFund(), fund);
 
         vm.prank(nextOwner);
         vm.expectRevert(FeeEscrow.ZeroAddress.selector);
@@ -439,7 +436,8 @@ contract UnitFeeEscrowTest is Helpers {
         vm.prank(keeper);
         escrow.batchReleaseEarly(ids);
 
-        assertEq(token.balanceOf(pool), 30 ether);
+        assertEq(token.balanceOf(fund), 30 ether);
+        assertEq(token.balanceOf(pool), 0);
         assertEq(uint8(escrow.getEscrow(a).status), uint8(IFeeEscrow.EscrowStatus.ReleasedEarly));
         assertEq(uint8(escrow.getEscrow(b).status), uint8(IFeeEscrow.EscrowStatus.ReleasedEarly));
     }
@@ -459,10 +457,11 @@ contract UnitFeeEscrowTest is Helpers {
         vm.prank(keeper);
         escrow.batchResolveCheckpoint2(ids, flags);
 
-        assertEq(token.balanceOf(pool), 5 ether);
-        assertEq(token.balanceOf(fund), 7 ether);
+        assertEq(token.balanceOf(pool), 0);
+        assertEq(token.balanceOf(fund), 5 ether);
+        assertEq(token.balanceOf(address(escrow)), 7 ether);
         assertEq(uint8(escrow.getEscrow(cleanId).status), uint8(IFeeEscrow.EscrowStatus.ReleasedDefault));
-        assertEq(uint8(escrow.getEscrow(illicitId).status), uint8(IFeeEscrow.EscrowStatus.Confiscated));
+        assertEq(uint8(escrow.getEscrow(illicitId).status), uint8(IFeeEscrow.EscrowStatus.Blocked));
     }
 
     function test_BatchResolveCheckpoint2_RevertsOnLengthMismatch() external {
@@ -485,22 +484,42 @@ contract UnitFeeEscrowTest is Helpers {
         vm.prank(keeper);
         escrow.batchReleaseDefault(ids);
 
-        assertEq(token.balanceOf(pool), 7 ether);
+        assertEq(token.balanceOf(fund), 7 ether);
+        assertEq(token.balanceOf(pool), 0);
+        assertEq(token.balanceOf(address(escrow)), 0);
     }
 
-    function test_UpdatedPoolRecipient_UsedOnReleaseEarly() external {
-        address nextPool = makeAddr("routingPool");
+    function test_UpdatedLpFund_UsedOnReleaseEarly() external {
+        address nextFund = makeAddr("routingPool");
         uint256 amount = 15 ether;
         uint256 id = _deposit(amount);
 
         vm.prank(owner);
-        escrow.setPoolRecipient(nextPool);
+        escrow.setLpCompensationFund(nextFund);
 
         vm.warp(block.timestamp + 24 hours);
         vm.prank(keeper);
         escrow.releaseEarly(id);
 
-        assertEq(token.balanceOf(nextPool), amount);
+        assertEq(token.balanceOf(nextFund), amount);
+        assertEq(token.balanceOf(fund), 0);
+        assertEq(token.balanceOf(pool), 0);
+    }
+
+    function test_UpdatedLpFund_UsedOnReleaseDefault() external {
+        address nextFund = makeAddr("routingFund");
+        uint256 amount = 12 ether;
+        uint256 id = _deposit(amount);
+
+        vm.prank(owner);
+        escrow.setLpCompensationFund(nextFund);
+
+        vm.warp(block.timestamp + 48 hours);
+        vm.prank(keeper);
+        escrow.releaseDefault(id);
+
+        assertEq(token.balanceOf(nextFund), amount);
+        assertEq(token.balanceOf(fund), 0);
         assertEq(token.balanceOf(pool), 0);
     }
 }

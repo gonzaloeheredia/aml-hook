@@ -20,6 +20,8 @@ export type ChainDeployment = {
   oracleKeeper?: Address;
   hookGovernor?: Address;
   poolManager?: Address;
+  /** Canonical trusted router (Universal Router on live chains, MockTrustedRouter on Anvil) */
+  trustedRouter?: Address;
   /**
    * @deprecated Pre-AccessManager Deploy JSON used a single `keeper` field.
    * Prefer `oracleKeeper`.

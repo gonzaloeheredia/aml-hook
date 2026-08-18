@@ -26,16 +26,17 @@ interface IERC20Fee {
 ///        Moment              Call                         Destination
 ///        ─────────────────   ──────────────────────────   ─────────────────────────────
 ///        0–24h               (optional COA, no write)     still held
-///        Checkpoint 1        releaseEarly                 always poolRecipient
-///          (≥24h, <48h)      after 1st COA + sanity       (never confiscates)
-///        Checkpoint 2        resolveCheckpoint2(…)        illicit → lpCompensationFund
-///          (≥48h)            after 2nd COA + sanity       (LP compensation; NEVER pool)
-///                                                         clean   → poolRecipient
-///        No resolution       releaseDefault               poolRecipient
+///        Checkpoint 1        releaseEarly                 lpCompensationFund
+///          (≥24h, <48h)      after 1st COA + sanity       (never blocks; never the pool)
+///        Checkpoint 2        resolveCheckpoint2(…)        illicit → Blocked (tokens stay here)
+///          (≥48h)            after 2nd COA + sanity       clean   → lpCompensationFund
+///        No resolution       releaseDefault               lpCompensationFund
+///          (≥48h)                                         (not confirmed high-risk/sanctioned)
 ///
-///      WHY split destinations? Confiscation funds LP compensation when fraud is
-///      later confirmed — compliance becomes pool protection, not only a cost (§3.7).
-///      Early release can never confiscate: Checkpoint 1 is "clear to pool" only.
+///      WHY split destinations? A confirmed sanction freezes the differential in
+///      a blocked reserve for reporting — later release calls revert. Every other
+///      path credits LPs as retroactive compensation. The risk fee never returns
+///      to the pool.
 ///
 ///      Access: own owner / keepers / depositors (NOT the shared AccessManager).
 ///      The COA never writes on-chain; only a FeeEscrow keeper submits txs after
@@ -43,16 +44,15 @@ interface IERC20Fee {
 contract FeeEscrow is IFeeEscrow {
     /// @dev Full hold window before Checkpoint 2 / default release may run.
     uint64 public constant ESCROW_WINDOW = 48 hours;
-    /// @dev Earliest moment Checkpoint 1 (early release to pool) is allowed.
+    /// @dev Earliest moment Checkpoint 1 (early release to LPs) is allowed.
     uint64 public constant CHECKPOINT1_MIN_AGE = 24 hours;
 
     address public owner;
     /// @notice Two-step ownership: proposed owner must call `acceptOwnership`.
     address public pendingOwner;
     IERC20Fee private immutable _feeToken;
-    /// @notice Destination for clean / default / early releases (normal pool fee path).
-    address public poolRecipient;
-    /// @notice Destination for confiscated fees — LP compensation fund only (§3.7). Never the pool.
+    /// @notice Sole release destination: LP compensation when the wallet is not confirmed sanctioned.
+    ///         Checkpoint 1, Checkpoint 2 clean, and `releaseDefault` all credit LPs here. Never the pool.
     address public lpCompensationFund;
 
     /// @dev Keepers alone call releaseEarly / resolveCheckpoint2 / releaseDefault.
@@ -81,7 +81,6 @@ contract FeeEscrow is IFeeEscrow {
     event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
     event KeeperUpdated(address indexed keeper, bool allowed);
     event DepositorUpdated(address indexed depositor, bool allowed);
-    event PoolRecipientUpdated(address indexed poolRecipient);
     event LpCompensationFundUpdated(address indexed lpCompensationFund);
 
     /// @notice Differential fee deposited into the 48h escrow (§3.6 / §3.7 audit trail).
@@ -93,36 +92,25 @@ contract FeeEscrow is IFeeEscrow {
         bytes32 originTxHash
     );
 
-    /// @notice Checkpoint 1 early release to the liquidity pool (never confiscates).
+    /// @notice Checkpoint 1 early release to the LP compensation fund (never the pool; never confiscates).
     event FeeReleasedEarly(
         uint256 indexed escrowId, address indexed wallet, uint256 amount, address indexed to
     );
 
-    /// @notice Checkpoint 2 confiscation: fee goes to LP compensation, never to the pool.
-    event FeeConfiscated(
-        uint256 indexed escrowId, address indexed wallet, uint256 amount, address indexed to
-    );
+    /// @notice Checkpoint 2 sanction confirmed: fee stays blocked in this contract.
+    event FeeBlocked(uint256 indexed escrowId, address indexed wallet, uint256 amount);
 
-    /// @notice Default / non-illicit release to the pool at or after window close.
+    /// @notice Period expired without a confirmed sanction: release to LPs (default or Checkpoint 2 clean).
     event FeeReleasedDefault(
         uint256 indexed escrowId, address indexed wallet, uint256 amount, address indexed to
     );
 
-    constructor(
-        address owner_,
-        address feeToken_,
-        address poolRecipient_,
-        address lpCompensationFund_
-    ) {
-        if (
-            owner_ == address(0) || feeToken_ == address(0) || poolRecipient_ == address(0)
-                || lpCompensationFund_ == address(0)
-        ) {
+    constructor(address owner_, address feeToken_, address lpCompensationFund_) {
+        if (owner_ == address(0) || feeToken_ == address(0) || lpCompensationFund_ == address(0)) {
             revert ZeroAddress();
         }
         owner = owner_;
         _feeToken = IERC20Fee(feeToken_);
-        poolRecipient = poolRecipient_;
         lpCompensationFund = lpCompensationFund_;
         // Bootstrap: owner can deposit and resolve until roles are specialized.
         keepers[owner_] = true;
@@ -130,7 +118,6 @@ contract FeeEscrow is IFeeEscrow {
         emit OwnershipTransferred(address(0), owner_);
         emit KeeperUpdated(owner_, true);
         emit DepositorUpdated(owner_, true);
-        emit PoolRecipientUpdated(poolRecipient_);
         emit LpCompensationFundUpdated(lpCompensationFund_);
     }
 
@@ -182,10 +169,9 @@ contract FeeEscrow is IFeeEscrow {
     }
 
     /// @inheritdoc IFeeEscrow
-    /// @notice Checkpoint 1 (≥24h, <48h): first COA consult → early release to the pool only.
-    /// @dev WHY never confiscate here: the 24h window is for early clearance to the normal
-    ///      fee path, not for seizing. Confiscation is reserved for Checkpoint 2 after more time
-    ///      and a second COA pass (§3.7).
+    /// @notice Checkpoint 1 (≥24h, <48h): first COA consult → early credit to LPs.
+    /// @dev Never confiscates here: blocking is reserved for Checkpoint 2 after a second COA pass.
+    ///      The risk fee never returns to the pool.
     function releaseEarly(uint256 escrowId) external onlyKeeper {
         _releaseEarly(escrowId);
     }
@@ -199,9 +185,9 @@ contract FeeEscrow is IFeeEscrow {
     }
 
     /// @inheritdoc IFeeEscrow
-    /// @notice Checkpoint 2 (≥48h): second COA consult → confiscate to LPs or release to pool.
-    /// @param illicitConfirmed Keeper's post-sanity conclusion from the COA (true = confiscate).
-    /// @dev Illicit → lpCompensationFund (never pool). Clean → poolRecipient (FeeReleasedDefault).
+    /// @notice Checkpoint 2 (≥48h): second COA consult → block in escrow or release to LP fund.
+    /// @param illicitConfirmed Keeper's post-sanity conclusion from the COA (true = block).
+    /// @dev Illicit → Blocked, tokens stay here. Clean → lpCompensationFund (never pool).
     function resolveCheckpoint2(uint256 escrowId, bool illicitConfirmed) external onlyKeeper {
         _resolveCheckpoint2(escrowId, illicitConfirmed);
     }
@@ -219,9 +205,9 @@ contract FeeEscrow is IFeeEscrow {
     }
 
     /// @inheritdoc IFeeEscrow
-    /// @notice Default path if nobody resolved at Checkpoint 2: release to the pool.
-    /// @dev Same destination as a non-illicit Checkpoint 2 result (§3.7). Fail-open to pool
-    ///      rather than freezing fees forever when ops miss the window.
+    /// @notice Default path if nobody resolved at Checkpoint 2: credit LPs.
+    /// @dev The wallet was not confirmed high-risk or sanctioned. Same destination as
+    ///      Checkpoint 2 clean (§3.7) — retroactive LP compensation, never the pool.
     function releaseDefault(uint256 escrowId) external onlyKeeper {
         _releaseDefault(escrowId);
     }
@@ -250,12 +236,6 @@ contract FeeEscrow is IFeeEscrow {
         if (depositor == address(0)) revert ZeroAddress();
         depositors[depositor] = allowed;
         emit DepositorUpdated(depositor, allowed);
-    }
-
-    function setPoolRecipient(address poolRecipient_) external onlyOwner {
-        if (poolRecipient_ == address(0)) revert ZeroAddress();
-        poolRecipient = poolRecipient_;
-        emit PoolRecipientUpdated(poolRecipient_);
     }
 
     function setLpCompensationFund(address lpCompensationFund_) external onlyOwner {
@@ -287,7 +267,7 @@ contract FeeEscrow is IFeeEscrow {
         if (age >= uint256(ESCROW_WINDOW)) revert Checkpoint1WindowClosed();
 
         rec.status = EscrowStatus.ReleasedEarly;
-        address to = poolRecipient;
+        address to = lpCompensationFund;
         uint256 amount = rec.amount;
         address wallet = rec.wallet;
 
@@ -305,13 +285,11 @@ contract FeeEscrow is IFeeEscrow {
         uint256 amount = rec.amount;
 
         if (illicitConfirmed) {
-            rec.status = EscrowStatus.Confiscated;
-            address to = lpCompensationFund;
-            _transferOut(to, amount);
-            emit FeeConfiscated(escrowId, wallet, amount, to);
+            rec.status = EscrowStatus.Blocked;
+            emit FeeBlocked(escrowId, wallet, amount);
         } else {
             rec.status = EscrowStatus.ReleasedDefault;
-            address to = poolRecipient;
+            address to = lpCompensationFund;
             _transferOut(to, amount);
             emit FeeReleasedDefault(escrowId, wallet, amount, to);
         }
@@ -324,7 +302,7 @@ contract FeeEscrow is IFeeEscrow {
         }
 
         rec.status = EscrowStatus.ReleasedDefault;
-        address to = poolRecipient;
+        address to = lpCompensationFund;
         uint256 amount = rec.amount;
         address wallet = rec.wallet;
 
