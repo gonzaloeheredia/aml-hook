@@ -58,6 +58,10 @@ contract UnitAmlHookTest is Helpers {
         assertTrue(p.beforeSwap);
         assertTrue(p.afterSwap);
         assertTrue(p.afterSwapReturnDelta);
+        assertTrue(p.beforeAddLiquidity);
+        assertTrue(p.beforeRemoveLiquidity);
+        assertFalse(p.afterAddLiquidity);
+        assertFalse(p.afterRemoveLiquidity);
         assertFalse(p.beforeInitialize);
     }
 

@@ -6,7 +6,9 @@ Use Case — Exploit Detection, Propagation and N-Hop Decay
 
 ## 1. Overview
 
-AML Hook is a compliance layer deployed natively as a Uniswap v4 hook. It intercepts every swap at beforeSwap and afterSwap, applies a ternary risk decision, and emits a structured on-chain event that constitutes the operator's audit trail. The hook operates without interrupting the normal swap execution path for clean addresses.
+AML Hook is a compliance layer deployed natively as a Uniswap v4 hook. On swaps it intercepts beforeSwap and afterSwap, applies a ternary risk decision, and emits a structured on-chain event that constitutes the operator's audit trail. The hook operates without interrupting the normal swap execution path for clean addresses.
+
+This use case is swap-only. Independently, a sanctioned wallet that attempts to add or remove liquidity is reverted at beforeAddLiquidity / beforeRemoveLiquidity (SanctionRegistry only — no score, no RiskPolicy). The LP position is not transferred or confiscated; once the sanction is lifted, the same withdrawal succeeds with no extra step.
 
 This document describes a four-wallet scenario that exercises all three decision outputs of the hook, plus the oracle-latency inflow heuristic: full block (revert), FEE_OVERRIDE with punitive total friction (pool standard fee + FeeEscrow differential), FEE_OVERRIDE with proportional friction, and FEE_OVERRIDE under a stale score. The scenario is grounded in an exploit cash-out attack, two-hop fund propagation through intermediary wallets, and a third path that swaps inside the keeper's processing window.
 
@@ -30,7 +32,7 @@ Wallet D    Fourth actor. Starts clean, score 0, no prior transaction history. R
 
 The walkthrough below uses one propagation path (A → B → C) to exercise all three hook outputs in a single run, then a third path (A → D) that isolates the causal latency gap from whitepaper section 3.8. The scoring engine treats B and C symmetrically for any P2P path.
 
-The pool is configured as a Real World Asset (RWA) pool on Uniswap v4, with AML Hook attached (beforeSwap, afterSwap, afterSwapReturnDelta). The off-chain scoring keeper monitors transfer events continuously and, on the A → B → C path, writes updated scores on-chain before the corresponding swap is attempted. The A → D path deliberately places the swap inside the window before that write lands. Call path, AccessManager roles, and FeeEscrow settlement are specified in the whitepaper (sections 3.5 and 3.7).
+The pool is configured as a Real World Asset (RWA) pool on Uniswap v4, with AML Hook attached (beforeSwap, afterSwap, afterSwapReturnDelta, beforeAddLiquidity, beforeRemoveLiquidity). The off-chain scoring keeper monitors transfer events continuously and, on the A → B → C path, writes updated scores on-chain before the corresponding swap is attempted. The A → D path deliberately places the swap inside the window before that write lands. Call path, AccessManager roles, and FeeEscrow settlement are specified in the whitepaper (sections 3.5 and 3.7).
 
 ## 2. Risk Scoring Model
 

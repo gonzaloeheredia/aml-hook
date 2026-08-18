@@ -44,7 +44,7 @@ User → Router → PoolManager → AmlHook
 | **SanctionRegistry** | Sanctions hit → REVERT before score |
 | **ComplianceOracle** | Score / hop / origin / `feeBps` / `updatedAt`; keeper writes |
 | **RiskPolicy** | Ternary bands + §3.8 floors (stale+activity, significant inflow) |
-| **AmlHook** / **AmlHookLogic** | `beforeSwap` / `afterSwap` (+ `afterSwapReturnDelta`); pool standard fee; differential → FeeEscrow; inflow baseline |
+| **AmlHook** / **AmlHookLogic** | `beforeSwap` / `afterSwap` (+ `afterSwapReturnDelta`); `beforeAddLiquidity` / `beforeRemoveLiquidity` (sanctions-only gate — no score / RiskPolicy); pool standard fee; differential → FeeEscrow; inflow baseline |
 | **FeeEscrow** | 48h hold of FEE_OVERRIDE differential only; own owner / keepers / depositors (not AccessManager); sanction confirmed → blocked reserve; else `lpCompensationFund` (`releaseEarly` / `resolveCheckpoint2(false)` / `releaseDefault`); never the pool |
 
 Subject resolution (§3.5): trusted routers (`hookGovernor` `setTrustedRouter`) report the end-user via
@@ -116,6 +116,8 @@ node scripts/sync-deployment.mjs
 
 Deployer = Anvil account #0 (defaults for admin / registry keeper / oracle keeper / hook governor unless overridden via env).  
 Writes `contracts/deployments/31337.json` and copies to `packages/sdk/deployments/`.
+
+The CREATE2 address mined by `Deploy.sol` changed versus earlier deploys: the flag bitmask now includes `BEFORE_ADD_LIQUIDITY_FLAG` and `BEFORE_REMOVE_LIQUIDITY_FLAG` in addition to the swap flags. An address mined with the previous bitmask will not match the hook's current permissions.
 
 ## Boundary
 

@@ -219,6 +219,15 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         if (wallet == address(0)) revert TrustedRouterSubjectFailed(router);
     }
 
+    /// @notice Reverts if `wallet` is on the L1 sanctions list (§3.2 / §4.1).
+    /// @dev Shared by the swap path (`_evaluateCore`) and the liquidity gates in `AmlHook`
+    ///      (`_beforeAddLiquidity` / `_beforeRemoveLiquidity`), so a sanctioned wallet cannot
+    ///      exit through liquidity what the swap path already blocks. Fail closed: a sanctions
+    ///      hit must never consult the behavioral score or any other layer.
+    function _requireNotSanctioned(address wallet) internal view {
+        if (sanctionRegistry.isSanctioned(wallet)) revert SanctionHit(wallet);
+    }
+
     /// @notice Per-wallet pool activity tracked by the hook (independent of the oracle; Mitigation C).
     function poolActivity(address wallet)
         external
@@ -276,9 +285,7 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     {
         // ── Layer 1 — static sanctions (§3.2 / §4.1) ─────────────────────────
         // Fail closed: OFAC/SDN-style hit must not consult the behavioral score.
-        if (sanctionRegistry.isSanctioned(wallet)) {
-            revert SanctionHit(wallet);
-        }
+        _requireNotSanctioned(wallet);
 
         // ── Layer 2 — keeper-written score (§3.2 / §3.8) ─────────────────────
         // Hook never computes N-hop decay here; it only reads what the keeper published.

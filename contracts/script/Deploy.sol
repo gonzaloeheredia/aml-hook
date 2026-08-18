@@ -33,6 +33,8 @@ import {MockFeeToken} from "./mocks/MockFeeToken.sol";
 ///
 ///      What is real vs mock in this script:
 ///      - REAL: AccessManager, SanctionRegistry, ComplianceOracle, RiskPolicy, FeeEscrow, AmlHook (CREATE2).
+///        AmlHook also gates beforeAddLiquidity / beforeRemoveLiquidity: a sanctioned wallet
+///        cannot enter or exit as a liquidity provider (sanctions only, no RiskPolicy consulted).
 ///      - MOCK: PoolManager defaults to MockPoolManager (no live Uniswap swaps).
 ///      - MOCK: MockTrustedRouter only when the chain has no canonical Universal Router
 ///        (Anvil). On Uniswap-supported chains, Deploy registers the app.uniswap.org
@@ -192,6 +194,7 @@ contract Deploy is Script {
 
         uint160 flags = uint160(
             Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
+                | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
         );
         bytes memory constructorArgs = abi.encode(
             IPoolManager(poolManagerAddr),
