@@ -5,7 +5,7 @@ Compliance layer for **Uniswap v4** (UHI10). The hook intercepts swaps at `befor
 | Score | Output | Effect |
 |---|---|---|
 | 0–30 | **ALLOW** | Standard pool fee (0.30%) |
-| 31–70 | **FEE_OVERRIDE** | Pool keeps standard fee; risk differential (e.g. total friction 3%–8%) taken in `afterSwap` → **FeeEscrow** 48h (confiscation → LP compensation, never the pool) |
+| 31–70 | **FEE_OVERRIDE** | Pool keeps standard fee; risk differential (e.g. total friction 3%–8%) taken in `afterSwap` → **FeeEscrow** 48h (sanction confirmed → blocked in escrow; confirmed clean → LP compensation, never the pool) |
 | 71–100 | **REVERT** | Fail-closed (exploit / sanctions exposure) |
 
 The score is computed **off-chain** by the **Oracle Keeper** — a Compliance Officer Agent (COA): an AI AML analyst that will connect to external information sources (sanctions feeds, exploit monitors, on-chain graph signals) — and stored **on-chain** (`ComplianceOracle`). The hook only reads; it does not invent the score.
@@ -74,7 +74,8 @@ User → Router → PoolManager
                      FeeEscrow
               (FEE_OVERRIDE differential fee, 48h)
               early / default → pool
-              confiscate → LP compensation (never pool)
+              Checkpoint 2 illicit → blocked in escrow
+              Checkpoint 2 clean → LP compensation (never pool)
 
 AccessManager (shared) → _REGISTRY_KEEPER · _ORACLE_KEEPER · _HOOK_GOVERNOR
 ```
@@ -87,7 +88,7 @@ AccessManager (shared) → _REGISTRY_KEEPER · _ORACLE_KEEPER · _HOOK_GOVERNOR
 | **ComplianceOracle** | L2 — score / hop / origin; `_ORACLE_KEEPER` writes (`updateScore`) |
 | **RiskPolicy** | L3 — score → ALLOW / FEE_OVERRIDE / REVERT (+ §3.8 latency floors); pure |
 | **Oracle Keeper (COA)** | Off-chain AI Compliance Officer — scores wallets, publishes `updateScore`, drives FeeEscrow after COA memos (COA never writes on-chain; deferred publish for Wallet D) |
-| **FeeEscrow** | Holds FEE_OVERRIDE differential fee for 48h (not swap output). Own access list. Checkpoint 1 ≥24h: early release to pool. Checkpoint 2: confiscate to lpCompensationFund or release to pool. |
+| **FeeEscrow** | Holds FEE_OVERRIDE differential fee for 48h (not swap output). Own access list. Sanction confirmed → blocked reserve (later releases revert). Otherwise the risk fee goes to lpCompensationFund (`releaseEarly`, `resolveCheckpoint2(false)`, `releaseDefault`). Never the pool. |
 
 In this repo, **apps/api** is the demo keeper (deterministic mock of that COA; live LLM and vendor feeds are the production path). **apps/frontend** drives the UI. Pool swaps in the UI are still settled in the API ledger until a real PoolManager is wired; scores can already be published/read on Anvil.
 

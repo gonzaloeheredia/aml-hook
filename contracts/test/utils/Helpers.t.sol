@@ -14,10 +14,13 @@ import {BeforeSwapDelta} from "v4-core/src/types/BeforeSwapDelta.sol";
 import {LPFeeLibrary} from "v4-core/src/libraries/LPFeeLibrary.sol";
 
 import {AmlHook} from "contracts/hooks/AmlHook.sol";
+import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
 import {SanctionRegistry} from "contracts/registries/SanctionRegistry.sol";
 import {IFeeEscrow} from "interfaces/escrow/IFeeEscrow.sol";
+import {Roles} from "libraries/Roles.sol";
+import {MockTrustedRouter} from "../../script/mocks/MockTrustedRouter.sol";
 
 /// @notice Stand-in PoolManager so `AmlHook.onlyPoolManager` can be exercised in hook tests.
 /// @dev `take` forwards ERC-20 from this stub to `to` (mint tokens here before FEE_OVERRIDE afterSwap tests).
@@ -78,6 +81,9 @@ contract Helpers is Test {
     address public walletB = address(0xB0B);
     address public walletC = address(0xC0FFEE);
 
+    /// @dev Trusted IMsgSender stand-in used by hook lifecycle tests (hookData is ignored).
+    MockTrustedRouter public trustedRouter;
+
     function _wireRole(
         AccessManager _manager,
         address _admin,
@@ -90,6 +96,26 @@ contract Helpers is Test {
         _manager.setTargetFunctionRole(_target, _selectors, _role);
         _manager.grantRole(_role, _account, 0);
         vm.stopPrank();
+    }
+
+    /// @dev Wires `_HOOK_GOVERNOR` so tests can `setTrustedRouter`.
+    function _wireHookGovernor() internal {
+        bytes4[] memory hookSelectors = new bytes4[](3);
+        hookSelectors[0] = AmlHookLogic.setStalenessThreshold.selector;
+        hookSelectors[1] = AmlHookLogic.setInflowThresholdBps.selector;
+        hookSelectors[2] = AmlHookLogic.setTrustedRouter.selector;
+        _wireRole(accessManager, owner, address(hook), hookSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
+    }
+
+    /// @dev Register a MockTrustedRouter (once) and set the end-user it reports via `msgSender()`.
+    function _bindTrustedSubject(address subject) internal returns (address sender) {
+        if (address(trustedRouter) == address(0)) {
+            trustedRouter = new MockTrustedRouter();
+            vm.prank(hookGovernor);
+            hook.setTrustedRouter(address(trustedRouter), true);
+        }
+        trustedRouter.setMsgSender(subject);
+        return address(trustedRouter);
     }
 
     /**

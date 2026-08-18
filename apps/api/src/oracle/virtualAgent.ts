@@ -37,7 +37,7 @@ const SKILL_CATALOG: Record<
   { sources: string[]; finding: (w: Wallet, trigger: OracleTrigger) => string }
 > = {
   "task-swap-intake": {
-    sources: ["PoolManager swap intake", "Router hookData subject resolve"],
+    sources: ["PoolManager swap intake", "Trusted router IMsgSender subject resolve"],
     finding: (w, t) =>
       `Intake accepted for ${w.accountLabel}; trigger=${t}; subject ${w.address.slice(0, 10)}…`,
   },

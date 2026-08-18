@@ -103,9 +103,9 @@ contract AmlHook is BaseHook, AmlHookLogic {
         address sender,
         PoolKey calldata key,
         SwapParams calldata params,
-        bytes calldata hookData
+        bytes calldata
     ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
-        address wallet = _resolveWallet(sender, hookData);
+        address wallet = _resolveWallet(sender);
         address token = _inputToken(key, params);
 
         (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk) =

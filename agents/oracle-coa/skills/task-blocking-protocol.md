@@ -88,8 +88,10 @@ block, `tx_hash` if any, list and entry supporting the denial, `auditHash` of
 
 **Record requirements (FEE_OVERRIDE).** FeeEscrow deposit: subject, retained
 differential, origin `tx_hash`, `FeeDeposited`. Later `FeeReleasedEarly` /
-`FeeConfiscated` / `FeeReleasedDefault` complete the trail. Confiscation goes
-to `lpCompensationFund`, never as OFAC blocked property.
+`FeeBlocked` / `FeeReleasedDefault` complete the trail. A confirmed sanction
+blocks the fee in escrow. Fees not confirmed high-risk or sanctioned go to
+`lpCompensationFund` (Checkpoint 2 clean and `releaseDefault`), never as OFAC
+blocked property and never back to the pool.
 
 ---
 

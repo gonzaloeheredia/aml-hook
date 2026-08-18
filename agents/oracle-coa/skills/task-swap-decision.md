@@ -87,10 +87,10 @@ the FeeEscrow keeper alone submits transfers after an off-chain sanity check.
 | Moment | Keeper call | Destination |
 |---|---|---|
 | 0–24h | (optional COA; no write) | Still held |
-| Checkpoint 1 (≥24h, <48h | `releaseEarly` | Always `poolRecipient` (never confiscates) |
-| Checkpoint 2 ≥48h, illicit | `resolveCheckpoint2(true)` | `lpCompensationFund` only (never pool) |
-| Checkpoint 2 ≥48h, clean | `resolveCheckpoint2(false)` | `poolRecipient` |
-| No resolution after window | `releaseDefault` | `poolRecipient` |
+| Checkpoint 1 (≥24h, <48h | `releaseEarly` | `lpCompensationFund` only (never pool; never blocks) |
+| Checkpoint 2 ≥48h, illicit | `resolveCheckpoint2(true)` | Blocked in escrow (tokens stay; never transferred) |
+| Checkpoint 2 ≥48h, clean | `resolveCheckpoint2(false)` | `lpCompensationFund` only (never pool) |
+| No resolution after window | `releaseDefault` | `lpCompensationFund` only (never pool) |
 
 Every escrow deposit should be linkable to the supporting `ScoreResult`
 (`auditHash` / origin tx). `recommendedFeeBps` from this skill is what the

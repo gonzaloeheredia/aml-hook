@@ -206,16 +206,18 @@ There are two COA consultations on the escrow path; the FeeEscrow keeper alone s
 Moment               COA / keeper action     On-chain call                                                  Destination of retained fee
 -------------------- ----------------------- -------------------------------------------------------------- --------------------------------
 0–24h                Optional COA review     None (fee stays in FeeEscrow)                                  Still held
-Checkpoint 1         First COA consult +     releaseEarly → FeeReleasedEarly                                Always poolRecipient (pool).
-(≥24h, <48h)         keeper sanity check                                                                    Never confiscates.
-Checkpoint 2         Second COA consult +    resolveCheckpoint2(illicitConfirmed)                           Illicit → lpCompensationFund
-(≥48h)               keeper sanity check     → FeeConfiscated or FeeReleasedDefault                         (LP compensation; never the pool).
-                                                                                                            Not illicit → poolRecipient.
-No resolution by 48h —                       releaseDefault → FeeReleasedDefault                            poolRecipient (same default path).
+Checkpoint 1         First COA consult +     releaseEarly → FeeReleasedEarly                                lpCompensationFund
+(≥24h, <48h)         keeper sanity check                                                                    (never the pool). Never blocks.
+Checkpoint 2         Second COA consult +    resolveCheckpoint2(illicitConfirmed)                           Illicit → Blocked (tokens stay
+(≥48h)               keeper sanity check     → FeeBlocked or FeeReleasedDefault                             in FeeEscrow).
+                                                                                                            Not illicit → lpCompensationFund
+                                                                                                            (never the pool).
+No resolution by 48h —                       releaseDefault → FeeReleasedDefault                            lpCompensationFund
+                                                                                                            (never the pool).
 -------------------- ----------------------- -------------------------------------------------------------- --------------------------------
 ```
 
-Events FeeReleasedEarly, FeeConfiscated and FeeReleasedDefault complete the audit trail for the operator.
+Events FeeReleasedEarly, FeeBlocked and FeeReleasedDefault complete the audit trail for the operator.
 
 ## 4. Sequence Summary
 

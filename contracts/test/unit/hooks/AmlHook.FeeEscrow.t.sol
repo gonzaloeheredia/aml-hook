@@ -37,7 +37,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         riskPolicy = new RiskPolicy();
 
         feeToken = new MockFeeToken();
-        escrow = new FeeEscrow(owner, address(feeToken), owner, owner);
+        escrow = new FeeEscrow(owner, address(feeToken), owner);
 
         hook = _deployHook(
             accessManager, sanctionRegistry, complianceOracle, riskPolicy, IFeeEscrow(address(escrow))
@@ -49,6 +49,8 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         bytes4[] memory oracleSelectors = new bytes4[](1);
         oracleSelectors[0] = ComplianceOracle.updateScore.selector;
         _wireRole(accessManager, owner, address(complianceOracle), oracleSelectors, Roles._ORACLE_KEEPER, keeper);
+
+        _wireHookGovernor();
 
         // zeroForOne exactIn → output is currency1 = feeToken (escrow custody asset).
         key = PoolKey({
@@ -73,15 +75,15 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
 
         feeToken.mint(address(manager), expectedFee);
 
-        bytes memory data = abi.encode(walletB);
-        (,, uint24 lpFee) = manager.callBeforeSwap(IHooks(address(hook)), router, key, params, data);
+        address sender = _bindTrustedSubject(walletB);
+        (,, uint24 lpFee) = manager.callBeforeSwap(IHooks(address(hook)), sender, key, params, "");
         assertEq(lpFee, 0);
 
         vm.expectEmit(true, true, false, true, address(hook));
         emit RiskFeeEscrowed(walletB, address(feeToken), expectedFee, 1, 800);
 
         (bytes4 sel, int128 hookDelta) =
-            manager.callAfterSwap(IHooks(address(hook)), router, key, params, delta, data);
+            manager.callAfterSwap(IHooks(address(hook)), sender, key, params, delta, "");
 
         assertEq(sel, hook.afterSwap.selector);
         assertEq(uint256(uint128(hookDelta)), expectedFee);
@@ -98,11 +100,11 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         complianceOracle.updateScore(walletC, 0, 0, address(0), 0, "");
 
         feeToken.mint(address(manager), 1e18);
-        bytes memory data = abi.encode(walletC);
-        manager.callBeforeSwap(IHooks(address(hook)), router, key, params, data);
+        address sender = _bindTrustedSubject(walletC);
+        manager.callBeforeSwap(IHooks(address(hook)), sender, key, params, "");
 
         (, int128 hookDelta) = manager.callAfterSwap(
-            IHooks(address(hook)), router, key, params, toBalanceDelta(-1e18, 1e18), data
+            IHooks(address(hook)), sender, key, params, toBalanceDelta(-1e18, 1e18), ""
         );
 
         assertEq(hookDelta, 0);
@@ -117,12 +119,12 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         // Output is currency0 (oneForZero), not the escrow feeToken.
         SwapParams memory oneForZero =
             SwapParams({zeroForOne: false, amountSpecified: -1e18, sqrtPriceLimitX96: 0});
-        bytes memory data = abi.encode(walletB);
-        manager.callBeforeSwap(IHooks(address(hook)), router, key, oneForZero, data);
+        address sender = _bindTrustedSubject(walletB);
+        manager.callBeforeSwap(IHooks(address(hook)), sender, key, oneForZero, "");
 
         feeToken.mint(address(manager), 1e18);
         (, int128 hookDelta) = manager.callAfterSwap(
-            IHooks(address(hook)), router, key, oneForZero, toBalanceDelta(1e18, -1e18), data
+            IHooks(address(hook)), sender, key, oneForZero, toBalanceDelta(1e18, -1e18), ""
         );
 
         assertEq(hookDelta, 0);
@@ -134,11 +136,11 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         complianceOracle.updateScore(walletB, 65, 1, walletA, 30, "");
 
         feeToken.mint(address(manager), 1e18);
-        bytes memory data = abi.encode(walletB);
-        manager.callBeforeSwap(IHooks(address(hook)), router, key, params, data);
+        address sender = _bindTrustedSubject(walletB);
+        manager.callBeforeSwap(IHooks(address(hook)), sender, key, params, "");
 
         (, int128 hookDelta) = manager.callAfterSwap(
-            IHooks(address(hook)), router, key, params, toBalanceDelta(-1e18, 1e18), data
+            IHooks(address(hook)), sender, key, params, toBalanceDelta(-1e18, 1e18), ""
         );
 
         assertEq(hookDelta, 0);
@@ -151,11 +153,11 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         complianceOracle.updateScore(walletB, 65, 1, walletA, 20, "");
 
         feeToken.mint(address(manager), 1e18);
-        bytes memory data = abi.encode(walletB);
-        manager.callBeforeSwap(IHooks(address(hook)), router, key, params, data);
+        address sender = _bindTrustedSubject(walletB);
+        manager.callBeforeSwap(IHooks(address(hook)), sender, key, params, "");
 
         (, int128 hookDelta) = manager.callAfterSwap(
-            IHooks(address(hook)), router, key, params, toBalanceDelta(-1e18, 1e18), data
+            IHooks(address(hook)), sender, key, params, toBalanceDelta(-1e18, 1e18), ""
         );
 
         assertEq(hookDelta, 0);
@@ -174,11 +176,11 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         uint256 expectedFee = (uint256(uint128(1e18)) * 770) / 10_000;
         feeToken.mint(address(manager), expectedFee);
 
-        bytes memory data = abi.encode(walletB);
-        manager.callBeforeSwap(IHooks(address(hook)), router, key, exactOut, data);
+        address sender = _bindTrustedSubject(walletB);
+        manager.callBeforeSwap(IHooks(address(hook)), sender, key, exactOut, "");
 
         (, int128 hookDelta) = manager.callAfterSwap(
-            IHooks(address(hook)), router, key, exactOut, toBalanceDelta(amount0, amount1), data
+            IHooks(address(hook)), sender, key, exactOut, toBalanceDelta(amount0, amount1), ""
         );
 
         assertEq(uint256(uint128(hookDelta)), expectedFee);
@@ -206,6 +208,8 @@ contract UnitAmlHookFeeEscrowDisabledTest is Helpers {
         oracleSelectors[0] = ComplianceOracle.updateScore.selector;
         _wireRole(accessManager, owner, address(complianceOracle), oracleSelectors, Roles._ORACLE_KEEPER, keeper);
 
+        _wireHookGovernor();
+
         key = PoolKey({
             currency0: Currency.wrap(address(0x1)),
             currency1: Currency.wrap(address(feeToken)),
@@ -223,10 +227,10 @@ contract UnitAmlHookFeeEscrowDisabledTest is Helpers {
         complianceOracle.updateScore(walletB, 65, 1, walletA, 800, "");
         feeToken.mint(address(manager), 1e18);
 
-        bytes memory data = abi.encode(walletB);
-        manager.callBeforeSwap(IHooks(address(hook)), router, key, params, data);
+        address sender = _bindTrustedSubject(walletB);
+        manager.callBeforeSwap(IHooks(address(hook)), sender, key, params, "");
         (, int128 hookDelta) = manager.callAfterSwap(
-            IHooks(address(hook)), router, key, params, toBalanceDelta(-1e18, 1e18), data
+            IHooks(address(hook)), sender, key, params, toBalanceDelta(-1e18, 1e18), ""
         );
 
         assertEq(hookDelta, 0);

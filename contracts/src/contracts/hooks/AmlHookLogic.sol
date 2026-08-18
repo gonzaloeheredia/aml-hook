@@ -99,14 +99,10 @@ abstract contract AmlHookLogic is AccessManaged {
 
     error WalletBlocked(address wallet, uint8 score, string reason);
     error SanctionHit(address wallet);
-    /// @notice No verified end-user from trusted router or hookData (fail-closed §3.5).
+    /// @notice Caller is not a trusted router — no end-user can be resolved (fail-closed §3.5).
     error MissingSwapSubject();
-    /// @notice Trusted router `msgSender()` reverted or returned zero — fail closed, no hookData fallback.
+    /// @notice Trusted router `msgSender()` reverted or returned zero — fail closed.
     error TrustedRouterSubjectFailed(address router);
-    /// @notice Trusted router subject and hookData address disagree.
-    /// @param declared Address decoded from hookData (cross-check).
-    /// @param fromRouter Address returned by `IMsgSender.msgSender()` on the trusted router.
-    error SubjectMismatch(address declared, address fromRouter);
     error InflowThresholdOutOfRange();
 
     event StalenessThresholdUpdated(uint256 previous, uint256 current);
@@ -194,44 +190,20 @@ abstract contract AmlHookLogic is AccessManaged {
     }
 
     /// @notice Resolve the compliance subject for beforeSwap (§3.5).
-    /// @dev WHY THIS ORDER:
-    ///      1) If `router` is trusted → `IMsgSender(router).msgSender()` is the only subject.
-    ///         Revert or zero → `TrustedRouterSubjectFailed` (no hookData fallback).
-    ///         Optional hookData is a cross-check only (mismatch → SubjectMismatch).
-    ///      2) Else (untrusted) → decode `abi.encode(endUser)` from hookData.
-    ///      3) If still zero → MissingSwapSubject (fail closed). Never score the router itself.
+    /// @dev The only subject source is `IMsgSender(router).msgSender()` on a trusted router.
+    ///      Uniswap `hookData` is ignored: callers cannot declare the end-user.
+    ///      Untrusted initiator → `MissingSwapSubject`. Revert or zero msgSender →
+    ///      `TrustedRouterSubjectFailed`. Never score the router itself.
     /// @param router PoolManager-reported swap initiator (`sender` in beforeSwap).
-    /// @param hookData Optional `abi.encode(endUser)` cross-check / legacy fallback.
-    function _resolveWallet(address router, bytes calldata hookData)
-        internal
-        view
-        returns (address wallet)
-    {
-        if (trustedRouters[router]) {
-            address fromRouter;
-            // Fail closed: a reverting or zero msgSender() must not fall through to caller hookData.
-            try IMsgSender(router).msgSender() returns (address subject) {
-                fromRouter = subject;
-            } catch {
-                revert TrustedRouterSubjectFailed(router);
-            }
-            if (fromRouter == address(0)) revert TrustedRouterSubjectFailed(router);
-            address declared = _tryDecodeHookSubject(hookData);
-            // Both present and disagree → someone is lying; abort before L1/L2/L3.
-            if (declared != address(0) && declared != fromRouter) {
-                revert SubjectMismatch(declared, fromRouter);
-            }
-            return fromRouter;
+    function _resolveWallet(address router) internal view returns (address wallet) {
+        if (!trustedRouters[router]) revert MissingSwapSubject();
+
+        try IMsgSender(router).msgSender() returns (address subject) {
+            wallet = subject;
+        } catch {
+            revert TrustedRouterSubjectFailed(router);
         }
-
-        wallet = _tryDecodeHookSubject(hookData);
-        if (wallet == address(0)) revert MissingSwapSubject();
-    }
-
-    /// @dev Best-effort decode of `abi.encode(address)` from hookData; zero if missing/invalid.
-    function _tryDecodeHookSubject(bytes calldata hookData) private pure returns (address subject) {
-        if (hookData.length < 32) return address(0);
-        subject = abi.decode(hookData, (address));
+        if (wallet == address(0)) revert TrustedRouterSubjectFailed(router);
     }
 
     /// @notice Per-wallet pool activity tracked by the hook (independent of the oracle; Mitigation C).

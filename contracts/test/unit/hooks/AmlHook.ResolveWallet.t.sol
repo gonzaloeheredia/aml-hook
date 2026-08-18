@@ -18,7 +18,7 @@ import {Roles} from "libraries/Roles.sol";
 import {MockTrustedRouter} from "../../../script/mocks/MockTrustedRouter.sol";
 import {Helpers, HookPoolManagerStub} from "test/utils/Helpers.t.sol";
 
-/// @notice `_resolveWallet` / trusted-router subject resolution (IMsgSender primary + hookData check).
+/// @notice `_resolveWallet` / trusted-router subject resolution (`IMsgSender` only; hookData ignored).
 contract UnitAmlHookResolveWalletTest is Helpers {
     PoolKey key;
     SwapParams params;
@@ -95,20 +95,28 @@ contract UnitAmlHookResolveWalletTest is Helpers {
         );
     }
 
-    function test_SubjectMismatch_RevertsOnDiscrepancy() external {
+    function test_ResolveViaTrustedRouterIgnoresMismatchedHookData() external {
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, "");
         MockTrustedRouter trusted = new MockTrustedRouter();
         trusted.setMsgSender(walletB);
         vm.prank(hookGovernor);
         hook.setTrustedRouter(address(trusted), true);
 
+        // hookData claims a different wallet; subject still comes from msgSender().
         bytes memory data = abi.encode(walletC);
-        vm.expectRevert(
-            abi.encodeWithSelector(AmlHookLogic.SubjectMismatch.selector, walletC, walletB)
+        (,, uint24 fee) =
+            manager.callBeforeSwap(IHooks(address(hook)), address(trusted), key, params, data);
+        assertEq(fee, 0);
+
+        vm.expectEmit(true, false, false, true, address(hook));
+        emit SwapObserved(walletB, 65, HookDecision.FEE_OVERRIDE, 800, 1, walletA);
+        manager.callAfterSwap(
+            IHooks(address(hook)), address(trusted), key, params, BalanceDelta.wrap(0), data
         );
-        manager.callBeforeSwap(IHooks(address(hook)), address(trusted), key, params, data);
     }
 
-    function test_MissingSwapSubject_WithoutTrustedRouterOrHookData() external {
+    function test_MissingSwapSubject_WithoutTrustedRouter() external {
         vm.expectRevert(AmlHookLogic.MissingSwapSubject.selector);
         manager.callBeforeSwap(IHooks(address(hook)), address(0xDEAD), key, params, "");
     }
@@ -140,14 +148,12 @@ contract UnitAmlHookResolveWalletTest is Helpers {
         manager.callBeforeSwap(IHooks(address(hook)), address(trusted), key, params, data);
     }
 
-    function test_FallbackHookData_UnchangedWithoutTrustedRouter() external {
+    function test_UntrustedRouter_HookDataIsIgnored() external {
         vm.prank(keeper);
         complianceOracle.updateScore(walletC, 0, 0, address(0), 0, "");
         bytes memory data = abi.encode(walletC);
-        (bytes4 sel,, uint24 fee) =
-            manager.callBeforeSwap(IHooks(address(hook)), router, key, params, data);
-        assertEq(sel, hook.beforeSwap.selector);
-        assertEq(fee, 0);
+        vm.expectRevert(AmlHookLogic.MissingSwapSubject.selector);
+        manager.callBeforeSwap(IHooks(address(hook)), router, key, params, data);
     }
 
     function test_SetTrustedRouter_RevertsForNonGovernor() external {

@@ -45,12 +45,14 @@ User → Router → PoolManager → AmlHook
 | **ComplianceOracle** | Score / hop / origin / `feeBps` / `updatedAt`; keeper writes |
 | **RiskPolicy** | Ternary bands + §3.8 floors (stale+activity, significant inflow) |
 | **AmlHook** / **AmlHookLogic** | `beforeSwap` / `afterSwap` (+ `afterSwapReturnDelta`); pool standard fee; differential → FeeEscrow; inflow baseline |
-| **FeeEscrow** | 48h hold of FEE_OVERRIDE differential only; own owner / keepers / depositors (not AccessManager) |
+| **FeeEscrow** | 48h hold of FEE_OVERRIDE differential only; own owner / keepers / depositors (not AccessManager); sanction confirmed → blocked reserve; else `lpCompensationFund` (`releaseEarly` / `resolveCheckpoint2(false)` / `releaseDefault`); never the pool |
 
 Subject resolution (§3.5): trusted routers (`hookGovernor` `setTrustedRouter`) report the end-user via
-`IMsgSender.msgSender()` as the only subject (`TrustedRouterSubjectFailed` if the call reverts or
-returns zero — no `hookData` fallback). `hookData` (`abi.encode(endUser)`) is a cross-check when both
-are present (`SubjectMismatch` on disagreement) and the fail-closed path for untrusted routers.
+`IMsgSender.msgSender()` as the **only** subject (`TrustedRouterSubjectFailed` if the call reverts or
+returns zero). Uniswap `hookData` is ignored. Untrusted initiators revert `MissingSwapSubject`.
+`Deploy` registers the canonical **Universal Router** (and 2.1.1) for the current chain so swaps from
+`app.uniswap.org` resolve the wallet without frontend `hookData`. Anvil has no UR, so it seeds
+`MockTrustedRouter`. `TRUSTED_ROUTER` adds another router on top.
 
 ### Ternary bands (§3.3)
 
