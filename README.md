@@ -1,6 +1,6 @@
 # AML Hook
 
-Compliance layer for **Uniswap v4** (UHI10). The hook intercepts swaps at `beforeSwap` / `afterSwap` and returns a ternary decision from a keeper-written risk score:
+Compliance layer for **Uniswap v4** (UHI10). The hook intercepts swaps at `beforeSwap` / `afterSwap` and returns a ternary decision from a keeper-written risk score. It also gates liquidity entry and exit at `beforeAddLiquidity` / `beforeRemoveLiquidity` with a **sanctions-only** check (no score, no RiskPolicy):
 
 | Score | Output | Effect |
 |---|---|---|
@@ -57,6 +57,7 @@ curl http://127.0.0.1:4000/health
 User → Router → PoolManager
                        │
               beforeSwap │ afterSwap
+     beforeAddLiquidity │ beforeRemoveLiquidity
                        ▼
                    AMLHook
           ┌────────────┼────────────┐
@@ -83,7 +84,7 @@ AccessManager (shared) → _REGISTRY_KEEPER · _ORACLE_KEEPER · _HOOK_GOVERNOR
 | Component | Role |
 |---|---|
 | **AccessManager** | Shared OZ authority for registry / oracle / hook governance |
-| **AmlHook** | Uniswap v4 hook — `beforeSwap` / `afterSwap`; governor retunes thresholds & trusted routers |
+| **AmlHook** | Uniswap v4 hook — `beforeSwap` / `afterSwap` (ternary score path); `beforeAddLiquidity` / `beforeRemoveLiquidity` gate sanctioned wallets only (position left intact; no score / RiskPolicy); governor retunes thresholds & trusted routers |
 | **SanctionRegistry** | L1 — sanctions screen (fail-closed); `_REGISTRY_KEEPER` writes |
 | **ComplianceOracle** | L2 — score / hop / origin; `_ORACLE_KEEPER` writes (`updateScore`) |
 | **RiskPolicy** | L3 — score → ALLOW / FEE_OVERRIDE / REVERT (+ §3.8 latency floors); pure |
@@ -96,8 +97,9 @@ In this repo, **apps/api** is the demo keeper (deterministic mock of that COA; l
 
 | Piece | Status |
 |---|---|
-| AccessManager · SanctionRegistry · ComplianceOracle · RiskPolicy · AmlHook · FeeEscrow | **Real** contracts (`Deploy` wires AccessManager; FeeEscrow optional in local deploy) |
-| PoolManager | **Mock** locally (`MockPoolManager`) |
+| AccessManager · SanctionRegistry · ComplianceOracle · RiskPolicy · AmlHook · FeeEscrow | **Real** contracts (`Deploy` wires AccessManager; FeeEscrow optional in local deploy). Liquidity sanctions gating is on-chain (`beforeAddLiquidity` / `beforeRemoveLiquidity`) |
+| PoolManager | **Mock** locally (`MockPoolManager`) — a real PoolManager is still pending |
+| Demo add / remove liquidity | **Not wired** — frontend and API remain swap-only; the on-chain gate cannot be shown end-to-end in the UI yet |
 | Keeper `updateScore` | **Real tx** when RPC env is set (key must hold `_ORACLE_KEEPER`); else mock trail |
 | Demo beforeSwap score + fee | **Hybrid** — on-chain `getRisk` (score + `feeBps` from COA) → memory → hop |
 | API ledger (balances, P2P, swap settle) | **Mock** (in-memory) |
@@ -179,6 +181,7 @@ aml-hook/
 
 ## Still pending
 
-- Real Uniswap v4 PoolManager + pool (swaps through AmlHook on-chain)
+- Real Uniswap v4 PoolManager + pool (swaps and liquidity through AmlHook on-chain; `MockPoolManager` is an empty placeholder)
+- Add / remove liquidity in the demo (frontend and API are still swap-only; the on-chain sanctions gate is already real)
 - Live COA vendors / LLM
 - Broader e2e beyond current Forge unit tests
