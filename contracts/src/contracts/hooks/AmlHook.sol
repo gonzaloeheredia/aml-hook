@@ -17,7 +17,7 @@ import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/src/types/BeforeSwapDelta.sol";
-import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
+import {ModifyLiquidityParams, SwapParams} from "v4-core/src/types/PoolOperation.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 
 /// @dev Minimal ERC-20 surface for approving FeeEscrow.deposit's transferFrom.
@@ -80,14 +80,15 @@ contract AmlHook is BaseHook, AmlHookLogic {
     }
 
     /// @inheritdoc BaseHook
-    /// @notice beforeSwap + afterSwap + afterSwapReturnDelta (required to take the risk fee).
+    /// @notice beforeSwap + afterSwap + afterSwapReturnDelta (required to take the risk fee),
+    ///         plus beforeAddLiquidity + beforeRemoveLiquidity (sanctions gate on LP entry/exit).
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: false,
             afterInitialize: false,
-            beforeAddLiquidity: false,
+            beforeAddLiquidity: true,
             afterAddLiquidity: false,
-            beforeRemoveLiquidity: false,
+            beforeRemoveLiquidity: true,
             afterRemoveLiquidity: false,
             beforeSwap: true,
             afterSwap: true,
@@ -98,6 +99,40 @@ contract AmlHook is BaseHook, AmlHookLogic {
             afterAddLiquidityReturnDelta: false,
             afterRemoveLiquidityReturnDelta: false
         });
+    }
+
+    /// @inheritdoc BaseHook
+    /// @notice Blocks a sanctioned wallet from entering as a liquidity provider.
+    /// @dev Sanctions only — no score/fee evaluation here. RiskPolicy prices exposure taken
+    ///      through a swap; depositing liquidity is not that, so Layer 3 is not consulted.
+    ///      Same wallet-resolution path as `_beforeSwap` (`_resolveWallet`), so an untrusted
+    ///      caller fails closed the same way (`MissingSwapSubject` / `TrustedRouterSubjectFailed`).
+    function _beforeAddLiquidity(
+        address sender,
+        PoolKey calldata,
+        ModifyLiquidityParams calldata,
+        bytes calldata
+    ) internal view override returns (bytes4) {
+        _requireNotPaused();
+        _requireNotSanctioned(_resolveWallet(sender));
+        return this.beforeAddLiquidity.selector;
+    }
+
+    /// @inheritdoc BaseHook
+    /// @notice Blocks a sanctioned wallet from withdrawing liquidity — the position stays
+    ///         exactly as it is, nothing is confiscated, and the lock lifts as soon as the
+    ///         registry no longer reports the wallet as sanctioned.
+    /// @dev Sanctions only, never the score: losing the score band must not trap a position,
+    ///      only a sanction does. No RiskPolicy consultation, same as `_beforeAddLiquidity`.
+    function _beforeRemoveLiquidity(
+        address sender,
+        PoolKey calldata,
+        ModifyLiquidityParams calldata,
+        bytes calldata
+    ) internal view override returns (bytes4) {
+        _requireNotPaused();
+        _requireNotSanctioned(_resolveWallet(sender));
+        return this.beforeRemoveLiquidity.selector;
     }
 
     /// @inheritdoc BaseHook

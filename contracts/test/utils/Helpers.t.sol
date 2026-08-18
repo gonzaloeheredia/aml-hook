@@ -8,7 +8,7 @@ import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
-import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
+import {ModifyLiquidityParams, SwapParams} from "v4-core/src/types/PoolOperation.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta} from "v4-core/src/types/BeforeSwapDelta.sol";
 import {LPFeeLibrary} from "v4-core/src/libraries/LPFeeLibrary.sol";
@@ -51,6 +51,26 @@ contract HookPoolManagerStub {
         bytes calldata hookData
     ) external returns (bytes4, int128) {
         return hook.afterSwap(sender, key, params, delta, hookData);
+    }
+
+    function callBeforeAddLiquidity(
+        IHooks hook,
+        address sender,
+        PoolKey calldata key,
+        ModifyLiquidityParams calldata params,
+        bytes calldata hookData
+    ) external returns (bytes4) {
+        return hook.beforeAddLiquidity(sender, key, params, hookData);
+    }
+
+    function callBeforeRemoveLiquidity(
+        IHooks hook,
+        address sender,
+        PoolKey calldata key,
+        ModifyLiquidityParams calldata params,
+        bytes calldata hookData
+    ) external returns (bytes4) {
+        return hook.beforeRemoveLiquidity(sender, key, params, hookData);
     }
 }
 
@@ -134,6 +154,7 @@ contract Helpers is Test {
         address flags = address(
             uint160(
                 Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
+                    | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
             )
         );
         deployCodeTo(
@@ -176,5 +197,20 @@ contract Helpers is Test {
 
     function _buildParams() internal pure returns (SwapParams memory _params) {
         _params = SwapParams({zeroForOne: true, amountSpecified: -1e18, sqrtPriceLimitX96: 0});
+    }
+
+    /// @dev `liquidityDelta` sign only matters to v4-core's own dispatch (add vs remove); the hook
+    ///      callbacks under test are called directly, so either sign exercises the same gate.
+    function _buildLiquidityParams(int256 _liquidityDelta)
+        internal
+        pure
+        returns (ModifyLiquidityParams memory _params)
+    {
+        _params = ModifyLiquidityParams({
+            tickLower: -60,
+            tickUpper: 60,
+            liquidityDelta: _liquidityDelta,
+            salt: bytes32(0)
+        });
     }
 }
