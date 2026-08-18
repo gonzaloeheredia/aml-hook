@@ -27,6 +27,13 @@ import {ISanctionRegistry} from "../../interfaces/registries/ISanctionRegistry.s
 ///      account; it does not seize funds from it (FeeEscrow confiscation is separate).
 contract SanctionRegistry is AccessManaged, ISanctionRegistry {
     mapping(address => bool) private _sanctioned;
+    mapping(bytes32 => uint256) public commitTimestamps;
+    uint256 public constant REVEAL_DELAY = 1;
+
+    event SanctionCommitted(bytes32 indexed commitHash, uint256 blockNumber);
+
+    error UnknownCommit(bytes32 commitHash);
+    error RevealTooEarly(uint256 committedAt);
 
     /// @notice Deploys the registry under an access manager.
     /// @param initialAuthority_ The access manager that decides who may write the list.
@@ -40,8 +47,28 @@ contract SanctionRegistry is AccessManaged, ISanctionRegistry {
 
     /// @inheritdoc ISanctionRegistry
     /// @notice Writer-role update for a single address (event-driven OFAC-style writes; §3.8).
+    /// @dev Emergency direct write. The preferred production path is commit-reveal
+    ///      (`commitSanction` then `revealSanction`) so the sanctioned address is not
+    ///      visible in the mempool before the flag is applied.
     function setSanctioned(address account, bool sanctioned) external restricted {
         _sanctioned[account] = sanctioned;
         emit SanctionUpdated(account, sanctioned);
+    }
+
+    /// @notice First step of the production sanctions path: commit a hash of (account, sanctioned, salt).
+    function commitSanction(bytes32 commitHash) external restricted {
+        commitTimestamps[commitHash] = block.number;
+        emit SanctionCommitted(commitHash, block.number);
+    }
+
+    /// @notice Second step: reveal the committed sanction after `REVEAL_DELAY` blocks.
+    function revealSanction(address account, bool sanctioned, bytes32 salt) external restricted {
+        bytes32 h = keccak256(abi.encode(account, sanctioned, salt));
+        uint256 committedAt = commitTimestamps[h];
+        if (committedAt == 0) revert UnknownCommit(h);
+        if (block.number <= committedAt + REVEAL_DELAY) revert RevealTooEarly(committedAt);
+        _sanctioned[account] = sanctioned;
+        emit SanctionUpdated(account, sanctioned);
+        delete commitTimestamps[h];
     }
 }

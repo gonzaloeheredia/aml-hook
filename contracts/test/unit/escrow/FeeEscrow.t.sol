@@ -55,7 +55,7 @@ contract UnitFeeEscrowTest is Helpers {
         address indexed wallet,
         uint256 amount,
         uint64 depositedAt,
-        bytes32 originTxHash
+        bytes32 swapFingerprint
     );
     event FeeReleasedEarly(
         uint256 indexed escrowId, address indexed wallet, uint256 amount, address indexed to
@@ -109,7 +109,7 @@ contract UnitFeeEscrowTest is Helpers {
         assertEq(rec.wallet, walletA);
         assertEq(rec.amount, amount);
         assertEq(rec.depositedAt, t0);
-        assertEq(rec.originTxHash, ORIGIN_TX);
+        assertEq(rec.swapFingerprint, ORIGIN_TX);
         assertEq(uint8(rec.status), uint8(IFeeEscrow.EscrowStatus.Active));
         assertEq(token.balanceOf(address(escrow)), amount);
         assertEq(token.balanceOf(depositor), 1_000_000 ether - amount);

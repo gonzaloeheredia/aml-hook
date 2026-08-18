@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {AccessManaged} from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 import {ISanctionRegistry} from "../../interfaces/registries/ISanctionRegistry.sol";
 import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol";
@@ -41,7 +42,7 @@ import {HookDecision} from "../../libraries/HookDecision.sol";
 ///      Governance: `AccessManaged` against the shared AccessManager.
 ///      `_HOOK_GOVERNOR` may retune thresholds / trusted routers only — not the
 ///      swap path itself (that is fixed in bytecode).
-abstract contract AmlHookLogic is AccessManaged {
+abstract contract AmlHookLogic is AccessManaged, Pausable {
     ISanctionRegistry public immutable sanctionRegistry;
     IComplianceOracle public immutable complianceOracle;
     IRiskPolicy public immutable riskPolicy;
@@ -104,6 +105,7 @@ abstract contract AmlHookLogic is AccessManaged {
     /// @notice Trusted router `msgSender()` reverted or returned zero — fail closed.
     error TrustedRouterSubjectFailed(address router);
     error InflowThresholdOutOfRange();
+    error StalenessThresholdTooLow();
 
     event StalenessThresholdUpdated(uint256 previous, uint256 current);
     event InflowThresholdUpdated(uint256 previous, uint256 current);
@@ -161,8 +163,19 @@ abstract contract AmlHookLogic is AccessManaged {
     /// @dev Why restricted: only `_HOOK_GOVERNOR` should change how aggressively we treat
     ///      lagging scores (institutional 30–60s vs retail minutes). Keepers must not.
     function setStalenessThreshold(uint256 stalenessThreshold_) external restricted {
+        if (stalenessThreshold_ == 0) revert StalenessThresholdTooLow();
         emit StalenessThresholdUpdated(stalenessThreshold, stalenessThreshold_);
         stalenessThreshold = stalenessThreshold_;
+    }
+
+    /// @notice Hook governor pauses all swap evaluation (emergency stop).
+    function pause() external restricted {
+        _pause();
+    }
+
+    /// @notice Hook governor resumes swap evaluation after an emergency pause.
+    function unpause() external restricted {
+        _unpause();
     }
 
     /// @notice Hook governor retunes Mitigation D inflow threshold in bps of current balance (§3.8).
@@ -234,9 +247,11 @@ abstract contract AmlHookLogic is AccessManaged {
             IComplianceOracle.WalletRisk memory risk
         )
     {
-        (decision, feeBps, risk,) = _evaluateCore(wallet, token);
+        _requireNotPaused();
+        EvalSignals memory sig;
+        (decision, feeBps, risk, sig) = _evaluateCore(wallet, token);
         if (decision == HookDecision.ALLOW) {
-            (decision, feeBps) = _applyHookLocalMitigations(wallet, risk);
+            (decision, feeBps) = _applyHookLocalMitigations(wallet, risk, sig.operationCount);
         }
     }
 
@@ -292,7 +307,8 @@ abstract contract AmlHookLogic is AccessManaged {
     ///      B (stale+ops) and D (inflow) already floored inside RiskPolicy.decide.
     function _applyHookLocalMitigations(
         address wallet,
-        IComplianceOracle.WalletRisk memory risk
+        IComplianceOracle.WalletRisk memory risk,
+        uint32 operationCount
     ) internal view returns (HookDecision decision, uint24 feeBps) {
         decision = HookDecision.ALLOW;
         feeBps = 0;
@@ -304,7 +320,7 @@ abstract contract AmlHookLogic is AccessManaged {
         }
 
         // Mitigation C: too many ops in the rolling window → economic friction, not hard block.
-        if (_opsInCurrentWindow(wallet) >= maxOpsInWindow) {
+        if (operationCount >= maxOpsInWindow) {
             return (HookDecision.FEE_OVERRIDE, _latencyFee(risk));
         }
     }
@@ -319,6 +335,7 @@ abstract contract AmlHookLogic is AccessManaged {
             IComplianceOracle.WalletRisk memory risk
         )
     {
+        _requireNotPaused();
         EvalSignals memory sig;
         (decision, feeBps, risk, sig) = _evaluateCore(wallet, token);
 
@@ -341,7 +358,7 @@ abstract contract AmlHookLogic is AccessManaged {
             return (decision, feeBps, risk);
         }
 
-        (decision, feeBps) = _applyHookLocalMitigations(wallet, risk);
+        (decision, feeBps) = _applyHookLocalMitigations(wallet, risk, sig.operationCount);
         if (decision == HookDecision.ALLOW) {
             return (decision, 0, risk);
         }

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {IFeeEscrow} from "../../interfaces/escrow/IFeeEscrow.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @dev Minimal ERC-20 surface for fee custody (transfer / transferFrom only).
 interface IERC20Fee {
@@ -41,7 +42,7 @@ interface IERC20Fee {
 ///      Access: own owner / keepers / depositors (NOT the shared AccessManager).
 ///      The COA never writes on-chain; only a FeeEscrow keeper submits txs after
 ///      an off-chain sanity check on the COA output.
-contract FeeEscrow is IFeeEscrow {
+contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     /// @dev Full hold window before Checkpoint 2 / default release may run.
     uint64 public constant ESCROW_WINDOW = 48 hours;
     /// @dev Earliest moment Checkpoint 1 (early release to LPs) is allowed.
@@ -76,6 +77,7 @@ contract FeeEscrow is IFeeEscrow {
     error TransferFailed();
     error LengthMismatch();
     error NotPendingOwner();
+    error NotBlocked();
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
@@ -89,7 +91,7 @@ contract FeeEscrow is IFeeEscrow {
         address indexed wallet,
         uint256 amount,
         uint64 depositedAt,
-        bytes32 originTxHash
+        bytes32 swapFingerprint
     );
 
     /// @notice Checkpoint 1 early release to the LP compensation fund (never the pool; never confiscates).
@@ -102,6 +104,11 @@ contract FeeEscrow is IFeeEscrow {
 
     /// @notice Period expired without a confirmed sanction: release to LPs (default or Checkpoint 2 clean).
     event FeeReleasedDefault(
+        uint256 indexed escrowId, address indexed wallet, uint256 amount, address indexed to
+    );
+
+    /// @notice Owner recovered a blocked fee to `to`.
+    event FeeRecovered(
         uint256 indexed escrowId, address indexed wallet, uint256 amount, address indexed to
     );
 
@@ -144,10 +151,11 @@ contract FeeEscrow is IFeeEscrow {
     /// @inheritdoc IFeeEscrow
     /// @notice Pull the differential fee from the depositor into this contract for 48h.
     /// @dev `wallet` is the compliance subject (for the audit trail), not necessarily msg.sender.
-    ///      `originTxHash` links the escrow row to the FEE_OVERRIDE swap that created it.
-    function deposit(address wallet, bytes32 originTxHash, uint256 amount)
+    ///      `swapFingerprint` links the escrow row to the FEE_OVERRIDE swap that created it.
+    function deposit(address wallet, bytes32 swapFingerprint, uint256 amount)
         external
         onlyDepositor
+        nonReentrant
         returns (uint256 escrowId)
     {
         if (wallet == address(0)) revert ZeroAddress();
@@ -161,23 +169,23 @@ contract FeeEscrow is IFeeEscrow {
             wallet: wallet,
             amount: amount,
             depositedAt: ts,
-            originTxHash: originTxHash,
+            swapFingerprint: swapFingerprint,
             status: EscrowStatus.Active
         });
 
-        emit FeeDeposited(escrowId, wallet, amount, ts, originTxHash);
+        emit FeeDeposited(escrowId, wallet, amount, ts, swapFingerprint);
     }
 
     /// @inheritdoc IFeeEscrow
     /// @notice Checkpoint 1 (≥24h, <48h): first COA consult → early credit to LPs.
     /// @dev Never confiscates here: blocking is reserved for Checkpoint 2 after a second COA pass.
     ///      The risk fee never returns to the pool.
-    function releaseEarly(uint256 escrowId) external onlyKeeper {
+    function releaseEarly(uint256 escrowId) external onlyKeeper nonReentrant {
         _releaseEarly(escrowId);
     }
 
     /// @inheritdoc IFeeEscrow
-    function batchReleaseEarly(uint256[] calldata escrowIds) external onlyKeeper {
+    function batchReleaseEarly(uint256[] calldata escrowIds) external onlyKeeper nonReentrant {
         uint256 n = escrowIds.length;
         for (uint256 i; i < n; ++i) {
             _releaseEarly(escrowIds[i]);
@@ -188,7 +196,7 @@ contract FeeEscrow is IFeeEscrow {
     /// @notice Checkpoint 2 (≥48h): second COA consult → block in escrow or release to LP fund.
     /// @param illicitConfirmed Keeper's post-sanity conclusion from the COA (true = block).
     /// @dev Illicit → Blocked, tokens stay here. Clean → lpCompensationFund (never pool).
-    function resolveCheckpoint2(uint256 escrowId, bool illicitConfirmed) external onlyKeeper {
+    function resolveCheckpoint2(uint256 escrowId, bool illicitConfirmed) external onlyKeeper nonReentrant {
         _resolveCheckpoint2(escrowId, illicitConfirmed);
     }
 
@@ -196,6 +204,7 @@ contract FeeEscrow is IFeeEscrow {
     function batchResolveCheckpoint2(uint256[] calldata escrowIds, bool[] calldata illicitConfirmed)
         external
         onlyKeeper
+        nonReentrant
     {
         uint256 n = escrowIds.length;
         if (n != illicitConfirmed.length) revert LengthMismatch();
@@ -208,12 +217,12 @@ contract FeeEscrow is IFeeEscrow {
     /// @notice Default path if nobody resolved at Checkpoint 2: credit LPs.
     /// @dev The wallet was not confirmed high-risk or sanctioned. Same destination as
     ///      Checkpoint 2 clean (§3.7) — retroactive LP compensation, never the pool.
-    function releaseDefault(uint256 escrowId) external onlyKeeper {
+    function releaseDefault(uint256 escrowId) external onlyKeeper nonReentrant {
         _releaseDefault(escrowId);
     }
 
     /// @inheritdoc IFeeEscrow
-    function batchReleaseDefault(uint256[] calldata escrowIds) external onlyKeeper {
+    function batchReleaseDefault(uint256[] calldata escrowIds) external onlyKeeper nonReentrant {
         uint256 n = escrowIds.length;
         for (uint256 i; i < n; ++i) {
             _releaseDefault(escrowIds[i]);
@@ -224,6 +233,22 @@ contract FeeEscrow is IFeeEscrow {
     function getEscrow(uint256 escrowId) external view returns (EscrowRecord memory) {
         if (escrowId == 0 || escrowId >= nextEscrowId) revert UnknownEscrow();
         return _escrows[escrowId];
+    }
+
+    /// @inheritdoc IFeeEscrow
+    /// @notice Owner-only recovery of a blocked fee. Exceptional; not batched.
+    function recoverBlocked(uint256 escrowId, address to) external onlyOwner nonReentrant {
+        if (to == address(0)) revert ZeroAddress();
+        if (escrowId == 0 || escrowId >= nextEscrowId) revert UnknownEscrow();
+        EscrowRecord storage rec = _escrows[escrowId];
+        if (rec.status != EscrowStatus.Blocked) revert NotBlocked();
+
+        rec.status = EscrowStatus.Recovered;
+        uint256 amount = rec.amount;
+        address wallet = rec.wallet;
+
+        _transferOut(to, amount);
+        emit FeeRecovered(escrowId, wallet, amount, to);
     }
 
     function setKeeper(address keeper, bool allowed) external onlyOwner {

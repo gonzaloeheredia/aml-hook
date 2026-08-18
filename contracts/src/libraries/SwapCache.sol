@@ -3,10 +3,12 @@ pragma solidity ^0.8.26;
 
 import {IComplianceOracle} from "../interfaces/oracles/IComplianceOracle.sol";
 import {HookDecision} from "./HookDecision.sol";
+import {PoolId} from "v4-core/src/types/PoolId.sol";
 
 /// @title EIP-1153 transient cache from beforeSwap → afterSwap
 /// @notice Avoids cold SSTORE for data that must not outlive the transaction.
-/// @dev Slots are keccak-tagged so they cannot collide with future tstore in this contract.
+/// @dev Slots are keccak-tagged with PoolId so concurrent swaps against this hook
+///      in the same transaction cannot collide.
 library SwapCache {
     bytes32 private constant _WALLET = keccak256("aml.hook.transient.wallet");
     bytes32 private constant _TOKEN = keccak256("aml.hook.transient.token");
@@ -21,22 +23,23 @@ library SwapCache {
     uint256 private constant _ORACLE_FEE_SHIFT = 112;
 
     function store(
+        PoolId poolId,
         address wallet,
         address token,
         HookDecision decision,
         uint24 feeBps,
         IComplianceOracle.WalletRisk memory risk
     ) internal {
-        _tstore(_WALLET, uint256(uint160(wallet)));
-        _tstore(_TOKEN, uint256(uint160(token)));
-        _tstore(_ORIGIN, uint256(uint160(risk.origin)));
+        _tstore(_slot(_WALLET, poolId), uint256(uint160(wallet)));
+        _tstore(_slot(_TOKEN, poolId), uint256(uint160(token)));
+        _tstore(_slot(_ORIGIN, poolId), uint256(uint160(risk.origin)));
         uint256 packed = uint256(uint8(decision)) | (uint256(feeBps) << _FEE_SHIFT)
             | (uint256(risk.score) << _SCORE_SHIFT) | (uint256(risk.hopDistance) << _HOP_SHIFT)
             | (uint256(risk.updatedAt) << _UPDATED_SHIFT) | (uint256(risk.feeBps) << _ORACLE_FEE_SHIFT);
-        _tstore(_PACKED, packed);
+        _tstore(_slot(_PACKED, poolId), packed);
     }
 
-    function load()
+    function load(PoolId poolId)
         internal
         view
         returns (
@@ -47,10 +50,10 @@ library SwapCache {
             IComplianceOracle.WalletRisk memory risk
         )
     {
-        wallet = address(uint160(_tload(_WALLET)));
-        token = address(uint160(_tload(_TOKEN)));
-        risk.origin = address(uint160(_tload(_ORIGIN)));
-        uint256 packed = _tload(_PACKED);
+        wallet = address(uint160(_tload(_slot(_WALLET, poolId))));
+        token = address(uint160(_tload(_slot(_TOKEN, poolId))));
+        risk.origin = address(uint160(_tload(_slot(_ORIGIN, poolId))));
+        uint256 packed = _tload(_slot(_PACKED, poolId));
         decision = HookDecision(uint8(packed));
         feeBps = uint24(packed >> _FEE_SHIFT);
         risk.score = uint8(packed >> _SCORE_SHIFT);
@@ -59,11 +62,15 @@ library SwapCache {
         risk.feeBps = uint24(packed >> _ORACLE_FEE_SHIFT);
     }
 
-    function clear() internal {
-        _tstore(_WALLET, 0);
-        _tstore(_TOKEN, 0);
-        _tstore(_ORIGIN, 0);
-        _tstore(_PACKED, 0);
+    function clear(PoolId poolId) internal {
+        _tstore(_slot(_WALLET, poolId), 0);
+        _tstore(_slot(_TOKEN, poolId), 0);
+        _tstore(_slot(_ORIGIN, poolId), 0);
+        _tstore(_slot(_PACKED, poolId), 0);
+    }
+
+    function _slot(bytes32 baseSlot, PoolId poolId) private pure returns (bytes32) {
+        return keccak256(abi.encode(baseSlot, poolId));
     }
 
     function _tstore(bytes32 slot, uint256 value) private {

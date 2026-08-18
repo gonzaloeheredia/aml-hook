@@ -241,6 +241,9 @@ contract Deploy is Script {
             address(complianceOracle), _oracleSelectors(), Roles._ORACLE_KEEPER
         );
         accessManager.setTargetFunctionRole(address(hook), _hookSelectors(), Roles._HOOK_GOVERNOR);
+        accessManager.setTargetFunctionRole(
+            address(complianceOracle), _oracleGovernorSelectors(), Roles._HOOK_GOVERNOR
+        );
 
         accessManager.grantRole(Roles._REGISTRY_KEEPER, registryKeeper, 0);
         accessManager.grantRole(Roles._ORACLE_KEEPER, oracleKeeper, 0);
@@ -305,6 +308,7 @@ contract Deploy is Script {
         _requireFunctionRole(address(sanctionRegistry), _registrySelectors(), Roles._REGISTRY_KEEPER);
         _requireFunctionRole(address(complianceOracle), _oracleSelectors(), Roles._ORACLE_KEEPER);
         _requireFunctionRole(address(hook), _hookSelectors(), Roles._HOOK_GOVERNOR);
+        _requireFunctionRole(address(complianceOracle), _oracleGovernorSelectors(), Roles._HOOK_GOVERNOR);
 
         _requireRole(registryKeeper, Roles._REGISTRY_KEEPER, true);
         _requireRole(oracleKeeper, Roles._ORACLE_KEEPER, true);
@@ -343,8 +347,10 @@ contract Deploy is Script {
 
     /// @notice The sanctions registry functions that require a role
     function _registrySelectors() internal pure returns (bytes4[] memory selectors) {
-        selectors = new bytes4[](1);
+        selectors = new bytes4[](3);
         selectors[0] = SanctionRegistry.setSanctioned.selector;
+        selectors[1] = SanctionRegistry.commitSanction.selector;
+        selectors[2] = SanctionRegistry.revealSanction.selector;
     }
 
     /// @notice The compliance oracle functions that require a role
@@ -353,12 +359,20 @@ contract Deploy is Script {
         selectors[0] = ComplianceOracle.updateScore.selector;
     }
 
+    /// @notice Oracle governance (rate limit) — `_HOOK_GOVERNOR`, not the scoring keeper.
+    function _oracleGovernorSelectors() internal pure returns (bytes4[] memory selectors) {
+        selectors = new bytes4[](1);
+        selectors[0] = ComplianceOracle.setRateLimit.selector;
+    }
+
     /// @notice The hook functions that require the governor role
     function _hookSelectors() internal pure returns (bytes4[] memory selectors) {
-        selectors = new bytes4[](3);
+        selectors = new bytes4[](5);
         selectors[0] = AmlHookLogic.setStalenessThreshold.selector;
         selectors[1] = AmlHookLogic.setInflowThresholdBps.selector;
         selectors[2] = AmlHookLogic.setTrustedRouter.selector;
+        selectors[3] = AmlHookLogic.pause.selector;
+        selectors[4] = AmlHookLogic.unpause.selector;
     }
 
     function _writeDeploymentJson(

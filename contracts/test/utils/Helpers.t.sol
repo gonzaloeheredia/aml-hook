@@ -100,10 +100,12 @@ contract Helpers is Test {
 
     /// @dev Wires `_HOOK_GOVERNOR` so tests can `setTrustedRouter`.
     function _wireHookGovernor() internal {
-        bytes4[] memory hookSelectors = new bytes4[](3);
+        bytes4[] memory hookSelectors = new bytes4[](5);
         hookSelectors[0] = AmlHookLogic.setStalenessThreshold.selector;
         hookSelectors[1] = AmlHookLogic.setInflowThresholdBps.selector;
         hookSelectors[2] = AmlHookLogic.setTrustedRouter.selector;
+        hookSelectors[3] = AmlHookLogic.pause.selector;
+        hookSelectors[4] = AmlHookLogic.unpause.selector;
         _wireRole(accessManager, owner, address(hook), hookSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
     }
 

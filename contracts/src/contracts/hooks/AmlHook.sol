@@ -14,6 +14,7 @@ import {SwapCache} from "../../libraries/SwapCache.sol";
 import {Hooks} from "v4-core/src/libraries/Hooks.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
+import {PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/src/types/BeforeSwapDelta.sol";
 import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
@@ -35,6 +36,7 @@ interface IERC20Approve {
 ///      differential via poolManager.take → FeeEscrow.deposit.
 ///      differentialBps = max(0, feeBps - STANDARD_FEE_BPS).
 contract AmlHook is BaseHook, AmlHookLogic {
+    using PoolIdLibrary for PoolKey;
     /// @notice Pool base fee in bps (0.30%) — left to the PoolManager; not overridden.
     uint24 public constant STANDARD_FEE_BPS = FeeBps.STANDARD;
 
@@ -45,6 +47,9 @@ contract AmlHook is BaseHook, AmlHookLogic {
     event RiskFeeEscrowed(
         address indexed wallet, address indexed token, uint256 amount, uint256 escrowId, uint24 feeBps
     );
+
+    /// @notice Emitted when the risk fee is not taken (zero basis or escrow token mismatch).
+    event RiskFeeSkipped(address indexed wallet, address indexed token, uint24 feeBps, string reason);
 
     error FeeTransferFailed();
     error FeeApproveFailed();
@@ -111,7 +116,7 @@ contract AmlHook is BaseHook, AmlHookLogic {
         (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk) =
             _evaluateWithMitigationEvents(wallet, token);
 
-        SwapCache.store(wallet, token, decision, feeBps, risk);
+        SwapCache.store(key.toId(), wallet, token, decision, feeBps, risk);
 
         // ALLOW and FEE_OVERRIDE: do not override pool LP fee (standard path).
         // REVERT already reverted inside evaluate.
@@ -136,8 +141,8 @@ contract AmlHook is BaseHook, AmlHookLogic {
             HookDecision decision,
             uint24 feeBps,
             IComplianceOracle.WalletRisk memory risk
-        ) = SwapCache.load();
-        SwapCache.clear();
+        ) = SwapCache.load(key.toId());
+        SwapCache.clear(key.toId());
 
         _recordActivity(wallet);
         _updateKnownBalance(wallet, swapToken);
@@ -182,22 +187,30 @@ contract AmlHook is BaseHook, AmlHookLogic {
             basisAmount = inputDelta < 0 ? -inputDelta : int256(0);
         }
 
-        if (basisAmount <= 0) return 0;
+        address token = Currency.unwrap(feeCurrency);
+        if (basisAmount <= 0) {
+            emit RiskFeeSkipped(wallet, token, feeBps, "ZERO_BASIS");
+            return 0;
+        }
 
         uint256 feeAmount = (uint256(basisAmount) * differentialBps) / 10_000;
         if (feeAmount == 0) return 0;
         if (feeAmount > uint256(uint128(type(int128).max))) revert FeeTransferFailed();
 
-        address token = Currency.unwrap(feeCurrency);
         // FeeEscrow is single-token custody; skip if this swap's fee currency differs.
-        if (token != address(feeEscrow.feeToken())) return 0;
+        if (token != address(feeEscrow.feeToken())) {
+            emit RiskFeeSkipped(wallet, token, feeBps, "FEE_TOKEN_MISMATCH");
+            return 0;
+        }
 
         // Pull tokens to this hook, then push into escrow (hook must be a depositor).
         poolManager.take(feeCurrency, address(this), feeAmount);
+        IERC20Approve(token).approve(address(feeEscrow), 0);
         if (!IERC20Approve(token).approve(address(feeEscrow), feeAmount)) revert FeeApproveFailed();
 
-        bytes32 originTxHash = keccak256(abi.encode(wallet, token, feeAmount, block.number, block.timestamp));
-        uint256 escrowId = feeEscrow.deposit(wallet, originTxHash, feeAmount);
+        bytes32 swapFingerprint =
+            keccak256(abi.encode(wallet, token, feeAmount, block.number, block.timestamp));
+        uint256 escrowId = feeEscrow.deposit(wallet, swapFingerprint, feeAmount);
 
         emit RiskFeeEscrowed(wallet, token, feeAmount, escrowId, feeBps);
         return int128(int256(feeAmount));

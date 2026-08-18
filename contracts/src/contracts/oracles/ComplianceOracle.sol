@@ -34,7 +34,21 @@ import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol"
 contract ComplianceOracle is AccessManaged, IComplianceOracle {
     mapping(address => WalletRisk) private _risk;
 
+    uint256 public maxUpdatesPerWindow = 5;
+    uint64 public updateWindow = 1 hours;
+
     error ScoreOutOfRange();
+    error UpdateRateLimited(address wallet);
+    error InvalidRateLimit();
+
+    event RateLimitUpdated(uint256 maxUpdates, uint64 window);
+
+    struct UpdateTracker {
+        uint64 windowStart;
+        uint32 count;
+    }
+
+    mapping(address => UpdateTracker) private _updateTracker;
 
     /// @notice Deploys the oracle under an access manager.
     /// @param initialAuthority_ The access manager that decides who may publish scores.
@@ -69,6 +83,16 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
         bytes calldata /* signature */
     ) external restricted {
         if (score > 100) revert ScoreOutOfRange();
+
+        UpdateTracker storage tracker = _updateTracker[wallet];
+        if (tracker.windowStart == 0 || block.timestamp >= uint256(tracker.windowStart) + uint256(updateWindow)) {
+            tracker.windowStart = uint64(block.timestamp);
+            tracker.count = 1;
+        } else {
+            tracker.count += 1;
+            if (tracker.count > maxUpdatesPerWindow) revert UpdateRateLimited(wallet);
+        }
+
         uint64 ts = uint64(block.timestamp);
         _risk[wallet] = WalletRisk({
             score: score,
@@ -78,5 +102,13 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
             updatedAt: ts
         });
         emit ScoreUpdated(wallet, score, hopDistance, origin, feeBps, ts);
+    }
+
+    /// @notice Governor retunes the per-wallet `updateScore` rate limit.
+    function setRateLimit(uint256 maxUpdates, uint64 window) external restricted {
+        if (maxUpdates == 0 || window == 0) revert InvalidRateLimit();
+        maxUpdatesPerWindow = maxUpdates;
+        updateWindow = window;
+        emit RateLimitUpdated(maxUpdates, window);
     }
 }
