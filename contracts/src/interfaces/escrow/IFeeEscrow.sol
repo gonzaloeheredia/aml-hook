@@ -10,7 +10,8 @@ interface IFeeEscrow {
         Active,
         ReleasedEarly,
         Blocked,
-        ReleasedDefault
+        ReleasedDefault,
+        Recovered
     }
 
     /// @notice One retained FEE_OVERRIDE fee slice.
@@ -18,7 +19,7 @@ interface IFeeEscrow {
         address wallet;
         uint256 amount;
         uint64 depositedAt;
-        bytes32 originTxHash;
+        bytes32 swapFingerprint;
         EscrowStatus status;
     }
 
@@ -28,7 +29,7 @@ interface IFeeEscrow {
     /// @notice Deposit the differential fee into the 48h escrow.
     /// @dev Only an authorized depositor (e.g. settlement path). Pulls `feeToken` via transferFrom.
     /// @return escrowId Identifier for later keeper resolution.
-    function deposit(address wallet, bytes32 originTxHash, uint256 amount)
+    function deposit(address wallet, bytes32 swapFingerprint, uint256 amount)
         external
         returns (uint256 escrowId);
 
@@ -52,6 +53,9 @@ interface IFeeEscrow {
 
     /// @notice Default release for many escrow ids (same rules as `releaseDefault`).
     function batchReleaseDefault(uint256[] calldata escrowIds) external;
+
+    /// @notice Owner recovery of a blocked fee to `to` (exceptional; no batch).
+    function recoverBlocked(uint256 escrowId, address to) external;
 
     /// @notice Read a single escrow record.
     function getEscrow(uint256 escrowId) external view returns (EscrowRecord memory);

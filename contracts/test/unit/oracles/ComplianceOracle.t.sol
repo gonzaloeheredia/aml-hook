@@ -72,15 +72,15 @@ contract UnitComplianceOracleTest is Helpers {
         assertEq(risk.updatedAt, uint64(block.timestamp));
     }
 
-    /// @dev Packing guard: with uint64 `updatedAt` the profile spans two slots (not one as in
-    ///      the uint40 aml-hook-dev layout). Fail if an accidental third slot is written.
+    /// @dev Packing guard: WalletRisk spans two slots; the per-wallet rate-limit tracker
+    ///      writes a third. Fail if an accidental extra slot is written.
     function test_UpdateScoreWhenCallerHasTheRoleWritesPackedSlots(address wallet) external {
         vm.record();
         vm.prank(keeper);
         complianceOracle.updateScore(wallet, 100, 3, address(0xBEEF), 800, "");
 
         (, bytes32[] memory writes) = vm.accesses(address(complianceOracle));
-        assertEq(_countDistinct(writes), 2);
+        assertEq(_countDistinct(writes), 3);
     }
 
     function test_KeeperCanUpdateScoreWithFee() external {
