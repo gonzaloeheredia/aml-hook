@@ -41,11 +41,11 @@ User → Router → PoolManager → AmlHook
 | Contract | Role |
 |---|---|
 | **AccessManager** | Shared OpenZeppelin authority (`Roles`: registry / oracle keepers, hook governor) |
-| **SanctionRegistry** | Sanctions hit → REVERT before score |
+| **SanctionRegistry** | Sanctions hit → REVERT before score. New hits: `commitSanction` + `revealSanction`. `setSanctioned` delists only (`DirectSanctionForbidden` on `true`) |
 | **ComplianceOracle** | Score / hop / origin / `feeBps` / `updatedAt`; keeper writes |
 | **RiskPolicy** | Ternary bands + §3.8 floors (stale+activity, significant inflow) |
-| **AmlHook** / **AmlHookLogic** | `beforeSwap` / `afterSwap` (+ `afterSwapReturnDelta`); `beforeAddLiquidity` / `beforeRemoveLiquidity` (sanctions-only gate — no score / RiskPolicy); pool standard fee; differential → FeeEscrow; inflow baseline |
-| **FeeEscrow** | 48h hold of FEE_OVERRIDE differential only; own owner / keepers / depositors (not AccessManager); sanction confirmed → blocked reserve; else `lpCompensationFund` (`releaseEarly` / `resolveCheckpoint2(false)` / `releaseDefault`); never the pool |
+| **AmlHook** / **AmlHookLogic** | `beforeSwap` / `afterSwap` (+ `afterSwapReturnDelta`); `beforeAddLiquidity` / `beforeRemoveLiquidity` (sanctions-only gate — no score / RiskPolicy; not gated by `pause()`); pool standard fee; differential → FeeEscrow; inflow baseline |
+| **FeeEscrow** | 48h hold of FEE_OVERRIDE differential only; own owner / keepers / depositors (not AccessManager); sanction confirmed → blocked reserve (owner `recoverBlocked` only to `lpCompensationFund`); else `lpCompensationFund` (`releaseEarly` / `resolveCheckpoint2(false)` / `releaseDefault`); never the pool. Batch calls cap at `MAX_BATCH_SIZE` (50) |
 
 Subject resolution (§3.5): trusted routers (`hookGovernor` `setTrustedRouter`) report the end-user via
 `IMsgSender.msgSender()` as the **only** subject (`TrustedRouterSubjectFailed` if the call reverts or

@@ -43,8 +43,10 @@ contract UnitAmlHookTest is Helpers {
         oracleSelectors[0] = ComplianceOracle.updateScore.selector;
         _wireRole(accessManager, owner, address(complianceOracle), oracleSelectors, Roles._ORACLE_KEEPER, keeper);
 
-        bytes4[] memory registrySelectors = new bytes4[](1);
+        bytes4[] memory registrySelectors = new bytes4[](3);
         registrySelectors[0] = SanctionRegistry.setSanctioned.selector;
+        registrySelectors[1] = SanctionRegistry.commitSanction.selector;
+        registrySelectors[2] = SanctionRegistry.revealSanction.selector;
         _wireRole(accessManager, owner, address(sanctionRegistry), registrySelectors, Roles._REGISTRY_KEEPER, keeper);
 
         _wireHookGovernor();
@@ -128,8 +130,7 @@ contract UnitAmlHookTest is Helpers {
     }
 
     function test_SanctionRevertsBeforeScore() external {
-        vm.prank(keeper);
-        sanctionRegistry.setSanctioned(walletB, true);
+        _sanction(sanctionRegistry, keeper, walletB);
         vm.prank(keeper);
         complianceOracle.updateScore(walletB, 0, 0, address(0), 0, "");
         address sender = _bindTrustedSubject(walletB);

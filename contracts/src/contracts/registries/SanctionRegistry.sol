@@ -34,6 +34,8 @@ contract SanctionRegistry is AccessManaged, ISanctionRegistry {
 
     error UnknownCommit(bytes32 commitHash);
     error RevealTooEarly(uint256 committedAt);
+    /// @dev I-1: `setSanctioned(account, true)` is no longer reachable directly.
+    error DirectSanctionForbidden();
 
     /// @notice Deploys the registry under an access manager.
     /// @param initialAuthority_ The access manager that decides who may write the list.
@@ -46,13 +48,20 @@ contract SanctionRegistry is AccessManaged, ISanctionRegistry {
     }
 
     /// @inheritdoc ISanctionRegistry
-    /// @notice Writer-role update for a single address (event-driven OFAC-style writes; §3.8).
-    /// @dev Emergency direct write. The preferred production path is commit-reveal
-    ///      (`commitSanction` then `revealSanction`) so the sanctioned address is not
-    ///      visible in the mempool before the flag is applied.
+    /// @notice Writer-role delisting of a single address (event-driven OFAC-style writes; §3.8).
+    /// @dev I-1: this direct path now only accepts `sanctioned = false` and reverts
+    ///      `DirectSanctionForbidden` otherwise. Applying a *new* sanction directly, in one
+    ///      call, exposes the target address in the mempool before it takes effect — a
+    ///      searcher watching for `SanctionUpdated(account, true)` can front-run it with the
+    ///      account's own withdrawal/exit transaction in the same block, defeating the very
+    ///      block this call is meant to impose. Delisting carries no such incentive (nobody
+    ///      races to keep themselves sanctioned), so it stays instant. Applying a new sanction
+    ///      must go through `commitSanction` + `revealSanction`, which hides which address is
+    ///      being sanctioned until the reveal, after the commit has already been mined.
     function setSanctioned(address account, bool sanctioned) external restricted {
-        _sanctioned[account] = sanctioned;
-        emit SanctionUpdated(account, sanctioned);
+        if (sanctioned) revert DirectSanctionForbidden();
+        _sanctioned[account] = false;
+        emit SanctionUpdated(account, false);
     }
 
     /// @notice First step of the production sanctions path: commit a hash of (account, sanctioned, salt).
