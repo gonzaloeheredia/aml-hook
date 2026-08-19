@@ -522,4 +522,114 @@ contract UnitFeeEscrowTest is Helpers {
         assertEq(token.balanceOf(fund), 0);
         assertEq(token.balanceOf(pool), 0);
     }
+
+    /*///////////////////////////////////////////////////////////////
+                            RECOVER BLOCKED (I-3)
+    //////////////////////////////////////////////////////////////*/
+
+    function _blockedEscrow(uint256 amount) internal returns (uint256 id) {
+        id = _deposit(amount);
+        vm.warp(block.timestamp + 48 hours);
+        vm.prank(keeper);
+        escrow.resolveCheckpoint2(id, true);
+    }
+
+    event FeeRecovered(
+        uint256 indexed escrowId, address indexed wallet, uint256 amount, address indexed to
+    );
+
+    function test_RecoverBlocked_OwnerCanRecoverToLpFund() external {
+        uint256 amount = 30 ether;
+        uint256 id = _blockedEscrow(amount);
+
+        vm.expectEmit(true, true, true, true, address(escrow));
+        emit FeeRecovered(id, walletA, amount, fund);
+
+        vm.prank(owner);
+        escrow.recoverBlocked(id, fund);
+
+        IFeeEscrow.EscrowRecord memory rec = escrow.getEscrow(id);
+        assertEq(uint8(rec.status), uint8(IFeeEscrow.EscrowStatus.Recovered));
+        assertEq(token.balanceOf(fund), amount);
+        assertEq(token.balanceOf(address(escrow)), 0);
+    }
+
+    /// @dev I-3: recoverBlocked no longer accepts an arbitrary destination. Only the current
+    ///      lpCompensationFund is a valid `to`, closing the owner-key single-point-of-failure
+    ///      that let a compromised owner redirect a confiscated, sanctioned fee anywhere.
+    function test_RecoverBlocked_RevertsOnArbitraryDestination() external {
+        uint256 id = _blockedEscrow(10 ether);
+        address arbitrary = makeAddr("attacker");
+
+        vm.prank(owner);
+        vm.expectRevert(FeeEscrow.InvalidRecoveryDestination.selector);
+        escrow.recoverBlocked(id, arbitrary);
+    }
+
+    function test_RecoverBlocked_RevertsOnZeroAddress() external {
+        uint256 id = _blockedEscrow(10 ether);
+
+        vm.prank(owner);
+        vm.expectRevert(FeeEscrow.InvalidRecoveryDestination.selector);
+        escrow.recoverBlocked(id, address(0));
+    }
+
+    function test_RecoverBlocked_RevertsForNonOwner() external {
+        uint256 id = _blockedEscrow(10 ether);
+
+        vm.prank(stranger);
+        vm.expectRevert(FeeEscrow.NotOwner.selector);
+        escrow.recoverBlocked(id, fund);
+    }
+
+    function test_RecoverBlocked_RevertsIfNotBlocked() external {
+        uint256 id = _deposit(10 ether);
+
+        vm.prank(owner);
+        vm.expectRevert(FeeEscrow.NotBlocked.selector);
+        escrow.recoverBlocked(id, fund);
+    }
+
+    function test_RecoverBlocked_CannotBeCalledTwice() external {
+        uint256 id = _blockedEscrow(10 ether);
+
+        vm.prank(owner);
+        escrow.recoverBlocked(id, fund);
+
+        vm.prank(owner);
+        vm.expectRevert(FeeEscrow.NotBlocked.selector);
+        escrow.recoverBlocked(id, fund);
+    }
+
+    /*///////////////////////////////////////////////////////////////
+                        BATCH SIZE LIMIT (L-2)
+    //////////////////////////////////////////////////////////////*/
+
+    function test_BatchReleaseEarly_RevertsAboveMaxBatchSize() external {
+        uint256 max = escrow.MAX_BATCH_SIZE();
+        uint256[] memory ids = new uint256[](max + 1);
+
+        vm.prank(keeper);
+        vm.expectRevert(FeeEscrow.BatchTooLarge.selector);
+        escrow.batchReleaseEarly(ids);
+    }
+
+    function test_BatchResolveCheckpoint2_RevertsAboveMaxBatchSize() external {
+        uint256 max = escrow.MAX_BATCH_SIZE();
+        uint256[] memory ids = new uint256[](max + 1);
+        bool[] memory flags = new bool[](max + 1);
+
+        vm.prank(keeper);
+        vm.expectRevert(FeeEscrow.BatchTooLarge.selector);
+        escrow.batchResolveCheckpoint2(ids, flags);
+    }
+
+    function test_BatchReleaseDefault_RevertsAboveMaxBatchSize() external {
+        uint256 max = escrow.MAX_BATCH_SIZE();
+        uint256[] memory ids = new uint256[](max + 1);
+
+        vm.prank(keeper);
+        vm.expectRevert(FeeEscrow.BatchTooLarge.selector);
+        escrow.batchReleaseDefault(ids);
+    }
 }

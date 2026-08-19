@@ -15,8 +15,10 @@ contract UnitSanctionRegistryTest is Helpers {
         accessManager = new AccessManager(owner);
         sanctionRegistry = new SanctionRegistry(address(accessManager));
 
-        bytes4[] memory selectors = new bytes4[](1);
+        bytes4[] memory selectors = new bytes4[](3);
         selectors[0] = SanctionRegistry.setSanctioned.selector;
+        selectors[1] = SanctionRegistry.commitSanction.selector;
+        selectors[2] = SanctionRegistry.revealSanction.selector;
         _wireRole(accessManager, owner, address(sanctionRegistry), selectors, Roles._REGISTRY_KEEPER, keeper);
     }
 
@@ -28,42 +30,44 @@ contract UnitSanctionRegistryTest is Helpers {
         assertFalse(sanctionRegistry.isSanctioned(account));
     }
 
-    function test_SetSanctionedWhenCallerHasTheRole(address account, address other) external {
-        vm.assume(account != other);
+    /*///////////////////////////////////////////////////////////////
+                I-1: DIRECT setSanctioned(account, true) IS DEAD
+    //////////////////////////////////////////////////////////////*/
 
-        vm.expectEmit(true, false, false, true, address(sanctionRegistry));
-        emit ISanctionRegistry.SanctionUpdated(account, true);
-
+    /// @dev The direct path can no longer apply a new sanction, even for the holder of
+    ///      `_REGISTRY_KEEPER`. This is the fix itself, not a permission check — it must
+    ///      revert `DirectSanctionForbidden`, not `AccessManagedUnauthorized`.
+    function test_DirectSetSanctionedTrue_RevertsForKeeperToo(address account) external {
         vm.prank(keeper);
+        vm.expectRevert(SanctionRegistry.DirectSanctionForbidden.selector);
         sanctionRegistry.setSanctioned(account, true);
 
-        assertTrue(sanctionRegistry.isSanctioned(account));
-        assertFalse(sanctionRegistry.isSanctioned(other));
+        assertFalse(sanctionRegistry.isSanctioned(account));
     }
 
     function test_SetSanctionedWhenDelistingAnAccount(address account) external {
-        vm.startPrank(keeper);
-        sanctionRegistry.setSanctioned(account, true);
+        _sanction(sanctionRegistry, keeper, account);
+        assertTrue(sanctionRegistry.isSanctioned(account));
+
+        vm.prank(keeper);
         sanctionRegistry.setSanctioned(account, false);
-        vm.stopPrank();
         assertFalse(sanctionRegistry.isSanctioned(account));
     }
 
     function test_NonKeeperCannotSanction(address account) external {
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
-        sanctionRegistry.setSanctioned(account, true);
+        sanctionRegistry.setSanctioned(account, false);
     }
 
     function test_ManagerAdminCannotSanction(address account) external {
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, owner));
-        sanctionRegistry.setSanctioned(account, true);
+        sanctionRegistry.setSanctioned(account, false);
     }
 
     function test_RevokeRoleWhenKeeperIsCompromised(address account) external {
-        vm.prank(keeper);
-        sanctionRegistry.setSanctioned(account, true);
+        _sanction(sanctionRegistry, keeper, account);
 
         vm.prank(owner);
         accessManager.revokeRole(Roles._REGISTRY_KEEPER, keeper);
@@ -79,6 +83,67 @@ contract UnitSanctionRegistryTest is Helpers {
         SanctionRegistry unwired = new SanctionRegistry(address(accessManager));
         vm.prank(keeper);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, keeper));
-        unwired.setSanctioned(account, true);
+        unwired.setSanctioned(account, false);
+    }
+
+    /*///////////////////////////////////////////////////////////////
+                        COMMIT-REVEAL PATH (I-1 fix)
+    //////////////////////////////////////////////////////////////*/
+
+    /// @dev The only surviving path to apply a *new* sanction: commit the hash, wait past
+    ///      `REVEAL_DELAY`, then reveal. The target address is not learnable from the commit
+    ///      alone, so a searcher cannot front-run the account's own exit before the reveal.
+    function test_CommitRevealSanctionsAccount(address account, bytes32 salt) external {
+        vm.assume(account != address(0));
+        bytes32 commitHash = keccak256(abi.encode(account, true, salt));
+
+        vm.prank(keeper);
+        sanctionRegistry.commitSanction(commitHash);
+        assertEq(sanctionRegistry.commitTimestamps(commitHash), block.number);
+
+        vm.roll(block.number + sanctionRegistry.REVEAL_DELAY() + 1);
+
+        vm.expectEmit(true, false, false, true, address(sanctionRegistry));
+        emit ISanctionRegistry.SanctionUpdated(account, true);
+
+        vm.prank(keeper);
+        sanctionRegistry.revealSanction(account, true, salt);
+
+        assertTrue(sanctionRegistry.isSanctioned(account));
+        // Commit is consumed — cannot be replayed.
+        assertEq(sanctionRegistry.commitTimestamps(commitHash), 0);
+    }
+
+    function test_RevealSanction_RevertsTooEarly(address account, bytes32 salt) external {
+        bytes32 commitHash = keccak256(abi.encode(account, true, salt));
+        vm.prank(keeper);
+        sanctionRegistry.commitSanction(commitHash);
+
+        vm.prank(keeper);
+        vm.expectRevert(abi.encodeWithSelector(SanctionRegistry.RevealTooEarly.selector, block.number));
+        sanctionRegistry.revealSanction(account, true, salt);
+    }
+
+    function test_RevealSanction_RevertsOnUnknownCommit(address account, bytes32 salt) external {
+        bytes32 commitHash = keccak256(abi.encode(account, true, salt));
+
+        vm.prank(keeper);
+        vm.expectRevert(abi.encodeWithSelector(SanctionRegistry.UnknownCommit.selector, commitHash));
+        sanctionRegistry.revealSanction(account, true, salt);
+    }
+
+    function test_RevealSanction_CannotBeReplayed(address account, bytes32 salt) external {
+        _sanction(sanctionRegistry, keeper, account);
+        bytes32 commitHash = keccak256(abi.encode(account, true, salt));
+
+        vm.prank(keeper);
+        vm.expectRevert(abi.encodeWithSelector(SanctionRegistry.UnknownCommit.selector, commitHash));
+        sanctionRegistry.revealSanction(account, true, salt);
+    }
+
+    function test_CommitSanction_RevertsForNonKeeper(bytes32 commitHash) external {
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
+        sanctionRegistry.commitSanction(commitHash);
     }
 }

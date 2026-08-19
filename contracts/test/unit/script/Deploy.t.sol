@@ -62,8 +62,10 @@ contract UnitDeployTest is Helpers {
     //////////////////////////////////////////////////////////////*/
 
     function test_DeployWhenRunLeavesEachKeeperAbleToWriteItsOwnContract(address account) external {
-        vm.prank(registryKeeper);
-        sanctionRegistry.setSanctioned(account, true);
+        // Deploy.sol wires registryKeeper for setSanctioned + commitSanction + revealSanction
+        // (see `_registrySelectors`), so the commit-reveal path is what "can write its own
+        // contract" now means for a new sanction (I-1: the direct `true` path is dead).
+        _sanction(sanctionRegistry, registryKeeper, account);
 
         vm.prank(oracleKeeper);
         complianceOracle.updateScore(account, 65, 1, address(0), 0, "");

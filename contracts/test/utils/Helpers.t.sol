@@ -129,6 +129,24 @@ contract Helpers is Test {
         _wireRole(accessManager, owner, address(hook), hookSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
     }
 
+    /// @dev I-1: `SanctionRegistry.setSanctioned(account, true)` is no longer reachable
+    ///      directly — applying a new sanction must go through commit-reveal. Tests that only
+    ///      need a wallet sanctioned as *setup* (not testing the front-running fix itself) use
+    ///      this helper to do the commit + roll past `REVEAL_DELAY` + reveal in one call, acting
+    ///      as `_caller` (must hold `_REGISTRY_KEEPER` on `_registry`'s AccessManager).
+    function _sanction(SanctionRegistry _registry, address _caller, address _account) internal {
+        bytes32 salt = keccak256(abi.encode(_account, block.number, address(_registry)));
+        bytes32 commitHash = keccak256(abi.encode(_account, true, salt));
+
+        vm.prank(_caller);
+        _registry.commitSanction(commitHash);
+
+        vm.roll(block.number + _registry.REVEAL_DELAY() + 1);
+
+        vm.prank(_caller);
+        _registry.revealSanction(_account, true, salt);
+    }
+
     /// @dev Register a MockTrustedRouter (once) and set the end-user it reports via `msgSender()`.
     function _bindTrustedSubject(address subject) internal returns (address sender) {
         if (address(trustedRouter) == address(0)) {

@@ -84,12 +84,12 @@ AccessManager (shared) → _REGISTRY_KEEPER · _ORACLE_KEEPER · _HOOK_GOVERNOR
 | Component | Role |
 |---|---|
 | **AccessManager** | Shared OZ authority for registry / oracle / hook governance |
-| **AmlHook** | Uniswap v4 hook — `beforeSwap` / `afterSwap` (ternary score path); `beforeAddLiquidity` / `beforeRemoveLiquidity` gate sanctioned wallets only (position left intact; no score / RiskPolicy); governor retunes thresholds & trusted routers |
-| **SanctionRegistry** | L1 — sanctions screen (fail-closed); `_REGISTRY_KEEPER` writes |
+| **AmlHook** | Uniswap v4 hook — `beforeSwap` / `afterSwap` (ternary score path); `beforeAddLiquidity` / `beforeRemoveLiquidity` gate sanctioned wallets only (position left intact; no score / RiskPolicy). Governor `pause()` stops swaps, not LP add/remove |
+| **SanctionRegistry** | L1 — sanctions screen (fail-closed). New hits: `_REGISTRY_KEEPER` `commitSanction` + `revealSanction`. `setSanctioned` delists only |
 | **ComplianceOracle** | L2 — score / hop / origin; `_ORACLE_KEEPER` writes (`updateScore`) |
 | **RiskPolicy** | L3 — score → ALLOW / FEE_OVERRIDE / REVERT (+ §3.8 latency floors); pure |
 | **Oracle Keeper (COA)** | Off-chain AI Compliance Officer — scores wallets, publishes `updateScore`, drives FeeEscrow after COA memos (COA never writes on-chain; deferred publish for Wallet D) |
-| **FeeEscrow** | Holds FEE_OVERRIDE differential fee for 48h (not swap output). Own access list. Sanction confirmed → blocked reserve (later releases revert). Otherwise the risk fee goes to lpCompensationFund (`releaseEarly`, `resolveCheckpoint2(false)`, `releaseDefault`). Never the pool. |
+| **FeeEscrow** | Holds FEE_OVERRIDE differential fee for 48h (not swap output). Own access list. Sanction confirmed → blocked reserve (keeper releases revert; owner `recoverBlocked` only to `lpCompensationFund`). Otherwise the risk fee goes to lpCompensationFund (`releaseEarly`, `resolveCheckpoint2(false)`, `releaseDefault`). Never the pool. Batches cap at 50 ids. |
 
 In this repo, **apps/api** is the demo keeper (deterministic mock of that COA; live LLM and vendor feeds are the production path). **apps/frontend** drives the UI. Pool swaps in the UI are still settled in the API ledger until a real PoolManager is wired; scores can already be published/read on Anvil.
 

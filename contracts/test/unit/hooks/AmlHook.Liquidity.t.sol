@@ -28,8 +28,10 @@ contract UnitAmlHookLiquidityTest is Helpers {
         riskPolicy = new RiskPolicy();
         hook = _deployHook(accessManager, sanctionRegistry, complianceOracle, riskPolicy);
 
-        bytes4[] memory registrySelectors = new bytes4[](1);
+        bytes4[] memory registrySelectors = new bytes4[](3);
         registrySelectors[0] = SanctionRegistry.setSanctioned.selector;
+        registrySelectors[1] = SanctionRegistry.commitSanction.selector;
+        registrySelectors[2] = SanctionRegistry.revealSanction.selector;
         _wireRole(accessManager, owner, address(sanctionRegistry), registrySelectors, Roles._REGISTRY_KEEPER, keeper);
 
         _wireHookGovernor();
@@ -52,8 +54,7 @@ contract UnitAmlHookLiquidityTest is Helpers {
     }
 
     function test_SanctionedWalletCannotAddLiquidity() external {
-        vm.prank(keeper);
-        sanctionRegistry.setSanctioned(walletA, true);
+        _sanction(sanctionRegistry, keeper, walletA);
         address sender = _bindTrustedSubject(walletA);
 
         vm.expectRevert(abi.encodeWithSelector(AmlHookLogic.SanctionHit.selector, walletA));
@@ -80,8 +81,7 @@ contract UnitAmlHookLiquidityTest is Helpers {
     /// @dev The trap: a sanctioned wallet's position sits untouched — the call reverts, nothing
     ///      is transferred or confiscated, only withdrawal is blocked while the sanction stands.
     function test_SanctionedWalletCannotRemoveLiquidity() external {
-        vm.prank(keeper);
-        sanctionRegistry.setSanctioned(walletB, true);
+        _sanction(sanctionRegistry, keeper, walletB);
         address sender = _bindTrustedSubject(walletB);
 
         vm.expectRevert(abi.encodeWithSelector(AmlHookLogic.SanctionHit.selector, walletB));
@@ -91,15 +91,14 @@ contract UnitAmlHookLiquidityTest is Helpers {
     /// @dev The lift: once the registry no longer reports the wallet as sanctioned, the exact
     ///      same removal succeeds — no separate unlock step, no keeper action beyond delisting.
     function test_RemoveLiquidityUnlocksAfterSanctionLifted() external {
-        vm.startPrank(keeper);
-        sanctionRegistry.setSanctioned(walletB, true);
+        _sanction(sanctionRegistry, keeper, walletB);
         address sender = _bindTrustedSubject(walletB);
 
         vm.expectRevert(abi.encodeWithSelector(AmlHookLogic.SanctionHit.selector, walletB));
         manager.callBeforeRemoveLiquidity(IHooks(address(hook)), sender, key, removeParams, "");
 
+        vm.prank(keeper);
         sanctionRegistry.setSanctioned(walletB, false);
-        vm.stopPrank();
 
         bytes4 sel =
             manager.callBeforeRemoveLiquidity(IHooks(address(hook)), sender, key, removeParams, "");
@@ -115,18 +114,67 @@ contract UnitAmlHookLiquidityTest is Helpers {
                                 PAUSE
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev The hook governor's emergency pause freezes liquidity moves the same way it freezes
-    ///      swap evaluation — both are part of the same `_HOOK_GOVERNOR`-controlled stop.
-    function test_PausedHookBlocksLiquidityMoves() external {
+    /// @dev pause() is a pool-wide emergency switch, not a targeted control. It still stops the
+    ///      swap path, but neither liquidity gate listens to it: a clean wallet keeps depositing
+    ///      while the hook is paused, exactly as it keeps withdrawing.
+    function test_PausedHookStillAllowsCleanAddLiquidity() external {
+        address sender = _bindTrustedSubject(walletC);
+
+        vm.prank(hookGovernor);
+        hook.pause();
+
+        bytes4 sel =
+            manager.callBeforeAddLiquidity(IHooks(address(hook)), sender, key, addParams, "");
+        assertEq(sel, hook.beforeAddLiquidity.selector);
+    }
+
+    /// @dev A pause must never trap capital LPs already committed. A clean wallet's withdrawal
+    ///      keeps working while the hook is paused.
+    function test_PausedHookStillAllowsCleanRemoveLiquidity() external {
+        address sender = _bindTrustedSubject(walletC);
+
+        vm.prank(hookGovernor);
+        hook.pause();
+
+        bytes4 sel =
+            manager.callBeforeRemoveLiquidity(IHooks(address(hook)), sender, key, removeParams, "");
+        assertEq(sel, hook.beforeRemoveLiquidity.selector);
+    }
+
+    /// @dev Pausing is not a way to bypass the sanctions gate either way. Targeting a specific
+    ///      wallet is SanctionRegistry's job, not pause()'s, and the two stay independent.
+    function test_PausedHookStillBlocksSanctionedAddLiquidity() external {
+        _sanction(sanctionRegistry, keeper, walletB);
+        address sender = _bindTrustedSubject(walletB);
+
+        vm.prank(hookGovernor);
+        hook.pause();
+
+        vm.expectRevert(abi.encodeWithSelector(AmlHookLogic.SanctionHit.selector, walletB));
+        manager.callBeforeAddLiquidity(IHooks(address(hook)), sender, key, addParams, "");
+    }
+
+    /// @dev Same independence, on the withdrawal side.
+    function test_PausedHookStillBlocksSanctionedRemoveLiquidity() external {
+        _sanction(sanctionRegistry, keeper, walletB);
+        address sender = _bindTrustedSubject(walletB);
+
+        vm.prank(hookGovernor);
+        hook.pause();
+
+        vm.expectRevert(abi.encodeWithSelector(AmlHookLogic.SanctionHit.selector, walletB));
+        manager.callBeforeRemoveLiquidity(IHooks(address(hook)), sender, key, removeParams, "");
+    }
+
+    /// @dev pause() still stops the swap path — this feature only removed it from the two
+    ///      liquidity gates, it did not remove the governor's ability to stop swaps.
+    function test_PausedHookStillBlocksSwaps() external {
         address sender = _bindTrustedSubject(walletC);
 
         vm.prank(hookGovernor);
         hook.pause();
 
         vm.expectRevert();
-        manager.callBeforeAddLiquidity(IHooks(address(hook)), sender, key, addParams, "");
-
-        vm.expectRevert();
-        manager.callBeforeRemoveLiquidity(IHooks(address(hook)), sender, key, removeParams, "");
+        manager.callBeforeSwap(IHooks(address(hook)), sender, key, _buildParams(), "");
     }
 }
