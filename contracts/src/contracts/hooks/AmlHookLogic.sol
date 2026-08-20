@@ -66,7 +66,8 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     /// @notice Minimum seconds between `lastKnownBalance` baseline writes (H-02).
     uint64 public minBaselineInterval = 1 hours;
 
-    /// @notice How owner-level compliance is aggregated for a trusted multisig subject (C-03).
+    /// @notice How owner-level L1 sanctions are aggregated for a trusted multisig (C-03).
+    /// @dev Applies to `isSanctioned` only. Owner behavioral scores are not aggregated on-chain.
     enum MultisigAggregation {
         ALL_CLEAN,
         ANY_CLEAN
@@ -255,6 +256,17 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     }
 
     /// @notice Governor registers a verified multisig that may be a swap subject (C-03).
+    /// @dev L1 (on-chain): `_resolveWallet` enumerates Safe owners and applies
+    ///      `multisigAggregation` to sanctions only. L2 (behavior) is not applied per
+    ///      signer here. After owners pass L1, the subject remains this Safe address;
+    ///      `_evaluate` reads only the Safe's own ComplianceOracle row.
+    ///
+    ///      Off-chain keeper MUST publish that Safe row as follows (not enforced here):
+    ///        1) treat any signer with `updatedAt == 0` as unscored (not ALLOW, not score 0);
+    ///        2) apply Mitigation A (elevate / friction, not ALLOW) for those unsigned signers;
+    ///        3) take the maximum among those normalized signer scores;
+    ///        4) `updateScore` that aggregate on the Safe address.
+    ///      A new signer without history must push the aggregate up, not vanish as clean.
     function setTrustedMultisig(address account, MultisigType kind, bool trusted) external restricted {
         if (account == address(0)) revert MissingSwapSubject();
         if (trusted && kind == MultisigType.NONE) revert MissingSwapSubject();
@@ -263,7 +275,8 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         emit TrustedMultisigUpdated(account, kind, trusted);
     }
 
-    /// @notice Governor sets whether every multisig owner must be clean, or any one suffices.
+    /// @notice Governor sets whether every Safe owner must be unsanctioned, or any one suffices.
+    /// @dev L1 sanctions only. Does not aggregate owner behavioral scores or REVERT-band.
     function setMultisigAggregation(MultisigAggregation aggregation) external restricted {
         emit MultisigAggregationUpdated(multisigAggregation, aggregation);
         multisigAggregation = aggregation;
@@ -274,6 +287,9 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     ///      Uniswap `hookData` is ignored: callers cannot declare the end-user.
     ///      Untrusted initiator → `MissingSwapSubject`. Revert or zero msgSender →
     ///      `TrustedRouterSubjectFailed`. Never score the router itself.
+    ///      A contract subject must be a trusted multisig whose owners pass L1
+    ///      (`_requireMultisigOwnersClean`). The returned wallet is still the Safe;
+    ///      L2 score / Mitigations A–D run on that address, not per signer.
     /// @param router PoolManager-reported swap initiator (`sender` in beforeSwap).
     function _resolveWallet(address router) internal view returns (address wallet) {
         if (!trustedRouters[router]) revert MissingSwapSubject();
@@ -292,7 +308,10 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         _requireMultisigOwnersClean(wallet, ms.kind);
     }
 
-    /// @dev C-03: enumerate Safe owners and apply `multisigAggregation` over L1 + REVERT-band.
+    /// @dev C-03 L1: enumerate Safe owners and apply `multisigAggregation` to sanctions only.
+    ///      ALL_CLEAN: any sanctioned owner → `SanctionHit(owner)`.
+    ///      ANY_CLEAN: one unsanctioned owner is enough; if every owner is sanctioned →
+    ///      `SanctionHit` on the first sanctioned owner. No per-owner score / REVERT-band.
     function _requireMultisigOwnersClean(address wallet, MultisigType kind) private view {
         address[] memory owners;
         if (kind == MultisigType.GNOSIS_SAFE) {
@@ -307,23 +326,25 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         if (owners.length == 0) revert MissingSwapSubject();
 
         bool anyClean;
+        address firstSanctioned;
         for (uint256 i; i < owners.length; ++i) {
-            bool clean = _ownerIsClean(owners[i]);
-            if (multisigAggregation == MultisigAggregation.ALL_CLEAN && !clean) {
-                if (sanctionRegistry.isSanctioned(owners[i])) revert SanctionHit(owners[i]);
-                revert WalletBlocked(owners[i], complianceOracle.getScore(owners[i]), "MULTISIG_OWNER");
+            if (_ownerIsClean(owners[i])) {
+                anyClean = true;
+            } else {
+                if (firstSanctioned == address(0)) firstSanctioned = owners[i];
+                if (multisigAggregation == MultisigAggregation.ALL_CLEAN) {
+                    revert SanctionHit(owners[i]);
+                }
             }
-            if (clean) anyClean = true;
         }
         if (multisigAggregation == MultisigAggregation.ANY_CLEAN && !anyClean) {
-            revert MissingSwapSubject();
+            revert SanctionHit(firstSanctioned);
         }
     }
 
+    /// @dev L1 only: an owner is clean when it is not sanctioned. Score / `updatedAt` are ignored.
     function _ownerIsClean(address owner_) private view returns (bool) {
-        if (sanctionRegistry.isSanctioned(owner_)) return false;
-        if (complianceOracle.getScore(owner_) >= 71) return false;
-        return true;
+        return !sanctionRegistry.isSanctioned(owner_);
     }
 
     /// @notice Reverts if `wallet` is on the L1 sanctions list (§3.2 / §4.1).

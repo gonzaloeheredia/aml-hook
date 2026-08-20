@@ -254,7 +254,11 @@ contract UnitAmlHookResolveWalletTest is Helpers {
         assertEq(sel, hook.beforeSwap.selector);
     }
 
-    function test_TrustedGnosisSafe_AllClean_RevertsIfOwnerInRevertBand() external {
+    /// @dev L1 ignores owner scores. An unsanctioned owner in the REVERT band does not
+    ///      block; the Safe has no published row → Mitigation A (FEE_OVERRIDE).
+    function test_TrustedGnosisSafe_AllClean_OwnerRevertBandDoesNotBlock_UnsetSafeIsMitigationA()
+        external
+    {
         address[] memory owners = new address[](2);
         owners[0] = walletA;
         owners[1] = walletB;
@@ -267,9 +271,60 @@ contract UnitAmlHookResolveWalletTest is Helpers {
         complianceOracle.updateScore(walletA, 100, 0, walletA, 0, _scoreSig(walletA, 100, 0));
 
         address sender = _bindTrustedSubject(address(safe));
-        vm.expectRevert(
-            abi.encodeWithSelector(AmlHookLogic.WalletBlocked.selector, walletA, 100, "MULTISIG_OWNER")
+        (bytes4 sel,,) = manager.callBeforeSwap(IHooks(address(hook)), sender, key, params, "");
+        assertEq(sel, hook.beforeSwap.selector);
+
+        vm.expectEmit(true, false, false, true, address(hook));
+        emit SwapObserved(
+            address(safe), 0, HookDecision.FEE_OVERRIDE, hook.LATENCY_FEE_BPS(), 0, address(0)
         );
+        manager.callAfterSwap(
+            IHooks(address(hook)), sender, key, params, BalanceDelta.wrap(0), ""
+        );
+    }
+
+    /// @dev L2 is the Safe row: owner score 100 does not block when the Safe is published clean.
+    function test_TrustedGnosisSafe_AllClean_OwnerRevertBand_UsesSafePublishedScore() external {
+        address[] memory owners = new address[](2);
+        owners[0] = walletA;
+        owners[1] = walletB;
+        MockGnosisSafe safe = new MockGnosisSafe(owners);
+
+        vm.prank(hookGovernor);
+        hook.setTrustedMultisig(address(safe), AmlHookLogic.MultisigType.GNOSIS_SAFE, true);
+
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletA, 100, 0, walletA, 0, _scoreSig(walletA, 100, 0));
+        vm.prank(keeper);
+        complianceOracle.updateScore(address(safe), 0, 0, address(0), 0, _scoreSig(address(safe), 0, 0));
+
+        address sender = _bindTrustedSubject(address(safe));
+        (bytes4 sel,,) = manager.callBeforeSwap(IHooks(address(hook)), sender, key, params, "");
+        assertEq(sel, hook.beforeSwap.selector);
+
+        vm.expectEmit(true, false, false, true, address(hook));
+        emit SwapObserved(address(safe), 0, HookDecision.ALLOW, 0, 0, address(0));
+        manager.callAfterSwap(
+            IHooks(address(hook)), sender, key, params, BalanceDelta.wrap(0), ""
+        );
+    }
+
+    function test_TrustedGnosisSafe_AnyClean_AllSanctioned_RevertsSanctionHit() external {
+        address[] memory owners = new address[](2);
+        owners[0] = walletA;
+        owners[1] = walletB;
+        MockGnosisSafe safe = new MockGnosisSafe(owners);
+
+        vm.prank(hookGovernor);
+        hook.setTrustedMultisig(address(safe), AmlHookLogic.MultisigType.GNOSIS_SAFE, true);
+        vm.prank(hookGovernor);
+        hook.setMultisigAggregation(AmlHookLogic.MultisigAggregation.ANY_CLEAN);
+
+        _sanction(sanctionRegistry, keeper, walletA);
+        _sanction(sanctionRegistry, keeper, walletB);
+
+        address sender = _bindTrustedSubject(address(safe));
+        vm.expectRevert(abi.encodeWithSelector(AmlHookLogic.SanctionHit.selector, walletA));
         manager.callBeforeSwap(IHooks(address(hook)), sender, key, params, "");
     }
 }
