@@ -9,6 +9,7 @@ import {LPFeeLibrary} from "v4-core/src/libraries/LPFeeLibrary.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 
+import {AmlHook} from "contracts/hooks/AmlHook.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {FeeEscrow} from "contracts/escrow/FeeEscrow.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
@@ -216,6 +217,99 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
 
         assertEq(uint256(uint128(hookDelta)), expectedFee);
         assertEq(feeToken.balanceOf(address(escrow)), expectedFee);
+    }
+
+    event RiskFeeSkipped(address indexed wallet, address indexed token, uint24 feeBps, string reason);
+    event FailedDepositRecorded(address indexed wallet, address indexed token, uint256 amount);
+    event FailedDepositClaimed(address indexed wallet, address indexed token, uint256 amount);
+    event FailedDepositRetried(
+        address indexed wallet, address indexed token, uint256 amount, uint256 escrowId
+    );
+
+    function _revokeHookDepositor() internal {
+        vm.startPrank(owner);
+        escrow.setDepositor(address(hook), false);
+        vm.warp(block.timestamp + escrow.DEPOSITOR_TIMELOCK());
+        escrow.applyDepositor();
+        vm.stopPrank();
+    }
+
+    function _grantHookDepositor() internal {
+        vm.startPrank(owner);
+        escrow.setDepositor(address(hook), true);
+        vm.warp(block.timestamp + escrow.DEPOSITOR_TIMELOCK());
+        escrow.applyDepositor();
+        vm.stopPrank();
+    }
+
+    function _feeOverrideSwapThatFailsDeposit() internal returns (uint256 expectedFee) {
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 800));
+
+        expectedFee = (uint256(uint128(1e18)) * 770) / 10_000;
+        feeToken.mint(address(manager), expectedFee);
+
+        address sender = _bindTrustedSubject(walletB);
+        manager.callBeforeSwap(IHooks(address(hook)), sender, key, params, "");
+        manager.callAfterSwap(
+            IHooks(address(hook)), sender, key, params, toBalanceDelta(-1e18, 1e18), ""
+        );
+    }
+
+    function test_AfterSwap_DepositFailed_RecordsFailedDeposit() external {
+        _revokeHookDepositor();
+        uint256 expectedFee = _feeOverrideSwapThatFailsDeposit();
+
+        assertEq(hook.failedDeposits(walletB, address(feeToken)), expectedFee);
+        assertEq(feeToken.balanceOf(address(hook)), expectedFee);
+        assertEq(feeToken.balanceOf(address(escrow)), 0);
+    }
+
+    function test_ClaimFailedDeposit_ReturnsTokensToSubject() external {
+        _revokeHookDepositor();
+        uint256 expectedFee = _feeOverrideSwapThatFailsDeposit();
+
+        vm.expectEmit(true, true, false, true, address(hook));
+        emit FailedDepositClaimed(walletB, address(feeToken), expectedFee);
+
+        vm.prank(walletB);
+        hook.claimFailedDeposit(address(feeToken));
+
+        assertEq(hook.failedDeposits(walletB, address(feeToken)), 0);
+        assertEq(feeToken.balanceOf(walletB), expectedFee);
+        assertEq(feeToken.balanceOf(address(hook)), 0);
+    }
+
+    function test_ClaimFailedDeposit_RevertsWhenNone() external {
+        vm.prank(walletB);
+        vm.expectRevert(AmlHook.NoFailedDeposit.selector);
+        hook.claimFailedDeposit(address(feeToken));
+    }
+
+    function test_RetryEscrowDeposit_ReplaysOnceEscrowAccepts() external {
+        _revokeHookDepositor();
+        uint256 expectedFee = _feeOverrideSwapThatFailsDeposit();
+        _grantHookDepositor();
+
+        vm.expectEmit(true, true, false, true, address(hook));
+        emit FailedDepositRetried(walletB, address(feeToken), expectedFee, 1);
+
+        hook.retryEscrowDeposit(walletB, address(feeToken));
+
+        assertEq(hook.failedDeposits(walletB, address(feeToken)), 0);
+        assertEq(feeToken.balanceOf(address(escrow)), expectedFee);
+        IFeeEscrow.EscrowRecord memory rec = escrow.getEscrow(1);
+        assertEq(rec.wallet, walletB);
+        assertEq(rec.amount, expectedFee);
+    }
+
+    function test_RetryEscrowDeposit_RevertsWhenCauseUnresolved() external {
+        _revokeHookDepositor();
+        _feeOverrideSwapThatFailsDeposit();
+
+        vm.expectRevert(AmlHook.RetryEscrowFailed.selector);
+        hook.retryEscrowDeposit(walletB, address(feeToken));
+        assertTrue(hook.failedDeposits(walletB, address(feeToken)) > 0);
     }
 }
 

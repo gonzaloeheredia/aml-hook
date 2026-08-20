@@ -52,8 +52,21 @@ contract AmlHook is BaseHook, AmlHookLogic, ReentrancyGuard {
     /// @notice Emitted when the risk fee is not taken (zero basis or escrow token mismatch).
     event RiskFeeSkipped(address indexed wallet, address indexed token, uint24 feeBps, string reason);
 
+    /// @notice Tokens taken from the pool whose `FeeEscrow.deposit` failed (C-04 follow-up).
+    event FailedDepositRecorded(address indexed wallet, address indexed token, uint256 amount);
+    event FailedDepositClaimed(address indexed wallet, address indexed token, uint256 amount);
+    event FailedDepositRetried(
+        address indexed wallet, address indexed token, uint256 amount, uint256 escrowId
+    );
+
     error FeeTransferFailed();
     error FeeApproveFailed();
+    error NoFailedDeposit();
+    error RetryEscrowFailed();
+    error FeeEscrowNotConfigured();
+
+    /// @notice Taken-but-not-escrowed differential, keyed by compliance subject and token.
+    mapping(address => mapping(address => uint256)) public failedDeposits;
 
     /// @dev Extra entropy mixed into `swapFingerprint` (L-01), on top of `nextEscrowId`.
     uint256 private _fingerprintNonce;
@@ -260,9 +273,48 @@ contract AmlHook is BaseHook, AmlHookLogic, ReentrancyGuard {
         try feeEscrow.deposit(wallet, swapFingerprint, feeAmount) returns (uint256 escrowId) {
             emit RiskFeeEscrowed(wallet, token, feeAmount, escrowId, feeBps);
         } catch {
+            failedDeposits[wallet][token] += feeAmount;
+            emit FailedDepositRecorded(wallet, token, feeAmount);
             emit RiskFeeSkipped(wallet, token, feeBps, "DEPOSIT_FAILED");
         }
         return int128(int256(feeAmount));
+    }
+
+    /// @notice Subject recovers tokens that were taken but never reached FeeEscrow.
+    function claimFailedDeposit(address token) external nonReentrant {
+        uint256 amount = failedDeposits[msg.sender][token];
+        if (amount == 0) revert NoFailedDeposit();
+        failedDeposits[msg.sender][token] = 0;
+        if (!IERC20Approve(token).transfer(msg.sender, amount)) revert FeeTransferFailed();
+        emit FailedDepositClaimed(msg.sender, token, amount);
+    }
+
+    /// @notice Anyone may retry depositing a recorded failed amount once escrow accepts deposits again.
+    function retryEscrowDeposit(address wallet, address token) external nonReentrant {
+        if (address(feeEscrow) == address(0)) revert FeeEscrowNotConfigured();
+        uint256 amount = failedDeposits[wallet][token];
+        if (amount == 0) revert NoFailedDeposit();
+        if (!feeEscrow.allowedFeeTokens(token) || token != address(feeEscrow.feeToken())) {
+            revert RetryEscrowFailed();
+        }
+
+        failedDeposits[wallet][token] = 0;
+
+        uint256 nonce = ++_fingerprintNonce;
+        bytes32 swapFingerprint = keccak256(
+            abi.encode(wallet, token, amount, block.number, block.timestamp, feeEscrow.nextEscrowId(), nonce)
+        );
+
+        IERC20Approve(token).approve(address(feeEscrow), 0);
+        if (!IERC20Approve(token).approve(address(feeEscrow), amount)) revert FeeApproveFailed();
+
+        try feeEscrow.deposit(wallet, swapFingerprint, amount) returns (uint256 escrowId) {
+            emit RiskFeeEscrowed(wallet, token, amount, escrowId, 0);
+            emit FailedDepositRetried(wallet, token, amount, escrowId);
+        } catch {
+            failedDeposits[wallet][token] = amount;
+            revert RetryEscrowFailed();
+        }
     }
 
     /// @dev Input currency of this swap — used by §3.8 Mitigation D.
