@@ -30,7 +30,7 @@ contract UnitBaseHookTest is Helpers {
         manager = new HookPoolManagerStub();
         accessManager = new AccessManager(owner);
         sanctionRegistry = new SanctionRegistry(address(accessManager));
-        complianceOracle = new ComplianceOracle(address(accessManager));
+        complianceOracle = new ComplianceOracle(address(accessManager), _attestor());
         riskPolicy = new RiskPolicy();
 
         // Concrete AmlHook: PoolManager gating + unimplemented lifecycle stubs

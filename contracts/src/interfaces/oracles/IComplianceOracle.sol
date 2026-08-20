@@ -33,9 +33,9 @@ interface IComplianceOracle {
     /// @notice Convenience: score only (0–100).
     function getScore(address wallet) external view returns (uint8);
 
-    /// @notice Keeper write of pre-calculated score + optional recommended fee (§3.8).
-    /// @dev `signature` is NOT verified (AccessManager auth only). Reserved for future
-    ///      attestation; do not treat a non-empty value as cryptographic proof.
+    /// @notice Keeper write of a pre-calculated risk profile, attested by the registered attestor.
+    /// @dev `signature` is ECDSA over keccak256(abi.encode(wallet, score, feeBps, updatedAt, chainId))
+    ///      as an Ethereum signed message. `updatedAt` is `block.timestamp` at inclusion.
     function updateScore(
         address wallet,
         uint8 score,

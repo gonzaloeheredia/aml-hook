@@ -28,7 +28,7 @@ contract UnitAmlHookLogicTest is Helpers {
     function setUp() public {
         accessManager = new AccessManager(owner);
         sanctionRegistry = new SanctionRegistry(address(accessManager));
-        complianceOracle = new ComplianceOracle(address(accessManager));
+        complianceOracle = new ComplianceOracle(address(accessManager), _attestor());
         riskPolicy = new RiskPolicy();
         // staleness=100, window=1000, maxOps=3
         harness = new AmlHookHarness(address(accessManager), sanctionRegistry, complianceOracle, riskPolicy, 100, 1000, 3);
@@ -61,7 +61,7 @@ contract UnitAmlHookLogicTest is Helpers {
 
     function test_WrittenZeroScore_Allows() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, "");
+        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, _scoreSig(walletA, 0, 0));
         (HookDecision d, uint24 fee,) = harness.evaluate(walletA);
         assertEq(uint8(d), uint8(HookDecision.ALLOW));
         assertEq(fee, 0);
@@ -69,7 +69,7 @@ contract UnitAmlHookLogicTest is Helpers {
 
     function test_StaleWithoutPoolActivity_StillAllows() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, "");
+        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, _scoreSig(walletA, 0, 0));
         // Age past stalenessThreshold but wallet never swapped in this pool → no elevation.
         vm.warp(block.timestamp + 101);
         (HookDecision d,,) = harness.evaluate(walletA);
@@ -78,7 +78,7 @@ contract UnitAmlHookLogicTest is Helpers {
 
     function test_StaleWithPoolActivity_Elevates() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 10, 0, address(0), 0, ""); // updatedAt = 1_000_000
+        complianceOracle.updateScore(walletA, 10, 0, address(0), 0, _scoreSig(walletA, 10, 0)); // updatedAt = 1_000_000
         vm.warp(block.timestamp + 50);
         harness.recordActivity(walletA); // opCount in window = 1
         vm.warp(block.timestamp + 100); // now = 1_000_150; age = 150 > 100 → stale
@@ -96,14 +96,14 @@ contract UnitAmlHookLogicTest is Helpers {
     function test_FreshScore_AllowsDespitePriorActivity() external {
         harness.recordActivity(walletA);
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, ""); // fresh write after activity
+        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, _scoreSig(walletA, 0, 0)); // fresh write after activity
         (HookDecision d,,) = harness.evaluate(walletA);
         assertEq(uint8(d), uint8(HookDecision.ALLOW));
     }
 
     function test_ActivityWindowCap_ElevatesOnNthOp() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, "");
+        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, _scoreSig(walletA, 0, 0));
 
         harness.recordActivity(walletA);
         harness.recordActivity(walletA);
@@ -118,7 +118,7 @@ contract UnitAmlHookLogicTest is Helpers {
 
     function test_ActivityWindowResets() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, "");
+        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, _scoreSig(walletA, 0, 0));
         harness.recordActivity(walletA);
         harness.recordActivity(walletA);
         harness.recordActivity(walletA);
@@ -131,14 +131,14 @@ contract UnitAmlHookLogicTest is Helpers {
 
     function test_RevertBand_NotSoftenedByMitigations() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 100, 0, walletA, 0, "");
+        complianceOracle.updateScore(walletA, 100, 0, walletA, 0, _scoreSig(walletA, 100, 0));
         vm.expectRevert();
         harness.evaluate(walletA);
     }
 
     function test_FeeOverrideFromPolicy_NotDoubleChanged() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 65, 1, walletA, 300, "");
+        complianceOracle.updateScore(walletA, 65, 1, walletA, 300, _scoreSig(walletA, 65, 300));
         (HookDecision d, uint24 fee,) = harness.evaluate(walletA);
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
         assertEq(fee, 300);
@@ -152,6 +152,12 @@ contract UnitAmlHookLogicTest is Helpers {
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
         harness.setStalenessThreshold(50);
+    }
+
+    function test_SetStalenessThreshold_RevertsAboveMax() external {
+        vm.prank(hookGovernor);
+        vm.expectRevert(AmlHookLogic.StalenessThresholdTooHigh.selector);
+        harness.setStalenessThreshold(24 hours + 1);
     }
 
     function test_EvaluateViewAndLive_MatchOnUnsetScore() external {
@@ -194,7 +200,7 @@ contract UnitAmlHookLogicTest is Helpers {
         token.mint(walletA, 100 ether);
         harness.updateKnownBalance(walletA, address(token));
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, "");
+        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, _scoreSig(walletA, 0, 0));
 
         vm.warp(block.timestamp + 10);
         token.mint(walletA, 150 ether); // 6000 bps < 7000 → no elevation
@@ -210,7 +216,7 @@ contract UnitAmlHookLogicTest is Helpers {
         uint256 baselineTs = block.timestamp;
 
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, "");
+        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, _scoreSig(walletA, 0, 0));
         assertEq(uint256(complianceOracle.getRisk(walletA).updatedAt), baselineTs);
 
         // Large inflow after baseline; oracle not refreshed → floor.
@@ -235,7 +241,7 @@ contract UnitAmlHookLogicTest is Helpers {
 
         // Keeper refreshes after the inflow → oracle incorporated the new state.
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, "");
+        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, _scoreSig(walletA, 0, 0));
 
         (HookDecision d, uint24 fee,) = harness.evaluateWithToken(walletA, address(token));
         assertEq(uint8(d), uint8(HookDecision.ALLOW));
@@ -247,7 +253,7 @@ contract UnitAmlHookLogicTest is Helpers {
         harness.updateKnownBalance(walletA, address(token));
 
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 10, 0, address(0), 0, "");
+        complianceOracle.updateScore(walletA, 10, 0, address(0), 0, _scoreSig(walletA, 10, 0));
 
         harness.recordActivity(walletA);
         vm.warp(block.timestamp + 101); // stale
@@ -262,12 +268,28 @@ contract UnitAmlHookLogicTest is Helpers {
         token.mint(walletA, 100 ether);
         harness.updateKnownBalance(walletA, address(token));
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, "");
+        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, _scoreSig(walletA, 0, 0));
 
         vm.warp(block.timestamp + 10);
         token.mint(walletA, 40 ether); // delta = 40/140 ≈ 2857 bps < 5000
 
         (HookDecision d,,) = harness.evaluateWithToken(walletA, address(token));
         assertEq(uint8(d), uint8(HookDecision.ALLOW));
+    }
+
+    function test_UpdateKnownBalance_SkipsWithinMinBaselineInterval() external {
+        token.mint(walletA, 100 ether);
+        harness.updateKnownBalance(walletA, address(token));
+        uint256 ts = harness.lastKnownBalanceTimestamp(walletA, address(token));
+        assertEq(harness.lastKnownBalance(walletA, address(token)), 100 ether);
+
+        token.mint(walletA, 50 ether);
+        harness.updateKnownBalance(walletA, address(token));
+        assertEq(harness.lastKnownBalance(walletA, address(token)), 100 ether);
+        assertEq(harness.lastKnownBalanceTimestamp(walletA, address(token)), ts);
+
+        vm.warp(block.timestamp + harness.minBaselineInterval());
+        harness.updateKnownBalance(walletA, address(token));
+        assertEq(harness.lastKnownBalance(walletA, address(token)), 150 ether);
     }
 }

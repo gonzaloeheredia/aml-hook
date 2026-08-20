@@ -20,6 +20,10 @@ contract UnitSanctionRegistryTest is Helpers {
         selectors[1] = SanctionRegistry.commitSanction.selector;
         selectors[2] = SanctionRegistry.revealSanction.selector;
         _wireRole(accessManager, owner, address(sanctionRegistry), selectors, Roles._REGISTRY_KEEPER, keeper);
+
+        bytes4[] memory gov = new bytes4[](1);
+        gov[0] = SanctionRegistry.setRevealDelay.selector;
+        _wireRole(accessManager, owner, address(sanctionRegistry), gov, Roles._HOOK_GOVERNOR, hookGovernor);
     }
 
     function test_ConstructorSetsAuthority(address initialAuthority) external {
@@ -95,7 +99,7 @@ contract UnitSanctionRegistryTest is Helpers {
         sanctionRegistry.commitSanction(commitHash);
         assertEq(sanctionRegistry.commitBlocks(commitHash), block.number);
 
-        vm.roll(block.number + sanctionRegistry.REVEAL_DELAY() + 1);
+        vm.roll(block.number + sanctionRegistry.revealDelay() + 1);
 
         vm.expectEmit(true, false, false, true, address(sanctionRegistry));
         emit ISanctionRegistry.SanctionUpdated(account, true);
@@ -144,5 +148,22 @@ contract UnitSanctionRegistryTest is Helpers {
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
         sanctionRegistry.commitSanction(commitHash);
+    }
+
+    function test_RevealDelay_DefaultIsAtLeastTen() external view {
+        assertEq(sanctionRegistry.revealDelay(), 10);
+        assertEq(sanctionRegistry.MIN_REVEAL_DELAY(), 10);
+    }
+
+    function test_SetRevealDelay_RevertsBelowFloor() external {
+        vm.prank(hookGovernor);
+        vm.expectRevert(SanctionRegistry.RevealDelayTooLow.selector);
+        sanctionRegistry.setRevealDelay(9);
+    }
+
+    function test_SetRevealDelay_GovernorCanRaise() external {
+        vm.prank(hookGovernor);
+        sanctionRegistry.setRevealDelay(20);
+        assertEq(sanctionRegistry.revealDelay(), 20);
     }
 }

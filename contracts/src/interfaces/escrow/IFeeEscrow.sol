@@ -21,10 +21,14 @@ interface IFeeEscrow {
         uint64 depositedAt;
         bytes32 swapFingerprint;
         EscrowStatus status;
+        uint64 blockedAt;
     }
 
     /// @notice ERC-20 this escrow custodies (must match the swap fee currency to deposit).
     function feeToken() external view returns (address);
+
+    /// @notice True if `token` is accepted as the custody asset.
+    function allowedFeeTokens(address token) external view returns (bool);
 
     /// @notice Next escrow id that `deposit` will assign (starts at 1).
     function nextEscrowId() external view returns (uint256);
@@ -60,6 +64,22 @@ interface IFeeEscrow {
     /// @notice Owner recovery of a blocked fee to lpCompensationFund (exceptional; no batch).
     function recoverBlocked(uint256 escrowId) external;
 
-    /// @notice Read a single escrow record.
+    /// @notice Permissionless recovery of a blocked fee after `blockedRecoveryDelay`.
+    function recoverExpiredBlocked(uint256 escrowId) external;
+
+    /// @notice Read a single escrow record. Restricted to owner or an auditor.
     function getEscrow(uint256 escrowId) external view returns (EscrowRecord memory);
+
+    /// @notice Public digest: wallet is hashed, remaining fields are plaintext.
+    function getEscrowPublic(uint256 escrowId)
+        external
+        view
+        returns (
+            bytes32 walletHash,
+            uint256 amount,
+            uint64 depositedAt,
+            bytes32 swapFingerprint,
+            EscrowStatus status,
+            uint64 blockedAt
+        );
 }

@@ -101,6 +101,20 @@ contract Helpers is Test {
     address public walletB = address(0xB0B);
     address public walletC = address(0xC0FFEE);
 
+    uint256 internal constant ATTESTOR_PK = uint256(keccak256("aml.oracle.attestor"));
+
+    function _attestor() internal returns (address) {
+        return vm.addr(ATTESTOR_PK);
+    }
+
+    /// @dev ECDSA payload the ComplianceOracle attestor must produce (C-01).
+    function _scoreSig(address wallet, uint8 score, uint24 feeBps) internal view returns (bytes memory) {
+        bytes32 hash = keccak256(abi.encode(wallet, score, feeBps, uint64(block.timestamp), block.chainid));
+        bytes32 ethSigned = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", hash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ATTESTOR_PK, ethSigned);
+        return abi.encodePacked(r, s, v);
+    }
+
     /// @dev Trusted IMsgSender stand-in used by hook lifecycle tests (hookData is ignored).
     MockTrustedRouter public trustedRouter;
 
@@ -120,12 +134,15 @@ contract Helpers is Test {
 
     /// @dev Wires `_HOOK_GOVERNOR` so tests can `setTrustedRouter`.
     function _wireHookGovernor() internal {
-        bytes4[] memory hookSelectors = new bytes4[](5);
+        bytes4[] memory hookSelectors = new bytes4[](8);
         hookSelectors[0] = AmlHookLogic.setStalenessThreshold.selector;
         hookSelectors[1] = AmlHookLogic.setInflowThresholdBps.selector;
         hookSelectors[2] = AmlHookLogic.setTrustedRouter.selector;
         hookSelectors[3] = AmlHookLogic.pause.selector;
         hookSelectors[4] = AmlHookLogic.unpause.selector;
+        hookSelectors[5] = AmlHookLogic.setTrustedMultisig.selector;
+        hookSelectors[6] = AmlHookLogic.setMultisigAggregation.selector;
+        hookSelectors[7] = AmlHookLogic.setMinBaselineInterval.selector;
         _wireRole(accessManager, owner, address(hook), hookSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
     }
 
@@ -138,7 +155,7 @@ contract Helpers is Test {
         vm.prank(_caller);
         _registry.commitSanction(commitHash);
 
-        vm.roll(block.number + _registry.REVEAL_DELAY() + 1);
+        vm.roll(block.number + _registry.revealDelay() + 1);
 
         vm.prank(_caller);
         _registry.revealSanction(_account, true, salt);

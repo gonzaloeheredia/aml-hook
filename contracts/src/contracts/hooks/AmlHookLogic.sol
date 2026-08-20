@@ -8,6 +8,7 @@ import {ISanctionRegistry} from "../../interfaces/registries/ISanctionRegistry.s
 import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol";
 import {IRiskPolicy} from "../../interfaces/policies/IRiskPolicy.sol";
 import {IMsgSender} from "../../interfaces/external/IMsgSender.sol";
+import {IGnosisSafeOwners} from "../../interfaces/external/IGnosisSafeOwners.sol";
 import {IERC20Minimal} from "../../interfaces/external/IERC20Minimal.sol";
 import {FeeBps} from "../../libraries/FeeBps.sol";
 import {HookDecision} from "../../libraries/HookDecision.sol";
@@ -55,9 +56,35 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     mapping(address => bool) public trustedRouters;
 
     /// @notice Max age of an oracle score before it is treated as stale (seconds).
-    /// @dev Mitigation B (§3.8). Default 60s = high-volume institutional keeper band.
-    ///      Retail pools may raise this via `_HOOK_GOVERNOR`.
+    /// @dev Mitigation B (§3.8). Default 120s (H-04). Validators can nudge `block.timestamp`
+    ///      within the protocol's allowed drift; a very short threshold is therefore
+    ///      manipulable. `_HOOK_GOVERNOR` may retune within `[1, MAX_STALENESS]`.
     uint256 public stalenessThreshold;
+    uint256 public constant DEFAULT_STALENESS = 120;
+    uint256 public constant MAX_STALENESS = 24 hours;
+
+    /// @notice Minimum seconds between `lastKnownBalance` baseline writes (H-02).
+    uint64 public minBaselineInterval = 1 hours;
+
+    /// @notice How owner-level compliance is aggregated for a trusted multisig subject (C-03).
+    enum MultisigAggregation {
+        ALL_CLEAN,
+        ANY_CLEAN
+    }
+
+    /// @notice Recognised smart-account types for `_resolveWallet`.
+    enum MultisigType {
+        NONE,
+        GNOSIS_SAFE
+    }
+
+    struct TrustedMultisig {
+        bool trusted;
+        MultisigType kind;
+    }
+
+    mapping(address => TrustedMultisig) public trustedMultisigs;
+    MultisigAggregation public multisigAggregation = MultisigAggregation.ALL_CLEAN;
 
     /// @notice Rolling window for per-wallet pool activity counters (seconds).
     /// @dev Mitigation C (§3.8): catch burst swaps across consecutive blocks while
@@ -106,6 +133,12 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     error TrustedRouterSubjectFailed(address router);
     error InflowThresholdOutOfRange();
     error StalenessThresholdTooLow();
+    error StalenessThresholdTooHigh();
+    error BaselineIntervalZero();
+
+    event MinBaselineIntervalUpdated(uint64 previous, uint64 current);
+    event TrustedMultisigUpdated(address indexed account, MultisigType kind, bool trusted);
+    event MultisigAggregationUpdated(MultisigAggregation previous, MultisigAggregation current);
 
     event StalenessThresholdUpdated(uint256 previous, uint256 current);
     event InflowThresholdUpdated(uint256 previous, uint256 current);
@@ -150,8 +183,13 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         sanctionRegistry = sanctionRegistry_;
         complianceOracle = complianceOracle_;
         riskPolicy = riskPolicy_;
-        // Sensible defaults if deploy passes 0 (whitepaper §3.8 institutional band).
-        stalenessThreshold = stalenessThreshold_ == 0 ? 60 : stalenessThreshold_;
+        // Sensible defaults if deploy passes 0 (H-04: 120s minimum recommended).
+        if (stalenessThreshold_ == 0) {
+            stalenessThreshold = DEFAULT_STALENESS;
+        } else {
+            if (stalenessThreshold_ > MAX_STALENESS) revert StalenessThresholdTooHigh();
+            stalenessThreshold = stalenessThreshold_;
+        }
         activityWindow = activityWindow_ == 0 ? 1 hours : activityWindow_;
         maxOpsInWindow = maxOpsInWindow_ == 0 ? 3 : maxOpsInWindow_;
         inflowThresholdBps = 5000; // 50% — Wallet D / Mitigation D default
@@ -162,10 +200,20 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     /// @notice Hook governor retunes Mitigation B staleness window (§3.8).
     /// @dev Why restricted: only `_HOOK_GOVERNOR` should change how aggressively we treat
     ///      lagging scores (institutional 30–60s vs retail minutes). Keepers must not.
+    ///      H-04: validators can bias `block.timestamp`; do not set this below ~120s in
+    ///      production without accepting that trade-off.
     function setStalenessThreshold(uint256 stalenessThreshold_) external restricted {
         if (stalenessThreshold_ == 0) revert StalenessThresholdTooLow();
+        if (stalenessThreshold_ > MAX_STALENESS) revert StalenessThresholdTooHigh();
         emit StalenessThresholdUpdated(stalenessThreshold, stalenessThreshold_);
         stalenessThreshold = stalenessThreshold_;
+    }
+
+    /// @notice Governor retunes the H-02 baseline write cooldown.
+    function setMinBaselineInterval(uint64 minBaselineInterval_) external restricted {
+        if (minBaselineInterval_ == 0) revert BaselineIntervalZero();
+        emit MinBaselineIntervalUpdated(minBaselineInterval, minBaselineInterval_);
+        minBaselineInterval = minBaselineInterval_;
     }
 
     /// @notice Hook governor pauses all swap evaluation (emergency stop).
@@ -197,9 +245,28 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     ///        - is a curated integrator (e.g. Uniswap Labs router), and
     ///        - `msgSender()` returns the real end-user and cannot be overwritten in-tx.
     ///      The contract only stores that attestation.
+    ///
+    ///      L-02: in production the AccessManager MUST configure an execution delay of
+    ///      at least 48 hours on `_HOOK_GOVERNOR`. This contract cannot enforce that
+    ///      delay itself; it lives on the manager's role grant.
     function setTrustedRouter(address router, bool trusted) external restricted {
         trustedRouters[router] = trusted;
         emit TrustedRouterUpdated(router, trusted);
+    }
+
+    /// @notice Governor registers a verified multisig that may be a swap subject (C-03).
+    function setTrustedMultisig(address account, MultisigType kind, bool trusted) external restricted {
+        if (account == address(0)) revert MissingSwapSubject();
+        if (trusted && kind == MultisigType.NONE) revert MissingSwapSubject();
+        trustedMultisigs[account] =
+            TrustedMultisig({trusted: trusted, kind: trusted ? kind : MultisigType.NONE});
+        emit TrustedMultisigUpdated(account, kind, trusted);
+    }
+
+    /// @notice Governor sets whether every multisig owner must be clean, or any one suffices.
+    function setMultisigAggregation(MultisigAggregation aggregation) external restricted {
+        emit MultisigAggregationUpdated(multisigAggregation, aggregation);
+        multisigAggregation = aggregation;
     }
 
     /// @notice Resolve the compliance subject for beforeSwap (§3.5).
@@ -217,6 +284,46 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
             revert TrustedRouterSubjectFailed(router);
         }
         if (wallet == address(0)) revert TrustedRouterSubjectFailed(router);
+
+        if (wallet.code.length == 0) return wallet;
+
+        TrustedMultisig memory ms = trustedMultisigs[wallet];
+        if (!ms.trusted) revert MissingSwapSubject();
+        _requireMultisigOwnersClean(wallet, ms.kind);
+    }
+
+    /// @dev C-03: enumerate Safe owners and apply `multisigAggregation` over L1 + REVERT-band.
+    function _requireMultisigOwnersClean(address wallet, MultisigType kind) private view {
+        address[] memory owners;
+        if (kind == MultisigType.GNOSIS_SAFE) {
+            try IGnosisSafeOwners(wallet).getOwners() returns (address[] memory o) {
+                owners = o;
+            } catch {
+                revert MissingSwapSubject();
+            }
+        } else {
+            revert MissingSwapSubject();
+        }
+        if (owners.length == 0) revert MissingSwapSubject();
+
+        bool anyClean;
+        for (uint256 i; i < owners.length; ++i) {
+            bool clean = _ownerIsClean(owners[i]);
+            if (multisigAggregation == MultisigAggregation.ALL_CLEAN && !clean) {
+                if (sanctionRegistry.isSanctioned(owners[i])) revert SanctionHit(owners[i]);
+                revert WalletBlocked(owners[i], complianceOracle.getScore(owners[i]), "MULTISIG_OWNER");
+            }
+            if (clean) anyClean = true;
+        }
+        if (multisigAggregation == MultisigAggregation.ANY_CLEAN && !anyClean) {
+            revert MissingSwapSubject();
+        }
+    }
+
+    function _ownerIsClean(address owner_) private view returns (bool) {
+        if (sanctionRegistry.isSanctioned(owner_)) return false;
+        if (complianceOracle.getScore(owner_) >= 71) return false;
+        return true;
     }
 
     /// @notice Reverts if `wallet` is on the L1 sanctions list (§3.2 / §4.1).
@@ -338,12 +445,14 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         returns (
             HookDecision decision,
             uint24 feeBps,
-            IComplianceOracle.WalletRisk memory risk
+            IComplianceOracle.WalletRisk memory risk,
+            bool inflowTriggered
         )
     {
         _requireNotPaused();
         EvalSignals memory sig;
         (decision, feeBps, risk, sig) = _evaluateCore(wallet, token);
+        inflowTriggered = sig.hasSignificantInflow;
 
         // Mitigation D audit: generic "recent funds → swap" pattern (not origin attribution).
         if (sig.hasSignificantInflow) {
@@ -361,17 +470,17 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         }
 
         if (decision != HookDecision.ALLOW) {
-            return (decision, feeBps, risk);
+            return (decision, feeBps, risk, inflowTriggered);
         }
 
         (decision, feeBps) = _applyHookLocalMitigations(wallet, risk, sig.operationCount);
         if (decision == HookDecision.ALLOW) {
-            return (decision, 0, risk);
+            return (decision, 0, risk, inflowTriggered);
         }
 
         bytes32 reason = risk.updatedAt == 0 ? REASON_SCORE_NEVER_WRITTEN : REASON_ACTIVITY_WINDOW_CAP;
         emit LatencyMitigationApplied(wallet, reason, feeBps, risk.score);
-        return (decision, feeBps, risk);
+        return (decision, feeBps, risk, inflowTriggered);
     }
 
     /// @dev Prefer keeper-written feeBps when in range; else 8% latency fee
@@ -443,9 +552,14 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     }
 
     /// @notice Refresh the Mitigation D baseline after a successful swap (afterSwap; §3.8).
-    /// @dev So the *next* beforeSwap measures inflow against post-swap reality, not a stale baseline.
-    function _updateKnownBalance(address wallet, address token) internal {
+    /// @dev H-02: skipped when this swap already triggered inflow (do not move the baseline
+    ///      in the same transaction the heuristic fired). Also skipped until
+    ///      `minBaselineInterval` has elapsed since the last write.
+    function _updateKnownBalance(address wallet, address token, bool inflowTriggered) internal {
+        if (inflowTriggered) return;
         if (token == address(0) || token.code.length == 0) return;
+        uint256 lastTs = lastKnownBalanceTimestamp[wallet][token];
+        if (lastTs != 0 && block.timestamp < lastTs + uint256(minBaselineInterval)) return;
         uint256 bal = IERC20Minimal(token).balanceOf(wallet);
         lastKnownBalance[wallet][token] = bal;
         lastKnownBalanceTimestamp[wallet][token] = block.timestamp;

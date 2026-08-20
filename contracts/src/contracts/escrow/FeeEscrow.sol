@@ -42,15 +42,23 @@ interface IERC20Fee {
 ///      Access: own owner / keepers / depositors (NOT the shared AccessManager).
 ///      The COA never writes on-chain; only a FeeEscrow keeper submits txs after
 ///      an off-chain sanity check on the COA output.
+///
+///      M-03: `owner` MUST be a multisig (Gnosis Safe) in production, never an EOA.
 contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     /// @dev Full hold window before Checkpoint 2 / default release may run.
     uint64 public constant ESCROW_WINDOW = 48 hours;
     /// @dev Earliest moment Checkpoint 1 (early release to LPs) is allowed.
     uint64 public constant CHECKPOINT1_MIN_AGE = 24 hours;
+    uint64 public constant DEPOSITOR_TIMELOCK = 24 hours;
+
+    /// @notice M-03: production owner MUST be a Gnosis Safe (or equivalent multisig), not an EOA.
     address public owner;
     /// @notice Two-step ownership: proposed owner must call `acceptOwnership`.
     address public pendingOwner;
     IERC20Fee private immutable _feeToken;
+    mapping(address => bool) public allowedFeeTokens;
+    /// @notice Delay after Blocked before anyone may send the fee to lpCompensationFund.
+    uint64 public blockedRecoveryDelay = 90 days;
     /// @notice Sole release destination: LP compensation when the wallet is not confirmed sanctioned.
     ///         Checkpoint 1, Checkpoint 2 clean, and `releaseDefault` all credit LPs here. Never the pool.
     address public lpCompensationFund;
@@ -59,6 +67,11 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     mapping(address => bool) public keepers;
     /// @dev Depositors (settlement / hook integration) alone call deposit.
     mapping(address => bool) public depositors;
+    mapping(address => bool) public auditors;
+
+    address public pendingDepositor;
+    bool public pendingDepositorAllowed;
+    uint64 public pendingDepositorApplyAt;
 
     uint256 public nextEscrowId = 1;
     mapping(uint256 => EscrowRecord) private _escrows;
@@ -79,11 +92,21 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     error NotBlocked();
     uint256 private constant MAX_BATCH_SIZE = 100;
     error BatchTooLarge();
+    error FeeTokenNotAllowed();
+    error UnauthorizedEscrowRead();
+    error DepositorTimelockPending();
+    error NoPendingDepositor();
+    error BlockedRecoveryTooEarly();
+    error InvalidBlockedRecoveryDelay();
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
     event KeeperUpdated(address indexed keeper, bool allowed);
     event DepositorUpdated(address indexed depositor, bool allowed);
+    event DepositorChangeScheduled(address indexed depositor, bool allowed, uint64 applyAt);
+    event AuditorUpdated(address indexed auditor, bool allowed);
+    event AllowedFeeTokenUpdated(address indexed token, bool allowed);
+    event BlockedRecoveryDelayUpdated(uint64 previous, uint64 current);
     event LpCompensationFundUpdated(address indexed lpCompensationFund);
 
     /// @notice Differential fee deposited into the 48h escrow (§3.6 / §3.7 audit trail).
@@ -119,6 +142,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         }
         owner = owner_;
         _feeToken = IERC20Fee(feeToken_);
+        allowedFeeTokens[feeToken_] = true;
         lpCompensationFund = lpCompensationFund_;
         // Bootstrap: owner can deposit and resolve until roles are specialized.
         keepers[owner_] = true;
@@ -127,6 +151,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         emit KeeperUpdated(owner_, true);
         emit DepositorUpdated(owner_, true);
         emit LpCompensationFundUpdated(lpCompensationFund_);
+        emit AllowedFeeTokenUpdated(feeToken_, true);
     }
 
     /// @inheritdoc IFeeEscrow
@@ -161,6 +186,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     {
         if (wallet == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
+        if (!allowedFeeTokens[address(_feeToken)]) revert FeeTokenNotAllowed();
 
         if (!_feeToken.transferFrom(msg.sender, address(this), amount)) revert TransferFailed();
 
@@ -171,7 +197,8 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
             amount: amount,
             depositedAt: ts,
             swapFingerprint: swapFingerprint,
-            status: EscrowStatus.Active
+            status: EscrowStatus.Active,
+            blockedAt: 0
         });
 
         emit FeeDeposited(escrowId, wallet, amount, ts, swapFingerprint);
@@ -235,8 +262,34 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
 
     /// @inheritdoc IFeeEscrow
     function getEscrow(uint256 escrowId) external view returns (EscrowRecord memory) {
+        if (msg.sender != owner && !auditors[msg.sender]) revert UnauthorizedEscrowRead();
         if (escrowId == 0 || escrowId >= nextEscrowId) revert UnknownEscrow();
         return _escrows[escrowId];
+    }
+
+    /// @inheritdoc IFeeEscrow
+    function getEscrowPublic(uint256 escrowId)
+        external
+        view
+        returns (
+            bytes32 walletHash,
+            uint256 amount,
+            uint64 depositedAt,
+            bytes32 swapFingerprint,
+            EscrowStatus status,
+            uint64 blockedAt
+        )
+    {
+        if (escrowId == 0 || escrowId >= nextEscrowId) revert UnknownEscrow();
+        EscrowRecord storage rec = _escrows[escrowId];
+        return (
+            keccak256(abi.encodePacked(rec.wallet)),
+            rec.amount,
+            rec.depositedAt,
+            rec.swapFingerprint,
+            rec.status,
+            rec.blockedAt
+        );
     }
 
     /// @inheritdoc IFeeEscrow
@@ -255,6 +308,25 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         emit FeeRecovered(escrowId, wallet, amount, to);
     }
 
+    /// @inheritdoc IFeeEscrow
+    /// @notice Anyone may send a Blocked fee to lpCompensationFund after `blockedRecoveryDelay`.
+    function recoverExpiredBlocked(uint256 escrowId) external nonReentrant {
+        if (escrowId == 0 || escrowId >= nextEscrowId) revert UnknownEscrow();
+        EscrowRecord storage rec = _escrows[escrowId];
+        if (rec.status != EscrowStatus.Blocked) revert NotBlocked();
+        if (rec.blockedAt == 0 || block.timestamp < uint256(rec.blockedAt) + uint256(blockedRecoveryDelay)) {
+            revert BlockedRecoveryTooEarly();
+        }
+
+        rec.status = EscrowStatus.Recovered;
+        uint256 amount = rec.amount;
+        address wallet = rec.wallet;
+        address to = lpCompensationFund;
+
+        _transferOut(to, amount);
+        emit FeeRecovered(escrowId, wallet, amount, to);
+    }
+
     function setKeeper(address keeper, bool allowed) external onlyOwner {
         if (keeper == address(0)) revert ZeroAddress();
         keepers[keeper] = allowed;
@@ -263,8 +335,41 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
 
     function setDepositor(address depositor, bool allowed) external onlyOwner {
         if (depositor == address(0)) revert ZeroAddress();
+        pendingDepositor = depositor;
+        pendingDepositorAllowed = allowed;
+        pendingDepositorApplyAt = uint64(block.timestamp + uint256(DEPOSITOR_TIMELOCK));
+        emit DepositorChangeScheduled(depositor, allowed, pendingDepositorApplyAt);
+    }
+
+    /// @notice Execute a scheduled depositor change after `DEPOSITOR_TIMELOCK`.
+    function applyDepositor() external onlyOwner {
+        if (pendingDepositorApplyAt == 0) revert NoPendingDepositor();
+        if (block.timestamp < uint256(pendingDepositorApplyAt)) revert DepositorTimelockPending();
+        address depositor = pendingDepositor;
+        bool allowed = pendingDepositorAllowed;
+        pendingDepositor = address(0);
+        pendingDepositorAllowed = false;
+        pendingDepositorApplyAt = 0;
         depositors[depositor] = allowed;
         emit DepositorUpdated(depositor, allowed);
+    }
+
+    function setAuditor(address auditor, bool allowed) external onlyOwner {
+        if (auditor == address(0)) revert ZeroAddress();
+        auditors[auditor] = allowed;
+        emit AuditorUpdated(auditor, allowed);
+    }
+
+    function setAllowedFeeToken(address token, bool allowed) external onlyOwner {
+        if (token == address(0)) revert ZeroAddress();
+        allowedFeeTokens[token] = allowed;
+        emit AllowedFeeTokenUpdated(token, allowed);
+    }
+
+    function setBlockedRecoveryDelay(uint64 delay) external onlyOwner {
+        if (delay < 1 days) revert InvalidBlockedRecoveryDelay();
+        emit BlockedRecoveryDelayUpdated(blockedRecoveryDelay, delay);
+        blockedRecoveryDelay = delay;
     }
 
     function setLpCompensationFund(address lpCompensationFund_) external onlyOwner {
@@ -315,6 +420,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
 
         if (illicitConfirmed) {
             rec.status = EscrowStatus.Blocked;
+            rec.blockedAt = uint64(block.timestamp);
             emit FeeBlocked(escrowId, wallet, amount);
         } else {
             rec.status = EscrowStatus.ReleasedDefault;

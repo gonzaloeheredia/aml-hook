@@ -55,6 +55,9 @@ contract UnitDeployTest is Helpers {
         complianceOracle = deployment.complianceOracle();
         riskPolicy = deployment.riskPolicy();
         hook = deployment.hook();
+
+        vm.prank(hookGovernor);
+        complianceOracle.setAttestor(_attestor());
     }
 
     /*///////////////////////////////////////////////////////////////
@@ -68,7 +71,7 @@ contract UnitDeployTest is Helpers {
         _sanction(sanctionRegistry, registryKeeper, account);
 
         vm.prank(oracleKeeper);
-        complianceOracle.updateScore(account, 65, 1, address(0), 0, "");
+        complianceOracle.updateScore(account, 65, 1, address(0), 0, _scoreSig(account, 65, 0));
 
         vm.prank(hookGovernor);
         hook.setStalenessThreshold(120);
@@ -87,7 +90,7 @@ contract UnitDeployTest is Helpers {
 
         vm.prank(registryKeeper);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, registryKeeper));
-        complianceOracle.updateScore(account, 65, 1, address(0), 0, "");
+        complianceOracle.updateScore(account, 65, 1, address(0), 0, _scoreSig(account, 65, 0));
 
         vm.prank(oracleKeeper);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, oracleKeeper));
@@ -102,7 +105,7 @@ contract UnitDeployTest is Helpers {
 
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, owner));
-        complianceOracle.updateScore(account, 65, 1, address(0), 0, "");
+        complianceOracle.updateScore(account, 65, 1, address(0), 0, _scoreSig(account, 65, 0));
 
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, owner));
@@ -171,8 +174,11 @@ contract UnitDeployTest is Helpers {
     function test_DeployWhenRunWiresFeeEscrowAsHookDepositor() external view {
         FeeEscrow escrow = deployment.feeEscrow();
         assertEq(address(hook.feeEscrow()), address(escrow));
-        assertTrue(escrow.depositors(address(hook)));
+        // C-04: setDepositor is timelocked; deploy schedules the hook as pending depositor.
+        assertEq(escrow.pendingDepositor(), address(hook));
+        assertTrue(escrow.pendingDepositorAllowed());
         assertTrue(escrow.feeToken() != address(0));
+        assertTrue(escrow.allowedFeeTokens(escrow.feeToken()));
     }
 
     /*///////////////////////////////////////////////////////////////

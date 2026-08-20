@@ -158,7 +158,7 @@ contract Deploy is Script {
         uint32 maxOpsInWindow
     ) internal {
         _deployContracts(
-            configurer, poolManagerOverride, stalenessThreshold, activityWindow, maxOpsInWindow
+            configurer, poolManagerOverride, stalenessThreshold, activityWindow, maxOpsInWindow, hookGovernor
         );
         _configureAccess(
             configurer, admin, registryKeeper, oracleKeeper, hookGovernor, trustedRouterOverride
@@ -170,11 +170,12 @@ contract Deploy is Script {
         address poolManagerOverride,
         uint256 stalenessThreshold,
         uint64 activityWindow,
-        uint32 maxOpsInWindow
+        uint32 maxOpsInWindow,
+        address attestor
     ) private {
         accessManager = new AccessManager(configurer);
         sanctionRegistry = new SanctionRegistry(address(accessManager));
-        complianceOracle = new ComplianceOracle(address(accessManager));
+        complianceOracle = new ComplianceOracle(address(accessManager), attestor);
         riskPolicy = new RiskPolicy();
 
         address poolManagerAddr = poolManagerOverride;
@@ -247,6 +248,9 @@ contract Deploy is Script {
         accessManager.setTargetFunctionRole(
             address(complianceOracle), _oracleGovernorSelectors(), Roles._HOOK_GOVERNOR
         );
+        accessManager.setTargetFunctionRole(
+            address(sanctionRegistry), _registryGovernorSelectors(), Roles._HOOK_GOVERNOR
+        );
 
         accessManager.grantRole(Roles._REGISTRY_KEEPER, registryKeeper, 0);
         accessManager.grantRole(Roles._ORACLE_KEEPER, oracleKeeper, 0);
@@ -312,6 +316,7 @@ contract Deploy is Script {
         _requireFunctionRole(address(complianceOracle), _oracleSelectors(), Roles._ORACLE_KEEPER);
         _requireFunctionRole(address(hook), _hookSelectors(), Roles._HOOK_GOVERNOR);
         _requireFunctionRole(address(complianceOracle), _oracleGovernorSelectors(), Roles._HOOK_GOVERNOR);
+        _requireFunctionRole(address(sanctionRegistry), _registryGovernorSelectors(), Roles._HOOK_GOVERNOR);
 
         _requireRole(registryKeeper, Roles._REGISTRY_KEEPER, true);
         _requireRole(oracleKeeper, Roles._ORACLE_KEEPER, true);
@@ -364,18 +369,28 @@ contract Deploy is Script {
 
     /// @notice Oracle governance (rate limit) — `_HOOK_GOVERNOR`, not the scoring keeper.
     function _oracleGovernorSelectors() internal pure returns (bytes4[] memory selectors) {
-        selectors = new bytes4[](1);
+        selectors = new bytes4[](2);
         selectors[0] = ComplianceOracle.setRateLimit.selector;
+        selectors[1] = ComplianceOracle.setAttestor.selector;
+    }
+
+    /// @notice Registry governance (reveal delay) — `_HOOK_GOVERNOR`.
+    function _registryGovernorSelectors() internal pure returns (bytes4[] memory selectors) {
+        selectors = new bytes4[](1);
+        selectors[0] = SanctionRegistry.setRevealDelay.selector;
     }
 
     /// @notice The hook functions that require the governor role
     function _hookSelectors() internal pure returns (bytes4[] memory selectors) {
-        selectors = new bytes4[](5);
+        selectors = new bytes4[](8);
         selectors[0] = AmlHookLogic.setStalenessThreshold.selector;
         selectors[1] = AmlHookLogic.setInflowThresholdBps.selector;
         selectors[2] = AmlHookLogic.setTrustedRouter.selector;
         selectors[3] = AmlHookLogic.pause.selector;
         selectors[4] = AmlHookLogic.unpause.selector;
+        selectors[5] = AmlHookLogic.setTrustedMultisig.selector;
+        selectors[6] = AmlHookLogic.setMultisigAggregation.selector;
+        selectors[7] = AmlHookLogic.setMinBaselineInterval.selector;
     }
 
     function _writeDeploymentJson(

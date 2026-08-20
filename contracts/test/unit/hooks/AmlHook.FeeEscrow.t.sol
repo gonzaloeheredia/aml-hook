@@ -33,7 +33,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         manager = new HookPoolManagerStub();
         accessManager = new AccessManager(owner);
         sanctionRegistry = new SanctionRegistry(address(accessManager));
-        complianceOracle = new ComplianceOracle(address(accessManager));
+        complianceOracle = new ComplianceOracle(address(accessManager), _attestor());
         riskPolicy = new RiskPolicy();
 
         feeToken = new MockFeeToken();
@@ -43,8 +43,12 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
             accessManager, sanctionRegistry, complianceOracle, riskPolicy, IFeeEscrow(address(escrow))
         );
 
-        vm.prank(owner);
+        vm.startPrank(owner);
         escrow.setDepositor(address(hook), true);
+        escrow.setAuditor(address(this), true);
+        vm.warp(block.timestamp + escrow.DEPOSITOR_TIMELOCK());
+        escrow.applyDepositor();
+        vm.stopPrank();
 
         bytes4[] memory oracleSelectors = new bytes4[](1);
         oracleSelectors[0] = ComplianceOracle.updateScore.selector;
@@ -65,7 +69,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
 
     function test_AfterSwap_FeeOverride_DepositsDifferentialIntoEscrow() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, "");
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 800));
 
         // Output basis = 1e18 → differential 770 bps → 7.7e16
         int128 amount0 = -1e18;
@@ -95,9 +99,36 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         assertEq(uint8(rec.status), uint8(IFeeEscrow.EscrowStatus.Active));
     }
 
+    function test_AfterSwap_FeeOverride_FingerprintIncludesNonce() external {
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 800));
+
+        int128 amount0 = -1e18;
+        int128 amount1 = 1e18;
+        BalanceDelta delta = toBalanceDelta(amount0, amount1);
+        uint256 expectedFee = (uint256(uint128(amount1)) * 770) / 10_000;
+
+        address sender = _bindTrustedSubject(walletB);
+
+        feeToken.mint(address(manager), expectedFee);
+        manager.callBeforeSwap(IHooks(address(hook)), sender, key, params, "");
+        manager.callAfterSwap(IHooks(address(hook)), sender, key, params, delta, "");
+
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 800));
+
+        feeToken.mint(address(manager), expectedFee);
+        manager.callBeforeSwap(IHooks(address(hook)), sender, key, params, "");
+        manager.callAfterSwap(IHooks(address(hook)), sender, key, params, delta, "");
+
+        bytes32 fp1 = escrow.getEscrow(1).swapFingerprint;
+        bytes32 fp2 = escrow.getEscrow(2).swapFingerprint;
+        assertTrue(fp1 != fp2);
+    }
+
     function test_AfterSwap_Allow_SkipsEscrow() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletC, 0, 0, address(0), 0, "");
+        complianceOracle.updateScore(walletC, 0, 0, address(0), 0, _scoreSig(walletC, 0, 0));
 
         feeToken.mint(address(manager), 1e18);
         address sender = _bindTrustedSubject(walletC);
@@ -114,7 +145,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
 
     function test_AfterSwap_FeeOverride_SkipsWhenCurrencyMismatch() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, "");
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 800));
 
         // Output is currency0 (oneForZero), not the escrow feeToken.
         SwapParams memory oneForZero =
@@ -133,7 +164,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
 
     function test_AfterSwap_FeeOverride_AtOrBelowStandardFee_TakesZeroDifferential() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 65, 1, walletA, 30, "");
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 30, _scoreSig(walletB, 65, 30));
 
         feeToken.mint(address(manager), 1e18);
         address sender = _bindTrustedSubject(walletB);
@@ -150,7 +181,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
 
     function test_AfterSwap_FeeOverride_BelowStandardFee_TakesZeroDifferential() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 65, 1, walletA, 20, "");
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 20, _scoreSig(walletB, 65, 20));
 
         feeToken.mint(address(manager), 1e18);
         address sender = _bindTrustedSubject(walletB);
@@ -166,7 +197,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
 
     function test_AfterSwap_FeeOverride_ExactOut_DepositsOnInputCurrency() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, "");
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 800));
 
         // exactOut oneForZero: input is currency1 = feeToken.
         SwapParams memory exactOut =
@@ -198,7 +229,7 @@ contract UnitAmlHookFeeEscrowDisabledTest is Helpers {
         manager = new HookPoolManagerStub();
         accessManager = new AccessManager(owner);
         sanctionRegistry = new SanctionRegistry(address(accessManager));
-        complianceOracle = new ComplianceOracle(address(accessManager));
+        complianceOracle = new ComplianceOracle(address(accessManager), _attestor());
         riskPolicy = new RiskPolicy();
         feeToken = new MockFeeToken();
 
@@ -224,7 +255,7 @@ contract UnitAmlHookFeeEscrowDisabledTest is Helpers {
         assertEq(address(hook.feeEscrow()), address(0));
 
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, "");
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 800));
         feeToken.mint(address(manager), 1e18);
 
         address sender = _bindTrustedSubject(walletB);

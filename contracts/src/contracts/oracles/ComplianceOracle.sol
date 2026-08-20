@@ -16,43 +16,37 @@ import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol"
 ///      (N-hop decay, exploit feeds, typology). So the Oracle Keeper / COA computes
 ///      off-chain and *publishes* here via `updateScore`. AMLHook only reads.
 ///
-///      Each WalletRisk carries:
-///        score        0–100 behavioral risk (feeds RiskPolicy bands)
-///        hopDistance  N-hop distance from origin (audit / reporting)
-///        origin       contaminated source wallet (e.g. exploit Wallet A)
-///        feeBps       keeper-recommended FEE_OVERRIDE fee (COA)
-///        updatedAt    publication timestamp — powers §3.8 Mitigations A/B/D
-///
-///      WHY updatedAt matters:
-///        updatedAt == 0  → never written (unknown ≠ clean) → Mitigation A
-///        too old         → stale → Mitigation B (with pool activity)
-///        older than inflow baseline → Mitigation D can fire (Wallet D)
-///
-///      Confirmed-clean wallets must be written explicitly: score 0 + non-zero updatedAt.
-///
-///      Auth: shared AccessManager role `_ORACLE_KEEPER` (not the sanctions writer).
+///      Auth: `_ORACLE_KEEPER` submits the tx; a distinct `attestor` ECDSA-signs the
+///      payload (C-01). `_HOOK_GOVERNOR` rotates the attestor.
 contract ComplianceOracle is AccessManaged, IComplianceOracle {
     mapping(address => WalletRisk) private _risk;
 
     uint256 public maxUpdatesPerWindow = 5;
     uint64 public updateWindow = 1 hours;
 
+    /// @notice ECDSA attestor for `updateScore` payloads. Distinct from `_ORACLE_KEEPER`.
+    address public attestor;
+
     error ScoreOutOfRange();
     error UpdateRateLimited(address wallet);
     error InvalidRateLimit();
+    error InvalidAttestation();
+    error ZeroAddress();
 
     event RateLimitUpdated(uint256 maxUpdates, uint64 window);
+    event AttestorUpdated(address indexed previous, address indexed current);
 
-    struct UpdateTracker {
-        uint64 windowStart;
-        uint32 count;
-    }
-
-    mapping(address => UpdateTracker) private _updateTracker;
+    /// @dev Sliding window of recent `updateScore` timestamps per wallet (H-05).
+    mapping(address => uint64[]) private _updateTimestamps;
 
     /// @notice Deploys the oracle under an access manager.
     /// @param initialAuthority_ The access manager that decides who may publish scores.
-    constructor(address initialAuthority_) AccessManaged(initialAuthority_) {}
+    /// @param attestor_ Initial ECDSA attestor (non-zero).
+    constructor(address initialAuthority_, address attestor_) AccessManaged(initialAuthority_) {
+        if (attestor_ == address(0)) revert ZeroAddress();
+        attestor = attestor_;
+        emit AttestorUpdated(address(0), attestor_);
+    }
 
     /// @inheritdoc IComplianceOracle
     /// @notice Full WalletRisk snapshot for beforeSwap (score, hop metadata, feeBps, updatedAt).
@@ -66,37 +60,39 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
         return _risk[wallet].score;
     }
 
+    /// @notice Digest the attestor must sign (Ethereum signed message of this hash).
+    function attestationHash(address wallet, uint8 score, uint24 feeBps, uint64 updatedAt)
+        public
+        view
+        returns (bytes32)
+    {
+        return keccak256(abi.encode(wallet, score, feeBps, updatedAt, block.chainid));
+    }
+
     /// @inheritdoc IComplianceOracle
     /// @notice Keeper publication of a pre-calculated risk profile (§3.8).
     /// @dev Off-chain engine owns N-hop decay / typology; this call only persists results.
     ///      Setting score 0 with a fresh `updatedAt` marks confirmed-clean (Mitigation A).
-    ///      TODO: `signature` is NOT verified. Authorization is AccessManager `_ORACLE_KEEPER`
-    ///      only. The bytes argument is reserved for a future attestation scheme and must not
-    ///      be treated as cryptographic proof in the current stack.
-    ///      Restricted to `_ORACLE_KEEPER` — a compromised key is revoked on the AccessManager.
+    ///      `signature` must be ECDSA from `attestor` over `attestationHash` with
+    ///      `updatedAt = block.timestamp`. Restricted to `_ORACLE_KEEPER`.
+    ///
+    ///      H-01: score updates that move a wallet into the REVERT band (71–100) MUST be
+    ///      submitted via a private mempool (Flashbots Protect or equivalent). The contract
+    ///      cannot enforce that on-chain; a public listing can be front-run by the wallet.
     function updateScore(
         address wallet,
         uint8 score,
         uint8 hopDistance,
         address origin,
         uint24 feeBps,
-        bytes calldata /* signature */
+        bytes calldata signature
     ) external restricted {
-        UpdateTracker storage tracker = _updateTracker[wallet];
-        if (
-            tracker.windowStart == 0 ||
-            block.timestamp >= uint256(tracker.windowStart) + uint256(updateWindow)
-        ) {
-            tracker.windowStart = uint64(block.timestamp);
-            tracker.count = 1;
-        } else {
-            tracker.count += 1;
-            if (tracker.count > maxUpdatesPerWindow) revert UpdateRateLimited(wallet);
-        }
+        uint64 ts = uint64(block.timestamp);
+        _verifyAttestation(wallet, score, feeBps, ts, signature);
+        _enforceSlidingWindow(wallet);
 
         if (score > 100) revert ScoreOutOfRange();
 
-        uint64 ts = uint64(block.timestamp);
         _risk[wallet] = WalletRisk({
             score: score,
             hopDistance: hopDistance,
@@ -107,11 +103,68 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
         emit ScoreUpdated(wallet, score, hopDistance, origin, feeBps, ts);
     }
 
-    /// @notice Governor retunes the per-wallet `updateScore` rate limit.
+    /// @notice Governor retunes the per-wallet `updateScore` sliding-window rate limit.
     function setRateLimit(uint256 maxUpdates, uint64 window) external restricted {
         if (maxUpdates == 0 || window == 0) revert InvalidRateLimit();
         maxUpdatesPerWindow = maxUpdates;
         updateWindow = window;
         emit RateLimitUpdated(maxUpdates, window);
+    }
+
+    /// @notice Governor rotates the ECDSA attestor (C-01). Restricted to `_HOOK_GOVERNOR`.
+    function setAttestor(address attestor_) external restricted {
+        if (attestor_ == address(0)) revert ZeroAddress();
+        emit AttestorUpdated(attestor, attestor_);
+        attestor = attestor_;
+    }
+
+    function _verifyAttestation(
+        address wallet,
+        uint8 score,
+        uint24 feeBps,
+        uint64 updatedAt,
+        bytes calldata signature
+    ) private view {
+        if (signature.length != 65) revert InvalidAttestation();
+        bytes32 hash = attestationHash(wallet, score, feeBps, updatedAt);
+        bytes32 ethSigned = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", hash));
+
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+        assembly ("memory-safe") {
+            r := calldataload(signature.offset)
+            s := calldataload(add(signature.offset, 32))
+            v := byte(0, calldataload(add(signature.offset, 64)))
+        }
+        if (v < 27) v += 27;
+
+        address signer = ecrecover(ethSigned, v, r, s);
+        if (signer == address(0) || signer != attestor) revert InvalidAttestation();
+    }
+
+    /// @dev H-05: at most `maxUpdatesPerWindow` updates whose timestamps fall in
+    ///      `(now - updateWindow, now]`. Oldest samples outside the window are dropped.
+    function _enforceSlidingWindow(address wallet) private {
+        uint64[] storage stamps = _updateTimestamps[wallet];
+        uint256 cutoff =
+            block.timestamp > uint256(updateWindow) ? block.timestamp - uint256(updateWindow) : 0;
+
+        uint256 keepFrom;
+        while (keepFrom < stamps.length && uint256(stamps[keepFrom]) <= cutoff) {
+            ++keepFrom;
+        }
+        if (keepFrom > 0) {
+            uint256 remaining = stamps.length - keepFrom;
+            for (uint256 i; i < remaining; ++i) {
+                stamps[i] = stamps[keepFrom + i];
+            }
+            for (uint256 j; j < keepFrom; ++j) {
+                stamps.pop();
+            }
+        }
+
+        if (stamps.length >= maxUpdatesPerWindow) revert UpdateRateLimited(wallet);
+        stamps.push(uint64(block.timestamp));
     }
 }

@@ -197,7 +197,7 @@ Hook output                 PROPORTIONAL FEE — two-hop contamination. Penalty 
 
 ## 3.1 Fee Escrow on FEE_OVERRIDE Paths (Steps 3 and 5)
 
-On every FEE_OVERRIDE settlement (Wallet B at ~8 percent total friction, Wallet C at ~3 percent), the pool keeps its standard LP fee. Only the risk differential is taken in afterSwap and deposited into FeeEscrow. User swap output settles in the same block; the escrow never retains the full swap.
+On every FEE_OVERRIDE settlement (Wallet B at ~8 percent total friction, Wallet C at ~3 percent), the pool keeps its standard LP fee. Only the risk differential is taken in afterSwap and deposited into FeeEscrow. If deposit fails after that take, the swap still settles: the hook emits RiskFeeSkipped with DEPOSIT_FAILED, returns hookDelta, and the tokens remain on the hook. Other skip reasons (ZERO_BASIS, FEE_TOKEN_NOT_ALLOWED, FEE_TOKEN_MISMATCH) emit RiskFeeSkipped and take nothing. User swap output settles in the same block; the escrow never retains the full swap.
 
 Deposit records wallet, amount, timestamp and origin transaction hash (FeeDeposited).
 

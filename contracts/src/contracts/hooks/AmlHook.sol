@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {BaseHook} from "v4-periphery/src/utils/BaseHook.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {AmlHookLogic} from "./AmlHookLogic.sol";
 import {ISanctionRegistry} from "../../interfaces/registries/ISanctionRegistry.sol";
 import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol";
@@ -35,7 +36,7 @@ interface IERC20Approve {
 ///      beforeSwap does not set punitive lpFeeOverride; afterSwap takes the
 ///      differential via poolManager.take → FeeEscrow.deposit.
 ///      differentialBps = max(0, feeBps - STANDARD_FEE_BPS).
-contract AmlHook is BaseHook, AmlHookLogic {
+contract AmlHook is BaseHook, AmlHookLogic, ReentrancyGuard {
     using PoolIdLibrary for PoolKey;
     /// @notice Pool base fee in bps (0.30%) — left to the PoolManager; not overridden.
     uint24 public constant STANDARD_FEE_BPS = FeeBps.STANDARD;
@@ -53,6 +54,9 @@ contract AmlHook is BaseHook, AmlHookLogic {
 
     error FeeTransferFailed();
     error FeeApproveFailed();
+
+    /// @dev Extra entropy mixed into `swapFingerprint` (L-01), on top of `nextEscrowId`.
+    uint256 private _fingerprintNonce;
 
     constructor(
         IPoolManager poolManager_,
@@ -121,10 +125,10 @@ contract AmlHook is BaseHook, AmlHookLogic {
 
     /// @inheritdoc BaseHook
     /// @notice LP exit is always permitted — no sanction or pause gate here.
-    /// @dev Sanctions prevent new positions (_beforeAddLiquidity). They must not
-    ///      freeze capital already in the pool: blocking withdrawal is confiscation,
-    ///      not compliance. If strict OFAC freeze-in-place is required, document
-    ///      it explicitly and add a recovery mechanism before enabling it.
+    /// @dev M-02: not screening sanctions on removal is a deliberate legal choice of
+    ///      non-confiscation: capital already in the pool must remain withdrawable.
+    ///      This is pending confirmation by compliance counsel. Do not add a sanctions
+    ///      check here until that definition is written and a recovery path exists.
     function _beforeRemoveLiquidity(
         address /* sender */,
         PoolKey calldata,
@@ -147,10 +151,10 @@ contract AmlHook is BaseHook, AmlHookLogic {
         address wallet = _resolveWallet(sender);
         address token = _inputToken(key, params);
 
-        (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk) =
-            _evaluateWithMitigationEvents(wallet, token);
+        (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk, bool inflowTriggered)
+            = _evaluateWithMitigationEvents(wallet, token);
 
-        SwapCache.store(key.toId(), wallet, token, decision, feeBps, risk);
+        SwapCache.store(key.toId(), wallet, token, decision, feeBps, risk, inflowTriggered);
 
         // ALLOW and FEE_OVERRIDE: do not override pool LP fee (standard path).
         // REVERT already reverted inside evaluate.
@@ -168,18 +172,19 @@ contract AmlHook is BaseHook, AmlHookLogic {
         SwapParams calldata params,
         BalanceDelta delta,
         bytes calldata
-    ) internal override returns (bytes4, int128) {
+    ) internal override nonReentrant returns (bytes4, int128) {
         (
             address wallet,
             address swapToken,
             HookDecision decision,
             uint24 feeBps,
-            IComplianceOracle.WalletRisk memory risk
+            IComplianceOracle.WalletRisk memory risk,
+            bool inflowTriggered
         ) = SwapCache.load(key.toId());
         SwapCache.clear(key.toId());
 
         _recordActivity(wallet);
-        _updateKnownBalance(wallet, swapToken);
+        _updateKnownBalance(wallet, swapToken, inflowTriggered);
         _emitSwapObserved(wallet, decision, feeBps, risk);
 
         int128 hookDelta = 0;
@@ -231,22 +236,32 @@ contract AmlHook is BaseHook, AmlHookLogic {
         if (feeAmount == 0) return 0;
         if (feeAmount > uint256(uint128(type(int128).max))) revert FeeTransferFailed();
 
-        // FeeEscrow is single-token custody; skip if this swap's fee currency differs.
+        // Effects complete. Interactions last (H-06): take → approve → deposit.
+        if (!feeEscrow.allowedFeeTokens(token)) {
+            emit RiskFeeSkipped(wallet, token, feeBps, "FEE_TOKEN_NOT_ALLOWED");
+            return 0;
+        }
         if (token != address(feeEscrow.feeToken())) {
             emit RiskFeeSkipped(wallet, token, feeBps, "FEE_TOKEN_MISMATCH");
             return 0;
         }
 
-        // Pull tokens to this hook, then push into escrow (hook must be a depositor).
+        uint256 nonce = ++_fingerprintNonce;
+        bytes32 swapFingerprint = keccak256(
+            abi.encode(
+                wallet, token, feeAmount, block.number, block.timestamp, feeEscrow.nextEscrowId(), nonce
+            )
+        );
+
         poolManager.take(feeCurrency, address(this), feeAmount);
         IERC20Approve(token).approve(address(feeEscrow), 0);
         if (!IERC20Approve(token).approve(address(feeEscrow), feeAmount)) revert FeeApproveFailed();
 
-        bytes32 swapFingerprint =
-            keccak256(abi.encode(wallet, token, feeAmount, block.number, block.timestamp, feeEscrow.nextEscrowId()));
-        uint256 escrowId = feeEscrow.deposit(wallet, swapFingerprint, feeAmount);
-
-        emit RiskFeeEscrowed(wallet, token, feeAmount, escrowId, feeBps);
+        try feeEscrow.deposit(wallet, swapFingerprint, feeAmount) returns (uint256 escrowId) {
+            emit RiskFeeEscrowed(wallet, token, feeAmount, escrowId, feeBps);
+        } catch {
+            emit RiskFeeSkipped(wallet, token, feeBps, "DEPOSIT_FAILED");
+        }
         return int128(int256(feeAmount));
     }
 

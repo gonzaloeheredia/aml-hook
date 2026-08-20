@@ -8,36 +8,26 @@ import {ISanctionRegistry} from "../../interfaces/registries/ISanctionRegistry.s
 /// @title Layer 1 — SanctionRegistry (REAL on-chain list)
 /// @notice Static sanctions screening (whitepaper §3.2 Layer 1 / §3.5 / §4.1 OFAC/SDN).
 ///
-/// @dev ═══════════════════════════════════════════════════════════════════════
-///      WHY A SEPARATE LAYER BEFORE THE SCORE
-///      ═══════════════════════════════════════════════════════════════════════
-///
-///      Some obligations are objective and binary (e.g. OFAC/SDN match). Those must
-///      REVERT immediately — no FEE_OVERRIDE discretion, no behavioral score read.
-///      That is why AMLHook checks this registry *first* in beforeSwap.
-///
-///      Population of the list is off-chain / ops (event-driven list updates). This
-///      contract is the live on-chain lookup with no oracle dependency at swap time.
-///
-///      Auth: shared AccessManager role `_REGISTRY_KEEPER`, deliberately distinct from
-///      `_ORACLE_KEEPER`. A sanctions pipeline key must not be able to publish scores,
-///      and vice versa. Until wired, `restricted` stays admin-only (fail closed).
-///
-///      Delisting uses the same call with `sanctioned = false`: a sanction blocks an
-///      account; it does not seize funds from it (FeeEscrow confiscation is separate).
-///      `setSanctioned` remains available for immediate emergencies. Production listings
-///      should use the two-block commit-reveal path to reduce mempool front-running.
+/// @dev `setSanctioned` remains available for immediate emergencies. Production listings
+///      should use the commit-reveal path. Reveal transactions MUST be submitted via a
+///      private mempool (Flashbots Protect or equivalent); this contract cannot enforce
+///      that on-chain. A public reveal exposes `account` in calldata before inclusion.
+///      `revealSanction` is already `restricted` to `_REGISTRY_KEEPER`, so an extra
+///      on-chain "trusted relayer" gate would not hide that calldata from a public mempool.
 contract SanctionRegistry is AccessManaged, ISanctionRegistry {
     mapping(address => bool) private _sanctioned;
 
-    uint256 public constant REVEAL_DELAY = 1;
+    uint256 public constant MIN_REVEAL_DELAY = 10;
+    uint256 public revealDelay = 10;
     mapping(bytes32 => uint256) public commitBlocks;
 
     error CommitNotFound();
     error RevealTooEarly();
     error CommitAlreadyUsed();
+    error RevealDelayTooLow();
 
     event SanctionCommitted(bytes32 indexed commitHash, uint256 blockNumber);
+    event RevealDelayUpdated(uint256 previous, uint256 current);
 
     /// @notice Deploys the registry under an access manager.
     /// @param initialAuthority_ The access manager that decides who may write the list.
@@ -56,6 +46,13 @@ contract SanctionRegistry is AccessManaged, ISanctionRegistry {
         emit SanctionUpdated(account, sanctioned);
     }
 
+    /// @notice Governor retunes the commit-reveal delay. Floor is `MIN_REVEAL_DELAY` (10 blocks).
+    function setRevealDelay(uint256 revealDelay_) external restricted {
+        if (revealDelay_ < MIN_REVEAL_DELAY) revert RevealDelayTooLow();
+        emit RevealDelayUpdated(revealDelay, revealDelay_);
+        revealDelay = revealDelay_;
+    }
+
     /// @notice Paso 1: comprometer la intencion sin revelar la direccion.
     /// @param commitHash keccak256(abi.encode(account, sanctioned, salt))
     function commitSanction(bytes32 commitHash) external restricted {
@@ -64,12 +61,14 @@ contract SanctionRegistry is AccessManaged, ISanctionRegistry {
         emit SanctionCommitted(commitHash, block.number);
     }
 
-    /// @notice Paso 2: revelar y aplicar la sancion despues de REVEAL_DELAY bloques.
+    /// @notice Paso 2: revelar y aplicar la sancion despues de `revealDelay` bloques.
+    /// @dev Submit this transaction via a private mempool in production (C-02). The
+    ///      delay only reduces, it does not eliminate, public-mempool front-running.
     function revealSanction(address account, bool sanctioned, bytes32 salt) external restricted {
         bytes32 h = keccak256(abi.encode(account, sanctioned, salt));
         uint256 committedAt = commitBlocks[h];
         if (committedAt == 0) revert CommitNotFound();
-        if (block.number <= committedAt + REVEAL_DELAY) revert RevealTooEarly();
+        if (block.number <= committedAt + revealDelay) revert RevealTooEarly();
         delete commitBlocks[h];
         _sanctioned[account] = sanctioned;
         emit SanctionUpdated(account, sanctioned);

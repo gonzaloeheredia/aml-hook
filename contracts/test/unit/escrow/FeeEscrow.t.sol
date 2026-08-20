@@ -71,7 +71,10 @@ contract UnitFeeEscrowTest is Helpers {
 
         vm.startPrank(owner);
         escrow.setKeeper(keeper, true);
+        escrow.setAuditor(address(this), true);
         escrow.setDepositor(depositor, true);
+        vm.warp(block.timestamp + escrow.DEPOSITOR_TIMELOCK());
+        escrow.applyDepositor();
         vm.stopPrank();
 
         token.mint(depositor, 1_000_000 ether);
@@ -357,12 +360,16 @@ contract UnitFeeEscrowTest is Helpers {
 
     function test_SetDepositor_OwnerCanGrantAndRevoke() external {
         address extra = makeAddr("extraDepositor");
-        vm.prank(owner);
+        vm.startPrank(owner);
         escrow.setDepositor(extra, true);
+        vm.warp(block.timestamp + escrow.DEPOSITOR_TIMELOCK());
+        escrow.applyDepositor();
         assertTrue(escrow.depositors(extra));
 
-        vm.prank(owner);
         escrow.setDepositor(extra, false);
+        vm.warp(block.timestamp + escrow.DEPOSITOR_TIMELOCK());
+        escrow.applyDepositor();
+        vm.stopPrank();
         assertFalse(escrow.depositors(extra));
     }
 
@@ -608,5 +615,47 @@ contract UnitFeeEscrowTest is Helpers {
         vm.prank(keeper);
         vm.expectRevert(FeeEscrow.BatchTooLarge.selector);
         escrow.batchReleaseDefault(ids);
+    }
+
+    function test_GetEscrow_RevertsForStranger() external {
+        uint256 id = _deposit(1 ether);
+        vm.prank(stranger);
+        vm.expectRevert(FeeEscrow.UnauthorizedEscrowRead.selector);
+        escrow.getEscrow(id);
+    }
+
+    function test_RecoverExpiredBlocked_AfterDelay() external {
+        uint256 id = _blockedEscrow(8 ether);
+        vm.prank(owner);
+        escrow.setBlockedRecoveryDelay(1 days);
+
+        vm.prank(stranger);
+        vm.expectRevert(FeeEscrow.BlockedRecoveryTooEarly.selector);
+        escrow.recoverExpiredBlocked(id);
+
+        vm.warp(block.timestamp + 1 days);
+        vm.prank(stranger);
+        escrow.recoverExpiredBlocked(id);
+        assertEq(token.balanceOf(fund), 8 ether);
+    }
+
+    function test_ApplyDepositor_RevertsBeforeTimelock() external {
+        vm.prank(owner);
+        escrow.setDepositor(makeAddr("soon"), true);
+        vm.prank(owner);
+        vm.expectRevert(FeeEscrow.DepositorTimelockPending.selector);
+        escrow.applyDepositor();
+    }
+
+    function test_GetEscrowPublic_HashesWallet() external {
+        uint256 id = _deposit(2 ether);
+        (bytes32 walletHash, uint256 amount, uint64 depositedAt, bytes32 fingerprint, IFeeEscrow.EscrowStatus status,)
+            = escrow.getEscrowPublic(id);
+
+        assertEq(walletHash, keccak256(abi.encodePacked(walletA)));
+        assertEq(amount, 2 ether);
+        assertEq(depositedAt, uint64(block.timestamp));
+        assertEq(fingerprint, ORIGIN_TX);
+        assertEq(uint8(status), uint8(IFeeEscrow.EscrowStatus.Active));
     }
 }

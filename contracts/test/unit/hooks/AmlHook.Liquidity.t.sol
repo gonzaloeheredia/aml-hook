@@ -26,7 +26,7 @@ contract UnitAmlHookLiquidityTest is Helpers {
         manager = new HookPoolManagerStub();
         accessManager = new AccessManager(owner);
         sanctionRegistry = new SanctionRegistry(address(accessManager));
-        complianceOracle = new ComplianceOracle(address(accessManager));
+        complianceOracle = new ComplianceOracle(address(accessManager), _attestor());
         riskPolicy = new RiskPolicy();
         hook = _deployHook(accessManager, sanctionRegistry, complianceOracle, riskPolicy);
 
