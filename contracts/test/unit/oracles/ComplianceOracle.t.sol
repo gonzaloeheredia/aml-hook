@@ -21,6 +21,10 @@ contract UnitComplianceOracleTest is Helpers {
         bytes4[] memory selectors = new bytes4[](1);
         selectors[0] = ComplianceOracle.updateScore.selector;
         _wireRole(accessManager, owner, address(complianceOracle), selectors, Roles._ORACLE_KEEPER, keeper);
+
+        bytes4[] memory govSelectors = new bytes4[](1);
+        govSelectors[0] = ComplianceOracle.setRateLimit.selector;
+        _wireRole(accessManager, owner, address(complianceOracle), govSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
     }
 
     function test_ConstructorSetsAuthority(address initialAuthority) external {
@@ -179,5 +183,60 @@ contract UnitComplianceOracleTest is Helpers {
             }
             if (!seen) ++count;
         }
+    }
+
+    /*///////////////////////////////////////////////////////////////
+                            RATE LIMIT (I-2)
+    //////////////////////////////////////////////////////////////*/
+
+    function test_UpdateScore_RevertsWhenWindowExceeded(address wallet) external {
+        for (uint256 i; i < 5; ++i) {
+            vm.prank(keeper);
+            complianceOracle.updateScore(wallet, 1, 0, origin, 0, "");
+        }
+
+        vm.prank(keeper);
+        vm.expectRevert(abi.encodeWithSelector(ComplianceOracle.UpdateRateLimited.selector, wallet));
+        complianceOracle.updateScore(wallet, 1, 0, origin, 0, "");
+    }
+
+    function test_UpdateScore_ResetsAfterWindow(address wallet) external {
+        for (uint256 i; i < 5; ++i) {
+            vm.prank(keeper);
+            complianceOracle.updateScore(wallet, 1, 0, origin, 0, "");
+        }
+
+        vm.warp(block.timestamp + complianceOracle.updateWindow());
+
+        vm.prank(keeper);
+        complianceOracle.updateScore(wallet, 2, 0, origin, 0, "");
+        assertEq(complianceOracle.getScore(wallet), 2);
+    }
+
+    function test_SetRateLimit_GovernorCanRetune() external {
+        vm.expectEmit(false, false, false, true, address(complianceOracle));
+        emit ComplianceOracle.RateLimitUpdated(3, 30 minutes);
+
+        vm.prank(hookGovernor);
+        complianceOracle.setRateLimit(3, 30 minutes);
+
+        assertEq(complianceOracle.maxUpdatesPerWindow(), 3);
+        assertEq(complianceOracle.updateWindow(), 30 minutes);
+    }
+
+    function test_SetRateLimit_RevertsOnZero() external {
+        vm.prank(hookGovernor);
+        vm.expectRevert(ComplianceOracle.InvalidRateLimit.selector);
+        complianceOracle.setRateLimit(0, 1 hours);
+
+        vm.prank(hookGovernor);
+        vm.expectRevert(ComplianceOracle.InvalidRateLimit.selector);
+        complianceOracle.setRateLimit(5, 0);
+    }
+
+    function test_SetRateLimit_RevertsForNonGovernor() external {
+        vm.prank(keeper);
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, keeper));
+        complianceOracle.setRateLimit(3, 1 hours);
     }
 }

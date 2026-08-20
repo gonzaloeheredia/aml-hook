@@ -220,10 +220,9 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     }
 
     /// @notice Reverts if `wallet` is on the L1 sanctions list (§3.2 / §4.1).
-    /// @dev Shared by the swap path (`_evaluateCore`) and the liquidity gates in `AmlHook`
-    ///      (`_beforeAddLiquidity` / `_beforeRemoveLiquidity`), so a sanctioned wallet cannot
-    ///      exit through liquidity what the swap path already blocks. Fail closed: a sanctions
-    ///      hit must never consult the behavioral score or any other layer.
+    /// @dev Shared by the swap path (`_evaluateCore`) and LP entry (`AmlHook._beforeAddLiquidity`).
+    ///      LP exit is not screened. Fail closed: a sanctions hit must never consult the
+    ///      behavioral score or any other layer.
     function _requireNotSanctioned(address wallet) internal view {
         if (sanctionRegistry.isSanctioned(wallet)) revert SanctionHit(wallet);
     }

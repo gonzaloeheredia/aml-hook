@@ -54,17 +54,6 @@ contract AmlHook is BaseHook, AmlHookLogic {
     error FeeTransferFailed();
     error FeeApproveFailed();
 
-    /// @dev Monotonic counter mixed into `swapFingerprint` (L-1). `block.number` +
-    ///      `block.timestamp` alone repeat for two FEE_OVERRIDE swaps from the same wallet,
-    ///      same token, same fee amount, in the same block (e.g. two identical-size swaps
-    ///      batched by a router) — a real, reachable collision, not a contrived one. The
-    ///      fingerprint is an audit-trail identifier, not a security boundary (`FeeEscrow`
-    ///      assigns its own sequential `escrowId`), but two deposits sharing a fingerprint
-    ///      breaks the 1:1 audit link back to the swap that funded them. The nonce is
-    ///      per-hook-instance, increments unconditionally on every escrow deposit, and is
-    ///      never reset, so no two `_escrowRiskFee` calls can ever produce the same input set.
-    uint256 private _fingerprintNonce;
-
     constructor(
         IPoolManager poolManager_,
         address accessManager_,
@@ -92,7 +81,8 @@ contract AmlHook is BaseHook, AmlHookLogic {
 
     /// @inheritdoc BaseHook
     /// @notice beforeSwap + afterSwap + afterSwapReturnDelta (required to take the risk fee),
-    ///         plus beforeAddLiquidity + beforeRemoveLiquidity (sanctions gate on LP entry/exit).
+    ///         plus beforeAddLiquidity (pause + sanctions on LP entry) and beforeRemoveLiquidity
+    ///         (always permitted — no sanction or pause gate).
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: false,
@@ -114,63 +104,33 @@ contract AmlHook is BaseHook, AmlHookLogic {
 
     /// @inheritdoc BaseHook
     /// @notice Blocks a sanctioned wallet from entering as a liquidity provider.
-    /// @dev Sanctions only — no score/fee evaluation here. RiskPolicy prices exposure taken
-    ///      through a swap; depositing liquidity is not that, so Layer 3 is not consulted.
-    ///      Same wallet-resolution path as `_beforeSwap` (`_resolveWallet`), so an untrusted
-    ///      caller fails closed the same way (`MissingSwapSubject` / `TrustedRouterSubjectFailed`).
-    ///
-    ///      Deliberately NOT gated on `_requireNotPaused()`, same reasoning as
-    ///      `_beforeRemoveLiquidity` in reverse: `pause()` is a pool-wide switch that stops
-    ///      everyone, sanctioned or not, and this gate exists precisely so a single wallet can be
-    ///      blocked without touching anyone else's ability to provide liquidity. Routing entry
-    ///      through the governor's emergency pause would make a targeted control blunt again.
-    ///      Blocking a specific wallet from depositing is `SanctionRegistry.setSanctioned`'s job,
-    ///      not `pause()`'s. `pause()` still stops the swap path (`AmlHookLogic._evaluate` /
-    ///      `_evaluateWithMitigationEvents`); it no longer reaches either liquidity callback.
+    /// @dev In Uniswap v4 the liquidity-hook `sender` is the PoolManager `msg.sender` of
+    ///      `modifyLiquidity` — the LP itself. There is no router intermediary, so the
+    ///      subject is `sender` directly (not `_resolveWallet`). Pause stops new exposure
+    ///      (swaps and new LP deposits); exits stay open in `_beforeRemoveLiquidity`.
     function _beforeAddLiquidity(
         address sender,
         PoolKey calldata,
         ModifyLiquidityParams calldata,
         bytes calldata
     ) internal view override returns (bytes4) {
-        _requireNotSanctioned(_resolveWallet(sender));
+        _requireNotPaused();
+        _requireNotSanctioned(sender);
         return this.beforeAddLiquidity.selector;
     }
 
     /// @inheritdoc BaseHook
-    /// @notice Blocks a sanctioned wallet from withdrawing liquidity — the position stays
-    ///         exactly as it is, nothing is confiscated, and the lock lifts as soon as the
-    ///         registry no longer reports the wallet as sanctioned.
-    /// @dev Sanctions only, never the score: losing the score band must not trap a position,
-    ///      only a sanction does. No RiskPolicy consultation, same as `_beforeAddLiquidity`.
-    ///
-    ///      Deliberately NOT gated on `_requireNotPaused()`. An emergency pause is meant to stop
-    ///      new exposure, not to trap capital LPs already committed under prior conditions —
-    ///      doing that would turn the governor's incident switch into an involuntary freeze of
-    ///      every LP's funds, sanctioned or not. Withdrawals stay open through a pause; only the
-    ///      sanctions check below can still block one.
-    ///
-    ///      The sanctions block itself IS intentional, not an oversight, and it is deliberately
-    ///      asymmetric with the swap path: a swap decision is made in real time, before the
-    ///      wallet commits anything new, so blocking it costs the wallet nothing it already had.
-    ///      Here the capital is already in the pool. Trapping it anyway is the point, not a side
-    ///      effect: under a blocking sanctions regime (e.g. OFAC), the obligation once a party is
-    ///      designated is to freeze property in which it has an interest, not to let it move or
-    ///      be withdrawn. Letting a sanctioned LP quietly exit on the next call would run against
-    ///      that obligation. The cost of this design is centralization risk shared with the rest
-    ///      of Layer 1: whoever holds `_REGISTRY_KEEPER` can freeze any LP's position by
-    ///      sanctioning it, with no on-chain recovery path other than delisting the same wallet.
-    ///      That risk is accepted here, not overlooked — it is the same key already trusted to
-    ///      decide who may swap at all, and it is why `_REGISTRY_KEEPER` is kept isolated from
-    ///      `_ORACLE_KEEPER` and `_HOOK_GOVERNOR` (see `Roles`), and why `SanctionRegistry`'s
-    ///      commit-reveal path exists for its production writes.
+    /// @notice LP exit is always permitted — no sanction or pause gate here.
+    /// @dev Sanctions prevent new positions (_beforeAddLiquidity). They must not
+    ///      freeze capital already in the pool: blocking withdrawal is confiscation,
+    ///      not compliance. If strict OFAC freeze-in-place is required, document
+    ///      it explicitly and add a recovery mechanism before enabling it.
     function _beforeRemoveLiquidity(
-        address sender,
+        address /* sender */,
         PoolKey calldata,
         ModifyLiquidityParams calldata,
         bytes calldata
     ) internal view override returns (bytes4) {
-        _requireNotSanctioned(_resolveWallet(sender));
         return this.beforeRemoveLiquidity.selector;
     }
 
@@ -282,10 +242,8 @@ contract AmlHook is BaseHook, AmlHookLogic {
         IERC20Approve(token).approve(address(feeEscrow), 0);
         if (!IERC20Approve(token).approve(address(feeEscrow), feeAmount)) revert FeeApproveFailed();
 
-        uint256 nonce = ++_fingerprintNonce;
-        bytes32 swapFingerprint = keccak256(
-            abi.encode(wallet, token, feeAmount, block.number, block.timestamp, nonce)
-        );
+        bytes32 swapFingerprint =
+            keccak256(abi.encode(wallet, token, feeAmount, block.number, block.timestamp, feeEscrow.nextEscrowId()));
         uint256 escrowId = feeEscrow.deposit(wallet, swapFingerprint, feeAmount);
 
         emit RiskFeeEscrowed(wallet, token, feeAmount, escrowId, feeBps);

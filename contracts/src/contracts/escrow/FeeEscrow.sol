@@ -47,12 +47,6 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     uint64 public constant ESCROW_WINDOW = 48 hours;
     /// @dev Earliest moment Checkpoint 1 (early release to LPs) is allowed.
     uint64 public constant CHECKPOINT1_MIN_AGE = 24 hours;
-    /// @dev Max ids per batch call (L-2). An unbounded loop over keeper-supplied calldata is a
-    ///      gas-griefing / block-gas-limit surface: a large enough array reverts the whole batch
-    ///      on out-of-gas, or can be sized specifically to push the tx just over the block limit.
-    ///      50 is generous for a keeper-driven maintenance call and keeps worst-case gas bounded.
-    uint256 public constant MAX_BATCH_SIZE = 50;
-
     address public owner;
     /// @notice Two-step ownership: proposed owner must call `acceptOwnership`.
     address public pendingOwner;
@@ -83,8 +77,8 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     error LengthMismatch();
     error NotPendingOwner();
     error NotBlocked();
+    uint256 private constant MAX_BATCH_SIZE = 100;
     error BatchTooLarge();
-    error InvalidRecoveryDestination();
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
@@ -192,10 +186,9 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     }
 
     /// @inheritdoc IFeeEscrow
-    /// @dev Reverts BatchTooLarge above MAX_BATCH_SIZE (L-2) — bounds worst-case batch gas.
     function batchReleaseEarly(uint256[] calldata escrowIds) external onlyKeeper nonReentrant {
+        if (escrowIds.length > MAX_BATCH_SIZE) revert BatchTooLarge();
         uint256 n = escrowIds.length;
-        if (n > MAX_BATCH_SIZE) revert BatchTooLarge();
         for (uint256 i; i < n; ++i) {
             _releaseEarly(escrowIds[i]);
         }
@@ -210,7 +203,6 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     }
 
     /// @inheritdoc IFeeEscrow
-    /// @dev Reverts BatchTooLarge above MAX_BATCH_SIZE (L-2) — bounds worst-case batch gas.
     function batchResolveCheckpoint2(uint256[] calldata escrowIds, bool[] calldata illicitConfirmed)
         external
         onlyKeeper
@@ -233,10 +225,9 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     }
 
     /// @inheritdoc IFeeEscrow
-    /// @dev Reverts BatchTooLarge above MAX_BATCH_SIZE (L-2) — bounds worst-case batch gas.
     function batchReleaseDefault(uint256[] calldata escrowIds) external onlyKeeper nonReentrant {
+        if (escrowIds.length > MAX_BATCH_SIZE) revert BatchTooLarge();
         uint256 n = escrowIds.length;
-        if (n > MAX_BATCH_SIZE) revert BatchTooLarge();
         for (uint256 i; i < n; ++i) {
             _releaseDefault(escrowIds[i]);
         }
@@ -249,19 +240,8 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     }
 
     /// @inheritdoc IFeeEscrow
-    /// @notice Owner-only recovery of a blocked fee. Exceptional; not batched.
-    /// @dev `to` must equal `lpCompensationFund` (I-3). The parameter is kept, rather than
-    ///      dropped, only so the call site still states its destination explicitly and the
-    ///      event/interface stay stable; it is not a free-form withdrawal address. Before this
-    ///      fix a compromised or rogue owner key could redirect a blocked, sanctioned wallet's
-    ///      confiscated fee to any address in one call — the same single-point-of-failure risk
-    ///      already accepted and documented for Layer 1 (`_REGISTRY_KEEPER`, see
-    ///      `AmlHook._beforeRemoveLiquidity`), but here compounded by an unrestricted `to`.
-    ///      Pinning the destination to the fund that every other terminal path already uses
-    ///      (`_releaseEarly`, `_resolveCheckpoint2` clean, `_releaseDefault`) closes that
-    ///      arbitrary-destination gap without touching who may call it or when.
-    function recoverBlocked(uint256 escrowId, address to) external onlyOwner nonReentrant {
-        if (to != lpCompensationFund) revert InvalidRecoveryDestination();
+    /// @notice Owner recovery of a blocked fee to lpCompensationFund (exceptional; no batch).
+    function recoverBlocked(uint256 escrowId) external onlyOwner nonReentrant {
         if (escrowId == 0 || escrowId >= nextEscrowId) revert UnknownEscrow();
         EscrowRecord storage rec = _escrows[escrowId];
         if (rec.status != EscrowStatus.Blocked) revert NotBlocked();
@@ -269,6 +249,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         rec.status = EscrowStatus.Recovered;
         uint256 amount = rec.amount;
         address wallet = rec.wallet;
+        address to = lpCompensationFund;
 
         _transferOut(to, amount);
         emit FeeRecovered(escrowId, wallet, amount, to);

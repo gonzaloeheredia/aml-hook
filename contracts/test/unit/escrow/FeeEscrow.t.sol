@@ -546,7 +546,7 @@ contract UnitFeeEscrowTest is Helpers {
         emit FeeRecovered(id, walletA, amount, fund);
 
         vm.prank(owner);
-        escrow.recoverBlocked(id, fund);
+        escrow.recoverBlocked(id);
 
         IFeeEscrow.EscrowRecord memory rec = escrow.getEscrow(id);
         assertEq(uint8(rec.status), uint8(IFeeEscrow.EscrowStatus.Recovered));
@@ -554,32 +554,12 @@ contract UnitFeeEscrowTest is Helpers {
         assertEq(token.balanceOf(address(escrow)), 0);
     }
 
-    /// @dev I-3: recoverBlocked no longer accepts an arbitrary destination. Only the current
-    ///      lpCompensationFund is a valid `to`, closing the owner-key single-point-of-failure
-    ///      that let a compromised owner redirect a confiscated, sanctioned fee anywhere.
-    function test_RecoverBlocked_RevertsOnArbitraryDestination() external {
-        uint256 id = _blockedEscrow(10 ether);
-        address arbitrary = makeAddr("attacker");
-
-        vm.prank(owner);
-        vm.expectRevert(FeeEscrow.InvalidRecoveryDestination.selector);
-        escrow.recoverBlocked(id, arbitrary);
-    }
-
-    function test_RecoverBlocked_RevertsOnZeroAddress() external {
-        uint256 id = _blockedEscrow(10 ether);
-
-        vm.prank(owner);
-        vm.expectRevert(FeeEscrow.InvalidRecoveryDestination.selector);
-        escrow.recoverBlocked(id, address(0));
-    }
-
     function test_RecoverBlocked_RevertsForNonOwner() external {
         uint256 id = _blockedEscrow(10 ether);
 
         vm.prank(stranger);
         vm.expectRevert(FeeEscrow.NotOwner.selector);
-        escrow.recoverBlocked(id, fund);
+        escrow.recoverBlocked(id);
     }
 
     function test_RecoverBlocked_RevertsIfNotBlocked() external {
@@ -587,18 +567,18 @@ contract UnitFeeEscrowTest is Helpers {
 
         vm.prank(owner);
         vm.expectRevert(FeeEscrow.NotBlocked.selector);
-        escrow.recoverBlocked(id, fund);
+        escrow.recoverBlocked(id);
     }
 
     function test_RecoverBlocked_CannotBeCalledTwice() external {
         uint256 id = _blockedEscrow(10 ether);
 
         vm.prank(owner);
-        escrow.recoverBlocked(id, fund);
+        escrow.recoverBlocked(id);
 
         vm.prank(owner);
         vm.expectRevert(FeeEscrow.NotBlocked.selector);
-        escrow.recoverBlocked(id, fund);
+        escrow.recoverBlocked(id);
     }
 
     /*///////////////////////////////////////////////////////////////
@@ -606,8 +586,7 @@ contract UnitFeeEscrowTest is Helpers {
     //////////////////////////////////////////////////////////////*/
 
     function test_BatchReleaseEarly_RevertsAboveMaxBatchSize() external {
-        uint256 max = escrow.MAX_BATCH_SIZE();
-        uint256[] memory ids = new uint256[](max + 1);
+        uint256[] memory ids = new uint256[](101);
 
         vm.prank(keeper);
         vm.expectRevert(FeeEscrow.BatchTooLarge.selector);
@@ -615,9 +594,8 @@ contract UnitFeeEscrowTest is Helpers {
     }
 
     function test_BatchResolveCheckpoint2_RevertsAboveMaxBatchSize() external {
-        uint256 max = escrow.MAX_BATCH_SIZE();
-        uint256[] memory ids = new uint256[](max + 1);
-        bool[] memory flags = new bool[](max + 1);
+        uint256[] memory ids = new uint256[](101);
+        bool[] memory flags = new bool[](101);
 
         vm.prank(keeper);
         vm.expectRevert(FeeEscrow.BatchTooLarge.selector);
@@ -625,8 +603,7 @@ contract UnitFeeEscrowTest is Helpers {
     }
 
     function test_BatchReleaseDefault_RevertsAboveMaxBatchSize() external {
-        uint256 max = escrow.MAX_BATCH_SIZE();
-        uint256[] memory ids = new uint256[](max + 1);
+        uint256[] memory ids = new uint256[](101);
 
         vm.prank(keeper);
         vm.expectRevert(FeeEscrow.BatchTooLarge.selector);

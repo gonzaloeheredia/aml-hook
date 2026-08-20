@@ -26,6 +26,9 @@ interface IFeeEscrow {
     /// @notice ERC-20 this escrow custodies (must match the swap fee currency to deposit).
     function feeToken() external view returns (address);
 
+    /// @notice Next escrow id that `deposit` will assign (starts at 1).
+    function nextEscrowId() external view returns (uint256);
+
     /// @notice Deposit the differential fee into the 48h escrow.
     /// @dev Only an authorized depositor (e.g. settlement path). Pulls `feeToken` via transferFrom.
     /// @return escrowId Identifier for later keeper resolution.
@@ -54,8 +57,8 @@ interface IFeeEscrow {
     /// @notice Default release for many escrow ids (same rules as `releaseDefault`).
     function batchReleaseDefault(uint256[] calldata escrowIds) external;
 
-    /// @notice Owner recovery of a blocked fee to `to` (exceptional; no batch).
-    function recoverBlocked(uint256 escrowId, address to) external;
+    /// @notice Owner recovery of a blocked fee to lpCompensationFund (exceptional; no batch).
+    function recoverBlocked(uint256 escrowId) external;
 
     /// @notice Read a single escrow record.
     function getEscrow(uint256 escrowId) external view returns (EscrowRecord memory);

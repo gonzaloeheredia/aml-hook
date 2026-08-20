@@ -82,16 +82,19 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
         uint24 feeBps,
         bytes calldata /* signature */
     ) external restricted {
-        if (score > 100) revert ScoreOutOfRange();
-
         UpdateTracker storage tracker = _updateTracker[wallet];
-        if (tracker.windowStart == 0 || block.timestamp >= uint256(tracker.windowStart) + uint256(updateWindow)) {
+        if (
+            tracker.windowStart == 0 ||
+            block.timestamp >= uint256(tracker.windowStart) + uint256(updateWindow)
+        ) {
             tracker.windowStart = uint64(block.timestamp);
             tracker.count = 1;
         } else {
             tracker.count += 1;
             if (tracker.count > maxUpdatesPerWindow) revert UpdateRateLimited(wallet);
         }
+
+        if (score > 100) revert ScoreOutOfRange();
 
         uint64 ts = uint64(block.timestamp);
         _risk[wallet] = WalletRisk({

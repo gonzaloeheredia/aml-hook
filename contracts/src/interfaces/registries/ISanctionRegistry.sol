@@ -11,9 +11,8 @@ interface ISanctionRegistry {
     /// @notice True if `account` is sanctioned / blocked at Layer 1.
     function isSanctioned(address account) external view returns (bool);
 
-    /// @notice Admin / ops delists a single address (event-driven list maintenance).
-    /// @dev Concrete implementations restrict this to `sanctioned = false` (I-1): applying a
-    ///      new sanction must go through the commit-reveal path instead, to avoid exposing the
-    ///      target address in the mempool before the block takes effect.
+    /// @notice Admin / ops writes a single address (event-driven list maintenance).
+    /// @dev Immediate emergency path. Production listings should use commit-reveal
+    ///      (`commitSanction` + `revealSanction`) to reduce mempool front-running.
     function setSanctioned(address account, bool sanctioned) external;
 }

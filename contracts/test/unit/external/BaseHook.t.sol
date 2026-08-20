@@ -33,7 +33,8 @@ contract UnitBaseHookTest is Helpers {
         complianceOracle = new ComplianceOracle(address(accessManager));
         riskPolicy = new RiskPolicy();
 
-        // Concrete AmlHook: PoolManager gating + unimplemented lifecycle stubs.
+        // Concrete AmlHook: PoolManager gating + unimplemented lifecycle stubs
+        // (liquidity callbacks ARE implemented: add screens sender, remove always succeeds).
         hook = _deployHook(accessManager, sanctionRegistry, complianceOracle, riskPolicy);
 
         // Bare hook: default `_beforeSwap` / `_afterSwap` → HookNotImplemented.
@@ -66,14 +67,12 @@ contract UnitBaseHookTest is Helpers {
         vm.expectRevert(BaseHook.HookNotImplemented.selector);
         hook.afterInitialize(router, key, 0, 0);
 
-        vm.expectRevert(BaseHook.HookNotImplemented.selector);
+        // Liquidity callbacks are implemented: add screens `sender`; remove always succeeds.
         hook.beforeAddLiquidity(router, key, liqParams, "");
+        hook.beforeRemoveLiquidity(router, key, liqParams, "");
 
         vm.expectRevert(BaseHook.HookNotImplemented.selector);
         hook.afterAddLiquidity(router, key, liqParams, BalanceDelta.wrap(0), BalanceDelta.wrap(0), "");
-
-        vm.expectRevert(BaseHook.HookNotImplemented.selector);
-        hook.beforeRemoveLiquidity(router, key, liqParams, "");
 
         vm.expectRevert(BaseHook.HookNotImplemented.selector);
         hook.afterRemoveLiquidity(router, key, liqParams, BalanceDelta.wrap(0), BalanceDelta.wrap(0), "");

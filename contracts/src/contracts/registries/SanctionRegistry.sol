@@ -25,17 +25,19 @@ import {ISanctionRegistry} from "../../interfaces/registries/ISanctionRegistry.s
 ///
 ///      Delisting uses the same call with `sanctioned = false`: a sanction blocks an
 ///      account; it does not seize funds from it (FeeEscrow confiscation is separate).
+///      `setSanctioned` remains available for immediate emergencies. Production listings
+///      should use the two-block commit-reveal path to reduce mempool front-running.
 contract SanctionRegistry is AccessManaged, ISanctionRegistry {
     mapping(address => bool) private _sanctioned;
-    mapping(bytes32 => uint256) public commitTimestamps;
+
     uint256 public constant REVEAL_DELAY = 1;
+    mapping(bytes32 => uint256) public commitBlocks;
+
+    error CommitNotFound();
+    error RevealTooEarly();
+    error CommitAlreadyUsed();
 
     event SanctionCommitted(bytes32 indexed commitHash, uint256 blockNumber);
-
-    error UnknownCommit(bytes32 commitHash);
-    error RevealTooEarly(uint256 committedAt);
-    /// @dev I-1: `setSanctioned(account, true)` is no longer reachable directly.
-    error DirectSanctionForbidden();
 
     /// @notice Deploys the registry under an access manager.
     /// @param initialAuthority_ The access manager that decides who may write the list.
@@ -48,36 +50,28 @@ contract SanctionRegistry is AccessManaged, ISanctionRegistry {
     }
 
     /// @inheritdoc ISanctionRegistry
-    /// @notice Writer-role delisting of a single address (event-driven OFAC-style writes; §3.8).
-    /// @dev I-1: this direct path now only accepts `sanctioned = false` and reverts
-    ///      `DirectSanctionForbidden` otherwise. Applying a *new* sanction directly, in one
-    ///      call, exposes the target address in the mempool before it takes effect — a
-    ///      searcher watching for `SanctionUpdated(account, true)` can front-run it with the
-    ///      account's own withdrawal/exit transaction in the same block, defeating the very
-    ///      block this call is meant to impose. Delisting carries no such incentive (nobody
-    ///      races to keep themselves sanctioned), so it stays instant. Applying a new sanction
-    ///      must go through `commitSanction` + `revealSanction`, which hides which address is
-    ///      being sanctioned until the reveal, after the commit has already been mined.
+    /// @notice Immediate write for emergencies. Production listings should use commit-reveal.
     function setSanctioned(address account, bool sanctioned) external restricted {
-        if (sanctioned) revert DirectSanctionForbidden();
-        _sanctioned[account] = false;
-        emit SanctionUpdated(account, false);
+        _sanctioned[account] = sanctioned;
+        emit SanctionUpdated(account, sanctioned);
     }
 
-    /// @notice First step of the production sanctions path: commit a hash of (account, sanctioned, salt).
+    /// @notice Paso 1: comprometer la intencion sin revelar la direccion.
+    /// @param commitHash keccak256(abi.encode(account, sanctioned, salt))
     function commitSanction(bytes32 commitHash) external restricted {
-        commitTimestamps[commitHash] = block.number;
+        if (commitBlocks[commitHash] != 0) revert CommitAlreadyUsed();
+        commitBlocks[commitHash] = block.number;
         emit SanctionCommitted(commitHash, block.number);
     }
 
-    /// @notice Second step: reveal the committed sanction after `REVEAL_DELAY` blocks.
+    /// @notice Paso 2: revelar y aplicar la sancion despues de REVEAL_DELAY bloques.
     function revealSanction(address account, bool sanctioned, bytes32 salt) external restricted {
         bytes32 h = keccak256(abi.encode(account, sanctioned, salt));
-        uint256 committedAt = commitTimestamps[h];
-        if (committedAt == 0) revert UnknownCommit(h);
-        if (block.number <= committedAt + REVEAL_DELAY) revert RevealTooEarly(committedAt);
+        uint256 committedAt = commitBlocks[h];
+        if (committedAt == 0) revert CommitNotFound();
+        if (block.number <= committedAt + REVEAL_DELAY) revert RevealTooEarly();
+        delete commitBlocks[h];
         _sanctioned[account] = sanctioned;
         emit SanctionUpdated(account, sanctioned);
-        delete commitTimestamps[h];
     }
 }
