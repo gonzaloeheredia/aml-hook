@@ -61,20 +61,25 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
     }
 
     /// @notice Digest the attestor must sign (Ethereum signed message of this hash).
-    function attestationHash(address wallet, uint8 score, uint24 feeBps, uint64 updatedAt)
-        public
-        view
-        returns (bytes32)
-    {
-        return keccak256(abi.encode(wallet, score, feeBps, updatedAt, block.chainid));
+    /// @dev Binds the full published snapshot: hop/origin cannot be swapped under a score-only signature.
+    function attestationHash(
+        address wallet,
+        uint8 score,
+        uint8 hopDistance,
+        address origin,
+        uint24 feeBps,
+        uint64 updatedAt
+    ) public view returns (bytes32) {
+        return keccak256(abi.encode(wallet, score, hopDistance, origin, feeBps, updatedAt, block.chainid));
     }
 
     /// @inheritdoc IComplianceOracle
     /// @notice Keeper publication of a pre-calculated risk profile (§3.8).
     /// @dev Off-chain engine owns N-hop decay / typology; this call only persists results.
     ///      Setting score 0 with a fresh `updatedAt` marks confirmed-clean (Mitigation A).
-    ///      `signature` must be ECDSA from `attestor` over `attestationHash` with
-    ///      `updatedAt = block.timestamp`. Restricted to `_ORACLE_KEEPER`.
+    ///      `signature` must be ECDSA from `attestor` over `attestationHash` (wallet, score,
+    ///      hopDistance, origin, feeBps, updatedAt=block.timestamp, chainid). Restricted to
+    ///      `_ORACLE_KEEPER`.
     ///
     ///      H-01: score updates that move a wallet into the REVERT band (71–100) MUST be
     ///      submitted via a private mempool (Flashbots Protect or equivalent). The contract
@@ -88,7 +93,7 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
         bytes calldata signature
     ) external restricted {
         uint64 ts = uint64(block.timestamp);
-        _verifyAttestation(wallet, score, feeBps, ts, signature);
+        _verifyAttestation(wallet, score, hopDistance, origin, feeBps, ts, signature);
         _enforceSlidingWindow(wallet);
 
         if (score > 100) revert ScoreOutOfRange();
@@ -121,12 +126,14 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
     function _verifyAttestation(
         address wallet,
         uint8 score,
+        uint8 hopDistance,
+        address origin,
         uint24 feeBps,
         uint64 updatedAt,
         bytes calldata signature
     ) private view {
         if (signature.length != 65) revert InvalidAttestation();
-        bytes32 hash = attestationHash(wallet, score, feeBps, updatedAt);
+        bytes32 hash = attestationHash(wallet, score, hopDistance, origin, feeBps, updatedAt);
         bytes32 ethSigned = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", hash));
 
         bytes32 r;

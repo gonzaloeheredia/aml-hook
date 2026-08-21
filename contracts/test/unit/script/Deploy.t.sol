@@ -14,15 +14,20 @@ import {Helpers} from "test/utils/Helpers.t.sol";
 
 /// @dev Exposes the script's internal entry points so the wiring can be exercised without broadcasting.
 contract DeployHarness is Deploy {
-    function deploy(address admin_, address registryKeeper_, address oracleKeeper_, address hookGovernor_)
-        external
-    {
+    function deploy(
+        address admin_,
+        address registryKeeper_,
+        address oracleKeeper_,
+        address hookGovernor_,
+        address attestor_
+    ) external {
         _deploy(
             address(this),
             admin_,
             registryKeeper_,
             oracleKeeper_,
             hookGovernor_,
+            attestor_,
             address(0), // MockPoolManager
             address(0), // MockTrustedRouter
             300,
@@ -47,7 +52,7 @@ contract UnitDeployTest is Helpers {
 
     function setUp() public {
         deployment = new DeployHarness();
-        deployment.deploy(owner, registryKeeper, oracleKeeper, hookGovernor);
+        deployment.deploy(owner, registryKeeper, oracleKeeper, hookGovernor, _attestor());
 
         // Cached, so a `vm.prank` is never consumed by the getter instead of the call under test.
         accessManager = deployment.accessManager();
@@ -55,9 +60,6 @@ contract UnitDeployTest is Helpers {
         complianceOracle = deployment.complianceOracle();
         riskPolicy = deployment.riskPolicy();
         hook = deployment.hook();
-
-        vm.prank(hookGovernor);
-        complianceOracle.setAttestor(_attestor());
     }
 
     /*///////////////////////////////////////////////////////////////
@@ -71,7 +73,7 @@ contract UnitDeployTest is Helpers {
         _sanction(sanctionRegistry, registryKeeper, account);
 
         vm.prank(oracleKeeper);
-        complianceOracle.updateScore(account, 65, 1, address(0), 0, _scoreSig(account, 65, 0));
+        complianceOracle.updateScore(account, 65, 1, address(0), 0, _scoreSig(account, 65, 1, address(0), 0));
 
         vm.prank(hookGovernor);
         hook.setStalenessThreshold(120);
@@ -90,7 +92,7 @@ contract UnitDeployTest is Helpers {
 
         vm.prank(registryKeeper);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, registryKeeper));
-        complianceOracle.updateScore(account, 65, 1, address(0), 0, _scoreSig(account, 65, 0));
+        complianceOracle.updateScore(account, 65, 1, address(0), 0, _scoreSig(account, 65, 1, address(0), 0));
 
         vm.prank(oracleKeeper);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, oracleKeeper));
@@ -105,7 +107,7 @@ contract UnitDeployTest is Helpers {
 
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, owner));
-        complianceOracle.updateScore(account, 65, 1, address(0), 0, _scoreSig(account, 65, 0));
+        complianceOracle.updateScore(account, 65, 1, address(0), 0, _scoreSig(account, 65, 1, address(0), 0));
 
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, owner));
@@ -150,7 +152,7 @@ contract UnitDeployTest is Helpers {
     function test_DeployWhenRunOnEthereum_TrustsAppUniswapUniversalRouter() external {
         DeployHarness live = new DeployHarness();
         vm.chainId(1);
-        live.deploy(owner, registryKeeper, oracleKeeper, hookGovernor);
+        live.deploy(owner, registryKeeper, oracleKeeper, hookGovernor, _attestor());
 
         address ur = UniversalRouters.appRouter(1);
         address v211 = UniversalRouters.appRouterV211(1);
@@ -164,7 +166,7 @@ contract UnitDeployTest is Helpers {
     function test_DeployWhenRunOnUnichain_TrustsAppUniswapUniversalRouter() external {
         DeployHarness live = new DeployHarness();
         vm.chainId(130);
-        live.deploy(owner, registryKeeper, oracleKeeper, hookGovernor);
+        live.deploy(owner, registryKeeper, oracleKeeper, hookGovernor, _attestor());
 
         assertTrue(live.hook().trustedRouters(UniversalRouters.appRouter(130)));
         assertTrue(live.hook().trustedRouters(UniversalRouters.appRouterV211(130)));
@@ -174,11 +176,37 @@ contract UnitDeployTest is Helpers {
     function test_DeployWhenRunWiresFeeEscrowAsHookDepositor() external view {
         FeeEscrow escrow = deployment.feeEscrow();
         assertEq(address(hook.feeEscrow()), address(escrow));
-        // C-04: setDepositor is timelocked; deploy schedules the hook as pending depositor.
-        assertEq(escrow.pendingDepositor(), address(hook));
-        assertTrue(escrow.pendingDepositorAllowed());
+        assertTrue(escrow.depositors(address(hook)));
+        assertTrue(escrow.depositorBootstrapped());
+        assertEq(escrow.pendingDepositor(), address(0));
         assertTrue(escrow.feeToken() != address(0));
         assertTrue(escrow.allowedFeeTokens(escrow.feeToken()));
+    }
+
+    function test_DeployWhenRunHandsFeeEscrowToAdminNotConfigurer() external view {
+        FeeEscrow escrow = deployment.feeEscrow();
+        address configurer = address(deployment);
+
+        assertEq(escrow.owner(), owner);
+        assertEq(escrow.lpCompensationFund(), owner);
+        assertEq(escrow.bootstrapper(), address(0));
+        assertFalse(escrow.keepers(configurer));
+        assertFalse(escrow.depositors(configurer));
+        assertTrue(escrow.keepers(owner));
+        assertTrue(configurer != owner);
+    }
+
+    function test_DeployWhenRunSetsDistinctAttestor() external {
+        address attestor = _attestor();
+        assertEq(complianceOracle.attestor(), attestor);
+        assertTrue(attestor != hookGovernor);
+        assertTrue(attestor != oracleKeeper);
+    }
+
+    function test_DeployWhenAttestorCollidesWithGovernor() external {
+        DeployHarness harness = new DeployHarness();
+        vm.expectRevert(abi.encodeWithSelector(Deploy.Deploy_AttestorNotDistinct.selector, hookGovernor));
+        harness.deploy(owner, registryKeeper, oracleKeeper, hookGovernor, hookGovernor);
     }
 
     /*///////////////////////////////////////////////////////////////
@@ -193,7 +221,7 @@ contract UnitDeployTest is Helpers {
         vm.expectRevert(
             abi.encodeWithSelector(Deploy.Deploy_UnexpectedRole.selector, registryKeeper, Roles._ORACLE_KEEPER)
         );
-        harness.deploy(owner, registryKeeper, registryKeeper, hookGovernor);
+        harness.deploy(owner, registryKeeper, registryKeeper, hookGovernor, _attestor());
     }
 
     /// @dev The wiring is only as good as what it catches, so each failure mode is driven directly: the

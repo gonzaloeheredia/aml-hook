@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {BaseHook} from "v4-periphery/src/utils/BaseHook.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {AmlHookLogic} from "./AmlHookLogic.sol";
+import {AmlHookSettlement} from "./AmlHookSettlement.sol";
 import {ISanctionRegistry} from "../../interfaces/registries/ISanctionRegistry.sol";
 import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol";
 import {IRiskPolicy} from "../../interfaces/policies/IRiskPolicy.sol";
 import {IFeeEscrow} from "../../interfaces/escrow/IFeeEscrow.sol";
 import {HookDecision} from "../../libraries/HookDecision.sol";
-import {FeeBps} from "../../libraries/FeeBps.sol";
 import {SwapCache} from "../../libraries/SwapCache.sol";
 
+import {BaseHook} from "v4-periphery/src/utils/BaseHook.sol";
 import {Hooks} from "v4-core/src/libraries/Hooks.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
@@ -21,55 +20,14 @@ import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/src/types/BeforeS
 import {ModifyLiquidityParams, SwapParams} from "v4-core/src/types/PoolOperation.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 
-/// @dev Minimal ERC-20 surface for approving FeeEscrow.deposit's transferFrom.
-interface IERC20Approve {
-    function approve(address spender, uint256 amount) external returns (bool);
-    function transfer(address to, uint256 amount) external returns (bool);
-}
-
-/// @title AMLHook — Uniswap v4 compliance hook (REAL on-chain logic)
-/// @notice Orchestrator at swap time (whitepaper §3.1 / §3.5 / §3.7 / §3.9).
-/// @dev Uses the official BaseHook from @uniswap/v4-periphery (`v4-periphery/src/utils/BaseHook.sol`).
-///
-///      FEE SPLIT (whitepaper §3.7 + FeeEscrow via afterSwap):
-///      Pool = standard LP fee. Escrow = risk differential on FEE_OVERRIDE only.
-///      beforeSwap does not set punitive lpFeeOverride; afterSwap takes the
-///      differential via poolManager.take → FeeEscrow.deposit.
-///      differentialBps = max(0, feeBps - STANDARD_FEE_BPS).
-contract AmlHook is BaseHook, AmlHookLogic, ReentrancyGuard {
+/// @title AMLHook — Uniswap v4 callback surface
+/// @notice Wires PoolManager callbacks to compliance (`AmlHookLogic`) and fee take (`AmlHookSettlement`).
+/// @dev This contract must not decide risk or compute the differential. It only:
+///        beforeSwap  → `_beginSwap` + cache
+///        afterSwap   → `_endSwap` + optional `_escrowRiskFee`
+///        liquidity   → pause / L1 sanctions on add; exits always open
+contract AmlHook is AmlHookSettlement, AmlHookLogic {
     using PoolIdLibrary for PoolKey;
-    /// @notice Pool base fee in bps (0.30%) — left to the PoolManager; not overridden.
-    uint24 public constant STANDARD_FEE_BPS = FeeBps.STANDARD;
-
-    /// @notice Escrow for FEE_OVERRIDE differential fees (§3.7). address(0) disables take/deposit.
-    IFeeEscrow public immutable feeEscrow;
-
-    /// @notice Emitted when the risk differential was taken and deposited into FeeEscrow.
-    event RiskFeeEscrowed(
-        address indexed wallet, address indexed token, uint256 amount, uint256 escrowId, uint24 feeBps
-    );
-
-    /// @notice Emitted when the risk fee is not taken (zero basis or escrow token mismatch).
-    event RiskFeeSkipped(address indexed wallet, address indexed token, uint24 feeBps, string reason);
-
-    /// @notice Tokens taken from the pool whose `FeeEscrow.deposit` failed (C-04 follow-up).
-    event FailedDepositRecorded(address indexed wallet, address indexed token, uint256 amount);
-    event FailedDepositClaimed(address indexed wallet, address indexed token, uint256 amount);
-    event FailedDepositRetried(
-        address indexed wallet, address indexed token, uint256 amount, uint256 escrowId
-    );
-
-    error FeeTransferFailed();
-    error FeeApproveFailed();
-    error NoFailedDeposit();
-    error RetryEscrowFailed();
-    error FeeEscrowNotConfigured();
-
-    /// @notice Taken-but-not-escrowed differential, keyed by compliance subject and token.
-    mapping(address => mapping(address => uint256)) public failedDeposits;
-
-    /// @dev Extra entropy mixed into `swapFingerprint` (L-01), on top of `nextEscrowId`.
-    uint256 private _fingerprintNonce;
 
     constructor(
         IPoolManager poolManager_,
@@ -82,7 +40,7 @@ contract AmlHook is BaseHook, AmlHookLogic, ReentrancyGuard {
         uint64 activityWindow_,
         uint32 maxOpsInWindow_
     )
-        BaseHook(poolManager_)
+        AmlHookSettlement(poolManager_, feeEscrow_)
         AmlHookLogic(
             accessManager_,
             sanctionRegistry_,
@@ -92,9 +50,7 @@ contract AmlHook is BaseHook, AmlHookLogic, ReentrancyGuard {
             activityWindow_,
             maxOpsInWindow_
         )
-    {
-        feeEscrow = feeEscrow_;
-    }
+    {}
 
     /// @inheritdoc BaseHook
     /// @notice beforeSwap + afterSwap + afterSwapReturnDelta (required to take the risk fee),
@@ -161,13 +117,8 @@ contract AmlHook is BaseHook, AmlHookLogic, ReentrancyGuard {
         SwapParams calldata params,
         bytes calldata
     ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
-        address wallet = _resolveWallet(sender);
-        address token = _inputToken(key, params);
-
-        (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk, bool inflowTriggered)
-            = _evaluateWithMitigationEvents(wallet, token);
-
-        SwapCache.store(key.toId(), wallet, token, decision, feeBps, risk, inflowTriggered);
+        SwapEvaluation memory ev = _beginSwap(sender, _inputToken(key, params));
+        SwapCache.store(key.toId(), ev.wallet, ev.token, ev.decision, ev.feeBps, ev.risk, ev.inflowTriggered);
 
         // ALLOW and FEE_OVERRIDE: do not override pool LP fee (standard path).
         // REVERT already reverted inside evaluate.
@@ -175,10 +126,7 @@ contract AmlHook is BaseHook, AmlHookLogic, ReentrancyGuard {
     }
 
     /// @inheritdoc BaseHook
-    /// @notice afterSwap: pool-local memory + SwapObserved + optional FeeEscrow deposit (§3.7 / §3.9 Step 7).
-    /// @dev On FEE_OVERRIDE with a live feeEscrow, takes differentialBps of actual output
-    ///      (exactIn) or input (exactOut) via poolManager.take, then FeeEscrow.deposit.
-    ///      Returns the same amount as int128 so PoolManager nets the hook delta (afterSwapReturnDelta).
+    /// @notice afterSwap: compliance memory first, then optional FeeEscrow take (§3.7 / §3.9 Step 7).
     function _afterSwap(
         address,
         PoolKey calldata key,
@@ -186,131 +134,18 @@ contract AmlHook is BaseHook, AmlHookLogic, ReentrancyGuard {
         BalanceDelta delta,
         bytes calldata
     ) internal override nonReentrant returns (bytes4, int128) {
-        (
-            address wallet,
-            address swapToken,
-            HookDecision decision,
-            uint24 feeBps,
-            IComplianceOracle.WalletRisk memory risk,
-            bool inflowTriggered
-        ) = SwapCache.load(key.toId());
+        SwapEvaluation memory ev;
+        (ev.wallet, ev.token, ev.decision, ev.feeBps, ev.risk, ev.inflowTriggered) = SwapCache.load(key.toId());
         SwapCache.clear(key.toId());
 
-        _recordActivity(wallet);
-        _updateKnownBalance(wallet, swapToken, inflowTriggered);
-        _emitSwapObserved(wallet, decision, feeBps, risk);
+        _endSwap(ev);
 
         int128 hookDelta = 0;
-        if (decision == HookDecision.FEE_OVERRIDE && address(feeEscrow) != address(0) && feeBps > 0) {
-            hookDelta = _escrowRiskFee(wallet, key, params, delta, feeBps);
+        if (ev.decision == HookDecision.FEE_OVERRIDE && address(feeEscrow) != address(0) && ev.feeBps > 0) {
+            hookDelta = _escrowRiskFee(ev.wallet, key, params, delta, ev.feeBps);
         }
 
         return (this.afterSwap.selector, hookDelta);
-    }
-
-    /// @dev Take differential risk fee from the swap and deposit into FeeEscrow.
-    ///      Follows Uniswap v4 afterSwap custom-accounting guide (unspecified currency).
-    function _escrowRiskFee(
-        address wallet,
-        PoolKey calldata key,
-        SwapParams calldata params,
-        BalanceDelta delta,
-        uint24 feeBps
-    ) private returns (int128 hookDelta) {
-        // Differential above the pool's standard fee (keeps total friction ≈ max(feeBps, standard)).
-        uint256 differentialBps =
-            feeBps > STANDARD_FEE_BPS ? uint256(feeBps) - uint256(STANDARD_FEE_BPS) : 0;
-        if (differentialBps == 0) return 0;
-
-        bool isExactIn = params.amountSpecified < 0;
-        bool outputIsToken0 = !params.zeroForOne;
-
-        // Fee is charged on the unspecified currency (guide): output for exactIn, input for exactOut.
-        Currency feeCurrency;
-        int256 basisAmount;
-        if (isExactIn) {
-            feeCurrency = outputIsToken0 ? key.currency0 : key.currency1;
-            basisAmount = outputIsToken0 ? delta.amount0() : delta.amount1();
-        } else {
-            bool inputIsToken0 = params.zeroForOne;
-            feeCurrency = inputIsToken0 ? key.currency0 : key.currency1;
-            // Input amount owed by the user is negative in the swap delta.
-            int256 inputDelta = inputIsToken0 ? delta.amount0() : delta.amount1();
-            basisAmount = inputDelta < 0 ? -inputDelta : int256(0);
-        }
-
-        address token = Currency.unwrap(feeCurrency);
-        if (basisAmount <= 0) {
-            emit RiskFeeSkipped(wallet, token, feeBps, "ZERO_BASIS");
-            return 0;
-        }
-
-        uint256 feeAmount = (uint256(basisAmount) * differentialBps) / 10_000;
-        if (feeAmount == 0) return 0;
-        if (feeAmount > uint256(uint128(type(int128).max))) revert FeeTransferFailed();
-
-        // Effects complete. Interactions last (H-06): take → approve → deposit.
-        if (!feeEscrow.allowedFeeTokens(token)) {
-            emit RiskFeeSkipped(wallet, token, feeBps, "FEE_TOKEN_NOT_ALLOWED");
-            return 0;
-        }
-
-        uint256 nonce = ++_fingerprintNonce;
-        bytes32 swapFingerprint = keccak256(
-            abi.encode(
-                wallet, token, feeAmount, block.number, block.timestamp, feeEscrow.nextEscrowId(), nonce
-            )
-        );
-
-        poolManager.take(feeCurrency, address(this), feeAmount);
-        IERC20Approve(token).approve(address(feeEscrow), 0);
-        if (!IERC20Approve(token).approve(address(feeEscrow), feeAmount)) revert FeeApproveFailed();
-
-        try feeEscrow.deposit(wallet, token, swapFingerprint, feeAmount) returns (uint256 escrowId) {
-            emit RiskFeeEscrowed(wallet, token, feeAmount, escrowId, feeBps);
-        } catch {
-            failedDeposits[wallet][token] += feeAmount;
-            emit FailedDepositRecorded(wallet, token, feeAmount);
-            emit RiskFeeSkipped(wallet, token, feeBps, "DEPOSIT_FAILED");
-        }
-        return int128(int256(feeAmount));
-    }
-
-    /// @notice Subject recovers tokens that were taken but never reached FeeEscrow.
-    function claimFailedDeposit(address token) external nonReentrant {
-        uint256 amount = failedDeposits[msg.sender][token];
-        if (amount == 0) revert NoFailedDeposit();
-        failedDeposits[msg.sender][token] = 0;
-        if (!IERC20Approve(token).transfer(msg.sender, amount)) revert FeeTransferFailed();
-        emit FailedDepositClaimed(msg.sender, token, amount);
-    }
-
-    /// @notice Anyone may retry depositing a recorded failed amount once escrow accepts deposits again.
-    function retryEscrowDeposit(address wallet, address token) external nonReentrant {
-        if (address(feeEscrow) == address(0)) revert FeeEscrowNotConfigured();
-        uint256 amount = failedDeposits[wallet][token];
-        if (amount == 0) revert NoFailedDeposit();
-        if (!feeEscrow.allowedFeeTokens(token)) {
-            revert RetryEscrowFailed();
-        }
-
-        failedDeposits[wallet][token] = 0;
-
-        uint256 nonce = ++_fingerprintNonce;
-        bytes32 swapFingerprint = keccak256(
-            abi.encode(wallet, token, amount, block.number, block.timestamp, feeEscrow.nextEscrowId(), nonce)
-        );
-
-        IERC20Approve(token).approve(address(feeEscrow), 0);
-        if (!IERC20Approve(token).approve(address(feeEscrow), amount)) revert FeeApproveFailed();
-
-        try feeEscrow.deposit(wallet, token, swapFingerprint, amount) returns (uint256 escrowId) {
-            emit RiskFeeEscrowed(wallet, token, amount, escrowId, 0);
-            emit FailedDepositRetried(wallet, token, amount, escrowId);
-        } catch {
-            failedDeposits[wallet][token] = amount;
-            revert RetryEscrowFailed();
-        }
     }
 
     /// @dev Input currency of this swap — used by §3.8 Mitigation D.

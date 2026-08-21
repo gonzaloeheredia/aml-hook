@@ -43,6 +43,14 @@ import {HookDecision} from "../../libraries/HookDecision.sol";
 ///      Governance: `AccessManaged` against the shared AccessManager.
 ///      `_HOOK_GOVERNOR` may retune thresholds / trusted routers only — not the
 ///      swap path itself (that is fixed in bytecode).
+///
+///      Uniswap-facing surface (AmlHook must use these, in this order):
+///        `_beginSwap`  — resolve subject + L1/L2/L3 + mitigations A–D
+///        `_endSwap`    — record activity, refresh inflow baseline, emit SwapObserved
+///      Leaf helpers (`_evaluate*`, `_recordActivity`, `_updateKnownBalance`) stay
+///      `internal` for the unit harness. Inverting `_endSwap`'s three steps, or
+///      skipping `_beginSwap`, is a silent mitigation break — do not call the leaves
+///      from the Uniswap callbacks.
 abstract contract AmlHookLogic is AccessManaged, Pausable {
     ISanctionRegistry public immutable sanctionRegistry;
     IComplianceOracle public immutable complianceOracle;
@@ -155,8 +163,6 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         uint8 hopDistance,
         address origin
     );
-
-    event WalletBlockedEvent(address indexed wallet, uint8 score, string reason);
 
     /// @notice ALLOW was elevated to FEE_OVERRIDE by a §3.8 latency mitigation.
     /// @dev Reason codes let operators / regulators see *why* friction was applied
@@ -350,9 +356,41 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     /// @notice Reverts if `wallet` is on the L1 sanctions list (§3.2 / §4.1).
     /// @dev Shared by the swap path (`_evaluateCore`) and LP entry (`AmlHook._beforeAddLiquidity`).
     ///      LP exit is not screened. Fail closed: a sanctions hit must never consult the
-    ///      behavioral score or any other layer.
+    ///      behavioral score or any other layer. Blocked swaps revert (`SanctionHit` /
+    ///      `WalletBlocked`); off-chain monitors should index those custom errors on reverted
+    ///      txs — a log would be discarded by the revert.
     function _requireNotSanctioned(address wallet) internal view {
         if (sanctionRegistry.isSanctioned(wallet)) revert SanctionHit(wallet);
+    }
+
+    /// @dev Uniswap-facing swap snapshot. Built by `_beginSwap`, consumed by `_endSwap`.
+    struct SwapEvaluation {
+        address wallet;
+        address token;
+        HookDecision decision;
+        uint24 feeBps;
+        IComplianceOracle.WalletRisk risk;
+        bool inflowTriggered;
+    }
+
+    /// @notice beforeSwap compliance entry: resolve the subject, then decide (events on).
+    /// @dev Order is fixed here so AmlHook cannot evaluate a router as the subject or
+    ///      skip mitigations. `token` is the swap input (address(0) skips Mitigation D).
+    function _beginSwap(address router, address token) internal returns (SwapEvaluation memory ev) {
+        ev.wallet = _resolveWallet(router);
+        ev.token = token;
+        (ev.decision, ev.feeBps, ev.risk, ev.inflowTriggered) =
+            _evaluateWithMitigationEvents(ev.wallet, token);
+    }
+
+    /// @notice afterSwap compliance exit: activity → baseline → SwapObserved, in that order.
+    /// @dev Activity must land before the next beforeSwap sees Mitigation C. Baseline must
+    ///      wait until after this swap's inflow flag is consumed (H-02). Observation is last
+    ///      so the COA trail reflects the settled decision.
+    function _endSwap(SwapEvaluation memory ev) internal {
+        _recordActivity(ev.wallet);
+        _updateKnownBalance(ev.wallet, ev.token, ev.inflowTriggered);
+        _emitSwapObserved(ev.wallet, ev.decision, ev.feeBps, ev.risk);
     }
 
     /// @notice Per-wallet pool activity tracked by the hook (independent of the oracle; Mitigation C).
@@ -542,9 +580,12 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         // Share of *current* balance that appeared since the last baseline (in bps).
         deltaBps = (delta * 10_000) / currentBalance;
 
-        // If the keeper already wrote after the baseline, N-hop / typology had a chance to run —
-        // do not double-apply the heuristic on top of a fresh score.
+        // Mitigation A already covers never-written scores. Without a baseline there is no
+        // inflow to measure — a new wallet's first swap would otherwise look like a 100% delta.
         uint256 baselineTs = lastKnownBalanceTimestamp[wallet][token];
+        if (scoreUpdatedAt == 0 || baselineTs == 0) {
+            return (false, 0);
+        }
         if (deltaBps > inflowThresholdBps && uint256(scoreUpdatedAt) <= baselineTs) {
             hasSignificantInflow = true;
         }

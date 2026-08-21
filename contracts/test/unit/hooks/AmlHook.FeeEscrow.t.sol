@@ -10,6 +10,7 @@ import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 
 import {AmlHook} from "contracts/hooks/AmlHook.sol";
+import {AmlHookSettlement} from "contracts/hooks/AmlHookSettlement.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {FeeEscrow} from "contracts/escrow/FeeEscrow.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
@@ -38,17 +39,15 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         riskPolicy = new RiskPolicy();
 
         feeToken = new MockFeeToken();
-        escrow = new FeeEscrow(owner, address(feeToken), owner);
+        escrow = new FeeEscrow(owner, address(feeToken), owner, owner);
 
         hook = _deployHook(
             accessManager, sanctionRegistry, complianceOracle, riskPolicy, IFeeEscrow(address(escrow))
         );
 
         vm.startPrank(owner);
-        escrow.setDepositor(address(hook), true);
+        escrow.bootstrapDepositor(address(hook));
         escrow.setAuditor(address(this), true);
-        vm.warp(block.timestamp + escrow.DEPOSITOR_TIMELOCK());
-        escrow.applyDepositor();
         vm.stopPrank();
 
         bytes4[] memory oracleSelectors = new bytes4[](1);
@@ -70,7 +69,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
 
     function test_AfterSwap_FeeOverride_DepositsDifferentialIntoEscrow() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 800));
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 1, walletA, 800));
 
         // Output basis = 1e18 → differential 770 bps → 7.7e16
         int128 amount0 = -1e18;
@@ -102,7 +101,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
 
     function test_AfterSwap_FeeOverride_FingerprintIncludesNonce() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 800));
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 1, walletA, 800));
 
         int128 amount0 = -1e18;
         int128 amount1 = 1e18;
@@ -116,7 +115,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         manager.callAfterSwap(IHooks(address(hook)), sender, key, params, delta, "");
 
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 800));
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 1, walletA, 800));
 
         feeToken.mint(address(manager), expectedFee);
         manager.callBeforeSwap(IHooks(address(hook)), sender, key, params, "");
@@ -146,7 +145,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
 
     function test_AfterSwap_FeeOverride_SkipsWhenCurrencyMismatch() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 800));
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 1, walletA, 800));
 
         // Output is currency0 (oneForZero), not the escrow feeToken.
         SwapParams memory oneForZero =
@@ -165,7 +164,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
 
     function test_AfterSwap_FeeOverride_AtOrBelowStandardFee_TakesZeroDifferential() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 65, 1, walletA, 30, _scoreSig(walletB, 65, 30));
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 30, _scoreSig(walletB, 65, 1, walletA, 30));
 
         feeToken.mint(address(manager), 1e18);
         address sender = _bindTrustedSubject(walletB);
@@ -182,7 +181,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
 
     function test_AfterSwap_FeeOverride_BelowStandardFee_TakesZeroDifferential() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 65, 1, walletA, 20, _scoreSig(walletB, 65, 20));
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 20, _scoreSig(walletB, 65, 1, walletA, 20));
 
         feeToken.mint(address(manager), 1e18);
         address sender = _bindTrustedSubject(walletB);
@@ -198,7 +197,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
 
     function test_AfterSwap_FeeOverride_ExactOut_DepositsOnInputCurrency() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 800));
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 1, walletA, 800));
 
         // exactOut oneForZero: input is currency1 = feeToken.
         SwapParams memory exactOut =
@@ -244,7 +243,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
 
     function _feeOverrideSwapThatFailsDeposit() internal returns (uint256 expectedFee) {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 800));
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 1, walletA, 800));
 
         expectedFee = (uint256(uint128(1e18)) * 770) / 10_000;
         feeToken.mint(address(manager), expectedFee);
@@ -282,7 +281,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
 
     function test_ClaimFailedDeposit_RevertsWhenNone() external {
         vm.prank(walletB);
-        vm.expectRevert(AmlHook.NoFailedDeposit.selector);
+        vm.expectRevert(AmlHookSettlement.NoFailedDeposit.selector);
         hook.claimFailedDeposit(address(feeToken));
     }
 
@@ -307,7 +306,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         _revokeHookDepositor();
         _feeOverrideSwapThatFailsDeposit();
 
-        vm.expectRevert(AmlHook.RetryEscrowFailed.selector);
+        vm.expectRevert(AmlHookSettlement.RetryEscrowFailed.selector);
         hook.retryEscrowDeposit(walletB, address(feeToken));
         assertTrue(hook.failedDeposits(walletB, address(feeToken)) > 0);
     }
@@ -349,7 +348,7 @@ contract UnitAmlHookFeeEscrowDisabledTest is Helpers {
         assertEq(address(hook.feeEscrow()), address(0));
 
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 800));
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 1, walletA, 800));
         feeToken.mint(address(manager), 1e18);
 
         address sender = _bindTrustedSubject(walletB);

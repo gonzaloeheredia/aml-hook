@@ -131,14 +131,14 @@ contract UnitAmlHookLogicTest is Helpers {
 
     function test_RevertBand_NotSoftenedByMitigations() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 100, 0, walletA, 0, _scoreSig(walletA, 100, 0));
+        complianceOracle.updateScore(walletA, 100, 0, walletA, 0, _scoreSig(walletA, 100, 0, walletA, 0));
         vm.expectRevert();
         harness.evaluate(walletA);
     }
 
     function test_FeeOverrideFromPolicy_NotDoubleChanged() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 65, 1, walletA, 300, _scoreSig(walletA, 65, 300));
+        complianceOracle.updateScore(walletA, 65, 1, walletA, 300, _scoreSig(walletA, 65, 1, walletA, 300));
         (HookDecision d, uint24 fee,) = harness.evaluate(walletA);
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
         assertEq(fee, 300);
@@ -275,6 +275,17 @@ contract UnitAmlHookLogicTest is Helpers {
 
         (HookDecision d,,) = harness.evaluateWithToken(walletA, address(token));
         assertEq(uint8(d), uint8(HookDecision.ALLOW));
+    }
+
+    function test_NeverWrittenScore_DoesNotEmitInflowHeuristic() external {
+        token.mint(walletA, 100 ether);
+
+        vm.recordLogs();
+        (HookDecision d, uint24 fee,) = harness.evaluateLiveWithToken(walletA, address(token));
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, harness.LATENCY_FEE_BPS());
+        // Mitigation A only (`LatencyMitigationApplied`). Inflow must not fire without a score/baseline.
+        assertEq(vm.getRecordedLogs().length, 1);
     }
 
     function test_UpdateKnownBalance_SkipsWithinMinBaselineInterval() external {
