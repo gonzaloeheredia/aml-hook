@@ -254,10 +254,6 @@ contract AmlHook is BaseHook, AmlHookLogic, ReentrancyGuard {
             emit RiskFeeSkipped(wallet, token, feeBps, "FEE_TOKEN_NOT_ALLOWED");
             return 0;
         }
-        if (token != address(feeEscrow.feeToken())) {
-            emit RiskFeeSkipped(wallet, token, feeBps, "FEE_TOKEN_MISMATCH");
-            return 0;
-        }
 
         uint256 nonce = ++_fingerprintNonce;
         bytes32 swapFingerprint = keccak256(
@@ -270,7 +266,7 @@ contract AmlHook is BaseHook, AmlHookLogic, ReentrancyGuard {
         IERC20Approve(token).approve(address(feeEscrow), 0);
         if (!IERC20Approve(token).approve(address(feeEscrow), feeAmount)) revert FeeApproveFailed();
 
-        try feeEscrow.deposit(wallet, swapFingerprint, feeAmount) returns (uint256 escrowId) {
+        try feeEscrow.deposit(wallet, token, swapFingerprint, feeAmount) returns (uint256 escrowId) {
             emit RiskFeeEscrowed(wallet, token, feeAmount, escrowId, feeBps);
         } catch {
             failedDeposits[wallet][token] += feeAmount;
@@ -294,7 +290,7 @@ contract AmlHook is BaseHook, AmlHookLogic, ReentrancyGuard {
         if (address(feeEscrow) == address(0)) revert FeeEscrowNotConfigured();
         uint256 amount = failedDeposits[wallet][token];
         if (amount == 0) revert NoFailedDeposit();
-        if (!feeEscrow.allowedFeeTokens(token) || token != address(feeEscrow.feeToken())) {
+        if (!feeEscrow.allowedFeeTokens(token)) {
             revert RetryEscrowFailed();
         }
 
@@ -308,7 +304,7 @@ contract AmlHook is BaseHook, AmlHookLogic, ReentrancyGuard {
         IERC20Approve(token).approve(address(feeEscrow), 0);
         if (!IERC20Approve(token).approve(address(feeEscrow), amount)) revert FeeApproveFailed();
 
-        try feeEscrow.deposit(wallet, swapFingerprint, amount) returns (uint256 escrowId) {
+        try feeEscrow.deposit(wallet, token, swapFingerprint, amount) returns (uint256 escrowId) {
             emit RiskFeeEscrowed(wallet, token, amount, escrowId, 0);
             emit FailedDepositRetried(wallet, token, amount, escrowId);
         } catch {

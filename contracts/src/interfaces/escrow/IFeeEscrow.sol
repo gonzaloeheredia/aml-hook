@@ -17,6 +17,7 @@ interface IFeeEscrow {
     /// @notice One retained FEE_OVERRIDE fee slice.
     struct EscrowRecord {
         address wallet;
+        address token;
         uint256 amount;
         uint64 depositedAt;
         bytes32 swapFingerprint;
@@ -24,19 +25,23 @@ interface IFeeEscrow {
         uint64 blockedAt;
     }
 
-    /// @notice ERC-20 this escrow custodies (must match the swap fee currency to deposit).
+    /// @notice Default / constructor ERC-20. Additional tokens may be enabled via `allowedFeeTokens`.
     function feeToken() external view returns (address);
 
-    /// @notice True if `token` is accepted as the custody asset.
+    /// @notice True if `token` is accepted as a custody asset.
     function allowedFeeTokens(address token) external view returns (bool);
+
+    /// @notice Amount of `token` currently retained for `wallet` (Active + Blocked).
+    function balances(address wallet, address token) external view returns (uint256);
 
     /// @notice Next escrow id that `deposit` will assign (starts at 1).
     function nextEscrowId() external view returns (uint256);
 
     /// @notice Deposit the differential fee into the 48h escrow.
-    /// @dev Only an authorized depositor (e.g. settlement path). Pulls `feeToken` via transferFrom.
+    /// @dev Only an authorized depositor (e.g. settlement path). Pulls `token` via transferFrom.
+    ///      `token` must be in `allowedFeeTokens`.
     /// @return escrowId Identifier for later keeper resolution.
-    function deposit(address wallet, bytes32 swapFingerprint, uint256 amount)
+    function deposit(address wallet, address token, bytes32 swapFingerprint, uint256 amount)
         external
         returns (uint256 escrowId);
 
@@ -76,6 +81,7 @@ interface IFeeEscrow {
         view
         returns (
             bytes32 walletHash,
+            address token,
             uint256 amount,
             uint64 depositedAt,
             bytes32 swapFingerprint,

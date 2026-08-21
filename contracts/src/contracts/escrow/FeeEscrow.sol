@@ -57,6 +57,8 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     address public pendingOwner;
     IERC20Fee private immutable _feeToken;
     mapping(address => bool) public allowedFeeTokens;
+    /// @notice Token amount currently retained per compliance subject (Active + Blocked).
+    mapping(address => mapping(address => uint256)) public balances;
     /// @notice Delay after Blocked before anyone may send the fee to lpCompensationFund.
     uint64 public blockedRecoveryDelay = 90 days;
     /// @notice Sole release destination: LP compensation when the wallet is not confirmed sanctioned.
@@ -178,28 +180,30 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     /// @notice Pull the differential fee from the depositor into this contract for 48h.
     /// @dev `wallet` is the compliance subject (for the audit trail), not necessarily msg.sender.
     ///      `swapFingerprint` links the escrow row to the FEE_OVERRIDE swap that created it.
-    function deposit(address wallet, bytes32 swapFingerprint, uint256 amount)
+    function deposit(address wallet, address token, bytes32 swapFingerprint, uint256 amount)
         external
         onlyDepositor
         nonReentrant
         returns (uint256 escrowId)
     {
-        if (wallet == address(0)) revert ZeroAddress();
+        if (wallet == address(0) || token == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
-        if (!allowedFeeTokens[address(_feeToken)]) revert FeeTokenNotAllowed();
+        if (!allowedFeeTokens[token]) revert FeeTokenNotAllowed();
 
-        if (!_feeToken.transferFrom(msg.sender, address(this), amount)) revert TransferFailed();
+        if (!IERC20Fee(token).transferFrom(msg.sender, address(this), amount)) revert TransferFailed();
 
         escrowId = nextEscrowId++;
         uint64 ts = uint64(block.timestamp);
         _escrows[escrowId] = EscrowRecord({
             wallet: wallet,
+            token: token,
             amount: amount,
             depositedAt: ts,
             swapFingerprint: swapFingerprint,
             status: EscrowStatus.Active,
             blockedAt: 0
         });
+        balances[wallet][token] += amount;
 
         emit FeeDeposited(escrowId, wallet, amount, ts, swapFingerprint);
     }
@@ -273,6 +277,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         view
         returns (
             bytes32 walletHash,
+            address token,
             uint256 amount,
             uint64 depositedAt,
             bytes32 swapFingerprint,
@@ -284,6 +289,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         EscrowRecord storage rec = _escrows[escrowId];
         return (
             keccak256(abi.encodePacked(rec.wallet)),
+            rec.token,
             rec.amount,
             rec.depositedAt,
             rec.swapFingerprint,
@@ -304,7 +310,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         address wallet = rec.wallet;
         address to = lpCompensationFund;
 
-        _transferOut(to, amount);
+        _debitAndTransfer(rec, to, amount);
         emit FeeRecovered(escrowId, wallet, amount, to);
     }
 
@@ -323,7 +329,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         address wallet = rec.wallet;
         address to = lpCompensationFund;
 
-        _transferOut(to, amount);
+        _debitAndTransfer(rec, to, amount);
         emit FeeRecovered(escrowId, wallet, amount, to);
     }
 
@@ -405,7 +411,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         uint256 amount = rec.amount;
         address wallet = rec.wallet;
 
-        _transferOut(to, amount);
+        _debitAndTransfer(rec, to, amount);
         emit FeeReleasedEarly(escrowId, wallet, amount, to);
     }
 
@@ -425,7 +431,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         } else {
             rec.status = EscrowStatus.ReleasedDefault;
             address to = lpCompensationFund;
-            _transferOut(to, amount);
+            _debitAndTransfer(rec, to, amount);
             emit FeeReleasedDefault(escrowId, wallet, amount, to);
         }
     }
@@ -441,7 +447,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         uint256 amount = rec.amount;
         address wallet = rec.wallet;
 
-        _transferOut(to, amount);
+        _debitAndTransfer(rec, to, amount);
         emit FeeReleasedDefault(escrowId, wallet, amount, to);
     }
 
@@ -452,7 +458,8 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         if (rec.status != EscrowStatus.Active) revert NotActive();
     }
 
-    function _transferOut(address to, uint256 amount) private {
-        if (!_feeToken.transfer(to, amount)) revert TransferFailed();
+    function _debitAndTransfer(EscrowRecord storage rec, address to, uint256 amount) private {
+        balances[rec.wallet][rec.token] -= amount;
+        if (!IERC20Fee(rec.token).transfer(to, amount)) revert TransferFailed();
     }
 }

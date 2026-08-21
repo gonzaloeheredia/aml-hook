@@ -84,7 +84,7 @@ contract UnitFeeEscrowTest is Helpers {
 
     function _deposit(uint256 amount) internal returns (uint256 id) {
         vm.prank(depositor);
-        id = escrow.deposit(walletA, ORIGIN_TX, amount);
+        id = escrow.deposit(walletA, address(token), ORIGIN_TX, amount);
     }
 
     function test_ConstructorSetsRolesAndRecipients() external view {
@@ -110,10 +110,12 @@ contract UnitFeeEscrowTest is Helpers {
 
         IFeeEscrow.EscrowRecord memory rec = escrow.getEscrow(id);
         assertEq(rec.wallet, walletA);
+        assertEq(rec.token, address(token));
         assertEq(rec.amount, amount);
         assertEq(rec.depositedAt, t0);
         assertEq(rec.swapFingerprint, ORIGIN_TX);
         assertEq(uint8(rec.status), uint8(IFeeEscrow.EscrowStatus.Active));
+        assertEq(escrow.balances(walletA, address(token)), amount);
         assertEq(token.balanceOf(address(escrow)), amount);
         assertEq(token.balanceOf(depositor), 1_000_000 ether - amount);
     }
@@ -132,6 +134,7 @@ contract UnitFeeEscrowTest is Helpers {
 
         IFeeEscrow.EscrowRecord memory rec = escrow.getEscrow(id);
         assertEq(uint8(rec.status), uint8(IFeeEscrow.EscrowStatus.ReleasedEarly));
+        assertEq(escrow.balances(walletA, address(token)), 0);
         assertEq(token.balanceOf(fund), amount);
         assertEq(token.balanceOf(address(escrow)), 0);
         assertEq(token.balanceOf(pool), 0);
@@ -276,7 +279,7 @@ contract UnitFeeEscrowTest is Helpers {
         vm.startPrank(stranger);
         token.approve(address(escrow), 10 ether);
         vm.expectRevert(FeeEscrow.NotDepositor.selector);
-        escrow.deposit(walletA, ORIGIN_TX, 10 ether);
+        escrow.deposit(walletA, address(token), ORIGIN_TX, 10 ether);
         vm.stopPrank();
     }
 
@@ -322,10 +325,13 @@ contract UnitFeeEscrowTest is Helpers {
     function test_Deposit_RevertsOnZeroWalletOrAmount() external {
         vm.startPrank(depositor);
         vm.expectRevert(FeeEscrow.ZeroAddress.selector);
-        escrow.deposit(address(0), ORIGIN_TX, 1 ether);
+        escrow.deposit(address(0), address(token), ORIGIN_TX, 1 ether);
+
+        vm.expectRevert(FeeEscrow.ZeroAddress.selector);
+        escrow.deposit(walletA, address(0), ORIGIN_TX, 1 ether);
 
         vm.expectRevert(FeeEscrow.ZeroAmount.selector);
-        escrow.deposit(walletA, ORIGIN_TX, 0);
+        escrow.deposit(walletA, address(token), ORIGIN_TX, 0);
         vm.stopPrank();
     }
 
@@ -649,13 +655,60 @@ contract UnitFeeEscrowTest is Helpers {
 
     function test_GetEscrowPublic_HashesWallet() external {
         uint256 id = _deposit(2 ether);
-        (bytes32 walletHash, uint256 amount, uint64 depositedAt, bytes32 fingerprint, IFeeEscrow.EscrowStatus status,)
+        (bytes32 walletHash, address recToken, uint256 amount, uint64 depositedAt, bytes32 fingerprint, IFeeEscrow.EscrowStatus status,)
             = escrow.getEscrowPublic(id);
 
         assertEq(walletHash, keccak256(abi.encodePacked(walletA)));
+        assertEq(recToken, address(token));
         assertEq(amount, 2 ether);
         assertEq(depositedAt, uint64(block.timestamp));
         assertEq(fingerprint, ORIGIN_TX);
         assertEq(uint8(status), uint8(IFeeEscrow.EscrowStatus.Active));
+    }
+
+    function test_Balances_AreIndependentPerWalletAndToken() external {
+        FeeToken tokenB = new FeeToken();
+        vm.prank(owner);
+        escrow.setAllowedFeeToken(address(tokenB), true);
+
+        tokenB.mint(depositor, 1_000 ether);
+        vm.prank(depositor);
+        tokenB.approve(address(escrow), type(uint256).max);
+
+        vm.prank(depositor);
+        uint256 idA = escrow.deposit(walletA, address(token), ORIGIN_TX, 10 ether);
+        vm.prank(depositor);
+        uint256 idB = escrow.deposit(walletA, address(tokenB), ORIGIN_TX, 7 ether);
+        vm.prank(depositor);
+        escrow.deposit(walletB, address(token), ORIGIN_TX, 3 ether);
+
+        assertEq(escrow.balances(walletA, address(token)), 10 ether);
+        assertEq(escrow.balances(walletA, address(tokenB)), 7 ether);
+        assertEq(escrow.balances(walletB, address(token)), 3 ether);
+        assertEq(escrow.balances(walletB, address(tokenB)), 0);
+
+        assertEq(escrow.getEscrow(idA).token, address(token));
+        assertEq(escrow.getEscrow(idB).token, address(tokenB));
+
+        vm.warp(block.timestamp + 30 hours);
+        vm.prank(keeper);
+        escrow.releaseEarly(idA);
+
+        assertEq(escrow.balances(walletA, address(token)), 0);
+        assertEq(escrow.balances(walletA, address(tokenB)), 7 ether);
+        assertEq(token.balanceOf(fund), 10 ether);
+        assertEq(tokenB.balanceOf(address(escrow)), 7 ether);
+        assertEq(tokenB.balanceOf(fund), 0);
+    }
+
+    function test_Deposit_RevertsWhenTokenNotAllowed() external {
+        FeeToken other = new FeeToken();
+        other.mint(depositor, 1 ether);
+        vm.prank(depositor);
+        other.approve(address(escrow), 1 ether);
+
+        vm.prank(depositor);
+        vm.expectRevert(FeeEscrow.FeeTokenNotAllowed.selector);
+        escrow.deposit(walletA, address(other), ORIGIN_TX, 1 ether);
     }
 }
