@@ -108,8 +108,19 @@ contract Helpers is Test {
     }
 
     /// @dev ECDSA payload the ComplianceOracle attestor must produce (C-01).
+    ///      3-arg form attests hopDistance = 0 and origin = address(0).
     function _scoreSig(address wallet, uint8 score, uint24 feeBps) internal view returns (bytes memory) {
-        bytes32 hash = keccak256(abi.encode(wallet, score, feeBps, uint64(block.timestamp), block.chainid));
+        return _scoreSig(wallet, score, 0, address(0), feeBps);
+    }
+
+    function _scoreSig(address wallet, uint8 score, uint8 hopDistance, address origin, uint24 feeBps)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 hash = keccak256(
+            abi.encode(wallet, score, hopDistance, origin, feeBps, uint64(block.timestamp), block.chainid)
+        );
         bytes32 ethSigned = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", hash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ATTESTOR_PK, ethSigned);
         return abi.encodePacked(r, s, v);

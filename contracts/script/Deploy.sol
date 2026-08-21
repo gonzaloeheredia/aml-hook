@@ -40,13 +40,20 @@ import {MockFeeToken} from "./mocks/MockFeeToken.sol";
 ///        (Anvil). On Uniswap-supported chains, Deploy registers the app.uniswap.org
 ///        Universal Router (+ 2.1.1 when distinct) via setTrustedRouter.
 ///      - MOCK: MockFeeToken if FEE_TOKEN unset (FeeEscrow custody asset).
-///      Optional env:
-///      - POOL_MANAGER: real PoolManager address (else MockPoolManager)
-///      - FEE_TOKEN / LP_COMPENSATION_FUND: FeeEscrow wiring
-///      - TRUSTED_ROUTER: extra router to trust in addition to the canonical Universal Router
-///      - PRIVATE_KEY: broadcaster (defaults to Anvil account #0)
-///      - ADMIN / REGISTRY_KEEPER / ORACLE_KEEPER / HOOK_GOVERNOR: default to the deployer for a
-///        frictionless local run; a real deploy should set all four explicitly and to distinct keys.
+    ///      Optional env:
+    ///      - POOL_MANAGER: real PoolManager address (else MockPoolManager)
+    ///      - FEE_TOKEN: FeeEscrow custody asset (else MockFeeToken)
+    ///      - LP_COMPENSATION_FUND: FeeEscrow release destination. Defaults to FEE_ESCROW_OWNER /
+    ///        ADMIN, never to the deploying EOA when those keys differ.
+    ///      - FEE_ESCROW_OWNER: FeeEscrow `owner` from genesis (defaults to ADMIN). Production MUST
+    ///        be a Gnosis Safe; the deployer is only a one-shot `bootstrapper` for the hook depositor.
+    ///      - TRUSTED_ROUTER: extra router to trust in addition to the canonical Universal Router
+    ///      - PRIVATE_KEY: broadcaster (defaults to Anvil account #0)
+    ///      - ADMIN / REGISTRY_KEEPER / ORACLE_KEEPER / HOOK_GOVERNOR: default to the deployer for a
+    ///        frictionless local run; a real deploy should set all four explicitly and to distinct keys.
+    ///      - ATTESTOR: ECDSA attestor for ComplianceOracle.updateScore. Required and must be
+    ///        distinct from HOOK_GOVERNOR and ORACLE_KEEPER (C-01). No default — a missing value
+    ///        fails closed rather than aliasing the governor.
 contract Deploy is Script {
     address constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
     // Anvil account #0
@@ -64,6 +71,21 @@ contract Deploy is Script {
 
     /// @notice Thrown when the address that configured the manager is still an admin
     error Deploy_ConfigurerStillAdmin(address configurer);
+
+    /// @notice Thrown when the oracle attestor is zero or collides with governor / oracle keeper
+    error Deploy_AttestorNotDistinct(address attestor);
+
+    /// @notice Thrown when the live oracle attestor does not match the key this script intended
+    error Deploy_WrongAttestor(address expected, address actual);
+
+    /// @notice Thrown when FeeEscrow owner is not the intended governance key
+    error Deploy_WrongFeeEscrowOwner(address expected, address actual);
+
+    /// @notice Thrown when the LP compensation fund would pay the deploying EOA
+    error Deploy_LpFundIsConfigurer(address configurer);
+
+    /// @notice Thrown when the deploying key still holds FeeEscrow keeper / depositor / bootstrapper
+    error Deploy_ConfigurerStillFeeEscrowPrivileged(address configurer);
 
     /// @notice The deployed access manager, the single authority over the registry, the oracle and
     ///         the hook's governable thresholds.
@@ -90,6 +112,12 @@ contract Deploy is Script {
     /// @notice Primary trusted router (canonical Universal Router, env override, or local mock)
     address public trustedRouter;
 
+    /// @notice ECDSA attestor wired into ComplianceOracle at deploy (distinct from governor / keepers)
+    address public oracleAttestor;
+
+    /// @notice Intended FeeEscrow owner (ADMIN / FEE_ESCROW_OWNER). Not the deploying EOA when they differ.
+    address public feeEscrowOwner;
+
     function run() external {
         uint256 pk = vm.envOr("PRIVATE_KEY", ANVIL_PK);
         address deployer = vm.addr(pk);
@@ -98,6 +126,8 @@ contract Deploy is Script {
         address registryKeeper = vm.envOr("REGISTRY_KEEPER", deployer);
         address oracleKeeper = vm.envOr("ORACLE_KEEPER", deployer);
         address hookGovernor = vm.envOr("HOOK_GOVERNOR", deployer);
+        address attestor = vm.envOr("ATTESTOR", address(0));
+        feeEscrowOwner = vm.envOr("FEE_ESCROW_OWNER", admin);
 
         address poolManagerAddr = vm.envOr("POOL_MANAGER", address(0));
         address trustedRouterOverride = vm.envOr("TRUSTED_ROUTER", address(0));
@@ -113,6 +143,7 @@ contract Deploy is Script {
             registryKeeper,
             oracleKeeper,
             hookGovernor,
+            attestor,
             poolManagerAddr,
             trustedRouterOverride,
             stalenessThreshold,
@@ -140,6 +171,7 @@ contract Deploy is Script {
     /// @param registryKeeper The key the sanctions pipeline writes with
     /// @param oracleKeeper The key the scoring engine publishes with
     /// @param hookGovernor The key that retunes the hook's thresholds and trusted-router list
+    /// @param attestor The ECDSA attestor for `updateScore` payloads (distinct from governor / keeper)
     /// @param poolManagerOverride A real `IPoolManager`, or zero to deploy `MockPoolManager`
     /// @param trustedRouterOverride Extra router to trust (in addition to the canonical Universal Router)
     /// @param stalenessThreshold Seconds before a published score counts as stale (Mitigation B)
@@ -151,14 +183,23 @@ contract Deploy is Script {
         address registryKeeper,
         address oracleKeeper,
         address hookGovernor,
+        address attestor,
         address poolManagerOverride,
         address trustedRouterOverride,
         uint256 stalenessThreshold,
         uint64 activityWindow,
         uint32 maxOpsInWindow
     ) internal {
+        if (
+            attestor == address(0) || attestor == hookGovernor || attestor == oracleKeeper
+                || attestor == registryKeeper
+        ) {
+            revert Deploy_AttestorNotDistinct(attestor);
+        }
+        if (feeEscrowOwner == address(0)) feeEscrowOwner = admin;
+        oracleAttestor = attestor;
         _deployContracts(
-            configurer, poolManagerOverride, stalenessThreshold, activityWindow, maxOpsInWindow, hookGovernor
+            configurer, poolManagerOverride, stalenessThreshold, activityWindow, maxOpsInWindow, attestor
         );
         _configureAccess(
             configurer, admin, registryKeeper, oracleKeeper, hookGovernor, trustedRouterOverride
@@ -190,8 +231,10 @@ contract Deploy is Script {
             feeTokenAddr = address(new MockFeeToken());
             console2.log("MockFeeToken", feeTokenAddr);
         }
-        address lpFund = vm.envOr("LP_COMPENSATION_FUND", configurer);
-        feeEscrow = new FeeEscrow(configurer, feeTokenAddr, lpFund);
+        address lpFund = vm.envOr("LP_COMPENSATION_FUND", address(0));
+        if (lpFund == address(0)) lpFund = feeEscrowOwner;
+        if (lpFund == configurer && configurer != feeEscrowOwner) revert Deploy_LpFundIsConfigurer(configurer);
+        feeEscrow = new FeeEscrow(feeEscrowOwner, feeTokenAddr, lpFund, configurer);
 
         uint160 flags = uint160(
             Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
@@ -227,7 +270,7 @@ contract Deploy is Script {
         );
         require(address(hook) == hookAddr, "hook address mismatch");
 
-        feeEscrow.setDepositor(address(hook), true);
+        feeEscrow.bootstrapDepositor(address(hook));
     }
 
     function _configureAccess(
@@ -295,7 +338,10 @@ contract Deploy is Script {
         console2.log("ComplianceOracle", address(complianceOracle));
         console2.log("RiskPolicy", address(riskPolicy));
         console2.log("FeeEscrow", address(feeEscrow));
+        console2.log("FeeEscrowOwner", feeEscrowOwner);
+        console2.log("LpCompensationFund", feeEscrow.lpCompensationFund());
         console2.log("AmlHook", address(hook));
+        console2.log("Attestor", oracleAttestor);
         console2.log("TrustedRouter", trustedRouter);
         console2.log("PoolManager", poolManager);
     }
@@ -336,6 +382,32 @@ contract Deploy is Script {
         _requireRole(admin, accessManager.ADMIN_ROLE(), true);
         (bool stillAdmin,) = accessManager.hasRole(accessManager.ADMIN_ROLE(), configurer);
         if (stillAdmin && configurer != admin) revert Deploy_ConfigurerStillAdmin(configurer);
+
+        address attestor = oracleAttestor;
+        if (
+            attestor == address(0) || attestor == hookGovernor || attestor == oracleKeeper
+                || attestor == registryKeeper
+        ) {
+            revert Deploy_AttestorNotDistinct(attestor);
+        }
+        address liveAttestor = complianceOracle.attestor();
+        if (liveAttestor != attestor) revert Deploy_WrongAttestor(attestor, liveAttestor);
+
+        if (feeEscrow.owner() != feeEscrowOwner) {
+            revert Deploy_WrongFeeEscrowOwner(feeEscrowOwner, feeEscrow.owner());
+        }
+        if (feeEscrow.lpCompensationFund() == configurer && configurer != feeEscrowOwner) {
+            revert Deploy_LpFundIsConfigurer(configurer);
+        }
+        if (
+            configurer != feeEscrowOwner
+                && (
+                    feeEscrow.keepers(configurer) || feeEscrow.depositors(configurer)
+                        || feeEscrow.bootstrapper() != address(0)
+                )
+        ) {
+            revert Deploy_ConfigurerStillFeeEscrowPrivileged(configurer);
+        }
     }
 
     /// @notice Reverts unless every selector sits behind the expected role
@@ -420,6 +492,12 @@ contract Deploy is Script {
             '  "hookGovernor": "',
             vm.toString(hookGovernor),
             '",\n',
+            '  "attestor": "',
+            vm.toString(oracleAttestor),
+            '",\n'
+        );
+        json = string.concat(
+            json,
             '  "AccessManager": "',
             vm.toString(address(accessManager)),
             '",\n',
@@ -434,6 +512,12 @@ contract Deploy is Script {
             '",\n',
             '  "FeeEscrow": "',
             vm.toString(address(feeEscrow)),
+            '",\n',
+            '  "feeEscrowOwner": "',
+            vm.toString(feeEscrowOwner),
+            '",\n',
+            '  "lpCompensationFund": "',
+            vm.toString(feeEscrow.lpCompensationFund()),
             '",\n',
             '  "AmlHook": "',
             vm.toString(address(hook)),

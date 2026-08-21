@@ -67,7 +67,9 @@ contract UnitComplianceOracleTest is Helpers {
         );
 
         vm.prank(keeper);
-        complianceOracle.updateScore(wallet, score, hopDistance, originAddr, feeBps, _scoreSig(wallet, score, feeBps));
+        complianceOracle.updateScore(
+            wallet, score, hopDistance, originAddr, feeBps, _scoreSig(wallet, score, hopDistance, originAddr, feeBps)
+        );
 
         IComplianceOracle.WalletRisk memory risk = complianceOracle.getRisk(wallet);
         assertEq(risk.score, score);
@@ -82,7 +84,7 @@ contract UnitComplianceOracleTest is Helpers {
     function test_UpdateScoreWhenCallerHasTheRoleWritesPackedSlots(address wallet) external {
         vm.record();
         vm.prank(keeper);
-        complianceOracle.updateScore(wallet, 100, 3, address(0xBEEF), 800, _scoreSig(wallet, 100, 800));
+        complianceOracle.updateScore(wallet, 100, 3, address(0xBEEF), 800, _scoreSig(wallet, 100, 3, address(0xBEEF), 800));
 
         (, bytes32[] memory writes) = vm.accesses(address(complianceOracle));
         assertTrue(_countDistinct(writes) >= 3);
@@ -92,7 +94,7 @@ contract UnitComplianceOracleTest is Helpers {
         vm.expectEmit(true, false, false, true, address(complianceOracle));
         emit IComplianceOracle.ScoreUpdated(walletA, 65, 1, origin, 800, uint64(block.timestamp));
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 65, 1, origin, 800, _scoreSig(walletA, 65, 800));
+        complianceOracle.updateScore(walletA, 65, 1, origin, 800, _scoreSig(walletA, 65, 1, origin, 800));
 
         IComplianceOracle.WalletRisk memory risk = complianceOracle.getRisk(walletA);
         assertEq(risk.score, 65);
@@ -106,36 +108,36 @@ contract UnitComplianceOracleTest is Helpers {
     function test_NonKeeperCannotUpdate() external {
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
-        complianceOracle.updateScore(walletA, 50, 1, origin, 300, _scoreSig(walletA, 50, 300));
+        complianceOracle.updateScore(walletA, 50, 1, origin, 300, _scoreSig(walletA, 50, 1, origin, 300));
     }
 
     function test_ManagerAdminCannotUpdate() external {
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, owner));
-        complianceOracle.updateScore(walletA, 50, 1, origin, 300, _scoreSig(walletA, 50, 300));
+        complianceOracle.updateScore(walletA, 50, 1, origin, 300, _scoreSig(walletA, 50, 1, origin, 300));
     }
 
     function test_UpdateScoreWhenScoreIsAboveOneHundred(address wallet, uint8 score) external {
         score = uint8(bound(score, 101, type(uint8).max));
         vm.prank(keeper);
         vm.expectRevert(ComplianceOracle.ScoreOutOfRange.selector);
-        complianceOracle.updateScore(wallet, score, 0, origin, 0, _scoreSig(wallet, score, 0));
+        complianceOracle.updateScore(wallet, score, 0, origin, 0, _scoreSig(wallet, score, 0, origin, 0));
     }
 
     function test_Score100Allowed() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 100, 0, walletA, 0, _scoreSig(walletA, 100, 0));
+        complianceOracle.updateScore(walletA, 100, 0, walletA, 0, _scoreSig(walletA, 100, 0, walletA, 0));
         assertEq(complianceOracle.getScore(walletA), 100);
     }
 
     function test_UpdateScoreWhenPublishedTwice(address wallet) external {
         vm.prank(keeper);
-        complianceOracle.updateScore(wallet, 65, 1, origin, 800, _scoreSig(wallet, 65, 800));
+        complianceOracle.updateScore(wallet, 65, 1, origin, 800, _scoreSig(wallet, 65, 1, origin, 800));
 
         vm.warp(block.timestamp + 1 days);
 
         vm.prank(keeper);
-        complianceOracle.updateScore(wallet, 42, 2, origin, 300, _scoreSig(wallet, 42, 300));
+        complianceOracle.updateScore(wallet, 42, 2, origin, 300, _scoreSig(wallet, 42, 2, origin, 300));
 
         IComplianceOracle.WalletRisk memory risk = complianceOracle.getRisk(wallet);
         assertEq(risk.score, 42);
@@ -146,7 +148,7 @@ contract UnitComplianceOracleTest is Helpers {
 
     function test_RevokeRoleWhenKeeperIsCompromised(address wallet) external {
         vm.prank(keeper);
-        complianceOracle.updateScore(wallet, 65, 1, origin, 800, _scoreSig(wallet, 65, 800));
+        complianceOracle.updateScore(wallet, 65, 1, origin, 800, _scoreSig(wallet, 65, 1, origin, 800));
 
         vm.prank(owner);
         accessManager.revokeRole(Roles._ORACLE_KEEPER, keeper);
@@ -165,7 +167,7 @@ contract UnitComplianceOracleTest is Helpers {
 
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
-        complianceOracle.updateScore(wallet, 50, 1, address(0), 0, _scoreSig(wallet, 50, 0));
+        complianceOracle.updateScore(wallet, 50, 1, address(0), 0, _scoreSig(wallet, 50, 1, address(0), 0));
     }
 
     /// @dev Unwired target stays admin-only (forgotten deploy step fails closed).
@@ -173,7 +175,7 @@ contract UnitComplianceOracleTest is Helpers {
         ComplianceOracle unwired = new ComplianceOracle(address(accessManager), _attestor());
         vm.prank(keeper);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, keeper));
-        unwired.updateScore(wallet, 50, 1, address(0), 0, _scoreSig(wallet, 50, 0));
+        unwired.updateScore(wallet, 50, 1, address(0), 0, _scoreSig(wallet, 50, 1, address(0), 0));
     }
 
     function _countDistinct(bytes32[] memory slots) internal pure returns (uint256 count) {
@@ -193,43 +195,43 @@ contract UnitComplianceOracleTest is Helpers {
     function test_UpdateScore_RevertsWhenWindowExceeded(address wallet) external {
         for (uint256 i; i < 5; ++i) {
             vm.prank(keeper);
-            complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSig(wallet, 1, 0));
+            complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSig(wallet, 1, 0, origin, 0));
         }
 
         vm.prank(keeper);
         vm.expectRevert(abi.encodeWithSelector(ComplianceOracle.UpdateRateLimited.selector, wallet));
-        complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSig(wallet, 1, 0));
+        complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSig(wallet, 1, 0, origin, 0));
     }
 
     function test_UpdateScore_ResetsAfterWindow(address wallet) external {
         for (uint256 i; i < 5; ++i) {
             vm.prank(keeper);
-            complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSig(wallet, 1, 0));
+            complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSig(wallet, 1, 0, origin, 0));
         }
 
         vm.warp(block.timestamp + complianceOracle.updateWindow());
 
         vm.prank(keeper);
-        complianceOracle.updateScore(wallet, 2, 0, origin, 0, _scoreSig(wallet, 2, 0));
+        complianceOracle.updateScore(wallet, 2, 0, origin, 0, _scoreSig(wallet, 2, 0, origin, 0));
         assertEq(complianceOracle.getScore(wallet), 2);
     }
 
     function test_UpdateScore_SlidingWindowDropsExpiredSamples(address wallet) external {
         for (uint256 i; i < 5; ++i) {
             vm.prank(keeper);
-            complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSig(wallet, 1, 0));
+            complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSig(wallet, 1, 0, origin, 0));
         }
 
         vm.warp(block.timestamp + complianceOracle.updateWindow() / 2);
 
         vm.prank(keeper);
         vm.expectRevert(abi.encodeWithSelector(ComplianceOracle.UpdateRateLimited.selector, wallet));
-        complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSig(wallet, 1, 0));
+        complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSig(wallet, 1, 0, origin, 0));
 
         vm.warp(block.timestamp + complianceOracle.updateWindow() / 2);
 
         vm.prank(keeper);
-        complianceOracle.updateScore(wallet, 3, 0, origin, 0, _scoreSig(wallet, 3, 0));
+        complianceOracle.updateScore(wallet, 3, 0, origin, 0, _scoreSig(wallet, 3, 0, origin, 0));
         assertEq(complianceOracle.getScore(wallet), 3);
     }
 
@@ -264,6 +266,29 @@ contract UnitComplianceOracleTest is Helpers {
         vm.prank(keeper);
         vm.expectRevert(ComplianceOracle.InvalidAttestation.selector);
         complianceOracle.updateScore(walletA, 10, 0, address(0), 0, hex"00");
+    }
+
+    /// @dev hopDistance / origin are part of the attested snapshot. A valid score/fee signature
+    ///      must not let the keeper publish a different N-hop attribution.
+    function test_UpdateScore_RevertsWhenHopOrOriginDoNotMatchAttestation() external {
+        bytes memory sig = _scoreSig(walletA, 65, 1, origin, 800);
+
+        vm.prank(keeper);
+        vm.expectRevert(ComplianceOracle.InvalidAttestation.selector);
+        complianceOracle.updateScore(walletA, 65, 2, origin, 800, sig);
+
+        vm.prank(keeper);
+        vm.expectRevert(ComplianceOracle.InvalidAttestation.selector);
+        complianceOracle.updateScore(walletA, 65, 1, walletB, 800, sig);
+
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletA, 65, 1, origin, 800, sig);
+
+        IComplianceOracle.WalletRisk memory risk = complianceOracle.getRisk(walletA);
+        assertEq(risk.hopDistance, 1);
+        assertEq(risk.origin, origin);
+        assertEq(risk.score, 65);
+        assertEq(risk.feeBps, 800);
     }
 
     function test_SetAttestor_GovernorCanRotate() external {

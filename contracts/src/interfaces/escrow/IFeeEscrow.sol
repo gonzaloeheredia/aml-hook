@@ -66,7 +66,8 @@ interface IFeeEscrow {
     /// @notice Default release for many escrow ids (same rules as `releaseDefault`).
     function batchReleaseDefault(uint256[] calldata escrowIds) external;
 
-    /// @notice Owner recovery of a blocked fee to lpCompensationFund (exceptional; no batch).
+    /// @notice Owner recovery of a blocked fee to lpCompensationFund after a minimum hold.
+    /// @dev Wait is `min(blockedRecoveryDelay, 7 days)`. Permissionless path is `recoverExpiredBlocked`.
     function recoverBlocked(uint256 escrowId) external;
 
     /// @notice Permissionless recovery of a blocked fee after `blockedRecoveryDelay`.

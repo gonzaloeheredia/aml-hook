@@ -64,7 +64,7 @@ contract IntegrationAmlStackTest is Helpers {
 
     function test_ExploitSourceReverts() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 100, 0, walletA, 0, _scoreSig(walletA, 100, 0));
+        complianceOracle.updateScore(walletA, 100, 0, walletA, 0, _scoreSig(walletA, 100, 0, walletA, 0));
 
         vm.expectRevert(
             abi.encodeWithSelector(AmlHookLogic.WalletBlocked.selector, walletA, uint8(100), "SCORE_REVERT_BAND")
@@ -82,7 +82,7 @@ contract IntegrationAmlStackTest is Helpers {
 
     function test_BoundaryFeeOverride31() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 31, 1, walletA, 500, _scoreSig(walletB, 31, 500));
+        complianceOracle.updateScore(walletB, 31, 1, walletA, 500, _scoreSig(walletB, 31, 1, walletA, 500));
         (HookDecision d, uint24 fee,) = harness.evaluate(walletB);
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
         assertEq(fee, 500);
@@ -90,7 +90,7 @@ contract IntegrationAmlStackTest is Helpers {
 
     function test_BoundaryRevert71() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletA, 71, 0, walletA, 0, _scoreSig(walletA, 71, 0));
+        complianceOracle.updateScore(walletA, 71, 0, walletA, 0, _scoreSig(walletA, 71, 0, walletA, 0));
         vm.expectRevert();
         harness.evaluate(walletA);
     }
@@ -110,7 +110,7 @@ contract IntegrationAmlStackTest is Helpers {
 
     function test_OneHopFeeOverrideUsesOracleFee() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 800));
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 1, walletA, 800));
 
         (HookDecision d, uint24 fee,) = harness.evaluate(walletB);
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
@@ -119,7 +119,7 @@ contract IntegrationAmlStackTest is Helpers {
 
     function test_TwoHopFeeOverrideUsesOracleFee() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletC, 42, 2, walletA, 300, _scoreSig(walletC, 42, 300));
+        complianceOracle.updateScore(walletC, 42, 2, walletA, 300, _scoreSig(walletC, 42, 2, walletA, 300));
 
         (HookDecision d, uint24 fee,) = harness.evaluate(walletC);
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
@@ -128,7 +128,7 @@ contract IntegrationAmlStackTest is Helpers {
 
     function test_FeeOverridePrefersOracleFeeOverFallback() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 65, 1, walletA, 300, _scoreSig(walletB, 65, 300));
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 300, _scoreSig(walletB, 65, 1, walletA, 300));
 
         (HookDecision d, uint24 fee,) = harness.evaluate(walletB);
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
@@ -147,7 +147,7 @@ contract IntegrationAmlStackTest is Helpers {
 
     function test_EvaluateReturnsRiskSnapshot() external {
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 800));
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 1, walletA, 800));
         (HookDecision d, uint24 fee, IComplianceOracle.WalletRisk memory risk) = harness.evaluate(walletB);
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
         assertEq(fee, 800);

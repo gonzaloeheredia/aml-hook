@@ -34,4 +34,16 @@ library FeeBps {
         }
         return LATENCY;
     }
+
+    /// @notice Risk-fee slice above the pool base (bps). Zero when `feeBps` is not an override.
+    function differentialBps(uint24 feeBps) internal pure returns (uint256) {
+        return feeBps > STANDARD ? uint256(feeBps) - uint256(STANDARD) : 0;
+    }
+
+    /// @notice Differential amount charged on `basisAmount` (`basis * differentialBps / 10_000`).
+    function differentialAmount(uint256 basisAmount, uint24 feeBps) internal pure returns (uint256) {
+        uint256 bps = differentialBps(feeBps);
+        if (bps == 0 || basisAmount == 0) return 0;
+        return (basisAmount * bps) / 10_000;
+    }
 }

@@ -40,6 +40,9 @@ interface IERC20Fee {
 ///      to the pool.
 ///
 ///      Access: own owner / keepers / depositors (NOT the shared AccessManager).
+///      Keepers are granted after a 24h timelock (`applyKeeper`); revokes are immediate.
+///      The hook is wired as depositor at deploy via `bootstrapDepositor` (one-shot, no delay);
+///      later depositor changes still use the 24h timelock.
 ///      The COA never writes on-chain; only a FeeEscrow keeper submits txs after
 ///      an off-chain sanity check on the COA output.
 ///
@@ -50,11 +53,19 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     /// @dev Earliest moment Checkpoint 1 (early release to LPs) is allowed.
     uint64 public constant CHECKPOINT1_MIN_AGE = 24 hours;
     uint64 public constant DEPOSITOR_TIMELOCK = 24 hours;
+    /// @dev Adding a keeper is delayed; revoking a keeper is immediate.
+    uint64 public constant KEEPER_TIMELOCK = 24 hours;
+    /// @dev Fastest the owner path may recover a Blocked fee. Actual wait is
+    ///      `min(blockedRecoveryDelay, OWNER_BLOCKED_RECOVERY_MIN_AGE)` so the owner cannot
+    ///      skip the hold, and cannot be slower than the permissionless path if that delay is shortened.
+    uint64 public constant OWNER_BLOCKED_RECOVERY_MIN_AGE = 7 days;
 
     /// @notice M-03: production owner MUST be a Gnosis Safe (or equivalent multisig), not an EOA.
     address public owner;
     /// @notice Two-step ownership: proposed owner must call `acceptOwnership`.
     address public pendingOwner;
+    /// @notice One-shot deploy key allowed to call `bootstrapDepositor`. Cleared after that call.
+    address public bootstrapper;
     IERC20Fee private immutable _feeToken;
     mapping(address => bool) public allowedFeeTokens;
     /// @notice Token amount currently retained per compliance subject (Active + Blocked).
@@ -74,6 +85,12 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     address public pendingDepositor;
     bool public pendingDepositorAllowed;
     uint64 public pendingDepositorApplyAt;
+    /// @dev One-shot: wire the hook (or equivalent) as depositor at deploy without the 24h delay.
+    bool public depositorBootstrapped;
+
+    address public pendingKeeper;
+    bool public pendingKeeperAllowed;
+    uint64 public pendingKeeperApplyAt;
 
     uint256 public nextEscrowId = 1;
     mapping(uint256 => EscrowRecord) private _escrows;
@@ -98,12 +115,16 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     error UnauthorizedEscrowRead();
     error DepositorTimelockPending();
     error NoPendingDepositor();
+    error DepositorAlreadyBootstrapped();
+    error KeeperTimelockPending();
+    error NoPendingKeeper();
     error BlockedRecoveryTooEarly();
     error InvalidBlockedRecoveryDelay();
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
     event KeeperUpdated(address indexed keeper, bool allowed);
+    event KeeperChangeScheduled(address indexed keeper, bool allowed, uint64 applyAt);
     event DepositorUpdated(address indexed depositor, bool allowed);
     event DepositorChangeScheduled(address indexed depositor, bool allowed, uint64 applyAt);
     event AuditorUpdated(address indexed auditor, bool allowed);
@@ -138,15 +159,20 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         uint256 indexed escrowId, address indexed wallet, uint256 amount, address indexed to
     );
 
-    constructor(address owner_, address feeToken_, address lpCompensationFund_) {
-        if (owner_ == address(0) || feeToken_ == address(0) || lpCompensationFund_ == address(0)) {
+    constructor(address owner_, address feeToken_, address lpCompensationFund_, address bootstrapper_) {
+        if (
+            owner_ == address(0) || feeToken_ == address(0) || lpCompensationFund_ == address(0)
+                || bootstrapper_ == address(0)
+        ) {
             revert ZeroAddress();
         }
         owner = owner_;
+        bootstrapper = bootstrapper_;
         _feeToken = IERC20Fee(feeToken_);
         allowedFeeTokens[feeToken_] = true;
         lpCompensationFund = lpCompensationFund_;
-        // Bootstrap: owner can deposit and resolve until roles are specialized.
+        // Bootstrap: owner can resolve until keepers are specialized. Deposits go through
+        // `bootstrapDepositor` (hook) or a later timelocked `setDepositor`.
         keepers[owner_] = true;
         depositors[owner_] = true;
         emit OwnershipTransferred(address(0), owner_);
@@ -300,10 +326,17 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
 
     /// @inheritdoc IFeeEscrow
     /// @notice Owner recovery of a blocked fee to lpCompensationFund (exceptional; no batch).
+    /// @dev Cannot run immediately: waits `min(blockedRecoveryDelay, OWNER_BLOCKED_RECOVERY_MIN_AGE)`.
     function recoverBlocked(uint256 escrowId) external onlyOwner nonReentrant {
         if (escrowId == 0 || escrowId >= nextEscrowId) revert UnknownEscrow();
         EscrowRecord storage rec = _escrows[escrowId];
         if (rec.status != EscrowStatus.Blocked) revert NotBlocked();
+        uint256 ownerDelay = uint256(blockedRecoveryDelay) < uint256(OWNER_BLOCKED_RECOVERY_MIN_AGE)
+            ? uint256(blockedRecoveryDelay)
+            : uint256(OWNER_BLOCKED_RECOVERY_MIN_AGE);
+        if (rec.blockedAt == 0 || block.timestamp < uint256(rec.blockedAt) + ownerDelay) {
+            revert BlockedRecoveryTooEarly();
+        }
 
         rec.status = EscrowStatus.Recovered;
         uint256 amount = rec.amount;
@@ -333,10 +366,49 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         emit FeeRecovered(escrowId, wallet, amount, to);
     }
 
+    /// @notice Schedule adding a keeper (`allowed = true`) or revoke immediately (`allowed = false`).
     function setKeeper(address keeper, bool allowed) external onlyOwner {
         if (keeper == address(0)) revert ZeroAddress();
+        if (!allowed) {
+            keepers[keeper] = false;
+            if (pendingKeeper == keeper) {
+                pendingKeeper = address(0);
+                pendingKeeperAllowed = false;
+                pendingKeeperApplyAt = 0;
+            }
+            emit KeeperUpdated(keeper, false);
+            return;
+        }
+        pendingKeeper = keeper;
+        pendingKeeperAllowed = true;
+        pendingKeeperApplyAt = uint64(block.timestamp + uint256(KEEPER_TIMELOCK));
+        emit KeeperChangeScheduled(keeper, true, pendingKeeperApplyAt);
+    }
+
+    /// @notice Execute a scheduled keeper grant after `KEEPER_TIMELOCK`.
+    function applyKeeper() external onlyOwner {
+        if (pendingKeeperApplyAt == 0) revert NoPendingKeeper();
+        if (block.timestamp < uint256(pendingKeeperApplyAt)) revert KeeperTimelockPending();
+        address keeper = pendingKeeper;
+        bool allowed = pendingKeeperAllowed;
+        pendingKeeper = address(0);
+        pendingKeeperAllowed = false;
+        pendingKeeperApplyAt = 0;
         keepers[keeper] = allowed;
         emit KeeperUpdated(keeper, allowed);
+    }
+
+    /// @notice One-shot deploy wiring: grant a depositor immediately (the hook). Later changes use the timelock.
+    /// @dev Callable by `owner` or the constructor `bootstrapper`. The bootstrapper is cleared afterwards
+    ///      so the deploying EOA cannot keep a privileged path into this contract.
+    function bootstrapDepositor(address depositor) external {
+        if (depositorBootstrapped) revert DepositorAlreadyBootstrapped();
+        if (msg.sender != owner && msg.sender != bootstrapper) revert NotOwner();
+        if (depositor == address(0)) revert ZeroAddress();
+        depositorBootstrapped = true;
+        bootstrapper = address(0);
+        depositors[depositor] = true;
+        emit DepositorUpdated(depositor, true);
     }
 
     function setDepositor(address depositor, bool allowed) external onlyOwner {

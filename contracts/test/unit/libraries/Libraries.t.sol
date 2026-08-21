@@ -26,6 +26,11 @@ contract UnitLibrariesTest is Test {
         assertEq(FeeBps.resolveLatencyFee(0), 800);
         assertEq(FeeBps.resolveLatencyFee(500), 500);
         assertEq(FeeBps.resolveLatencyFee(1001), 800);
+        assertEq(FeeBps.differentialBps(0), 0);
+        assertEq(FeeBps.differentialBps(30), 0);
+        assertEq(FeeBps.differentialBps(800), 770);
+        assertEq(FeeBps.differentialAmount(1e18, 30), 0);
+        assertEq(FeeBps.differentialAmount(1e18, 800), (uint256(1e18) * 770) / 10_000);
     }
 
     function test_HookDecision_OrdinalsMatchTernarySpec() external pure {
