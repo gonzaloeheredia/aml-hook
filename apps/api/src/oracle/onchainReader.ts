@@ -9,7 +9,7 @@ import { anvil } from "viem/chains";
 import { complianceOracleAbi } from "./abi.js";
 import { getPublishMode } from "./onchainPublisher.js";
 
-export type ScoreSource = "onchain" | "memory" | "hop";
+export type ScoreSource = "onchain" | "memory" | "hop" | "unscored";
 
 let client: ReturnType<typeof createPublicClient> | null = null;
 

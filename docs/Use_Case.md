@@ -1,427 +1,246 @@
-# AML HOOK
+# AML Hook — Use case
 
-Modular Compliance Layer for Uniswap v4
+This walkthrough is the product demo of the whitepaper. Every decision below is the same mapping `RiskPolicy` + hook-local Mitigation C apply on-chain. The frontend and the in-memory API reproduce that surface so you can press it.
 
-Use Case — Exploit Detection, Propagation and N-Hop Decay
+The pool is a Uniswap v4 RWA pool with AML Hook attached. Swaps go through `beforeSwap` and `afterSwap`. Peer-to-peer USDC transfers happen off-pool. Those transfers are what move risk. Pool swaps never raise a score.
 
-## 1. Overview
+A sanctioned wallet that tries to add or remove liquidity is reverted at the liquidity boundary. That path reads the sanctions list only. This walkthrough is swap-only.
 
-AML Hook is a compliance layer deployed natively as a Uniswap v4 hook. On swaps it intercepts beforeSwap and afterSwap, applies a ternary risk decision, and emits a structured on-chain event that constitutes the operator's audit trail. The hook operates without interrupting the normal swap execution path for clean addresses.
+## 1. The five wallets
 
-This use case is swap-only. Independently, a sanctioned wallet that attempts to add or remove liquidity is reverted at beforeAddLiquidity / beforeRemoveLiquidity (SanctionRegistry only — no score, no RiskPolicy). The LP position stays intact, neither transferred nor confiscated; once the sanction is lifted, the same withdrawal succeeds with no extra step.
+| Wallet | Role | Starting score | What happens next |
+| --- | --- | --- | --- |
+| **A** | Exploit source. Drained an external protocol and tries to cash out USDC → ETH in the pool. | 100 | Pool swaps revert (`WalletBlocked`). Outbound P2P can contaminate B, C, or D. |
+| **B** | Starts clean. | 0 (published) | Receives from A → 1 hop, score ~65, fee 8%. Receives from tainted C → 2 hops, score ~42, fee 3%. The closer hop wins. |
+| **C** | Starts clean. Same rules as B. | 0 (published) | Receives from A → 1 hop, score ~65, fee 8%. Receives from tainted B → 2 hops, score ~42, fee 3%. The closer hop wins. |
+| **D** | Published score 0. Starts with **5,000 USDC**. | 0 (published) | Already-held funds ALLOW at 0.30%. Four $1,000 swaps in the hour: the **fourth** is Mitigation C (8%). Clean **C→D** ~10,000 → relative inflow 8% (no hop). Clean **C→D** **25,000** → `InflowMagnitudeBlocked`. Advance 2 min after a swap → Mitigation B (8%). |
+| **E** | Unknown. The oracle has never written a row for this address. Starts with 40,000 USDC. | — (never written) | Assessed USD = this swap + the 1-hour window. Under $1,000 → 3%. $1,000–$24,999 → 8%. $25,000 or more → `UnscoredMagnitudeBlocked`. Unbind the price feed → `MagnitudeQuoteFailed`. |
 
-This document describes a four-wallet scenario that exercises all three decision outputs of the hook, plus the oracle-latency inflow heuristic and the never-scored **USD** magnitude bands: full block (revert), FEE_OVERRIDE with punitive total friction (pool standard fee + FeeEscrow differential), FEE_OVERRIDE with proportional friction, FEE_OVERRIDE under a stale scored-clean inflow (Wallet D), and Wallet E — a brand-new wallet (`updatedAt == 0`) whose first flow is quoted to USD via Chainlink (under $1,000 → 3%; $1,000–$24,999 → 8%; ≥ $25,000 or structured window USD → `UnscoredMagnitudeBlocked`; missing/stale feed → `MagnitudeQuoteFailed`). The scenario is grounded in an exploit cash-out attack, two-hop fund propagation through intermediary wallets, a third path that swaps inside the keeper's processing window, and a brand-new wallet with no oracle row.
+B and C are symmetric. Any path A → B → C or A → C → B produces the same hop math. D is confirmed clean until new funds arrive or a latency floor fires. E is unknown until the keeper publishes a score.
 
-### Actors
+## 2. How the hook decides
 
-```text
------------ -------------------------------------------------------------------------------------------------------------------------- -------------------------
-Wallet      Role                                                                                                                       Initial Score
+Same order as the whitepaper (§3.3 / §3.8) and `RiskPolicy.decide`, then hook-local C if the policy still said ALLOW.
 
-Wallet A    Exploit attacker. Drains an external lending protocol and attempts to use the pool to convert stolen USDC into ETH.        100 (exploit confirmed)
+| Score or condition | Decision | Fee |
+| --- | --- | --- |
+| 0–30, published and fresh, no floor | ALLOW | Pool 0.30% |
+| 31–54 (keeper omitted fee) | FEE_OVERRIDE | 3% |
+| 55–70 (keeper omitted fee) | FEE_OVERRIDE | 8% |
+| 1-hop (~65) / 2-hop (~42) with keeper fee | FEE_OVERRIDE | 8% / 3% |
+| 71–100 | REVERT | `WalletBlocked` |
+| On the sanctions list | REVERT | `SanctionHit` |
+| Published 0, inbound USD > 50% of current USD, under $25,000, score still older than the baseline | FEE_OVERRIDE (D relative · differential) | 8% |
+| Published, inbound USD ≥ $25,000, score still older than the baseline | REVERT | `InflowMagnitudeBlocked` |
+| Score older than 120s **and** at least one swap in this hour | FEE_OVERRIDE (B) | 8% |
+| Fourth swap after three completed ops in the hour (default; governor may retune) | FEE_OVERRIDE (C) | 8% |
+| Never written, assessed USD under $1,000 | FEE_OVERRIDE | 3% |
+| Never written, $1,000–$24,999 | FEE_OVERRIDE | 8% |
+| Never written, this swap + 1-hour window ≥ $25,000 | REVERT | `UnscoredMagnitudeBlocked` |
+| USD quote required and feed missing / stale / bad | REVERT | `MagnitudeQuoteFailed` |
 
-Wallet B    Starts clean (same rules as C). Receives from A → 1-hop (~65). Receives from tainted C → 2-hop (~42). Closer hop wins.     0 (clean)
+N-hop score:
 
-Wallet C    Starts clean (same rules as B). Receives from A → 1-hop (~65). Receives from tainted B → 2-hop (~42). Closer hop wins.     0 (clean)
+`score = 100 × 0.65^hops`
 
-Wallet D    Fourth actor. Previously published clean (score 0, non-zero updatedAt). Receives a direct P2P transfer from Wallet A          0 (published clean)
-            seconds before attempting a swap, before the keeper has processed that transfer. This is Mitigation D, not "unknown".
+| Wallet | Hops from A | Score | Decision |
+| --- | --- | --- | --- |
+| A | 0 | 100 | REVERT |
+| B or C after A | 1 | 65 | FEE_OVERRIDE 8% |
+| B or C after a 1-hop peer | 2 | 42 | FEE_OVERRIDE 3% |
+| D after keeper catch-up from A | 1 | 65 | FEE_OVERRIDE 8% |
 
-Wallet E    Fifth actor. Brand-new wallet: oracle `updatedAt == 0` (never written). No inflow baseline. First-swap USD bands:               — (never written)
-            under $1,000 → 3%; $1,000–$24,999 → 8%; ≥ $25,000 (or window USD) → REVERT
-            (`UnscoredMagnitudeBlocked`). Missing/stale Chainlink feed fail-closes. Not Wallet D.
------------ -------------------------------------------------------------------------------------------------------------------------- -------------------------
-```
+A second inbound from a closer source replaces the farther hop. Clean-to-clean P2P does not contaminate. The keeper writes only when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band changes.
 
-The walkthrough below uses one propagation path (A → B → C) to exercise all three hook outputs in a single run, then a third path (A → D) that isolates the causal latency gap from whitepaper section 3.8 (scored-clean + inflow), then Wallet E for a never-scored large first swap. The scoring engine treats B and C symmetrically for any P2P path. D has a keeper write in its past; E does not.
+## 3. Walkthrough
 
-The pool is configured as a Real World Asset (RWA) pool on Uniswap v4, with AML Hook attached (beforeSwap, afterSwap, afterSwapReturnDelta, beforeAddLiquidity, beforeRemoveLiquidity). The off-chain scoring keeper monitors transfer events continuously and, on the A → B → C path, writes updated scores on-chain before the corresponding swap is attempted. The A → D path deliberately places the swap inside the window before that write lands. Call path, AccessManager roles, and FeeEscrow settlement are specified in the whitepaper (sections 3.5 and 3.7).
+Use the frontend (Connect + MetaMask panel) or the API. Amounts match the demo balances. On the swap card: **Advance 2 min** (Mitigation B) and **Unbind price feed** (E / D absolute quote). Restart data reseeds A–E.
 
-## 2. Risk Scoring Model
+### Step 0 — Clean swap (D, or B / C)
 
-### 2.1 Ternary Decision Logic
+Connect Wallet D. Swap $1,000 USDC → ETH.
 
-```text
-------------- -------------------------------------------------- ------------------- ----------------------------------------------------------------------------------------------------------------------------------
-Score Range   Hook Response                                      Fee Applied         Regulatory Basis
+| Check | Result |
+| --- | --- |
+| Sanctions | Clear |
+| Score | 0, published |
+| Decision | ALLOW |
+| Fee | 0.30% |
 
-0 – 30        Allow                                              Standard (0.30%)    No risk indicators. Normal execution.
+D starts with 5,000 USDC and a published clean row. Size of already-held funds does not revert.
 
-31 – 70       Allow with FEE_OVERRIDE (pool standard fee + differential → FeeEscrow)   Dynamic (3% – 8% total friction)   Suspected contamination, not yet confirmed. Enhanced Due Diligence (EDD) equivalent. The swap still executes; friction is the escrowed differential, distinct from REVERT (which denies the swap in beforeSwap).
+### Step 1 — Exploit cash-out (A)
 
-71 – 100      Revert                                             N/A                 Confirmed exposure: exploit cluster, OFAC match, or direct link to sanctioned entity. No discretion.
+Connect Wallet A. Swap any size.
 
-Never written (`updatedAt == 0`), assessed USD < $1,000   FEE_OVERRIDE (Mitigation A)   3%   Unknown ≠ clean. Wallet E dust / CDD-aligned band.
+| Check | Result |
+| --- | --- |
+| Sanctions | Clear (list lag) |
+| Score | 100 |
+| Decision | REVERT |
+| Error | `WalletBlocked` |
+| Settlement | None. Funds stay in A. |
 
-Never written, $1,000 ≤ assessed USD < $25,000   FEE_OVERRIDE (Mitigation A mid)   8%   Unknown, economically material first flow.
+A can still send USDC off-pool.
 
-Never written, this swap + window USD ≥ $25,000   Revert (`UnscoredMagnitudeBlocked`)   N/A   Unknown + large or structured first flow. Not a score-band block.
+### Step 2 — A sends to B
 
-Never written, no / stale price feed   Revert (`MagnitudeQuoteFailed`)   N/A   Fail-closed. Same posture as a missing sanctions read.
-------------- -------------------------------------------------- ------------------- ----------------------------------------------------------------------------------------------------------------------------------
-```
+In MetaMask, send USDC from A → B.
 
-### 2.2 N-Hop Decay Formula
+The keeper traces the transfer, writes score 65 on B (1 hop), and recommends 8%.
 
-Contamination from a tainted source propagates to downstream wallets with a mathematically decreasing weight.
+### Step 3 — B swaps (1 hop)
 
-The formula applied by the off-chain keeper is:
+Connect B. Swap.
 
-```
-derived_score = origin_score × (decay_factor ^ hops) × exposed_proportion
-```
+| Check | Result |
+| --- | --- |
+| Score | 65 |
+| Decision | FEE_OVERRIDE |
+| Fee | 8% (0.30% stays in the pool; the rest is the FeeEscrow differential) |
 
-```text
--------------------- --------------------- ---------------------------------------------------------------------------------------------------------------
-Parameter            Value Used            Description
+### Step 4 — B sends to C
 
-decay_factor         0.65                  Contamination weight retained per hop. Industry-aligned: meaningful signal up to 3 hops, negligible beyond 4.
+Send USDC from B → C.
 
-exposed_proportion   1.0 (full transfer)   Fraction of the receiving wallet's balance that originates from the tainted source.
+The keeper writes score 42 on C (2 hops) and recommends 3%.
 
-origin_score         100 (Wallet A)        Score of the originating tainted wallet, as written by the keeper after exploit detection.
--------------------- --------------------- ---------------------------------------------------------------------------------------------------------------
-```
+C can also receive directly from A. That path is 1 hop (65 / 8%), and it wins over a later 2-hop inbound.
 
-Calculated scores for this scenario:
+### Step 5 — C swaps (2 hops)
 
-```text
----------------------------- ------------------ ---------------------------------------------- ----------------- -----------------------
-Wallet                       Hops from Source   Calculation                                    Resulting Score   Hook Tier
+Connect C. Swap.
 
-A                            0 (source)         Detected directly via on-chain exploit event   100               Revert
+| Check | Result |
+| --- | --- |
+| Score | 42 |
+| Decision | FEE_OVERRIDE |
+| Fee | 3% |
 
-B                            1                  100 × 0.65¹ × 1.0 = 65                         65                Punitive fee (8%)
+Optional reverse: if B is still clean, tainted C → B is 2 hops (42 / 3%). The closer hop still wins.
 
-C (after receiving from B)   2                  100 × 0.65² × 1.0 = 42                         42                Proportional fee (3%)
----------------------------- ------------------ ---------------------------------------------- ----------------- -----------------------
-```
+### Step 6 — Mitigation C (D, fourth swap in the hour)
 
-## 3. Full Execution Sequence
+Default cap: 3 completed ops in a 1-hour window. The hook governor can retune both knobs (`setActivityWindow`). Restart if D already received from A. Connect D. Swap $1,000 three times. Each of those is ALLOW 0.30%.
 
-#### Step 0 — Baseline: Clean Swap (Wallet C, pre-contamination)
+The **fourth** $1,000 swap in the same hour:
 
-Before any exploit occurs, Wallet C executes a standard RWA swap in the pool. At this point C has no risk history.
+| Check | Result |
+| --- | --- |
+| Score | 0, published |
+| Ops in window | 3 (cap) |
+| Decision | FEE_OVERRIDE |
+| Floor | `ACTIVITY_WINDOW_CAP` |
+| Fee | 8% |
 
-```text
---------------------------- ---------------------------------------------------------------------------------
-Event                       Detail
+### Step 7 — Mitigation B (stale score + pool activity)
 
-Actor                       Wallet C
+Stay on D (or any published-clean wallet that already swapped in this hour). Press **Advance 2 min**. Swap again.
 
-Action                      Swap USDC → RWA token at standard pool conditions.
+| Check | Result |
+| --- | --- |
+| Score | 0, now older than 120s |
+| Ops in window | > 0 |
+| Decision | FEE_OVERRIDE |
+| Floor | `STALE_WITH_POOL_ACTIVITY` |
+| Fee | 8% |
 
-beforeSwap — Layer 1        OFAC screening: no match.
+A stale score with **no** swap in the hour stays ALLOW.
 
-beforeSwap — Score read     Keeper score: 0. Below 30 threshold. No fee override applied.
+### Step 8 — C sends to D (clean inbound, relative inflow)
 
-Execution                   Swap executes at standard fee (0.30%).
+Restart so C and D are back at baseline. C is still clean (50,000 USDC). Do **not** use A here: A→D is a hop.
 
-afterSwap — Event emitted   { address: C, score: 0, decision: ALLOW, fee: 0.30%, amount: X, timestamp: T0 }
+In MetaMask, send **10,000** USDC from **C → D**.
 
-Hook output                 ALLOW — standard fee. No friction for legitimate operators.
---------------------------- ---------------------------------------------------------------------------------
-```
+Connect D. Swap $1,000.
 
-#### Step 1 — Exploit Detection: Direct Attack (Wallet A)
+| Check | Result |
+| --- | --- |
+| Oracle score | 0 (published, no hop) |
+| Hop | — |
+| Inflow | +$10,000 USD is 66% of D's current $15,000 USD bag (above 50%, under $25,000) |
+| Decision | FEE_OVERRIDE |
+| Floor | `INFLOW_HEURISTIC` |
+| Fee | 8% differential (pool keeps 0.30%; rest → FeeEscrow) |
 
-Wallet A executes an exploit against an external lending protocol, extracting $10M USDC. The attacker immediately attempts to swap those funds in the AML Hook pool to convert them into ETH before Circle freezes the USDC address.
+The 50% test is inbound USD over current USD, not native units. Medium-risk increment → differential fee. At or above $25,000 USD → revert. The hook does not name C as the source. B also works for this $10,000 path while it is still clean. B starts with 25,000, so use C for the $25,000 act.
 
-The off-chain keeper monitors transfer events and mempool activity. It detects the exploit event on-chain, traces the USDC outflow to Wallet A, and writes score 100 before the swap transaction is confirmed.
+### Step 9 — D absolute floor ($25,000 inbound)
 
-```text
-------------------------- -------------------------------------------------------------------------------
-Event                     Detail
+Restart. Send **25,000** USDC from **C → D** (C still clean). Connect D. Any swap size:
 
-Actor                     Wallet A
+| Check | Result |
+| --- | --- |
+| Inbound USD | 25,000 since baseline |
+| Decision | REVERT |
+| Error | `InflowMagnitudeBlocked` |
 
-Action                    Swap $10M USDC → ETH.
+This is the same $25,000 revert floor as an unknown wallet. Already-held clean funds never count as inbound.
 
-Keeper — prior to swap    Exploit event detected on-chain. Score 100 written to oracle for Wallet A.
+### Step 10 — Unknown wallet E
 
-beforeSwap — Layer 1      OFAC screening: no match (designation lag, list not yet updated).
+Connect Wallet E. The oracle has no row. Assessed USD = this swap + USD already recorded in the hour. Use the size chips.
 
-beforeSwap — Score read   Keeper score: 100. Threshold 71 exceeded. revert() executed atomically.
+| Amount | Decision | Fee / error |
+| --- | --- | --- |
+| $500 | FEE_OVERRIDE | 3% |
+| $1,000 | FEE_OVERRIDE | 8% |
+| $10,000 | FEE_OVERRIDE | 8% (single swap) |
+| Two $10,000 then a third that crosses $25,000 in the hour | REVERT | `UnscoredMagnitudeBlocked` |
+| $25,000 | REVERT | `UnscoredMagnitudeBlocked` |
 
-Execution                 Transaction reverts. No funds move. No liquidity provider (LP) exposure.
+Press **Unbind price feed**, then any E size (or a D path that needs a USD quote):
 
-afterSwap                 Not reached. Revert occurs in beforeSwap.
+| Check | Result |
+| --- | --- |
+| Decision | REVERT |
+| Error | `MagnitudeQuoteFailed` |
 
-Hook output               REVERT — exploit cluster confirmed. Block precedes OFAC designation by hours.
-------------------------- -------------------------------------------------------------------------------
-```
+Bind the feed again to continue. A published score of 0 (Wallet D) and an unknown wallet (Wallet E) are different rows. E never takes a hop, even from A: only the USD bands apply. Extra USDC for E can come from clean C if you want; it still does not write a score.
 
-#### Step 2 — First-Hop Propagation: Wallet A → Wallet B (P2P Transfer)
+### Step 11 — $25,000 and the KYC-policy review
 
-Blocked at the pool, Wallet A routes the stolen funds via a peer-to-peer transfer directly to Wallet B, an intermediary address with no prior risk history. The transfer occurs outside the Automated Market Maker (AMM), at the ERC-20 token level.
+The $1,000 and $25,000 defaults follow the order of magnitude used in international AML for traditional banking (FATF Rec. 10 CDD at the lower band; enhanced scrutiny at the upper). For institutional DeFi the $25,000 revert floor must be reviewed together with the pool's KYC policy before production.
 
-The keeper detects the inbound transfer to Wallet B, traces its origin to Wallet A (score 100), and applies the decay formula: 100 × 0.65¹ × 1.0 = 65. Score 65 is written to the oracle for Wallet B before any swap is attempted.
+### Step 12 — FeeEscrow (FEE_OVERRIDE only)
 
-#### Step 3 — First-Hop Swap Attempt (Wallet B, Score 65)
+On B (8%), C (3%), D floors (8%), and E (3% or 8%), the pool keeps 0.30%. The extra slice sits in FeeEscrow. The demo ledger shows the fee; it does not deposit on-chain.
 
-```text
---------------------------- ---------------------------------------------------------------------------------------------------------------
-Event                       Detail
+| Window | What happens | Where the fee goes |
+| --- | --- | --- |
+| 0–24h | Optional review | Still in escrow |
+| 24–48h | Early release | LP compensation fund |
+| At 48h, illicit | Block | Stays in escrow (reporting reserve) |
+| At 48h, not illicit | Release | LP compensation fund |
+| Nobody resolved | Default release | LP compensation fund |
 
-Actor                       Wallet B
+The fee never returns to the pool. User swap output settles in the same block.
 
-Action                      Attempts to swap USDC → ETH in the AML Hook pool.
+### Step 13 — Opinion / COA file
 
-beforeSwap — Layer 1        OFAC screening: no match.
+After a FEE_OVERRIDE or REVERT, open **Opinion**. That screen is the Compliance Officer Agent file for this swap (deterministic mock in this repo). It is the suspicious-operation documentation the whitepaper describes. Successful swaps also emit `SwapObserved`. Reverts do not keep that log. Index the error on the failed transaction.
 
-beforeSwap — Score read     Keeper score: 65. Falls in tier 31–70. No revert. Pool keeps standard fee; afterSwap takes differential into FeeEscrow (~8% total intended friction).
+## 4. Sequence at a glance
 
-Execution                   Swap executes. Pool keeps standard fee; risk differential (~8% total intended friction minus standard) deposited into FeeEscrow (48h hold). User output settles in-block; net proceeds to Wallet B reduced.
+| Step | Actor | Action | Score | Decision | Fee / error |
+| --- | --- | --- | --- | --- | --- |
+| 0 | D (or B / C) | Swap of already-held USDC | 0 | ALLOW | 0.30% |
+| 1 | A | Pool cash-out | 100 | REVERT | `WalletBlocked` |
+| 2 | A → B | P2P | — | Keeper writes 65 | — |
+| 3 | B | Swap | 65 | FEE_OVERRIDE | 8% |
+| 4 | B → C | P2P | — | Keeper writes 42 | — |
+| 5 | C | Swap | 42 | FEE_OVERRIDE | 3% |
+| 6 | D | 4th $1,000 in the hour | 0 | FEE_OVERRIDE (C) | 8% |
+| 7 | D | Advance 2 min, swap | 0 stale | FEE_OVERRIDE (B) | 8% |
+| 8 | C → D ~10k (C clean), then D swap | P2P, no hop | 0 | FEE_OVERRIDE (D relative) | 8% |
+| 9 | C → D $25k (C clean) | P2P, then any D swap | 0 | REVERT | `InflowMagnitudeBlocked` |
+| 10a | E | $500 | — | FEE_OVERRIDE | 3% |
+| 10b | E | $1,000 | — | FEE_OVERRIDE | 8% |
+| 10c | E | $25,000 or window sum | — | REVERT | `UnscoredMagnitudeBlocked` |
+| 10d | E | Unbind price feed | — | REVERT | `MagnitudeQuoteFailed` |
+| 11 | — | KYC-policy review of the $25,000 floor | — | Governor | — |
+| 12 | FEE_OVERRIDE paths | Escrow hold 24h / 48h | — | On-chain FeeEscrow | Differential |
+| 13 | Operator | Opinion stage | — | COA file | — |
 
-afterSwap — Event emitted   { address: B, score: 65, decision: FEE_OVERRIDE, fee: 8.00%, hop_distance: 1, origin: A, timestamp: T2 }
-
-Hook output                 PUNITIVE FEE — direct contamination from exploit source. Economic penalty applied. Full audit trail recorded.
---------------------------- ---------------------------------------------------------------------------------------------------------------
-```
-
-#### Step 4 — Second-Hop Propagation: Wallet B → Wallet C (P2P Transfer)
-
-Wallet B transfers a portion of the remaining funds to Wallet C. The keeper detects the transfer, traces the contamination chain (A → B → C), and calculates the two-hop score: 100 × 0.65² × 1.0 = 42. Score 42 is written to the oracle for Wallet C, overwriting the prior clean score of 0.
-
-#### Step 5 — Second-Hop Swap Attempt (Wallet C, Score 42)
-
-```text
---------------------------- ----------------------------------------------------------------------------------------------------------
-Event                       Detail
-
-Actor                       Wallet C
-
-Action                      Attempts to swap USDC → ETH in the AML Hook pool.
-
-beforeSwap — Layer 1        OFAC screening: no match.
-
-beforeSwap — Score read     Keeper score: 42. Falls in tier 31–70. Pool keeps standard fee; afterSwap takes differential into FeeEscrow (~3% total intended friction, proportional to lower contamination).
-
-Execution                   Swap executes. Pool keeps standard fee; risk differential (~3% total intended friction minus standard) deposited into FeeEscrow (48h hold). User output settles in-block; fee reflects two-hop distance.
-
-afterSwap — Event emitted   { address: C, score: 42, decision: FEE_OVERRIDE, fee: 3.00%, hop_distance: 2, origin: A, timestamp: T4 }
-
-Hook output                 PROPORTIONAL FEE — two-hop contamination. Penalty decays with distance. Audit trail maintained.
---------------------------- ----------------------------------------------------------------------------------------------------------
-```
-
-
-## 3.1 Fee Escrow on FEE_OVERRIDE Paths (Steps 3 and 5)
-
-On every FEE_OVERRIDE settlement (Wallet B at ~8 percent total friction, Wallet C at ~3 percent), the pool keeps its standard LP fee. Only the risk differential is taken in afterSwap and deposited into FeeEscrow. If deposit fails after that take, the swap still settles: the hook emits RiskFeeSkipped with DEPOSIT_FAILED, credits failedDeposits[wallet][token], and returns hookDelta. The subject can claimFailedDeposit(token), or anyone can retryEscrowDeposit(wallet, token) once escrow accepts deposits again. Other skip reasons (ZERO_BASIS, FEE_TOKEN_NOT_ALLOWED) emit RiskFeeSkipped and take nothing. User swap output settles in the same block; the escrow never retains the full swap.
-
-Deposit records wallet, amount, timestamp and origin transaction hash (FeeDeposited).
-
-There are two COA consultations on the escrow path; the FeeEscrow keeper alone submits the on-chain transfer after an off-chain sanity check on the COA output:
-
-```text
--------------------- ----------------------- -------------------------------------------------------------- --------------------------------
-Moment               COA / keeper action     On-chain call                                                  Destination of retained fee
--------------------- ----------------------- -------------------------------------------------------------- --------------------------------
-0–24h                Optional COA review     None (fee stays in FeeEscrow)                                  Still held
-Checkpoint 1         First COA consult +     releaseEarly → FeeReleasedEarly                                lpCompensationFund
-(≥24h, <48h)         keeper sanity check                                                                    (never the pool). Never blocks.
-Checkpoint 2         Second COA consult +    resolveCheckpoint2(illicitConfirmed)                           Illicit → Blocked (tokens stay
-(≥48h)               keeper sanity check     → FeeBlocked or FeeReleasedDefault                             in FeeEscrow).
-                                                                                                            Not illicit → lpCompensationFund
-                                                                                                            (never the pool).
-No resolution by 48h —                       releaseDefault → FeeReleasedDefault                            lpCompensationFund
-                                                                                                            (never the pool).
--------------------- ----------------------- -------------------------------------------------------------- --------------------------------
-```
-
-Events FeeReleasedEarly, FeeBlocked and FeeReleasedDefault complete the audit trail for the operator.
-
-## 4. Sequence Summary
-
-```text
------- -------- ---------------------------------------------------------------- ------- ----------------------------- -------
-Step   Actor    Action                                                           Score   Hook Decision                 Fee
-
-0      C        Standard swap (pre-contamination)                                0       ALLOW                         0.30%
-
-1      A        Direct swap attempt with exploit funds                           100     REVERT                        N/A
-
-2      A → B    P2P transfer outside pool. Keeper writes score 65 to Wallet B.   —       Off-chain keeper update       —
-
-3      B        Swap attempt with 1-hop contaminated funds                       65      FEE OVERRIDE (punitive)       8.00% -> FeeEscrow
-
-4      B → C    P2P transfer outside pool. Keeper writes score 42 to Wallet C.   —       Off-chain keeper update       —
-
-5      C        Swap attempt with 2-hop contaminated funds                       42      FEE OVERRIDE (proportional)   3.00% -> FeeEscrow
-
-6      A → D    P2P transfer; keeper updateScore for D not yet confirmed         —       Off-chain (pending)           —
-
-7      D        Swap under stale score 0; inflow heuristic elevates              0       FEE OVERRIDE (inflow)         8.00%
-
-8      —        Keeper catch-up: writes decay score 65 for Wallet D              65      Off-chain keeper update       —
-
-E-a    E        First swap under $1,000; never written (`updatedAt == 0`)        —       FEE OVERRIDE (Mitigation A)   3.00%
-
-E-a2   E        First swap $1,000–$24,999                                        —       FEE OVERRIDE (Mitigation A mid) 8.00%
-
-E-b    E        First swap or window USD ≥ $25,000                               —       REVERT (`UnscoredMagnitudeBlocked`) N/A
------- -------- ---------------------------------------------------------------- ------- ----------------------------- -------
-```
-
-## 5. On-Chain Audit Trail
-
-Successful swaps emit a structured event via afterSwap (`SwapObserved`). These events are indexed by The Graph and constitute the immutable audit record that the pool operator presents to regulators (Financial Crimes Enforcement Network, FinCEN; Markets in Crypto-Assets Regulation, MiCA; Office of Foreign Assets Control, OFAC) to demonstrate transaction-level due diligence. They also serve as the factual input for any Suspicious Transaction Report (STR) filed by the operator's compliance function. Reverted attempts do not keep those logs — index the custom errors below.
-
-Each event record contains:
-
--   The wallet address screened.
-
--   The risk score at the time of the swap.
-
--   The decision taken (ALLOW, FEE_OVERRIDE, or REVERT).
-
--   The fee applied, or the revert basis.
-
--   The hop distance from the contamination source, where applicable.
-
--   The origin wallet traced as the contamination source.
-
--   The transaction amount and timestamp.
-
-Successful swaps emit `SwapObserved` (and `LatencyMitigationApplied` / `InflowHeuristicTriggered` when a floor applied). Reverted swaps do **not** keep those logs. Off-chain monitors must index custom errors on failed transactions:
-
-| Error | Cause |
-|---|---|
-| `SanctionHit` | Layer 1 list |
-| `WalletBlocked` | Score ≥ 71 |
-| `UnscoredMagnitudeBlocked` | `updatedAt == 0` and assessed USD-8 ≥ `unscoredRevertThreshold` ($25,000 default) |
-| `InflowMagnitudeBlocked` | Published score, inbound USD-8 since baseline ≥ `unscoredRevertThreshold` (Mitigation D absolute) |
-| `MagnitudeQuoteFailed` | Never-scored (or D inflow) and Chainlink feed missing, stale, or invalid — fail-closed |
-
-No existing compliance hook on Uniswap v4 produces this record. Binary allowlist models either permit or block, and emit no structured data on the decision rationale.
-
-## 6. Regulatory Basis
-
-```text
------------------------------------- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Hook Behavior                        Regulatory Principle
-
-Score 71–100: unconditional revert   OFAC mandatory blocking obligation. Financial Action Task Force (FATF) Recommendation 6: targeted financial sanctions, no discretion.
-
-Score 31–70: FEE_OVERRIDE + FeeEscrow   FATF Recommendation 10: Enhanced Due Diligence for higher-risk situations. Risk-based approach: friction and monitoring, not an outright block, are the appropriate response at intermediate risk. Settlement is pool standard fee plus escrowed differential, not a punitive lpFeeOverride to LPs.
-
-N-hop decay scoring                  FATF Virtual Assets Red Flag Indicators (2020): indirect exposure to illicit funds constitutes a risk indicator. The system must trace fund origin, not just direct counterparty.
-
-Immutable on-chain event log         FATF Recommendation 11: record retention, minimum five years. The audit trail is on-chain and non-modifiable.
------------------------------------- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-```
-
-## 7. Latency Mitigation Scenario: Wallet D
-
-This scenario isolates the causal latency gap described in section 3.8 of the whitepaper. Unlike the A, B, C sequence, where the keeper writes each score before the corresponding swap is attempted, this scenario places the swap attempt inside the window during which the keeper has not yet processed the inbound transfer.
-
-#### Step 6 — Third Propagation Path: Wallet A → Wallet D (P2P Transfer), Immediate Swap Attempt
-
-```text
------------------------ ---------------------------------------------------------------------------------------------------------------------------------------------------------
-Event                   Detail
-
-Actor                   Wallet A → Wallet D
-
-Action                  Wallet A transfers the tainted funds directly to Wallet D, outside the AMM (Automated Market Maker), at the ERC-20 (Ethereum Request for Comments 20)
-                        token level.
-
-Keeper status           The transfer is detected by the off-chain monitor but the updateScore transaction for Wallet D has not yet been confirmed on-chain.
-
-Elapsed time            Approximately 8 seconds between the transfer's confirmation and Wallet D submitting a swap.
-
-Oracle state at swap    ComplianceOracle still holds Wallet D's **published** score: 0, with a non-zero updatedAt that predates the transfer. This is not a never-written wallet. Mitigation D can fire; Mitigation A's magnitude REVERT does not.
------------------------ ---------------------------------------------------------------------------------------------------------------------------------------------------------
-```
-
-#### Step 7 — Swap Attempt Under a Stale Score (Wallet D)
-
-```text
------------------------ ---------------------------------------------------------------------------------------------------------------------------------------------------------
-Event                   Detail
-
-Actor                   Wallet D
-
-Action                  Attempts to swap USDC into ETH in the AML Hook pool.
-
-beforeSwap, Layer 1     OFAC (Office of Foreign Assets Control) screening: no match.
-
-beforeSwap, Layer 2     Keeper score: 0. Read in isolation, this would resolve to ALLOW.
-score read
-
-beforeSwap, balance     The hook queries token.balanceOf(D). lastKnownBalance[D] was 0. currentBalance equals the full transferred amount. deltaBps equals 10000 (100 percent of
-heuristic               current balance), exceeding the configured inflowThresholdBps of 5000. The inflow timestamp postdates the oracle's updatedAt for Wallet D, so the stored
-                        score of 0 does not yet reflect this transfer.
-
-RiskPolicy decision     hasSignificantInflow resolves to true. The floor described in the mitigation forces a minimum output of FEE_OVERRIDE, overriding what the stale score of
-                        0 would otherwise permit. No keeper-recommended feeBps is available yet, so the desired product behavior applies the intermediate latency fee of 8 percent.
-
-Execution               Swap executes. Pool keeps the standard 0.30 percent LP fee; the 8 percent total intended friction is that base plus the risk differential deposited into FeeEscrow. User output settles in-block. Economic friction is applied despite a stored score that has not yet incorporated the
-                        inflow.
-
-afterSwap, event        address: D, score: 0 (stale), decision: FEE_OVERRIDE, fee: 8.00 percent, trigger: InflowHeuristicTriggered, deltaBps: 10000, timestamp: T5. hop_distance
-emitted                 and origin are not populated, because the heuristic detects the pattern, not the source.
-
-Hook output             FEE_OVERRIDE by inflow heuristic. The gap between the transfer and the keeper's update did not translate into an unconditioned swap.
------------------------ ---------------------------------------------------------------------------------------------------------------------------------------------------------
-```
-
-#### Step 8 — Keeper Catch-Up
-
-Shortly after Step 7, the keeper processes the A to D transfer and writes Wallet D's decay-based score: 100 times 0.65 to the first power, equaling 65, one hop from Wallet A. From this point forward, Wallet D's swaps are evaluated against that score rather than against the inflow heuristic, which only governs the window before the keeper catches up.
-
-### Comparison: With and Without the Heuristic
-
-```text
------------------------------------------------------------ ------------------- ------------
-Condition                                                   Hook Output         Fee
-
-Without inflow heuristic (score read alone)                 ALLOW               0.30 percent
-
-With inflow heuristic (Step 7, as designed)                 FEE_OVERRIDE        8.00 percent
------------------------------------------------------------ ------------------- ------------
-```
-
-### Stated Limitation
-
-The heuristic identifies a behavioral pattern, a large inflow immediately followed by a swap attempt, not the origin of the funds. It cannot distinguish a transfer from a tainted wallet from a legitimate large deposit, such as a withdrawal from a centralized exchange. A wallet with a genuinely clean funding source that happens to deposit a large balance and swap immediately will incur the same intermediate fee. This is an accepted false positive cost, applied only within the narrow window before the keeper writes an updated score, and it is not a determination of guilt, only a temporary friction pending confirmation.
-
-A never-written wallet (`updatedAt == 0`) is **not** this path. Mitigation D is skipped without a score and without a baseline, so a first swap is not treated as a 100 percent inflow. That wallet is section 7.1.
-
-## 7.1 Never-scored magnitude: Wallet E
-
-Wallet E has no ComplianceOracle row. `updatedAt` is 0. There is no `lastKnownBalance` baseline.
-
-```text
------------------------ ---------------------------------------------------------------------------------------------------------------------------------------------------------
-Event                   Detail
-
-Small first swap        Assessed USD below $1,000 (unscoredFeeThreshold = 1_000e8).
-                        Mitigation A: FEE_OVERRIDE at 3 percent. InflowHeuristicTriggered is not emitted.
-
-Mid first swap          Assessed USD from $1,000 up to but not including $25,000.
-                        Mitigation A mid: FEE_OVERRIDE at 8 percent.
-
-Large first swap        Assessed USD ≥ $25,000 (unscoredRevertThreshold = 25_000e8).
-                        RiskPolicy REVERT. beforeSwap reverts `UnscoredMagnitudeBlocked(E, assessedUsd, threshold)`.
-                        Distinct from Wallet A (`WalletBlocked`, score 100) and from a sanction (`SanctionHit`).
-
-Structuring             Never-scored swaps whose USD-8 window sum (quoted at each afterSwap) plus this swap
-                        reaches $25,000 → same REVERT, even across different tokens. Native units are not added.
-
-No / stale feed         Token has no governor-set Chainlink feed, or latestRoundData.updatedAt is older than
-                        priceStalenessThreshold (default 3600s) → `MagnitudeQuoteFailed`. Fail-closed.
-
-Published score 0       Keeper writes score 0 with a fresh updatedAt. E is now confirmed-clean.
-                        A $1m swap of already-held funds ALLOWs. Magnitude REVERT applies only while updatedAt == 0.
-
-Units                   Floors are USD with 8 decimals (Chainlink). Governor binds each pool token via setPriceFeed.
------------------------ ---------------------------------------------------------------------------------------------------------------------------------------------------------
-```
-
-## 8. Conclusion
-
-This scenario demonstrates the complete decision space of AML Hook in a single execution run. A direct attack by the exploit source triggers an immediate revert. The hook detects and penalizes an attempt to route contaminated funds through intermediary wallets with mathematically decaying fees proportional to hop distance. The balance-inflow heuristic catches a third path, a swap attempted before the keeper publishes the decay score on an already-written clean wallet, and still applies FEE_OVERRIDE at 8 percent rather than an unconditioned ALLOW. A brand-new wallet with no score pays 3 percent under $1,000, 8 percent from $1,000 to $24,999, and reverts at or above $25,000 (or if the Chainlink quote fails). Successful decisions emit `SwapObserved`; distinct revert reasons mark failed attempts: `SanctionHit`, `WalletBlocked`, `UnscoredMagnitudeBlocked`, `InflowMagnitudeBlocked`, or `MagnitudeQuoteFailed`.
-
-The attack vectors covered — direct exploit cash-out, multi-hop fund propagation, cash-out inside the oracle latency window, and a large first swap from an unknown wallet — represent primary evasion strategies used in DeFi exploits. AML Hook addresses them at the execution layer, without requiring the attacker to appear on any external list, and without introducing latency into the normal swap path for clean addresses with a fresh keeper score.
+How to run it: open the frontend, connect A–E from the wallet picker, move USDC in the MetaMask panel, use the size chips and the two swap-card controls, and swap. The API exposes the same ledger on `POST /transfers`, `POST /swaps`, `POST /demo/elapse`, and `POST /demo/price-feed`.

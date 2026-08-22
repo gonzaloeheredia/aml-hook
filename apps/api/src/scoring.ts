@@ -14,7 +14,13 @@ import {
   type ScoreSource,
 } from "./oracle/onchainReader.js";
 import { getOracleFeeBps, getOracleScore } from "./oracle/store.js";
-import type { Decision, LatencyMitigation, Wallet, WalletId } from "./types.js";
+import type {
+  Decision,
+  LatencyMitigation,
+  RevertReason,
+  Wallet,
+  WalletId,
+} from "./types.js";
 
 /** Contamination weight retained per hop. */
 export const DECAY_FACTOR = 0.65;
@@ -30,8 +36,16 @@ export const EXPLOIT_SOURCE: WalletId = "A";
 export const BASE_FEE_BPS = 30;
 /** §3.8 latency / inflow floor when keeper feeBps is absent (8%). */
 export const LATENCY_FEE_BPS = 800;
-/** Balance-delta share (bps of current USDC) that flags significant inflow. */
+/** Inbound USD share (bps of current USD bag) that flags a medium-risk increment. */
 export const INFLOW_THRESHOLD_BPS = 5000;
+/** Wallet E: assessed USD below this pays 3%. */
+export const UNSCORED_FEE_THRESHOLD_USD = 1_000;
+/** Wallet E: assessed USD at or above this reverts. */
+export const UNSCORED_REVERT_THRESHOLD_USD = 25_000;
+/** Wallet E dust band (under $1,000). */
+export const UNSCORED_DUST_FEE_BPS = 300;
+/** Wallet E mid band ($1,000–$24,999) and D inflow floor. */
+export const UNSCORED_MID_FEE_BPS = 800;
 
 /**
  * Fallback N-hop score when the oracle has not written a value yet.
@@ -40,6 +54,7 @@ export const INFLOW_THRESHOLD_BPS = 5000;
  * - With hops → 100 × 0.65^hops
  */
 export function hopScore(wallet: Wallet): number {
+  if (wallet.neverScored) return 0;
   if (wallet.exploitConfirmed) return ORIGIN_EXPLOIT_SCORE;
   if (wallet.hopDistance == null) return 0;
   return Math.round(
@@ -76,6 +91,9 @@ export async function resolveWalletRisk(wallet: Wallet): Promise<{
   feeBps: number;
   source: ScoreSource;
 }> {
+  if (wallet.neverScored) {
+    return { score: 0, feeBps: 0, source: "unscored" };
+  }
   if (preferOnChainScore()) {
     const risk = await readRiskFromChain(wallet.address);
     if (risk != null && risk.updatedAt > 0) {
@@ -124,8 +142,134 @@ export function feeBpsFromHop(score: number, hopDistance: number | null): number
   if (score <= 30) return BASE_FEE_BPS;
   if (hopDistance === 1) return 800;
   if (hopDistance === 2) return 300;
-  const t = (score - 31) / 39;
-  return Math.round(800 - t * 500);
+  return score >= 55 ? 800 : 300;
+}
+
+/** ALLOW / FEE / REVERT band — keeper writes when this (or the 3%/8% fee band) changes. */
+export function scoreTier(score: number): "allow" | "fee" | "revert" {
+  if (score >= 71) return "revert";
+  if (score >= 31) return "fee";
+  return "allow";
+}
+
+export function feeBand(feeBps: number): 30 | 300 | 800 | 0 {
+  if (feeBps >= 550) return 800;
+  if (feeBps >= 100) return 300;
+  if (feeBps > 0) return 30;
+  return 0;
+}
+
+/**
+ * RiskPolicy.decide + hook-local Mitigation C, same order as AmlHookLogic.
+ */
+export function applyFullPolicy(input: {
+  score: number;
+  hopDistance: number | null;
+  recommendedFeeBps: number;
+  neverScored: boolean;
+  assessedUsd: number;
+  inflowUsd: number;
+  hasSignificantInflow: boolean;
+  isStale: boolean;
+  operationCount: number;
+  priceFeedBound: boolean;
+}): {
+  decision: Decision;
+  feeBps: number;
+  latencyMitigation: LatencyMitigation;
+  revertReason: RevertReason;
+} {
+  if (input.score >= 71) {
+    return {
+      decision: "block",
+      feeBps: 0,
+      latencyMitigation: null,
+      revertReason: "WalletBlocked",
+    };
+  }
+
+  if (input.neverScored) {
+    if (!input.priceFeedBound) {
+      return {
+        decision: "block",
+        feeBps: 0,
+        latencyMitigation: "MAGNITUDE_QUOTE_FAILED",
+        revertReason: "MagnitudeQuoteFailed",
+      };
+    }
+    const bands = applyUnscoredBands(input.assessedUsd);
+    return {
+      ...bands,
+      revertReason:
+        bands.decision === "block" ? "UnscoredMagnitudeBlocked" : null,
+    };
+  }
+
+  if (input.inflowUsd > 0 && !input.priceFeedBound) {
+    return {
+      decision: "block",
+      feeBps: 0,
+      latencyMitigation: "MAGNITUDE_QUOTE_FAILED",
+      revertReason: "MagnitudeQuoteFailed",
+    };
+  }
+
+  if (input.inflowUsd >= UNSCORED_REVERT_THRESHOLD_USD) {
+    return {
+      decision: "block",
+      feeBps: 0,
+      latencyMitigation: "INFLOW_MAGNITUDE",
+      revertReason: "InflowMagnitudeBlocked",
+    };
+  }
+
+  if (input.score >= 31) {
+    const feeBps =
+      input.recommendedFeeBps > 0 && input.recommendedFeeBps !== BASE_FEE_BPS
+        ? input.recommendedFeeBps
+        : feeBpsFromHop(input.score, input.hopDistance);
+    return {
+      decision: "fee_override",
+      feeBps,
+      latencyMitigation: null,
+      revertReason: null,
+    };
+  }
+
+  if (input.hasSignificantInflow) {
+    return {
+      decision: "fee_override",
+      feeBps: LATENCY_FEE_BPS,
+      latencyMitigation: "INFLOW_HEURISTIC",
+      revertReason: null,
+    };
+  }
+
+  if (input.isStale && input.operationCount > 0) {
+    return {
+      decision: "fee_override",
+      feeBps: LATENCY_FEE_BPS,
+      latencyMitigation: "STALE_WITH_POOL_ACTIVITY",
+      revertReason: null,
+    };
+  }
+
+  // Default Mitigation C cap (on-chain `maxOpsInWindow`; hook governor retunes).
+  if (input.operationCount >= 3) {
+    return {
+      decision: "fee_override",
+      feeBps: LATENCY_FEE_BPS,
+      latencyMitigation: "ACTIVITY_WINDOW_CAP",
+      revertReason: null,
+    };
+  }
+
+  return {
+    decision: "allow",
+    feeBps: BASE_FEE_BPS,
+    latencyMitigation: null,
+    revertReason: null,
+  };
 }
 
 /**
@@ -155,14 +299,50 @@ export function toHookOutput(decision: Decision): "ALLOW" | "FEE_OVERRIDE" | "RE
 }
 
 /**
- * Type guard: returns true when `value` is a demo wallet id (A–D).
+ * Type guard: returns true when `value` is a demo wallet id (A–E).
  */
 export function isWalletId(value: string): value is WalletId {
-  return value === "A" || value === "B" || value === "C" || value === "D";
+  return (
+    value === "A" ||
+    value === "B" ||
+    value === "C" ||
+    value === "D" ||
+    value === "E"
+  );
 }
 
 /**
- * Inflow heuristic (§3.8 Mitigation D / Wallet D): delta as share of current USDC in bps.
+ * Mitigation A — unknown wallet (Wallet E). Size quoted 1:1 USDC → USD.
+ */
+export function applyUnscoredBands(assessedUsd: number): {
+  decision: Decision;
+  feeBps: number;
+  latencyMitigation: LatencyMitigation;
+} {
+  if (assessedUsd >= UNSCORED_REVERT_THRESHOLD_USD) {
+    return {
+      decision: "block",
+      feeBps: 0,
+      latencyMitigation: "SCORE_NEVER_WRITTEN",
+    };
+  }
+  if (assessedUsd >= UNSCORED_FEE_THRESHOLD_USD) {
+    return {
+      decision: "fee_override",
+      feeBps: UNSCORED_MID_FEE_BPS,
+      latencyMitigation: "SCORE_NEVER_WRITTEN",
+    };
+  }
+  return {
+    decision: "fee_override",
+    feeBps: UNSCORED_DUST_FEE_BPS,
+    latencyMitigation: "SCORE_NEVER_WRITTEN",
+  };
+}
+
+/**
+ * Inflow heuristic (§3.8 Mitigation D / Wallet D): inbound USD / current USD in bps.
+ * Demo USDC is quoted 1:1, so this is the USD share the hook uses on-chain.
  */
 export function inflowDeltaBps(currentUsdc: number, lastKnownUsdc: number): number {
   if (currentUsdc <= 0) return 0;

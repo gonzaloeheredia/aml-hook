@@ -5,13 +5,14 @@
  * - A = exploit attacker → REVERT
  * - B and C both start clean (ALLOW)
  * - A→B or A→C → 1-hop · ~65 · 8%; tainted peer → 2-hop · ~42 · 3%
- * - D = latency path: A→D then swap before keeper → inflow FEE_OVERRIDE 8% → catch-up ~65
+ * - D = published score 0 (ALLOW); clean C→D → inflow 8% (no hop)
+ * - E = unknown (never written): $500 → 3%; $1,000 → 8%; $25,000 → REVERT
  * Live hop state comes from MetaMask simulation (`hopScoring` + `withHopOverlay`).
  */
 
 export type Decision = "allow" | "fee_override" | "block";
 
-export type DemoCaseId = "A" | "B" | "C" | "D";
+export type DemoCaseId = "A" | "B" | "C" | "D" | "E";
 
 export interface DemoCase {
   id: DemoCaseId;
@@ -40,6 +41,16 @@ export interface DemoCase {
   signals: { label: string; value: string; tone: "ok" | "warn" | "bad" }[];
   tags: { label: string; tone: "ok" | "warn" | "bad" }[];
   flowPath: "allow" | "fee_override" | "block";
+  /** Optional size chips (Wallet E USD bands). */
+  amountPresets?: number[];
+  latencyMitigation?:
+    | "INFLOW_HEURISTIC"
+    | "INFLOW_MAGNITUDE"
+    | "SCORE_NEVER_WRITTEN"
+    | "STALE_WITH_POOL_ACTIVITY"
+    | "ACTIVITY_WINDOW_CAP"
+    | "MAGNITUDE_QUOTE_FAILED"
+    | null;
   swapSell: string;
   swapBuy: string;
   sellToken: string;
@@ -115,8 +126,8 @@ export interface DemoCase {
   };
 }
 
-/** Display order: alphabetical A → B → C → D */
-export const CASE_ORDER: DemoCaseId[] = ["A", "B", "C", "D"];
+/** Display order: A → E */
+export const CASE_ORDER: DemoCaseId[] = ["A", "B", "C", "D", "E"];
 
 const CLEAN_AGENT_NOTE =
   "Internal operator documentation. The agent never files with any authority.";
@@ -442,10 +453,10 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
   },
   D: {
     id: "D",
-    label: "Latency path — inflow heuristic",
-    shortLabel: "Wallet D · Latency",
+    label: "Published score 0 — ALLOW",
+    shortLabel: "Wallet D · Score 0",
     wallet: "0x4838B106FCe9647Bdf1E7877BF73cE8B0BAD5f97",
-    walletLabel: "Wallet D · Clean (latency)",
+    walletLabel: "Wallet D · Score 0",
     score: 0,
     riskLabel: "Low Risk",
     decision: "allow",
@@ -457,16 +468,16 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
     activity: {
       hopDistance: null,
       origin: "—",
-      windowLabel: "latency",
-      totalUsd: 0,
+      windowLabel: "24h",
+      totalUsd: 5_000,
       amountUsd: 1000,
       txCount: 0,
     },
     typology: "None",
     summary: [
-      "Keeper score 0 — clean baseline for the oracle-latency demo.",
-      "After A → D (before keeper): stale score 0 · inflow heuristic → FEE_OVERRIDE 8%.",
-      "Keeper catch-up then writes decay score ≈ 65 (1-hop).",
+      "Published score 0 — confirmed clean. Swap already-held USDC at 0.30%.",
+      "After clean C → D: score 0, no hop, inflow heuristic → FEE_OVERRIDE 8%.",
+      "C→D $25,000 (C still clean) → InflowMagnitudeBlocked. A→D is a hop — do not use it for this floor.",
     ],
     signals: [
       { label: "Exploit / sanctions", value: "Clear", tone: "ok" },
@@ -475,12 +486,12 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
       { label: "Applied fee", value: "0.30%", tone: "ok" },
     ],
     tags: [
-      { label: "Latency path", tone: "ok" },
+      { label: "Score 0", tone: "ok" },
       { label: "ALLOW", tone: "ok" },
     ],
     flowPath: "allow",
-    swapSell: "0",
-    swapBuy: "0",
+    swapSell: "1,000",
+    swapBuy: "0.9970",
     sellToken: "USDC",
     buyToken: "ETH",
     gasUsed: 191_200,
@@ -506,31 +517,146 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
       technicalOpinion: {
         issued: true,
         objectAndScope:
-          "Subject: Wallet D. Role: pool participant used to demonstrate oracle-latency Mitigation D (inflow heuristic).",
+          "Subject: Wallet D. Role: published score 0 (confirmed clean). Optional second act: clean C→D (inflow, no hop).",
         typologies:
-          "Instrument: Uniswap v4 RWA pool swap (USDC→ETH). Baseline clean; A→D P2P then immediate swap exercises §3.8.",
+          "Instrument: Uniswap v4 RWA pool swap (USDC→ETH). Baseline is a published clean row. A later inbound from clean C exercises the inflow floor without a hop.",
         sanctionsCheck:
           "Oracle evaluation at live session. Ledger retains dated transfers; this narrative summarizes the period under review.",
         sourcesConsulted: [
-          "Venue: AML Hook demo RWA pool (Uniswap v4). Account under review: Wallet D. Latency window demo path.",
+          "Venue: AML Hook demo RWA pool (Uniswap v4). Account under review: Wallet D. Published score 0.",
         ],
         riskAndScoring:
-          "Why not treated as suspicious at baseline: score 0/100 · ALLOW band. After A→D before keeper catch-up, inflow elevates to FEE_OVERRIDE 8%.",
+          "Score 0/100 in the ALLOW band. Already-held funds swap at 0.30%. After clean C→D, inflow elevates to FEE_OVERRIDE 8% with no hop.",
         decisionExecuted:
-          "How / control: baseline ALLOW; under stale score + significant inflow, beforeSwap floors to FEE_OVERRIDE then keeper catch-up publishes ~65.",
+          "Baseline ALLOW. After clean C→D, beforeSwap floors to FEE_OVERRIDE 8% on inflow. D stays score 0 — no hop.",
         legalBasis:
-          "FATF Rec. 1 & 10. Temporary friction pending keeper confirmation — not a determination of guilt.",
+          "FATF Rec. 1 & 10. Temporary friction pending keeper confirmation.",
         recommendations:
-          "Demo: A → D P2P, then swap D before catch-up. Expect 8% inflow fee, then score 65.",
+          "Swap D first to see score 0 ALLOW. Then C → D (C still clean) and swap again to see the 8% inflow floor.",
         traceability: "Retention 5 years. Support draft — not submitted.",
       },
       sarAnnex: null,
       decisionRecord: {
         score: "0",
         output: "ALLOW",
-        mainFacts: "Wallet D clean latency baseline; no hop published yet; standard fee.",
+        mainFacts: "Wallet D published score 0; already-held funds; standard fee.",
         basis: "SCORE_BELOW_FEE_OVERRIDE_THRESHOLD",
-        nextReview: "On A→D P2P then swap inside keeper window",
+        nextReview: "On clean C→D P2P then swap",
+      },
+      poolReport: { ...SHARED_POOL_REPORT },
+      note: CLEAN_AGENT_NOTE,
+    },
+  },
+  E: {
+    id: "E",
+    label: "Unknown wallet — fee or revert by size",
+    shortLabel: "Wallet E · Unknown",
+    wallet: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+    walletLabel: "Wallet E · Unknown",
+    score: 0,
+    riskLabel: "Unknown",
+    decision: "fee_override",
+    decisionLabel: "Fee override",
+    baseFeeBps: 30,
+    appliedFeeBps: 800,
+    feeMultiplier: 800 / 30,
+    exploitConfirmed: false,
+    activity: {
+      hopDistance: null,
+      origin: "—",
+      windowLabel: "first swap",
+      totalUsd: 40_000,
+      amountUsd: 1000,
+      txCount: 0,
+    },
+    typology: "Unknown wallet",
+    summary: [
+      "No oracle row. This address has never received a keeper write.",
+      "Pick a size: $500 → 3%; $1,000 → 8%; $10,000 → 8% (window sums); $25,000 → REVERT.",
+      "A missing price feed also reverts.",
+    ],
+    signals: [
+      { label: "Exploit / sanctions", value: "Clear", tone: "ok" },
+      { label: "Keeper score", value: "— never written", tone: "warn" },
+      { label: "Hop distance", value: "—", tone: "ok" },
+      { label: "Applied fee", value: "8.00%", tone: "warn" },
+    ],
+    tags: [
+      { label: "Unknown", tone: "warn" },
+      { label: "FEE_OVERRIDE", tone: "warn" },
+    ],
+    flowPath: "fee_override",
+    amountPresets: [500, 1000, 10_000, 25_000],
+    swapSell: "1,000",
+    swapBuy: "0.9200",
+    sellToken: "USDC",
+    buyToken: "ETH",
+    gasUsed: 188_000,
+    totalTimeSec: 1.82,
+    stepTimesSec: {
+      sign: 0.12,
+      unlock: 0.18,
+      before: 0.21,
+      l1: 0.15,
+      l2: 0.42,
+      decide: 0.28,
+      out: 0.46,
+    },
+    agent: {
+      status: "Technical opinion · FEE_OVERRIDE (unknown)",
+      hookOutput: "FEE_OVERRIDE",
+      documentType: "opinion + sar-annex",
+      recipient: "Pool operator Compliance Officer",
+      confidence: "MEDIUM",
+      humanReview: true,
+      retentionYears: 5,
+      auditHash: "0xe0c1…000e",
+      technicalOpinion: {
+        issued: true,
+        objectAndScope:
+          "Subject: Wallet E. Role: unknown pool participant. The oracle has never written a row for this address.",
+        typologies:
+          "Instrument: Uniswap v4 RWA pool swap (USDC→ETH). First flow from an unpublished address. Size decides 3%, 8%, or revert.",
+        sanctionsCheck:
+          "Layer-1 screen clear (simulated). No keeper score exists to read.",
+        sourcesConsulted: [
+          "Venue: AML Hook demo RWA pool (Uniswap v4). Account under review: Wallet E. Never-written oracle row.",
+        ],
+        riskAndScoring:
+          "Unknown wallet. Default $1,000 first swap is the mid band: FEE_OVERRIDE 8%. Under $1,000 is 3%. At $25,000 the swap reverts.",
+        decisionExecuted:
+          "beforeSwap applies the unknown-wallet USD bands. afterSwap emits SwapObserved on the fee path; a $25,000 attempt reverts.",
+        legalBasis:
+          "FATF Rec. 10 CDD-aligned dust band and magnitude floor for an unpublished address.",
+        recommendations:
+          "Use the size chips on the swap card. $500, $1,000, and $25,000 exercise the three bands.",
+        traceability: "Retention 5 years. Support draft — not submitted.",
+      },
+      sarAnnex: {
+        produced: true,
+        status: "support-draft (not filed)",
+        activityPeriod: "first-swap window",
+        amountInvolved: "USD size chosen on the swap card",
+        operationState: "FEE_OVERRIDE or REVERT",
+        narrativeDescription:
+          "WHO: Wallet E — unknown address. WHAT: first pool swap with no keeper score.",
+        narrativeAnalysis:
+          "WHEN: live demo session. WHERE: demo RWA pool.",
+        narrativeEvidence:
+          "WHY: never-written oracle row. Size maps to 3%, 8%, or revert.",
+        narrativeConclusion:
+          "HOW: unknown-wallet USD bands. Internal pack only — not a filing.",
+        warnings: [
+          "Confidentiality — no tip-off",
+          "Document status: support draft — not submitted",
+        ],
+      },
+      decisionRecord: {
+        score: "—",
+        output: "FEE_OVERRIDE",
+        mainFacts: "Wallet E unknown; default $1,000 → 8%.",
+        basis: "UNKNOWN_WALLET_USD_BANDS",
+        nextReview: "On keeper publish, or on a $25,000 attempt",
       },
       poolReport: { ...SHARED_POOL_REPORT },
       note: CLEAN_AGENT_NOTE,

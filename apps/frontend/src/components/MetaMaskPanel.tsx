@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ETH_USD,
+  isSenderTainted,
+  previewTransfer,
   type SimWallet,
   type SimWalletId,
 } from "@/lib/hopScoring";
@@ -89,12 +91,13 @@ export function MetaMaskPanel({
     [wallets, activeId],
   );
 
-  /** Keep recipient valid whenever the active account changes */
+  /** Prefer C→D (inflow) and A→B (hop) when the sender account changes. */
   useEffect(() => {
-    if (!recipients.includes(toId)) {
-      setToId(recipients[0] ?? "A");
-    }
-  }, [activeId, recipients, toId]);
+    if (activeId === "C") setToId("D");
+    else if (activeId === "B" && !isSenderTainted(wallets.B)) setToId("D");
+    else if (activeId === "A") setToId("B");
+    else setToId((prev) => (prev === activeId ? "C" : prev));
+  }, [activeId, wallets.B]);
 
   /** Clear flash when switching accounts */
   useEffect(() => {
@@ -247,7 +250,7 @@ export function MetaMaskPanel({
               </button>
               <h3 className="text-xl font-bold text-white">Send USDC</h3>
               <p className="mt-1 text-sm text-white/50">
-                Moves USDC between A / B / C / D. Sender balance goes down, recipient goes up.
+                Moves USDC between A–E. For D inflow (no hop), send from C while C is still clean — not from A.
               </p>
 
               <label className="mt-6 text-[11px] uppercase tracking-wider text-white/40">
@@ -282,6 +285,11 @@ export function MetaMaskPanel({
                     </div>
                     <div className="mt-1 text-[11px] font-medium opacity-80">
                       {formatUsdc(wallets[id].usdc)}
+                      {id === "D" && !isSenderTainted(active)
+                        ? " · inflow"
+                        : id === "D" && isSenderTainted(active)
+                          ? " · hop"
+                          : ""}
                     </div>
                   </button>
                 ))}
@@ -303,6 +311,25 @@ export function MetaMaskPanel({
                 inputMode="numeric"
                 className="mt-1 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-lg text-white outline-none focus:border-[#037DD6]"
               />
+              {toId === "D" && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {[10_000, 25_000].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setAmount(String(preset))}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                        parsedAmount === preset
+                          ? "bg-[#037DD6] text-white"
+                          : "bg-white/10 text-white/70 hover:text-white"
+                      }`}
+                    >
+                      ${preset.toLocaleString("en-US")}
+                      {preset >= 25_000 ? " · revert" : " · 8%"}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {amountOk && canSend && (
                 <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3 text-xs text-white/70">
@@ -318,6 +345,21 @@ export function MetaMaskPanel({
                       {formatUsdc(wallets[toId].usdc + parsedAmount)}
                     </span>
                   </div>
+                  {(() => {
+                    const preview = previewTransfer(active, wallets[toId], parsedAmount);
+                    const color =
+                      preview.tone === "bad"
+                        ? "text-[#FF6B6B]"
+                        : preview.tone === "warn"
+                          ? "text-[#F0B90B]"
+                          : "text-[#28A745]";
+                    return (
+                      <div className={`mt-2 border-t border-white/10 pt-2 ${color}`}>
+                        <div className="font-semibold">{preview.title}</div>
+                        <div className="mt-0.5 opacity-90">{preview.detail}</div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 

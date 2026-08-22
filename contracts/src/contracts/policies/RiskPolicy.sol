@@ -132,7 +132,7 @@ contract RiskPolicy is IRiskPolicy {
 
         // §3.3 Output 1 (ALLOW band), then §3.8 floors that may elevate.
         // Mitigation B: stale score AND recent pool activity (ops > 0).
-        // Mitigation D relative: significant inflow share while oracle still predates baseline.
+        // Mitigation D relative: inbound USD > 50% of current USD (medium risk → differential).
         // Either alone is enough; both together still only FEE_OVERRIDE (no stacking).
         bool forceOverride = (isStale && operationCount > 0) || hasSignificantInflow;
         if (forceOverride) {

@@ -14,7 +14,7 @@ Uniswap-styled demo of the AML Hook use case: **exploit cash-out detection**, **
 | 2 | **Hook** | Flow simulator for the hook lifecycle |
 | 3 | **Fees** | Pool standard fee + FeeEscrow differential (FEE_OVERRIDE) · gas · **Sold (USDC)** / **Bought (ETH)** |
 | 4 | **AML stats** | Score gauge, report overview, detection data |
-| 5 | **Opinion** | Legal / technical opinion (A–D) from **oracle COA** via `/compliance` |
+| 5 | **Opinion** | Legal / technical opinion (A–E) from **oracle COA** via `/compliance` |
 | 6 | **Event** | `afterSwap` pool-chain payload only |
 
 **Navigation**
@@ -32,15 +32,15 @@ Uniswap-styled demo of the AML Hook use case: **exploit cash-out detection**, **
 
 REVERT is `beforeSwap` only — no `afterSwap` emit for that attempt.
 
-**Navbar:** Connect chip shows `A · 0x…` with a **green / yellow / red** border from live risk (clean · hop/latency FEE_OVERRIDE · REVERT exploit). Wallet D shows **Latency** while keeper-pending. P2P USDC transfers run from the MetaMask simulator panel.
+**Navbar:** Connect chip shows `A · 0x…` with a **green / yellow / red** border from live risk (clean · hop/latency/unknown FEE_OVERRIDE · REVERT exploit). Wallet D shows **Score 0** until contaminated; **Latency** while keeper-pending. Wallet E stays **Unknown**. P2P USDC transfers run from the MetaMask simulator panel.
 
-### The four use-case wallets
+### The five use-case wallets
 
 1. **Wallet A (exploit)** — score 100 · `REVERT`
-2. **Wallet B (clean)** — same rules as C: A→B ≈ 65 / 8%; tainted C→B ≈ 42 / 3%
-3. **Wallet C (clean)** — same rules as B: A→C ≈ 65 / 8%; tainted B→C ≈ 42 / 3%
-4. **Wallet D (latency)** — starts clean (0 USDC); A→D defers keeper; swap under stale score 0 → inflow `FEE_OVERRIDE` 8% (or REVERT if inbound USD ≥ $25,000); catch-up → ~65
-5. **Wallet E (never written)** — no oracle row. On-chain Chainlink quote: under $1,000 → 3%; $1,000–$24,999 → 8%; ≥ $25,000 (or window USD) → `UnscoredMagnitudeBlocked`. Missing/stale feed fail-closes.
+2. **Wallet B (clean)** — receives from A → ~65 / 8%; from tainted C → ~42 / 3%
+3. **Wallet C (clean)** — receives from A → ~65 / 8%; from tainted B → ~42 / 3%
+4. **Wallet D (score 0)** — 5,000 USDC published clean. Held funds → ALLOW 0.30%. 4th swap in the hour → 8% (C). Advance 2 min after a swap → 8% (B). Clean C→D ~10k → inflow 8% (no hop). Clean C→D $25k → revert
+5. **Wallet E (unknown)** — no oracle row. Chips: $500 → 3%; $1,000 / $10,000 → 8%; $25,000 or window sum → revert. Unbind feed → revert
 
 N-hop formula: `derived_score = origin_score × (0.65 ^ hops) × exposed_proportion`  
 Closer hop wins if a wallet is contaminated more than once. Never-scored magnitude is **USD-8**, not native token units.
@@ -63,13 +63,14 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 
 ## Demo walkthrough
 
-1. Connect **Wallet C** → swap → ALLOW 0.30% (baseline)
+1. Connect **Wallet D** → swap → ALLOW 0.30% (published score 0)
 2. Connect **Wallet A** → swap → REVERT
 3. Open **MetaMask Simulator** → Send USDC **A→B**, then **B→C**
 4. Swap with **B** → FEE_OVERRIDE 8%; with **C** → FEE_OVERRIDE 3%
-5. Send USDC **A→D**, connect **D** → swap → FEE_OVERRIDE 8% (inflow / stale score 0); keeper catch-up → score 65
-6. A brand-new wallet with no score (Wallet E) pays **3%** under $1,000, **8%** from $1,000 to $24,999, and **reverts** at $25,000 (or if the price feed is missing/stale)
-7. From **Fees**, advance → **AML stats** → **Opinion** → **Event**
+5. On **D**, swap $1,000 four times → 4th is 8% (activity window). **Advance 2 min** → 8% (stale + activity)
+6. Restart. Send **10,000** C→D (C still clean) → D swap → 8% (inflow, no hop). Restart. Send **25,000** C→D → D swap → revert
+7. Connect **Wallet E** → $500 / $1,000 / $10,000 / $25,000 → 3% / 8% / 8% / revert. **Unbind price feed** → revert
+8. From **Fees**, advance → **AML stats** → **Opinion** → **Event**
 
 ## Data source
 
@@ -80,7 +81,7 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 ## Related docs (repo root)
 
 - `docs/Whitepaper.md` — product + AccessManager roles (§3.5)
-- `docs/Use_Case.md` — A/B/C/D + Wallet E (USD magnitude) demo narrative
+- `docs/Use_Case.md` — A–E demo narrative
 - `contracts/README.md` — Foundry layout (`src/contracts/…`, `script/Deploy.sol`)
 - `apps/api/README.md` — ledger + COA + on-chain `updateScore` (`_ORACLE_KEEPER`)
 

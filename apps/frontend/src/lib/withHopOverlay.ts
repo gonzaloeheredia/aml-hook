@@ -198,7 +198,7 @@ function buildLiveSarAnnex(
  * so Swap / Flow / Audit (including Opinion) track contamination changes.
  */
 export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
-  const resolved = resolveDemoRisk(wallet);
+  const resolved = resolveDemoRisk(wallet, base.activity.amountUsd);
   const { score, decision, feeBps: appliedFeeBps, latencyMitigation, keeperPending } =
     resolved;
   const feeMultiplier =
@@ -209,29 +209,51 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
     decision === "block" ? 0 : ethOutFromSwap(usdcIn, appliedFeeBps);
 
   const riskLabel =
-    decision === "block"
-      ? "Blocked"
-      : latencyMitigation === "INFLOW_HEURISTIC"
-        ? "Inflow · Latency floor"
-        : decision === "fee_override"
-          ? wallet.hopDistance === 1
-            ? "1-hop · Punitive"
-            : wallet.hopDistance === 2
-              ? "2-hop · Proportional"
-              : "Medium Risk"
-          : "Low Risk";
+    latencyMitigation === "MAGNITUDE_QUOTE_FAILED"
+      ? "No price feed"
+      : latencyMitigation === "INFLOW_MAGNITUDE"
+        ? "Inflow · Magnitude block"
+        : latencyMitigation === "STALE_WITH_POOL_ACTIVITY"
+          ? "Stale score · Activity"
+          : latencyMitigation === "ACTIVITY_WINDOW_CAP"
+            ? "Burst · Activity window"
+            : latencyMitigation === "SCORE_NEVER_WRITTEN"
+              ? decision === "block"
+                ? "Unknown · Magnitude block"
+                : "Unknown"
+              : decision === "block"
+                ? "Blocked"
+                : latencyMitigation === "INFLOW_HEURISTIC"
+                  ? "Inflow · Latency floor"
+                  : decision === "fee_override"
+                    ? wallet.hopDistance === 1
+                      ? "1-hop · Punitive"
+                      : wallet.hopDistance === 2
+                        ? "2-hop · Proportional"
+                        : "Medium Risk"
+                    : "Low Risk";
 
   const decisionLabel =
     decision === "block" ? "Block" : decision === "fee_override" ? "Fee override" : "Allow";
 
   const hopTag =
-    latencyMitigation === "INFLOW_HEURISTIC"
-      ? "Inflow heuristic"
-      : wallet.hopDistance == null
-        ? "Clean path"
-        : wallet.hopDistance === 0
-          ? "Exploit source"
-          : `${wallet.hopDistance}-hop decay`;
+    latencyMitigation === "MAGNITUDE_QUOTE_FAILED"
+      ? "No price feed"
+      : latencyMitigation === "INFLOW_MAGNITUDE"
+        ? "Inflow magnitude"
+        : latencyMitigation === "STALE_WITH_POOL_ACTIVITY"
+          ? "Stale + activity"
+          : latencyMitigation === "ACTIVITY_WINDOW_CAP"
+            ? "Activity window"
+            : latencyMitigation === "SCORE_NEVER_WRITTEN"
+              ? "Unknown wallet"
+              : latencyMitigation === "INFLOW_HEURISTIC"
+                ? "Inflow heuristic"
+                : wallet.hopDistance == null
+                  ? "Clean path"
+                  : wallet.hopDistance === 0
+                    ? "Exploit source"
+                    : `${wallet.hopDistance}-hop decay`;
 
   const hookOutput =
     decision === "block" ? "REVERT" : decision === "fee_override" ? "FEE_OVERRIDE" : "ALLOW";
@@ -245,13 +267,17 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
   );
 
   const agentStatus =
-    decision === "block"
-      ? "Technical opinion · REVERT"
-      : latencyMitigation === "INFLOW_HEURISTIC"
-        ? "Technical opinion · FEE_OVERRIDE (inflow)"
-        : decision === "fee_override"
-          ? `Technical opinion · ${wallet.hopDistance}-hop FEE_OVERRIDE`
-          : "Legal opinion · ALLOW";
+    latencyMitigation === "SCORE_NEVER_WRITTEN"
+      ? decision === "block"
+        ? "Technical opinion · REVERT (unknown)"
+        : "Technical opinion · FEE_OVERRIDE (unknown)"
+      : decision === "block"
+        ? "Technical opinion · REVERT"
+        : latencyMitigation === "INFLOW_HEURISTIC"
+          ? "Technical opinion · FEE_OVERRIDE (inflow)"
+          : decision === "fee_override"
+            ? `Technical opinion · ${wallet.hopDistance}-hop FEE_OVERRIDE`
+            : "Legal opinion · ALLOW";
 
   const documentType =
     decision === "allow" ? "legal-opinion" : "opinion + sar-annex";
@@ -274,33 +300,60 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
       totalUsd: wallet.usdc,
       amountUsd: usdcIn,
     },
+    latencyMitigation,
     typology: wallet.exploitConfirmed
       ? "Exploit cash-out"
-      : latencyMitigation === "INFLOW_HEURISTIC"
-        ? "Oracle latency · inflow"
-        : wallet.hopDistance
-          ? "N-hop propagation"
-          : "None",
+      : latencyMitigation === "MAGNITUDE_QUOTE_FAILED"
+        ? "Price feed fail-closed"
+        : latencyMitigation === "INFLOW_MAGNITUDE"
+          ? "Inflow magnitude"
+          : latencyMitigation === "STALE_WITH_POOL_ACTIVITY"
+            ? "Stale score · activity"
+            : latencyMitigation === "ACTIVITY_WINDOW_CAP"
+              ? "Activity window"
+              : latencyMitigation === "SCORE_NEVER_WRITTEN"
+                ? "Unknown wallet"
+                : latencyMitigation === "INFLOW_HEURISTIC"
+                  ? "Oracle latency · inflow"
+                  : wallet.hopDistance
+                    ? "N-hop propagation"
+                    : "None",
     flowPath: decision,
     sellToken: "USDC",
     buyToken: "ETH",
     swapSell: formatUsdcSell(usdcIn),
     swapBuy: formatEthBuy(ethOut),
     summary: [
-      wallet.exploitConfirmed
-        ? "Keeper confirmed exploit source — REVERT on pool swaps. P2P outflows contaminate B/C/D."
-        : keeperPending
-          ? "Wallet D latency window: inbound P2P recorded; keeper has not published decay score yet."
-          : wallet.hopDistance
-            ? `Contamination at ${wallet.hopDistance} hop(s) from origin ${wallet.originId ?? "A"} · score ${score}.`
-            : "Clean wallet. No contamination from A yet — ALLOW at standard fee.",
-      latencyMitigation === "INFLOW_HEURISTIC"
-        ? `§3.8 inflow heuristic → FEE_OVERRIDE ${(appliedFeeBps / 100).toFixed(2)}% total friction (FeeEscrow differential) under stale score ${score}.`
-        : decision === "fee_override"
-          ? `FEE_OVERRIDE ${(appliedFeeBps / 100).toFixed(2)}% total friction — pool standard fee + FeeEscrow differential.`
-          : decision === "block"
-            ? "beforeSwap reverts atomically — no settlement."
-            : "Standard pool fee 0.30%.",
+      wallet.neverScored
+        ? `Wallet E is unknown. This size ($${usdcIn.toLocaleString("en-US")}) maps to ${hookOutput}.`
+        : wallet.exploitConfirmed
+          ? "Exploit source — REVERT on pool swaps. P2P outflows contaminate B, C, or D."
+          : keeperPending
+            ? "Wallet D: inbound P2P recorded; keeper has not published the decay score yet."
+            : wallet.hopDistance
+              ? `Contamination at ${wallet.hopDistance} hop(s) from origin ${wallet.originId ?? "A"} · score ${score}.`
+              : wallet.id === "D"
+                ? "Wallet D has a published score of 0. Already-held funds ALLOW at 0.30%."
+                : "Clean wallet. No contamination from A yet — ALLOW at standard fee.",
+      latencyMitigation === "MAGNITUDE_QUOTE_FAILED"
+        ? "No bound USD price feed — fail-closed (MagnitudeQuoteFailed)."
+        : latencyMitigation === "INFLOW_MAGNITUDE"
+          ? "Inbound USD ≥ $25,000 since baseline — REVERT (InflowMagnitudeBlocked)."
+          : latencyMitigation === "STALE_WITH_POOL_ACTIVITY"
+            ? "Score older than 120s and this wallet already swapped in the hour → FEE_OVERRIDE 8%."
+            : latencyMitigation === "ACTIVITY_WINDOW_CAP"
+              ? "Already 3 ops in the hour — this swap is FEE_OVERRIDE 8%."
+              : latencyMitigation === "SCORE_NEVER_WRITTEN"
+                ? decision === "block"
+                  ? "Unknown wallet: this swap plus the 1-hour window is $25,000 or more — REVERT."
+                  : `Unknown-wallet band → FEE_OVERRIDE ${(appliedFeeBps / 100).toFixed(2)}%.`
+                : latencyMitigation === "INFLOW_HEURISTIC"
+                  ? `Inflow floor → FEE_OVERRIDE ${(appliedFeeBps / 100).toFixed(2)}% under stale score ${score}.`
+                  : decision === "fee_override"
+                    ? `FEE_OVERRIDE ${(appliedFeeBps / 100).toFixed(2)}% — pool standard fee plus FeeEscrow differential.`
+                    : decision === "block"
+                      ? "beforeSwap reverts — no settlement."
+                      : "Standard pool fee 0.30%.",
       hopTag,
     ],
     signals: [
@@ -311,7 +364,9 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
       },
       {
         label: "Keeper score",
-        value: `${score} / 100${keeperPending ? " (stale)" : ""}`,
+        value: wallet.neverScored
+          ? "— never written"
+          : `${score} / 100${keeperPending ? " (stale)" : ""}`,
         tone: decision === "block" ? "bad" : decision === "fee_override" ? "warn" : "ok",
       },
       {
@@ -351,13 +406,15 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
         output: hookOutput,
         mainFacts: `WHO ${wallet.accountLabel}; hop=${wallet.hopDistance ?? "none"}; origin=${wallet.originId ?? "—"}; USDC=${wallet.usdc.toLocaleString("en-US")}; ETH=${wallet.eth}; keeperPending=${keeperPending}.`,
         basis:
-          decision === "block"
-            ? "EXPLOIT_CASH_OUT_FAIL_CLOSED"
-            : latencyMitigation === "INFLOW_HEURISTIC"
-              ? "ORACLE_LATENCY_INFLOW_HEURISTIC"
-              : decision === "fee_override"
-                ? "N_HOP_DECAY_FEE_OVERRIDE"
-                : "SCORE_BELOW_FEE_OVERRIDE_THRESHOLD",
+          latencyMitigation === "SCORE_NEVER_WRITTEN"
+            ? "UNKNOWN_WALLET_USD_BANDS"
+            : decision === "block"
+              ? "EXPLOIT_CASH_OUT_FAIL_CLOSED"
+              : latencyMitigation === "INFLOW_HEURISTIC"
+                ? "ORACLE_LATENCY_INFLOW_HEURISTIC"
+                : decision === "fee_override"
+                  ? "N_HOP_DECAY_FEE_OVERRIDE"
+                  : "SCORE_BELOW_FEE_OVERRIDE_THRESHOLD",
         nextReview:
           decision === "block"
             ? "Immediate human review · watch outbound P2P"

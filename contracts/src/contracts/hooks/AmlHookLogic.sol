@@ -101,13 +101,22 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
 
     /// @notice Rolling window for per-wallet pool activity counters (seconds).
     /// @dev Mitigation C (§3.8): catch burst swaps across consecutive blocks while
-    ///      the keeper has not yet moved the score tier.
-    uint64 public immutable activityWindow;
+    ///      the keeper has not yet moved the score tier. `_HOOK_GOVERNOR` retunes
+    ///      via `setActivityWindow` (default 1 hour; bounds `[MIN, MAX]`).
+    uint64 public activityWindow;
 
     /// @notice Ops inside the activity window that force FEE_OVERRIDE instead of ALLOW.
     /// @dev Why a cap: without it, an attacker can spam ALLOW swaps under a lagging
     ///      clean score. Default 3 matches the local deploy / whitepaper example.
-    uint32 public immutable maxOpsInWindow;
+    ///      The next swap after this many completed ops pays 8%. Governor-retunable.
+    uint32 public maxOpsInWindow;
+
+    uint64 public constant DEFAULT_ACTIVITY_WINDOW = 1 hours;
+    uint32 public constant DEFAULT_MAX_OPS_IN_WINDOW = 3;
+    uint64 public constant MIN_ACTIVITY_WINDOW = 60;
+    uint64 public constant MAX_ACTIVITY_WINDOW = 7 days;
+    uint32 public constant MIN_MAX_OPS_IN_WINDOW = 1;
+    uint32 public constant MAX_MAX_OPS_IN_WINDOW = 100;
 
     /// @notice USD-8 floor below which an unscored swap pays the reduced 3% latency fee.
     /// @dev Chainlink 8 decimals (1_000e8 = $1,000). GAFI Rec. 10 / CDD-aligned dust band.
@@ -131,9 +140,9 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     uint256 public constant DEFAULT_PRICE_STALENESS = 3600;
     uint256 public constant MAX_PRICE_STALENESS = 24 hours;
 
-    /// @notice Balance-delta share (bps of current balance) that flags a significant inflow.
-    /// @dev Mitigation D (§3.8) / use-case Wallet D. Default 5000 = 50%.
-    ///      Detects "large new funds then immediate swap" — not fund origin (N-hop does that).
+    /// @notice Inbound USD share (bps of current USD-8 bag) that flags a medium-risk increment.
+    /// @dev Mitigation D (§3.8) / use-case Wallet D. Default 5000 = 50% of current USD.
+    ///      Medium increment → FEE_OVERRIDE (differential). Inbound USD ≥ revert floor → REVERT.
     uint256 public inflowThresholdBps;
 
     /// @dev Default punitive fee when elevating ALLOW due to hook-local latency mitigations.
@@ -186,6 +195,8 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     error MagnitudeQuoteFailed(address token, bytes32 reason);
     error UnscoredThresholdsInvalid();
     error PriceStalenessThresholdInvalid();
+    error ActivityWindowInvalid();
+    error MaxOpsInWindowInvalid();
     /// @notice Caller is not a trusted router — no end-user can be resolved (fail-closed §3.5).
     error MissingSwapSubject();
     /// @notice Trusted router `msgSender()` reverted or returned zero — fail closed.
@@ -209,6 +220,9 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     );
     event PriceFeedUpdated(address indexed token, address previousFeed, address feed);
     event PriceStalenessThresholdUpdated(uint256 previous, uint256 current);
+    event ActivityWindowUpdated(
+        uint64 previousWindow, uint32 previousMaxOps, uint64 activityWindow, uint32 maxOpsInWindow
+    );
     event TrustedRouterUpdated(address indexed router, bool trusted);
 
     /// @notice afterSwap audit trail for off-chain scoring + reporting (§3.4 / §3.6 / §3.9 Step 7).
@@ -259,8 +273,10 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
             if (stalenessThreshold_ > MAX_STALENESS) revert StalenessThresholdTooHigh();
             stalenessThreshold = stalenessThreshold_;
         }
-        activityWindow = activityWindow_ == 0 ? 1 hours : activityWindow_;
-        maxOpsInWindow = maxOpsInWindow_ == 0 ? 3 : maxOpsInWindow_;
+        _applyActivityWindow(
+            activityWindow_ == 0 ? DEFAULT_ACTIVITY_WINDOW : activityWindow_,
+            maxOpsInWindow_ == 0 ? DEFAULT_MAX_OPS_IN_WINDOW : maxOpsInWindow_
+        );
         inflowThresholdBps = 5000; // 50% — Wallet D / Mitigation D default
         // USD-8 floors (Chainlink decimals). Governor retunes via setUnscoredThresholds.
         unscoredFeeThreshold = DEFAULT_USD_FEE_THRESHOLD;
@@ -301,7 +317,7 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         _unpause();
     }
 
-    /// @notice Hook governor retunes Mitigation D inflow threshold in bps of current balance (§3.8).
+    /// @notice Hook governor retunes Mitigation D inflow threshold in bps of current USD bag (§3.8).
     /// @dev Floor `FeeBps.MIN_INFLOW_THRESHOLD` (1%) so a zero threshold cannot elevate every dust delta.
     function setInflowThresholdBps(uint256 inflowThresholdBps_) external restricted {
         if (
@@ -332,6 +348,27 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         address previous = address(priceFeeds[token]);
         priceFeeds[token] = IAggregatorV3(feed);
         emit PriceFeedUpdated(token, previous, feed);
+    }
+
+    /// @notice Hook governor retunes Mitigation C's activity window and op cap (§3.8).
+    /// @dev Window is seconds; `maxOpsInWindow_` completed ops force the next swap to 8%.
+    ///      Restricted to `_HOOK_GOVERNOR`. Changing the window does not rewrite past
+    ///      `windowStart` — the current bucket expires against the new duration.
+    function setActivityWindow(uint64 activityWindow_, uint32 maxOpsInWindow_) external restricted {
+        _applyActivityWindow(activityWindow_, maxOpsInWindow_);
+    }
+
+    /// @dev Shared constructor / governor write. Rejects 0 and values outside the published bounds.
+    function _applyActivityWindow(uint64 activityWindow_, uint32 maxOpsInWindow_) private {
+        if (activityWindow_ < MIN_ACTIVITY_WINDOW || activityWindow_ > MAX_ACTIVITY_WINDOW) {
+            revert ActivityWindowInvalid();
+        }
+        if (maxOpsInWindow_ < MIN_MAX_OPS_IN_WINDOW || maxOpsInWindow_ > MAX_MAX_OPS_IN_WINDOW) {
+            revert MaxOpsInWindowInvalid();
+        }
+        emit ActivityWindowUpdated(activityWindow, maxOpsInWindow, activityWindow_, maxOpsInWindow_);
+        activityWindow = activityWindow_;
+        maxOpsInWindow = maxOpsInWindow_;
     }
 
     /// @notice Hook governor retunes how old a Chainlink `updatedAt` may be before fail-closed.
@@ -595,7 +632,16 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         if (neverScored) {
             (sig.assessedUsd, ) = _requireUsdQuote(volumeToken, amount, _usdInCurrentWindow(wallet));
         } else if (sig.inflowDelta > 0) {
+            // Both legs at the current feed: 50% is inbound USD / current USD, not native units.
             (sig.inflowUsd, ) = _requireUsdQuote(token, sig.inflowDelta, 0);
+            uint256 currentBal = IERC20Minimal(token).balanceOf(wallet);
+            (uint256 currentUsd, ) = _requireUsdQuote(token, currentBal, 0);
+            if (currentUsd > 0) {
+                sig.deltaBps = (sig.inflowUsd * 10_000) / currentUsd;
+                sig.hasSignificantInflow = sig.deltaBps > inflowThresholdBps;
+            } else {
+                sig.hasSignificantInflow = false;
+            }
         }
 
         // ── Layer 3 — ternary bands + floors B/D + USD magnitude ─────────────
@@ -731,9 +777,9 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
 
     /// @notice Balance-delta inflow heuristic — oracle-latency Mitigation D (§3.8 / Wallet D).
     /// @dev WHY: Mitigations A–C miss the path "wallet was published clean, then receives a large
-    ///      P2P transfer, then swaps before keeper updateScore". We compare token.balanceOf(wallet)
-    ///      to lastKnownBalance. Relative share > inflowThresholdBps → FEE_OVERRIDE.
-    ///      Absolute inbound USD-8 ≥ unscoredRevertThreshold → REVERT (same floor as Mitigation A).
+    ///      P2P transfer, then swaps before keeper updateScore". Token delta is quoted to USD-8.
+    ///      Inbound USD / current USD > inflowThresholdBps (default 50%) → medium risk → FEE_OVERRIDE
+    ///      (differential). Inbound USD ≥ unscoredRevertThreshold → REVERT.
     ///      Extra gas for balanceOf is intentional. Skipped when `token` is address(0).
     function _inflowSignal(address wallet, address token, uint64 scoreUpdatedAt)
         private
@@ -751,7 +797,7 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
 
         uint256 previous = lastKnownBalance[wallet][token];
         uint256 delta = currentBalance > previous ? currentBalance - previous : 0;
-        // Share of *current* balance that appeared since the last baseline (in bps).
+        // Provisional token-unit share; `_evaluateCore` overwrites with inbound USD / current USD.
         deltaBps = (delta * 10_000) / currentBalance;
 
         // Mitigation A already covers never-written scores. Without a baseline there is no

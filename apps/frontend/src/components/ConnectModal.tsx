@@ -7,9 +7,9 @@ import type { SimWallet } from "@/lib/hopScoring";
 type Props = {
   open: boolean;
   onClose: () => void;
-  /** Called when the user picks Wallet A / B / C / D */
+  /** Called when the user picks Wallet A–E */
   onConnect: (caseId: DemoCaseId) => void;
-  /** Live ledger — B/C/D stay green until contaminated or D enters latency window */
+  /** Live ledger — B/C/D stay green until contaminated; E stays unknown */
   wallets: Record<DemoCaseId, SimWallet>;
 };
 
@@ -21,8 +21,8 @@ function shorten(addr: string) {
 }
 
 /**
- * Connect modal — wallets A / B / C / D in alphabetical order.
- * Row border: green clean · yellow after hop / latency · red exploit.
+ * Connect modal — wallets A–E.
+ * Row border: green clean / score 0 · yellow hop, latency, or unknown · red exploit.
  */
 export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
   if (!open) return null;
@@ -75,11 +75,17 @@ export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
                     {shorten(wallet.address)}
                   </span>
                   <span className="mt-0.5 block text-[11px] opacity-80">
-                    {wallet.keeperPending
-                      ? "Keeper pending · inflow 8% on next swap"
-                      : wallet.hopDistance != null
-                        ? `${wallet.hopDistance}-hop · fee override expected`
-                        : c.label}
+                    {wallet.neverScored
+                      ? "Unknown · $500 → 3% · $1,000 → 8% · $25,000 → revert"
+                      : wallet.keeperPending
+                        ? "Keeper pending · inflow 8% on next swap"
+                        : wallet.hopDistance != null
+                          ? `${wallet.hopDistance}-hop · fee override expected`
+                          : id === "D"
+                            ? "Score 0 · fund via clean C (no hop) for inflow"
+                            : id === "C"
+                              ? "Clean · send to D for inflow, or receive from A for 1-hop"
+                              : c.label}
                   </span>
                 </span>
               </button>

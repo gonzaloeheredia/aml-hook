@@ -11,6 +11,11 @@ type Props = {
   walletEth: number;
   onConnectClick: () => void;
   onSimulate: () => void;
+  /** Size chips for Wallet E (and any case with amountPresets). */
+  onAmountChange?: (amountUsd: number) => void;
+  priceFeedBound?: boolean;
+  onAdvanceClock?: () => void;
+  onTogglePriceFeed?: () => void;
 };
 
 /**
@@ -23,6 +28,10 @@ export function SwapWidget({
   walletEth,
   onConnectClick,
   onSimulate,
+  onAmountChange,
+  priceFeedBound = true,
+  onAdvanceClock,
+  onTogglePriceFeed,
 }: Props) {
   const blocked = demoCase.decision === "block";
   const insufficient = connected && !blocked && walletUsdc < demoCase.activity.amountUsd;
@@ -64,6 +73,32 @@ export function SwapWidget({
             </span>
             <span>{demoCase.sellToken}</span>
           </div>
+          {connected && demoCase.amountPresets && onAmountChange && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {demoCase.amountPresets.map((preset) => {
+                const active = demoCase.activity.amountUsd === preset;
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => onAmountChange(preset)}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                      active
+                        ? "bg-uni-pink text-black"
+                        : "bg-uni-surface text-uni-muted hover:text-white"
+                    }`}
+                  >
+                    ${preset.toLocaleString("en-US")}
+                    {preset < 1000
+                      ? " · 3%"
+                      : preset < 25_000
+                        ? " · 8%"
+                        : " · revert"}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <div className="-my-2 flex justify-center">
@@ -95,10 +130,35 @@ export function SwapWidget({
           </div>
         </div>
 
+        {connected && onAdvanceClock && onTogglePriceFeed && (
+          <div className="mt-2 flex flex-wrap gap-2 px-1">
+            <button
+              type="button"
+              onClick={onAdvanceClock}
+              className="rounded-full bg-uni-surface px-3 py-1 text-xs font-semibold text-uni-muted transition hover:text-white"
+            >
+              Advance 2 min
+            </button>
+            <button
+              type="button"
+              onClick={onTogglePriceFeed}
+              className="rounded-full bg-uni-surface px-3 py-1 text-xs font-semibold text-uni-muted transition hover:text-white"
+            >
+              {priceFeedBound ? "Unbind price feed" : "Bind price feed"}
+            </button>
+          </div>
+        )}
+
         {connected && blocked && (
           <div className="mt-2 rounded-2xl border border-uni-bad/30 bg-uni-bad/10 px-4 py-3 text-sm text-uni-bad">
-            Exploit cash-out / confirmed exposure. The swap reverts in{" "}
-            <span className="font-semibold">beforeSwap</span> (fail-closed).
+            {demoCase.latencyMitigation === "MAGNITUDE_QUOTE_FAILED"
+              ? "No usable USD price. The swap fail-closes (MagnitudeQuoteFailed)."
+              : demoCase.latencyMitigation === "INFLOW_MAGNITUDE"
+                ? "Inbound USD since the last baseline is $25,000 or more. The swap reverts (InflowMagnitudeBlocked)."
+                : demoCase.id === "E" ||
+                    demoCase.latencyMitigation === "SCORE_NEVER_WRITTEN"
+                  ? "Unknown wallet: this swap plus the 1-hour window is $25,000 or more. The swap reverts."
+                  : "Exploit cash-out / confirmed exposure. The swap reverts before settlement."}
           </div>
         )}
 

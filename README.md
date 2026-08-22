@@ -1,195 +1,169 @@
 # AML Hook
 
-Compliance layer for **Uniswap v4** (UHI10). The hook intercepts swaps at `beforeSwap` / `afterSwap` and returns a ternary decision from a keeper-written risk score. It also gates liquidity entry and exit at `beforeAddLiquidity` / `beforeRemoveLiquidity` with a **sanctions-only** check (no score, no RiskPolicy):
+Uniswap v4 hook that evaluates the swap subject at execution and returns a ternary decision: **ALLOW**, **FEE_OVERRIDE**, or **REVERT**.
 
-| Score | Output | Effect |
-|---|---|---|
-| 0–30 | **ALLOW** | Standard pool fee (0.30%) |
-| 31–70 | **FEE_OVERRIDE** | Pool keeps standard fee; risk differential (e.g. total friction 3%–8%) taken in `afterSwap` → **FeeEscrow** 48h (sanction confirmed → blocked in escrow; confirmed clean → LP compensation, never the pool) |
-| 71–100 | **REVERT** | Fail-closed (exploit / sanctions exposure) |
-| Never written (`updatedAt == 0`), assessed USD < $1,000 | **FEE_OVERRIDE 3%** | Unknown ≠ clean. GAFI Rec. 10 / CDD-aligned dust band |
-| Never written, $1,000–$24,999 | **FEE_OVERRIDE 8%** | Unknown, economically material first flow |
-| Never written, assessed USD ≥ $25,000 (this swap + window USD) | **REVERT** | Large or structured first flow (`UnscoredMagnitudeBlocked`). Missing/stale Chainlink feed fail-closes (`MagnitudeQuoteFailed`) |
+The hook does not compute risk on-chain. An off-chain keeper (Compliance Officer Agent) writes a score into `ComplianceOracle`. `beforeSwap` reads that row, applies sanctions and latency floors, and either lets the swap through, takes a risk differential into `FeeEscrow`, or reverts. Liquidity add and remove are a sanctions-only gate. They do not read the score.
 
-The score is computed **off-chain** by the **Oracle Keeper** — a Compliance Officer Agent (COA): an AI AML analyst that will connect to external information sources (sanctions feeds, exploit monitors, on-chain graph signals) — and stored **on-chain** (`ComplianceOracle`). The hook only reads; it does not invent the score.
+Built for UHI10.
 
-On-chain writes for sanctions, scores and hook thresholds go through a shared OpenZeppelin **AccessManager** (`Roles`: `_REGISTRY_KEEPER`, `_ORACLE_KEEPER`, `_HOOK_GOVERNOR`). `updateScore` also requires a distinct **attestor** ECDSA signature (hop + origin bound). FeeEscrow keeps its own owner / keepers / depositors: owner is `ADMIN` / Safe from genesis; the hook is bootstrapped as depositor at deploy.
+## Documentation
 
-## Docs
+The product thesis and the executable scenario live in `docs/`. Read those before the contracts.
 
-| Doc | What it is |
-|---|---|
-| [`docs/Whitepaper.md`](docs/Whitepaper.md) | Product thesis, regulatory framing, why this exists |
-| [`docs/Use_Case.md`](docs/Use_Case.md) | A/B/C/D exploit → N-hop + oracle-latency (Wallet D) + never-scored USD bands (Wallet E) |
-| [`agents/oracle-coa/`](agents/oracle-coa/) | COA skill specs — AI Compliance Officer / AML analyst (Oracle Keeper) |
+| Document | Contents |
+| --- | --- |
+| [`docs/Whitepaper.md`](docs/Whitepaper.md) | Problem, architecture, roles, FeeEscrow, latency floors, regulatory framing, and competitive map |
+| [`docs/Use_Case.md`](docs/Use_Case.md) | Five-wallet run of the whitepaper: exploit, N-hop, D floors (B/C/inflow/$25k), E bands + window + feed, Opinion |
+
+Supporting notes:
+
+| Document | Contents |
+| --- | --- |
+| [`contracts/README.md`](contracts/README.md) | Foundry layout, call path, roles |
+| [`apps/api/README.md`](apps/api/README.md) | Demo ledger and keeper |
+| [`apps/frontend/README.md`](apps/frontend/README.md) | Guided UI |
+| [`agents/oracle-coa/`](agents/oracle-coa/) | COA skill specs |
+
+## Decision surface
+
+| Condition | Output | Settlement |
+| --- | --- | --- |
+| Score 0–30, published and fresh | ALLOW | Pool fee 0.30% |
+| Score 31–70 | FEE_OVERRIDE | Pool keeps 0.30%. Extra slice → FeeEscrow (48h) |
+| Score 71–100 | REVERT | No swap |
+| Sanctions list | REVERT | No swap. Score is not read |
+| Published 0 + inbound USD > 50% of current USD, under $25,000 | FEE_OVERRIDE 8% | Medium-risk increment · differential |
+| Published + inbound USD ≥ $25,000, score still older than the baseline | REVERT | `InflowMagnitudeBlocked` |
+| Score older than 120s and at least one swap in the hour | FEE_OVERRIDE 8% | Mitigation B |
+| Fourth swap after three completed ops in the hour (default) | FEE_OVERRIDE 8% | Mitigation C — governor retunes window / cap |
+| Never written, assessed USD &lt; $1,000 | FEE_OVERRIDE 3% | Unknown wallet (use-case wallet E) |
+| Never written, $1,000–$24,999 | FEE_OVERRIDE 8% | Unknown wallet |
+| Never written, ≥ $25,000 (this swap or the 1-hour window) | REVERT | `UnscoredMagnitudeBlocked` |
+| Never written, no usable USD price | REVERT | `MagnitudeQuoteFailed` |
+
+A published score of 0 is confirmed clean. An address with no oracle row is unknown. Those are different paths. Full thresholds and who may retune them: whitepaper §3.8. The A–E walkthrough: use case.
+
+N-hop score written by the keeper:
+
+```
+score = 100 × 0.65 ^ hops
+```
+
+Closer hop wins. Pool swaps never raise a score. Peer-to-peer transfers do.
+
+## On-chain stack
+
+```
+User → trusted router → PoolManager → AmlHook
+                                         ├─ AmlHookLogic        subject, L1–L3, USD quote
+                                         ├─ AmlHookSettlement   differential → FeeEscrow
+                                         ├─ SanctionRegistry    Layer 1
+                                         ├─ ComplianceOracle    Layer 2  ← keeper + attestor
+                                         └─ RiskPolicy          Layer 3  (pure)
+```
+
+| Contract | Responsibility |
+| --- | --- |
+| `AmlHook` | Uniswap callbacks only |
+| `AmlHookLogic` | Resolve subject, sanctions, score, latency floors, Chainlink USD |
+| `AmlHookSettlement` | Take the fee differential. Does not decide risk |
+| `SanctionRegistry` | Static list. New hits are commit-reveal |
+| `ComplianceOracle` | Stored score, hop, origin, fee, timestamp |
+| `RiskPolicy` | Score + floors → decision. No external calls |
+| `FeeEscrow` | 48h hold of the extra fee. Own access list |
+| `AccessManager` | Shared authority for registry, oracle, and hook governor |
+
+Subject resolution uses a trusted router (`IMsgSender.msgSender()`). Uniswap `hookData` is ignored. An untrusted initiator reverts before any layer runs.
+
+Writes are split so a score keeper cannot move escrow, and an escrow keeper cannot publish scores. `updateScore` requires `_ORACLE_KEEPER` plus a distinct attestor signature over wallet, score, hop, origin, fee, timestamp, and chain id.
+
+## Demo wallets
+
+The frontend and API implement the use-case ledger.
+
+| Wallet | Starting state | What to try |
+| --- | --- | --- |
+| A | Exploit, score 100 | Pool swap reverts. P2P can contaminate B, C, D |
+| B | Clean, score 0 | Receive from A → ~65 / 8%. Receive from tainted C → ~42 / 3% |
+| C | Clean, score 0 | Receive from A → ~65 / 8%. Receive from tainted B → ~42 / 3% |
+| D | Published score 0, 5,000 USDC | Swap held funds → ALLOW. Clean C→D then swap → 8% inflow (no hop) |
+| E | Never written, 40,000 USDC | $500 → 3%. $1,000 → 8%. $25,000 → revert |
 
 ## Quick start
 
 ```bash
 npm install
 
-# optional — Anvil + real L1/L2/L3 + AccessManager wiring + keeper env for the API
+# optional — Anvil, AccessManager-wired stack, keeper env for the API
 npm run deploy:local
 
 npm run dev:api        # http://localhost:4000
 npm run dev:frontend   # http://localhost:3000
 ```
 
-`NEXT_PUBLIC_API_URL` defaults to `http://localhost:4000`.
-
-After `deploy:local`, restart the API so it loads `apps/api/.env.local`. Check:
+`NEXT_PUBLIC_API_URL` defaults to `http://localhost:4000`. After `deploy:local`, restart the API so it loads `apps/api/.env.local`.
 
 ```bash
 curl http://127.0.0.1:4000/health
-# publisher.mode: "rpc" · scoreSource: "onchain"
+# publisher.mode: "rpc"  ·  scoreSource: "onchain"
 ```
 
-| Layer | Path | Notes |
-|---|---|---|
-| Frontend | [`apps/frontend/`](apps/frontend/README.md) | Guided 6-stage demo UI |
+| Package | Path | Role |
+| --- | --- | --- |
+| Contracts | [`contracts/`](contracts/README.md) | Foundry. `forge test` · `script/Deploy.sol` |
 | API / keeper | [`apps/api/`](apps/api/README.md) | In-memory ledger + COA + optional RPC publish |
-| Contracts | [`contracts/`](contracts/README.md) | Foundry — `forge test` / `script/Deploy.sol` |
+| Frontend | [`apps/frontend/`](apps/frontend/README.md) | Six-stage demo |
 | SDK | [`packages/sdk/`](packages/sdk/README.md) | ABIs + `getDeployment(31337)` |
-| Demo flows | [`test/`](test/README.md) | Headless HTTP scripts (not Forge) |
+| Headless flows | [`test/`](test/README.md) | HTTP scripts against the API. Not Forge |
 
-**`test/` vs `contracts/test/`:** root `test/` = Node demo flows against the API. `contracts/test/` = Solidity unit tests (`forge test`).
+`test/` is Node against the API. `contracts/test/` is Solidity (`forge test`).
 
-## Architecture
-
-```text
-User → Router → PoolManager
-                       │
-              beforeSwap │ afterSwap
-     beforeAddLiquidity │ beforeRemoveLiquidity
-                       ▼
-                   AMLHook  (callbacks)
-          ┌────────────┼────────────────┐
-          ▼            ▼                ▼
-   AmlHookLogic  AmlHookSettlement  SanctionRegistry
-                          │              (Layer 1)
-          ┌───────────────┴───────────────┐
-          ▼                               ▼
-   ComplianceOracle                   RiskPolicy
-     (Layer 2)                         (Layer 3)
-          ▲
-          │ updateScore ← _ORACLE_KEEPER + attestor sig
-              Oracle Keeper / COA (off-chain)
-         AI Compliance Officer · AML analyst
-                          │
-                          │ FeeEscrow keeper resolutions
-                          ▼
-                     FeeEscrow
-              owner = ADMIN / Safe from genesis
-              hook depositor bootstrapped at deploy
-              (FEE_OVERRIDE differential fee, 48h)
-              early / default → LP compensation (never the pool)
-              Checkpoint 2 illicit → blocked in escrow
-              Checkpoint 2 clean → LP compensation (never pool)
-
-AccessManager (shared) → _REGISTRY_KEEPER · _ORACLE_KEEPER · _HOOK_GOVERNOR
-```
-
-| Component | Role |
-|---|---|
-| **AccessManager** | Shared OZ authority for registry / oracle / hook governance |
-| **AmlHook** | Uniswap v4 hook — `beforeSwap` / `afterSwap` (ternary score path); `beforeAddLiquidity` / `beforeRemoveLiquidity` gate sanctioned wallets only (position left intact; no score / RiskPolicy). Governor `pause()` stops swaps, not LP add/remove |
-| **SanctionRegistry** | L1 — sanctions screen (fail-closed). New hits: `_REGISTRY_KEEPER` `commitSanction` + `revealSanction`. `setSanctioned` delists only |
-| **ComplianceOracle** | L2 — score / hop / origin; `_ORACLE_KEEPER` submits `updateScore`; distinct attestor signs hop + origin |
-| **RiskPolicy** | L3 — score → ALLOW / FEE_OVERRIDE / REVERT (+ §3.8 latency floors + never-scored USD bands 3% / 8% / REVERT); pure. Does not call Chainlink |
-| **Oracle Keeper (COA)** | Off-chain AI Compliance Officer — scores wallets, publishes `updateScore`, drives FeeEscrow after COA memos (COA never writes on-chain; deferred publish for Wallet D) |
-| **FeeEscrow** | Holds FEE_OVERRIDE differential fee for 48h (not swap output). Own access list. Owner is `ADMIN` / `FEE_ESCROW_OWNER` from genesis. Hook depositor via `bootstrapDepositor` (no 24h gap). Add keeper 24h / revoke immediately. Sanction confirmed → blocked (owner `recoverBlocked` waits at least 7 days, only to `lpCompensationFund`). Otherwise the risk fee goes to lpCompensationFund. Never the pool. |
-
-In this repo, **apps/api** is the demo keeper (deterministic mock of that COA; live LLM and vendor feeds are the production path). **apps/frontend** drives the UI. Pool swaps in the UI are still settled in the API ledger until a real PoolManager is wired; scores can already be published/read on Anvil.
-
-## Mock vs real
+## What is real vs mocked
 
 | Piece | Status |
-|---|---|
-| AccessManager · SanctionRegistry · ComplianceOracle · RiskPolicy · AmlHook · FeeEscrow | **Real** contracts (`Deploy` wires AccessManager; FeeEscrow optional in local deploy). Liquidity sanctions gating is on-chain (`beforeAddLiquidity` / `beforeRemoveLiquidity`) |
-| PoolManager | **Mock** locally (`MockPoolManager`) — a real PoolManager is still pending |
-| Demo add / remove liquidity | **Not wired** — frontend and API remain swap-only; the on-chain gate cannot be shown end-to-end in the UI yet |
-| Keeper `updateScore` | **Real tx** when RPC env is set (key must hold `_ORACLE_KEEPER`); else mock trail |
-| Demo beforeSwap score + fee | **Hybrid** — on-chain `getRisk` (score + `feeBps` from COA) → memory → hop |
-| API ledger (balances, P2P, swap settle) | **Mock** (in-memory) |
-| COA skills / Opinion | **Mock** (deterministic TS stand-in for the AI Compliance Officer; no live LLM/vendors yet) |
-| External info sources (Forta, sanctions, graph feeds, etc.) | Spec / future wiring — COA will connect to these in production |
+| --- | --- |
+| AccessManager, SanctionRegistry, ComplianceOracle, RiskPolicy, AmlHook, FeeEscrow | Deployed contracts |
+| Liquidity sanctions gate | On-chain. Demo UI is still swap-only |
+| PoolManager | Local `MockPoolManager` unless `POOL_MANAGER` is set |
+| `updateScore` | Real tx when RPC env is set and the key holds `_ORACLE_KEEPER` |
+| Demo balances, P2P, swap settlement | In-memory API ledger |
+| COA opinion | Deterministic stand-in. No live LLM or vendor feeds |
 
-## Local on-chain stack
+## Local deploy
 
 ```bash
 npm run deploy:local
 ```
 
-1. Starts Anvil on `:8545` (WSL: detached so it survives the shell)
-2. Deploys AccessManager + L1/L2/L3 + AmlHook (CREATE2); MockPoolManager unless `POOL_MANAGER` is set
-3. Wires roles; Anvil account #0 defaults for admin / registry keeper / oracle keeper / hook governor. Production requires `ATTESTOR` (distinct, no default) and `ADMIN` or `FEE_ESCROW_OWNER` (Safe). First hook deposit is bootstrapped in the same tx.
-4. Writes `contracts/deployments/31337.json` → `packages/sdk/deployments/`
-5. Writes `apps/api/.env.local` (`ORACLE_RPC_URL`, `COMPLIANCE_ORACLE_ADDRESS`, `KEEPER_PRIVATE_KEY`, `SCORE_SOURCE=onchain`)
-
-Smoke after API restart:
-
-```bash
-# transfer A→B, then:
-curl http://127.0.0.1:4000/oracle/publishes   # status: submitted + txHash
-curl http://127.0.0.1:4000/wallets/B          # scoreSource: onchain
-```
+1. Starts Anvil on `:8545`.
+2. Deploys AccessManager, L1/L2/L3, AmlHook (CREATE2), and FeeEscrow. Uses `MockPoolManager` unless `POOL_MANAGER` is set.
+3. Wires roles. Anvil account #0 is the default admin / keepers / governor. Production requires a distinct `ATTESTOR` and a Safe as `ADMIN` or `FEE_ESCROW_OWNER`.
+4. Writes `contracts/deployments/31337.json` and copies it into `packages/sdk/deployments/`.
+5. Writes `apps/api/.env.local`.
 
 ```ts
 import { getDeployment, complianceOracleAbi, amlHookAbi } from "@aml-hook/sdk";
+
 const d = getDeployment(31337);
-// d.AccessManager, d.ComplianceOracle, d.oracleKeeper, …
 ```
 
-## Demo use case (A → B → C → D)
-
-Attacker **A** (score 100) is blocked at the pool, then moves USDC via P2P. The Oracle Keeper (COA / AI AML analyst) applies **N-hop decay** (`score ≈ 100 × 0.65^hops`; closer hop wins) and writes scores before the next swap — except on the **Wallet D** path, where `updateScore` is deferred so the demo can show §3.8 oracle-latency Mitigation D (inflow heuristic).
-
-| Step | Action | Result |
-|---|---|---|
-| 0 | C swaps clean | ALLOW 0.30% |
-| 1 | A tries pool cash-out | REVERT |
-| 2 | A → B (P2P) | B ≈ 65 |
-| 3 | B swaps | FEE_OVERRIDE 8% → differential fee into FeeEscrow |
-| 4 | B → C (P2P) | C ≈ 42 |
-| 5 | C swaps | FEE_OVERRIDE 3% → differential fee into FeeEscrow |
-| 6 | A → D (P2P); keeper not yet published | D oracle score still **0** (pending) |
-| 7 | D swaps under stale score | FEE_OVERRIDE **8%** (inflow heuristic) |
-| 8 | Keeper catch-up | D ≈ **65** |
-
-Latency floors elevate ALLOW → FEE_OVERRIDE only (never soften REVERT), except a never-scored wallet whose swap (or window USD) is at or above `$25,000` (`unscoredRevertThreshold = 25_000e8`) — that **REVERT**s. Below $1,000 the unknown-wallet fee is **3%**; from $1,000 to $24,999 it is **8%**. Mitigation D does not fire on a wallet that was never scored (no 100% first-swap false positive). Floors are USD-8 via Chainlink; no feed or a stale feed is fail-closed.
-
-Full narrative: [`docs/Use_Case.md`](docs/Use_Case.md) (§7 Wallet D, §7.1 Wallet E).
-
-## Guided UI (6 stages)
-
-| # | Stage | Shows |
-|---|---|---|
-| 1 | Swap | Uniswap-style widget |
-| 2 | Hook | beforeSwap / decision flow |
-| 3 | Fees | Fee + settled Sold USDC / Bought ETH |
-| 4 | AML stats | Score, report overview |
-| 5 | Opinion | COA legal/technical opinion (FinCEN Who–How sections) |
-| 6 | Event | `SwapObserved` / afterSwap payload |
-
-REVERT is decided in `beforeSwap` — `afterSwap` never runs for that attempt.
-
-## Repo layout
+## Repository
 
 ```text
 aml-hook/
-├── apps/frontend/      # Next.js demo (:3000)
-├── apps/api/           # Ledger + COA + keeper (:4000)
-├── packages/sdk/       # ABIs + Anvil addresses
-├── contracts/          # Foundry — src/contracts · src/interfaces · AccessManager Deploy
-├── agents/oracle-coa/  # COA skill specs
-├── docs/               # Whitepaper, use case
-├── scripts/            # deploy-local, sync-deployment
-└── test/               # Headless API demo flows
+├── docs/               Whitepaper and use case
+├── contracts/          Foundry — src/contracts · interfaces · AccessManager deploy
+├── apps/api/           Ledger, COA, keeper
+├── apps/frontend/      Next.js demo
+├── packages/sdk/       ABIs and Anvil addresses
+├── agents/oracle-coa/  COA skill specs
+├── scripts/            deploy-local, sync-deployment
+└── test/               Headless API flows
 ```
 
-## Still pending
+## Open work
 
-- Real Uniswap v4 PoolManager + pool (swaps and liquidity through AmlHook on-chain; `MockPoolManager` is an empty placeholder)
-- Add / remove liquidity in the demo (frontend and API are still swap-only; the on-chain sanctions gate is already real)
-- Live COA vendors / LLM
-- Broader e2e beyond current Forge unit tests
+- Wire a real Uniswap v4 PoolManager and pool (local `MockPoolManager` is a placeholder).
+- Surface add / remove liquidity in the demo. The on-chain sanctions gate is already there.
+- Live COA vendors and LLM.
+- Broader e2e beyond the current Forge suite.

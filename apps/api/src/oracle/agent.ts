@@ -2,10 +2,11 @@
  * Off-chain Compliance Officer / oracle agent runner.
  *
  * Runs the virtual AI AML analyst pipeline (skills + connected sources), then
- * scores deterministically for the A/B/C/D use case and publishes via the keeper.
+ * scores deterministically for the A–E use case and publishes via the keeper.
  *
- * Wallet D (§3.8 / use-case §7): after inbound P2P, updateScore is deferred so the
- * next swap can demonstrate the inflow heuristic under a stale score of 0.
+ * Wallet D: after inbound P2P, updateScore is deferred so the next swap can
+ * demonstrate the inflow heuristic under a stale score of 0.
+ * Wallet E: never seeded and never published (unknown).
  */
 
 import {
@@ -16,7 +17,9 @@ import {
   listTransfers,
   listWallets,
   markKeeperPending,
+  touchScoreAt,
 } from "../store.js";
+import { feeBand, scoreTier } from "../scoring.js";
 import type { WalletId } from "../types.js";
 import { buildFacts, scoreFromFacts } from "./factScoring.js";
 import {
@@ -27,6 +30,7 @@ import { buildOpinionFromScore } from "./report.js";
 import {
   clearOracleStore,
   getOracleEvaluation,
+  getOracleFeeBps,
   getOracleScore,
   setOracleEvaluation,
 } from "./store.js";
@@ -98,7 +102,28 @@ export async function reevaluateWallet(
     flow,
   );
   const opinion = buildOpinionFromScore(wallet, scoreResult, agentRun);
-  const onChainPublish = await publishScoreToChain(wallet, scoreResult);
+  const priorFee = prior == null ? null : getOracleFeeBps(walletId);
+  const shouldWrite =
+    !wallet.neverScored &&
+    (prior == null ||
+      scoreTier(prior) !== scoreTier(scoreResult.finalScore) ||
+      feeBand(priorFee ?? 0) !== feeBand(scoreResult.recommendedFeeBps));
+
+  const onChainPublish = shouldWrite
+    ? await publishScoreToChain(wallet, scoreResult)
+    : {
+        mode: "mock" as const,
+        status: "skipped" as const,
+        walletId: wallet.id,
+        address: wallet.address,
+        score: scoreResult.finalScore,
+        hopDistance: wallet.hopDistance ?? 0,
+        origin: wallet.originId ?? "",
+        feeBps: scoreResult.recommendedFeeBps,
+        at: new Date().toISOString(),
+      };
+
+  if (shouldWrite) touchScoreAt(wallet.id);
   const evaluation: OracleEvaluation = {
     scoreResult,
     opinion,
@@ -110,10 +135,11 @@ export async function reevaluateWallet(
 }
 
 /**
- * Seeds oracle scores for A–D at process start or after reset.
+ * Seeds oracle scores for A–D at process start or after reset. E stays unpublished.
  */
 export async function seedOracleAll(): Promise<void> {
   for (const w of listWallets()) {
+    if (w.neverScored) continue;
     await reevaluateWallet(w.id, "seed");
   }
 }
@@ -141,8 +167,17 @@ export async function reevaluateAfterTransfer(
 }> {
   const fromEval = await reevaluateWallet(from, "transfer");
 
-  // Wallet D latency path: ledger hops update, but updateScore waits for catch-up.
-  if (to === "D") {
+  if (to === "E") {
+    return {
+      from: fromEval,
+      to: getOracleEvaluation("E"),
+      keeperPending: false,
+    };
+  }
+
+  // Wallet D: defer updateScore only when a hop landed (A or a tainted peer).
+  // Clean C→D / B→D must not write a hop; inflow still fires off the baseline.
+  if (to === "D" && getWallet("D")?.hopDistance != null) {
     markKeeperPending("D");
     return {
       from: fromEval,

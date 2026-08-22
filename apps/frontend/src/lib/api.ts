@@ -19,9 +19,19 @@ export type ApiHookOutput = "ALLOW" | "FEE_OVERRIDE" | "REVERT";
 
 export type ApiLatencyMitigation =
   | "INFLOW_HEURISTIC"
+  | "INFLOW_MAGNITUDE"
   | "SCORE_NEVER_WRITTEN"
   | "STALE_WITH_POOL_ACTIVITY"
   | "ACTIVITY_WINDOW_CAP"
+  | "MAGNITUDE_QUOTE_FAILED"
+  | null;
+
+export type ApiRevertReason =
+  | "WalletBlocked"
+  | "UnscoredMagnitudeBlocked"
+  | "InflowMagnitudeBlocked"
+  | "MagnitudeQuoteFailed"
+  | "SanctionHit"
   | null;
 
 export type ApiWallet = SimWallet & {
@@ -63,6 +73,11 @@ export type ApiCompliancePack = {
   riskLabel: string;
   keeperPending: boolean;
   latencyMitigation: ApiLatencyMitigation;
+  revertReason?: ApiRevertReason;
+  assessedUsd?: number;
+  opsInWindow?: number;
+  isStale?: boolean;
+  priceFeedBound?: boolean;
   summary: string[];
   agent: {
     status: string;
@@ -132,6 +147,11 @@ export type ApiSwapQuote = {
   oracleScore?: number;
   keeperPending?: boolean;
   latencyMitigation?: ApiLatencyMitigation;
+  revertReason?: ApiRevertReason;
+  assessedUsd?: number;
+  opsInWindow?: number;
+  isStale?: boolean;
+  priceFeedBound?: boolean;
 };
 
 export class ApiError extends Error {
@@ -158,11 +178,18 @@ export function toSimWallet(w: ApiWallet): SimWallet {
     originId: w.originId,
     exploitConfirmed: w.exploitConfirmed,
     keeperPending: w.keeperPending,
+    neverScored: w.neverScored,
+    lastKnownUsdc: w.lastKnownUsdc,
+    lastScoreAt: w.lastScoreAt,
+    lastKnownAt: w.lastKnownAt,
+    opsInWindow: w.opsInWindow,
+    windowUsd: w.windowUsd,
+    windowStart: w.windowStart,
   };
 }
 
 /**
- * Maps an API wallet list into a Record keyed by A–D (fills missing seeds).
+ * Maps an API wallet list into a Record keyed by A–E (fills missing seeds).
  */
 export function walletsRecord(
   list: ApiWallet[],
@@ -230,8 +257,12 @@ export function fetchEvents() {
 }
 
 /** GET /wallets/:id/compliance */
-export function fetchCompliance(id: DemoCaseId) {
-  return request<ApiCompliancePack>(`/wallets/${id}/compliance`);
+export function fetchCompliance(id: DemoCaseId, amountUsd?: number) {
+  const q =
+    amountUsd != null && Number.isFinite(amountUsd)
+      ? `?amountUsd=${Math.round(amountUsd)}`
+      : "";
+  return request<ApiCompliancePack>(`/wallets/${id}/compliance${q}`);
 }
 
 /** POST /transfers */
@@ -279,7 +310,26 @@ export function postKeeperCatchUp(id: DemoCaseId) {
   }>(`/oracle/${id}/catch-up`, { method: "POST" });
 }
 
-/** POST /reset — reseed A–D baseline */
+/** POST /demo/elapse — advance demo clock (121s makes a published score stale). */
+export function postDemoElapse(seconds = 121) {
+  return request<{ ok: boolean; now: number; elapsedSeconds: number }>(
+    `/demo/elapse`,
+    {
+      method: "POST",
+      body: JSON.stringify({ seconds }),
+    },
+  );
+}
+
+/** POST /demo/price-feed — bind or unbind the demo USDC/USD feed. */
+export function postDemoPriceFeed(bound: boolean) {
+  return request<{ ok: boolean; priceFeedBound: boolean }>(`/demo/price-feed`, {
+    method: "POST",
+    body: JSON.stringify({ bound }),
+  });
+}
+
+/** POST /reset — reseed A–E baseline */
 export function postReset() {
   return request<{
     ok: boolean;

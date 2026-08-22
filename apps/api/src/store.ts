@@ -9,9 +9,10 @@ import { EXPLOIT_SOURCE } from "./scoring.js";
 import type { HookEvent, TransferRecord, Wallet, WalletId } from "./types.js";
 
 /**
- * Builds the initial A/B/C/D wallet ledger from the use case:
- * A = exploit source; B and C start clean (symmetric N-hop);
- * D starts clean with 0 USDC — latency / inflow path (Wallet D §7).
+ * Builds the initial A–E wallet ledger from the use case:
+ * A = exploit; B and C start clean (symmetric N-hop);
+ * D = published score 0 (already-held funds ALLOW; clean C→D is inflow, not a hop);
+ * E = unknown (never written).
  */
 function seedWallets(): Record<WalletId, Wallet> {
   return {
@@ -25,6 +26,7 @@ function seedWallets(): Record<WalletId, Wallet> {
       hopDistance: 0,
       originId: "A",
       exploitConfirmed: true,
+      neverScored: false,
     },
     B: {
       id: "B",
@@ -36,6 +38,7 @@ function seedWallets(): Record<WalletId, Wallet> {
       hopDistance: null,
       originId: null,
       exploitConfirmed: false,
+      neverScored: false,
     },
     C: {
       id: "C",
@@ -47,17 +50,31 @@ function seedWallets(): Record<WalletId, Wallet> {
       hopDistance: null,
       originId: null,
       exploitConfirmed: false,
+      neverScored: false,
     },
     D: {
       id: "D",
-      accountLabel: "Account D · Clean",
-      role: "Latency path — A→D then swap before keeper → inflow FEE_OVERRIDE 8%",
+      accountLabel: "Account D · Score 0",
+      role: "Published score 0 — ALLOW on already-held funds; clean C→D → inflow 8% (no hop)",
       address: "0x4838B106FCe9647Bdf1E7877BF73cE8B0BAD5f97",
-      usdc: 0,
+      usdc: 5_000,
       eth: 2,
       hopDistance: null,
       originId: null,
       exploitConfirmed: false,
+      neverScored: false,
+    },
+    E: {
+      id: "E",
+      accountLabel: "Account E · Unknown",
+      role: "Unknown wallet — no oracle row. Under $1,000 → 3%; $1,000–$24,999 → 8%; $25,000+ → REVERT",
+      address: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+      usdc: 40_000,
+      eth: 1,
+      hopDistance: null,
+      originId: null,
+      exploitConfirmed: false,
+      neverScored: true,
     },
   };
 }
@@ -69,9 +86,26 @@ type Store = {
   events: HookEvent[];
   /** Inflow heuristic baseline (USDC) per wallet — refreshed afterSwap. */
   lastKnownUsdc: Record<WalletId, number>;
+  /** Demo clock when lastKnownUsdc was last written (D: score newer than this clears inflow). */
+  lastKnownAt: Record<WalletId, number>;
   /** Recipients awaiting deferred keeper updateScore (Wallet D demo). */
   keeperPending: Set<WalletId>;
+  /** Last keeper write time (ms), demo clock. Missing = never written. */
+  lastScoreAt: Partial<Record<WalletId, number>>;
+  /** Rolling 1-hour pool activity (Mitigation C + E window USD). */
+  activity: Record<WalletId, { windowStart: number; ops: number; windowUsd: number }>;
+  /** Shift applied to Date.now() so Mitigation B can be exercised without waiting. */
+  demoOffsetMs: number;
+  /** Governor-bound USDC/USD feed. False → MagnitudeQuoteFailed for unknown / D inflow USD. */
+  priceFeedBound: boolean;
 };
+
+export type WalletActivity = { windowStart: number; ops: number; windowUsd: number };
+
+const EMPTY_ACTIVITY: WalletActivity = { windowStart: 0, ops: 0, windowUsd: 0 };
+
+export const ACTIVITY_WINDOW_MS = 3_600_000;
+export const STALENESS_MS = 120_000;
 
 function seedLastKnown(wallets: Record<WalletId, Wallet>): Record<WalletId, number> {
   return {
@@ -79,7 +113,28 @@ function seedLastKnown(wallets: Record<WalletId, Wallet>): Record<WalletId, numb
     B: wallets.B.usdc,
     C: wallets.C.usdc,
     D: wallets.D.usdc,
+    E: wallets.E.usdc,
   };
+}
+
+function seedActivity(): Record<WalletId, WalletActivity> {
+  return {
+    A: { ...EMPTY_ACTIVITY },
+    B: { ...EMPTY_ACTIVITY },
+    C: { ...EMPTY_ACTIVITY },
+    D: { ...EMPTY_ACTIVITY },
+    E: { ...EMPTY_ACTIVITY },
+  };
+}
+
+function seedLastScoreAt(): Partial<Record<WalletId, number>> {
+  const t = Date.now();
+  return { A: t, B: t, C: t, D: t };
+}
+
+function seedLastKnownAt(): Record<WalletId, number> {
+  const t = Date.now();
+  return { A: t, B: t, C: t, D: t, E: t };
 }
 
 /** Mutable singleton store for the demo API. */
@@ -88,7 +143,12 @@ let store: Store = {
   transfers: [],
   events: [],
   lastKnownUsdc: seedLastKnown(seedWallets()),
+  lastKnownAt: seedLastKnownAt(),
   keeperPending: new Set(),
+  lastScoreAt: seedLastScoreAt(),
+  activity: seedActivity(),
+  demoOffsetMs: 0,
+  priceFeedBound: true,
 };
 
 /**
@@ -109,13 +169,85 @@ export function resetStore(): Store {
     transfers: [],
     events: [],
     lastKnownUsdc: seedLastKnown(wallets),
+    lastKnownAt: seedLastKnownAt(),
     keeperPending: new Set(),
+    lastScoreAt: seedLastScoreAt(),
+    activity: seedActivity(),
+    demoOffsetMs: 0,
+    priceFeedBound: true,
   };
   return store;
 }
 
+/** Demo clock (real now + offset from POST /demo/elapse). */
+export function demoNow(): number {
+  return Date.now() + store.demoOffsetMs;
+}
+
+/** Advance the demo clock (Mitigation B: 121s makes a published score stale). */
+export function elapseDemo(ms: number): number {
+  store.demoOffsetMs += Math.max(0, ms);
+  return demoNow();
+}
+
+export function isPriceFeedBound(): boolean {
+  return store.priceFeedBound;
+}
+
+export function setPriceFeedBound(bound: boolean): void {
+  store.priceFeedBound = bound;
+}
+
+export function getLastScoreAt(id: WalletId): number | null {
+  return store.lastScoreAt[id] ?? null;
+}
+
+export function touchScoreAt(id: WalletId): void {
+  store.lastScoreAt[id] = demoNow();
+}
+
+export function getActivity(id: WalletId): WalletActivity {
+  const raw = store.activity[id] ?? { ...EMPTY_ACTIVITY };
+  if (raw.windowStart === 0) return raw;
+  if (demoNow() >= raw.windowStart + ACTIVITY_WINDOW_MS) {
+    store.activity[id] = { ...EMPTY_ACTIVITY };
+    return store.activity[id];
+  }
+  return raw;
+}
+
+/** afterSwap: increment ops and USD-8 window (USDC = $1 in the demo). */
+export function recordAfterSwap(id: WalletId, usd: number): WalletActivity {
+  const now = demoNow();
+  const cur = getActivity(id);
+  const next: WalletActivity =
+    cur.windowStart === 0
+      ? { windowStart: now, ops: 1, windowUsd: usd }
+      : {
+          windowStart: cur.windowStart,
+          ops: cur.ops + 1,
+          windowUsd: cur.windowUsd + usd,
+        };
+  store.activity[id] = next;
+  return next;
+}
+
+export function opsInCurrentWindow(id: WalletId): number {
+  return getActivity(id).ops;
+}
+
+export function windowUsd(id: WalletId): number {
+  return getActivity(id).windowUsd;
+}
+
+export function isScoreStale(id: WalletId): boolean {
+  const at = getLastScoreAt(id);
+  if (at == null) return true;
+  return demoNow() > at + STALENESS_MS;
+}
+
 /**
- * Returns wallets A–D as an array.
+ * Returns wallets A–E as an array.
  */
 export function listWallets(): Wallet[] {
   return (Object.keys(store.wallets) as WalletId[]).map((id) => store.wallets[id]);
@@ -171,6 +303,12 @@ export function getLastKnownUsdc(id: WalletId): number {
 /** Refresh inflow baseline after a successful swap (afterSwap). */
 export function setLastKnownUsdc(id: WalletId, usdc: number): void {
   store.lastKnownUsdc[id] = usdc;
+  store.lastKnownAt[id] = demoNow();
+}
+
+/** When the inflow baseline was last written (ms, demo clock). */
+export function getLastKnownAt(id: WalletId): number {
+  return store.lastKnownAt[id] ?? 0;
 }
 
 /** Mark that the keeper has not yet published a post-transfer score. */

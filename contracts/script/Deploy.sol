@@ -136,6 +136,7 @@ contract Deploy is Script {
         address trustedRouterOverride = vm.envOr("TRUSTED_ROUTER", address(0));
 
         uint256 stalenessThreshold = vm.envOr("MAX_SCORE_AGE", uint256(5 minutes));
+        // Initial Mitigation C knobs. After deploy the hook governor retunes via setActivityWindow.
         uint64 activityWindow = uint64(vm.envOr("ACTIVITY_WINDOW", uint256(1 hours)));
         uint32 maxOpsInWindow = uint32(vm.envOr("MAX_OPS_IN_WINDOW", uint256(3)));
 
@@ -178,8 +179,8 @@ contract Deploy is Script {
     /// @param poolManagerOverride A real `IPoolManager`, or zero to deploy `MockPoolManager`
     /// @param trustedRouterOverride Extra router to trust (in addition to the canonical Universal Router)
     /// @param stalenessThreshold Seconds before a published score counts as stale (Mitigation B)
-    /// @param activityWindow Seconds a burst of swaps is counted together (Mitigation C)
-    /// @param maxOpsInWindow Ops inside `activityWindow` that force `FEE_OVERRIDE`
+    /// @param activityWindow Initial Mitigation C window in seconds (governor retunes via `setActivityWindow`)
+    /// @param maxOpsInWindow Initial completed-ops cap in that window (governor retunes via `setActivityWindow`)
     function _deploy(
         address configurer,
         address admin,
@@ -459,7 +460,7 @@ contract Deploy is Script {
 
     /// @notice The hook functions that require the governor role
     function _hookSelectors() internal pure returns (bytes4[] memory selectors) {
-        selectors = new bytes4[](11);
+        selectors = new bytes4[](12);
         selectors[0] = AmlHookLogic.setStalenessThreshold.selector;
         selectors[1] = AmlHookLogic.setInflowThresholdBps.selector;
         selectors[2] = AmlHookLogic.setTrustedRouter.selector;
@@ -471,6 +472,7 @@ contract Deploy is Script {
         selectors[8] = AmlHookLogic.setUnscoredThresholds.selector;
         selectors[9] = AmlHookLogic.setPriceFeed.selector;
         selectors[10] = AmlHookLogic.setPriceStalenessThreshold.selector;
+        selectors[11] = AmlHookLogic.setActivityWindow.selector;
     }
 
     /// @dev Persist addresses and intended keys for the SDK / API sync.
