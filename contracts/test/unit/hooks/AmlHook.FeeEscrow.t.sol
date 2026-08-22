@@ -303,6 +303,45 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         assertEq(rec.amount, expectedFee);
     }
 
+    function test_FeeOverrideDeposit_ThenBlockedRecoverGoesToReserve() external {
+        address reserve = escrow.complianceReserve();
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 1, walletA, 800));
+
+        uint256 expectedFee = (uint256(uint128(1e18)) * 770) / 10_000;
+        feeToken.mint(address(manager), expectedFee);
+        address sender = _bindTrustedSubject(walletB);
+        manager.callBeforeSwap(IHooks(address(hook)), sender, key, params, "");
+        manager.callAfterSwap(
+            IHooks(address(hook)), sender, key, params, toBalanceDelta(-1e18, 1e18), ""
+        );
+
+        assertEq(escrow.getEscrow(1).wallet, walletB);
+        assertEq(uint8(escrow.getEscrow(1).status), uint8(IFeeEscrow.EscrowStatus.Active));
+
+        vm.startPrank(owner);
+        escrow.setKeeper(keeper, true);
+        vm.warp(block.timestamp + escrow.KEEPER_TIMELOCK());
+        escrow.applyKeeper();
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 48 hours);
+        vm.prank(keeper);
+        escrow.resolveCheckpoint2(1, true);
+        assertEq(uint8(escrow.getEscrow(1).status), uint8(IFeeEscrow.EscrowStatus.Blocked));
+
+        uint256 ownerDelay = uint256(escrow.blockedRecoveryDelay()) > uint256(escrow.OWNER_BLOCKED_RECOVERY_MIN_AGE())
+            ? uint256(escrow.blockedRecoveryDelay())
+            : uint256(escrow.OWNER_BLOCKED_RECOVERY_MIN_AGE());
+        vm.warp(block.timestamp + ownerDelay);
+        vm.prank(owner);
+        escrow.recoverBlocked(1);
+
+        assertEq(uint8(escrow.getEscrow(1).status), uint8(IFeeEscrow.EscrowStatus.Recovered));
+        assertEq(feeToken.balanceOf(reserve), expectedFee);
+        assertEq(feeToken.balanceOf(owner), 0);
+    }
+
     function test_RetryEscrowDeposit_RevertsWhenCauseUnresolved() external {
         _revokeHookDepositor();
         _feeOverrideSwapThatFailsDeposit();
@@ -360,5 +399,95 @@ contract UnitAmlHookFeeEscrowDisabledTest is Helpers {
 
         assertEq(hookDelta, 0);
         assertEq(feeToken.balanceOf(address(manager)), 1e18);
+    }
+}
+
+/// @dev ERC-20 that returns false on approve(0), so the settlement reset is fail-closed.
+contract ApproveFalseOnZeroToken {
+    uint8 public decimals = 18;
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+    }
+
+    function approve(address spender, uint256 amount) external returns (bool) {
+        if (amount == 0) return false;
+        allowance[msg.sender][spender] = amount;
+        return true;
+    }
+
+    function transfer(address to, uint256 amount) external returns (bool) {
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += amount;
+        return true;
+    }
+
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        uint256 allowed = allowance[from][msg.sender];
+        if (allowed != type(uint256).max) {
+            allowance[from][msg.sender] = allowed - amount;
+        }
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount;
+        return true;
+    }
+}
+
+/// @notice Isolated suite: hook address is etched once, so approve(0) needs its own deploy.
+contract UnitAmlHookApproveZeroRevertsTest is Helpers {
+    ApproveFalseOnZeroToken feeToken;
+    FeeEscrow escrow;
+    PoolKey key;
+    SwapParams params;
+
+    function setUp() public {
+        manager = new HookPoolManagerStub();
+        accessManager = new AccessManager(owner);
+        sanctionRegistry = new SanctionRegistry(address(accessManager));
+        complianceOracle = new ComplianceOracle(address(accessManager), _attestor());
+        riskPolicy = new RiskPolicy();
+        feeToken = new ApproveFalseOnZeroToken();
+        escrow = new FeeEscrow(owner, address(feeToken), owner, makeAddr("complianceReserve"), owner);
+
+        hook = _deployHook(
+            accessManager, sanctionRegistry, complianceOracle, riskPolicy, IFeeEscrow(address(escrow))
+        );
+
+        vm.prank(owner);
+        escrow.bootstrapDepositor(address(hook));
+
+        bytes4[] memory oracleSelectors = new bytes4[](1);
+        oracleSelectors[0] = ComplianceOracle.updateScore.selector;
+        _wireRole(accessManager, owner, address(complianceOracle), oracleSelectors, Roles._ORACLE_KEEPER, keeper);
+
+        _wireHookGovernor();
+        _bindUsdFeeds();
+
+        key = PoolKey({
+            currency0: Currency.wrap(address(0x1)),
+            currency1: Currency.wrap(address(feeToken)),
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            tickSpacing: 60,
+            hooks: IHooks(address(hook))
+        });
+        params = SwapParams({zeroForOne: true, amountSpecified: -1e18, sqrtPriceLimitX96: 0});
+    }
+
+    function test_AfterSwap_FeeOverride_RevertsWhenApproveZeroReturnsFalse() external {
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 1, walletA, 800));
+
+        uint256 expectedFee = (uint256(uint128(1e18)) * 770) / 10_000;
+        feeToken.mint(address(manager), expectedFee);
+
+        address sender = _bindTrustedSubject(walletB);
+        manager.callBeforeSwap(IHooks(address(hook)), sender, key, params, "");
+
+        vm.expectRevert(AmlHookSettlement.FeeApproveFailed.selector);
+        manager.callAfterSwap(
+            IHooks(address(hook)), sender, key, params, toBalanceDelta(-1e18, 1e18), ""
+        );
     }
 }

@@ -45,6 +45,7 @@ contract DeployHarness is Deploy {
     ) external view {
         _verify(configurer_, admin_, registryKeeper_, oracleKeeper_, hookGovernor_);
     }
+
 }
 
 contract UnitDeployTest is Helpers {
@@ -209,6 +210,12 @@ contract UnitDeployTest is Helpers {
         assertEq(complianceOracle.attestor(), attestor);
         assertTrue(attestor != hookGovernor);
         assertTrue(attestor != oracleKeeper);
+    }
+
+    function test_DeployWhenRunWritesDeploymentFileNamedByChainId() external view {
+        string memory path = string.concat("deployments/", vm.toString(block.chainid), ".json");
+        assertTrue(vm.exists(path));
+        assertEq(vm.parseJsonUint(vm.readFile(path), ".chainId"), block.chainid);
     }
 
     function test_DeployWhenAttestorCollidesWithGovernor() external {

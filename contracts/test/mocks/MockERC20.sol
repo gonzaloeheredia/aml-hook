@@ -9,6 +9,10 @@ contract MockERC20 {
 
     mapping(address => uint256) public balanceOf;
 
+    function setDecimals(uint8 decimals_) external {
+        decimals = decimals_;
+    }
+
     function mint(address to, uint256 amount) external {
         balanceOf[to] += amount;
     }

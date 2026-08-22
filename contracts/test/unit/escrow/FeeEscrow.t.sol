@@ -662,10 +662,17 @@ contract UnitFeeEscrowTest is Helpers {
         bytes32 swapFingerprint
     );
 
+    /// @dev Owner recovery waits max(configured delay, 7-day floor). Default delay is 90 days.
+    function _ownerRecoverDelay() internal view returns (uint256) {
+        uint256 configured = uint256(escrow.blockedRecoveryDelay());
+        uint256 floor_ = uint256(escrow.OWNER_BLOCKED_RECOVERY_MIN_AGE());
+        return configured > floor_ ? configured : floor_;
+    }
+
     function test_RecoverBlocked_OwnerCanRecoverToComplianceReserve() external {
         uint256 amount = 30 ether;
         uint256 id = _blockedEscrow(amount);
-        vm.warp(block.timestamp + escrow.OWNER_BLOCKED_RECOVERY_MIN_AGE());
+        vm.warp(block.timestamp + _ownerRecoverDelay());
 
         vm.expectEmit(true, true, true, true, address(escrow));
         emit FeeRecovered(id, walletA, reserve, address(token), amount, ORIGIN_TX);
@@ -711,7 +718,7 @@ contract UnitFeeEscrowTest is Helpers {
 
     function test_RecoverBlocked_CannotBeCalledTwice() external {
         uint256 id = _blockedEscrow(10 ether);
-        vm.warp(block.timestamp + escrow.OWNER_BLOCKED_RECOVERY_MIN_AGE());
+        vm.warp(block.timestamp + _ownerRecoverDelay());
 
         vm.prank(owner);
         escrow.recoverBlocked(id);
@@ -773,7 +780,7 @@ contract UnitFeeEscrowTest is Helpers {
         assertEq(token.balanceOf(fund), 0);
     }
 
-    function test_RecoverBlocked_UsesMinOfOwnerFloorAndConfiguredDelay() external {
+    function test_RecoverBlocked_UsesMaxOfOwnerFloorAndConfiguredDelay() external {
         uint256 id = _blockedEscrow(4 ether);
         vm.prank(owner);
         escrow.setBlockedRecoveryDelay(1 days);
@@ -782,11 +789,54 @@ contract UnitFeeEscrowTest is Helpers {
         vm.expectRevert(FeeEscrow.BlockedRecoveryTooEarly.selector);
         escrow.recoverBlocked(id);
 
+        // Configured delay is 1 day, but owner recovery still waits the 7-day floor.
         vm.warp(block.timestamp + 1 days);
+        vm.prank(owner);
+        vm.expectRevert(FeeEscrow.BlockedRecoveryTooEarly.selector);
+        escrow.recoverBlocked(id);
+
+        vm.warp(block.timestamp + escrow.OWNER_BLOCKED_RECOVERY_MIN_AGE() - 1 days);
         vm.prank(owner);
         escrow.recoverBlocked(id);
         assertEq(token.balanceOf(reserve), 4 ether);
         assertEq(token.balanceOf(fund), 0);
+    }
+
+    function test_RecoverBlocked_UsesConfiguredDelayWhenLongerThanFloor() external {
+        uint256 id = _blockedEscrow(4 ether);
+        vm.prank(owner);
+        escrow.setBlockedRecoveryDelay(30 days);
+
+        vm.warp(block.timestamp + escrow.OWNER_BLOCKED_RECOVERY_MIN_AGE());
+        vm.prank(owner);
+        vm.expectRevert(FeeEscrow.BlockedRecoveryTooEarly.selector);
+        escrow.recoverBlocked(id);
+
+        vm.warp(block.timestamp + 23 days);
+        vm.prank(owner);
+        escrow.recoverBlocked(id);
+        assertEq(token.balanceOf(reserve), 4 ether);
+    }
+
+    function test_RecoverBlocked_DefaultDelayStillHoldsAfterSevenDays() external {
+        uint256 id = _blockedEscrow(3 ether);
+        assertEq(uint256(escrow.blockedRecoveryDelay()), 90 days);
+
+        vm.warp(block.timestamp + escrow.OWNER_BLOCKED_RECOVERY_MIN_AGE());
+        vm.prank(owner);
+        vm.expectRevert(FeeEscrow.BlockedRecoveryTooEarly.selector);
+        escrow.recoverBlocked(id);
+
+        vm.warp(block.timestamp + 83 days);
+        vm.prank(owner);
+        escrow.recoverBlocked(id);
+        assertEq(token.balanceOf(reserve), 3 ether);
+    }
+
+    function test_SetBlockedRecoveryDelay_RevertsBelowOneDay() external {
+        vm.prank(owner);
+        vm.expectRevert(FeeEscrow.InvalidBlockedRecoveryDelay.selector);
+        escrow.setBlockedRecoveryDelay(1 days - 1);
     }
 
     function test_BlockedRecovery_NeverCreditsLpFund() external {
@@ -805,10 +855,13 @@ contract UnitFeeEscrowTest is Helpers {
         escrow.setBlockedRecoveryDelay(1 days);
         vm.warp(block.timestamp + 1 days);
 
-        vm.prank(owner);
-        escrow.recoverBlocked(ownerId);
+        // Public expiry path uses the configured delay; owner path still waits 7 days.
         vm.prank(stranger);
         escrow.recoverExpiredBlocked(expiredId);
+
+        vm.warp(block.timestamp + escrow.OWNER_BLOCKED_RECOVERY_MIN_AGE() - 1 days);
+        vm.prank(owner);
+        escrow.recoverBlocked(ownerId);
 
         assertEq(token.balanceOf(reserve), ownerAmount + expiredAmount);
         assertEq(token.balanceOf(fund), 0);
@@ -823,7 +876,7 @@ contract UnitFeeEscrowTest is Helpers {
 
         vm.prank(owner);
         escrow.setComplianceReserve(nextReserve);
-        vm.warp(block.timestamp + escrow.OWNER_BLOCKED_RECOVERY_MIN_AGE());
+        vm.warp(block.timestamp + _ownerRecoverDelay());
         vm.prank(owner);
         escrow.recoverBlocked(id);
 

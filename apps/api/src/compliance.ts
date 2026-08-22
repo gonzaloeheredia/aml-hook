@@ -19,6 +19,14 @@ import type {
 } from "./types.js";
 
 /**
+ * Display-only inflow share. Uses the demo wallet's nominal USDC, not on-chain balance.
+ */
+export function displayDeltaBps(inflowUsd: number, walletUsdc: number): number {
+  if (walletUsdc <= 0) return 0;
+  return Math.floor((inflowUsd * 10_000) / walletUsdc);
+}
+
+/**
  * Resolves beforeSwap decision: unknown-wallet USD bands (E),
  * oracle score/fee, or §3.8 inflow floor (D).
  */
@@ -48,10 +56,7 @@ export async function resolveSwapDecision(
   // Display-only: denominator uses the demo wallet's nominal usdc balance, not the real
   // on-chain balance. May diverge from on-chain deltaBps when wallet.usdc is stale.
   // This value is used only for latencySummary UI — it does not affect the compliance decision.
-  const deltaBps =
-    wallet.usdc > 0
-      ? Math.floor((preview.inflowUsd * 10_000) / wallet.usdc)
-      : 0;
+  const deltaBps = displayDeltaBps(preview.inflowUsd, wallet.usdc);
 
   return {
     oracleScore: preview.risk.score,
