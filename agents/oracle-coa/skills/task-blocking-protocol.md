@@ -29,10 +29,11 @@ a list match fails closed in `beforeSwap`, so no delivery arises and there is
 no asset to segregate. Operator-level blocked-property duties, if they apply,
 sit with the operator — not with a hook custody contract.
 
-FeeEscrow is unrelated to that OFAC path. It holds the `FEE_OVERRIDE`
-differential for 48h (section 3.7 of the whitepaper). The COA never writes
-FeeEscrow; the FeeEscrow keeper alone submits release or confiscation after
-an off-chain sanity check.
+FeeEscrow is unrelated to that OFAC path. It holds the extra risk slice
+for 48 hours (whitepaper §8.3). The COA never writes FeeEscrow. The
+FeeEscrow keeper submits the on-chain call after a sanity check. A clean
+exit goes to the LP compensation fund. A confirmed-illicit row is recovered
+to the compliance reserve only.
 
 **Scope warning.** Applicability of blocking obligations to a pool operator
 depends on regulatory qualification and jurisdictional nexus — preliminarily
@@ -88,10 +89,13 @@ block, `tx_hash` if any, list and entry supporting the denial, `auditHash` of
 
 **Record requirements (FEE_OVERRIDE).** FeeEscrow deposit: subject, retained
 differential, origin `tx_hash`, `FeeDeposited`. Later `FeeReleasedEarly` /
-`FeeBlocked` / `FeeReleasedDefault` complete the trail. A confirmed sanction
-blocks the fee in escrow. Fees not confirmed high-risk or sanctioned go to
+`FeeBlocked` / `FeeReleasedDefault` / `FeeRecovered` complete the trail. A
+confirmed sanction blocks the fee in escrow; later recovery pays
+`complianceReserve` only (`FeeRecovered`: destination, token, amount,
+`swapFingerprint`). Fees not confirmed high-risk or sanctioned go to
 `lpCompensationFund` (Checkpoint 2 clean and `releaseDefault`), never as OFAC
-blocked property and never back to the pool.
+blocked property, never to LPs after a confirmed sanction, and never back to
+the pool.
 
 ---
 

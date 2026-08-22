@@ -45,8 +45,11 @@ POST /reset      → clear + seed oracle for A–D (E has no row until first see
 ```
 
 `beforeSwap` (simulated in quotes / swap route) reads the oracle cache, then
-applies the §3.8 inflow floor when D has a **published** score, a significant USDC
-delta, and a pending keeper. A wallet with `updatedAt == 0` is Mitigation A
+applies the §8.4 floors. The keeper writes when the decision tier or fee
+band changes, or when the last write is at least as old as Floor B (5 minutes).
+That freshness stamp stops a stable clean wallet from looking stale. Floor B
+still charges 8% if the keeper is late and the wallet already swapped in the hour.
+A wallet with `updatedAt == 0` is Mitigation A
 (unknown / Wallet E): the hook converts the specified amount (plus window USD)
 through Chainlink to USD-8.
 

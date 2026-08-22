@@ -1,9 +1,8 @@
 /**
  * AML Hook demo API — TypeScript + in-memory ledger (no database).
  *
- * MOCK: wallet balances, P2P hops, pool swap settlement, COA scoring (no LLM/vendors).
- * REAL (optional): when `.env.local` has ORACLE_RPC_URL + COMPLIANCE_ORACLE_ADDRESS +
- * KEEPER_PRIVATE_KEY, the keeper writes `updateScore` txs and quotes can read on-chain scores.
+ * Adapter: Anvil is the ledger and the decision (previewSwap / observeSwap / FeeEscrow).
+ * COA stays mock. Privileged txs leave from this process. No TypeScript policy fallback.
  *
  * Replaces frontend simWallets / applyTransfer / applyPoolSwap for server-side demo flows.
  */
@@ -33,7 +32,7 @@ async function main() {
   await registerRoutes(app);
 
   await app.listen({ port: PORT, host: HOST });
-  app.log.info(`AML Hook demo API listening on http://localhost:${PORT}`);
+  app.log.info(`AML Hook demo API on http://localhost:${PORT} — Anvil is the ledger`);
 }
 
 main().catch((err) => {

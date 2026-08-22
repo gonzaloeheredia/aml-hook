@@ -6,7 +6,9 @@ State lives in process memory — **resets when the server restarts**. No Postgr
 
 **Oracle COA (MOCK_MODE):** scores and Opinion are produced by `apps/api/src/oracle/` using the skill pack in [`agents/oracle-coa/`](../../agents/oracle-coa/). Facts come from the N-hop ledger + swap/event trail. There are **no live calls** to Anthropic, OpenSanctions, Etherscan, GoPlus, Chainalysis, TRM, or OFAC APIs.
 
-**FEE_OVERRIDE settlement (aligned with contracts):** the COA publishes `recommendedFeeBps` as total intended friction. On-chain, the pool keeps its standard fee; `afterSwap` takes the differential into `FeeEscrow`. Opinion copy must not describe settlement as `lpFeeOverride`.
+**FEE_OVERRIDE settlement (aligned with contracts):** the COA publishes `recommendedFeeBps` as total intended friction. On-chain, the pool keeps its standard fee; `afterSwap` takes the extra slice into `FeeEscrow`. A later clean exit goes to the LP compensation fund. A confirmed-illicit row is recovered to the compliance reserve only (whitepaper §8.3). Opinion copy must not describe settlement as `lpFeeOverride`.
+
+The keeper writes when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band changes, **or** when the last write is at least as old as Floor B (`STALENESS_MS` = 5 minutes). That freshness stamp stops a stable clean wallet from looking stale. Floor B still charges 8% if the keeper is actually late and the wallet already swapped in the hour.
 
 ## What it replaces (conceptually)
 
@@ -42,7 +44,7 @@ Default: [http://localhost:4000](http://localhost:4000)
 | `GET` | `/oracle/publishes` | Keeper `updateScore` trail (mock or rpc) |
 | `POST` | `/transfers` | P2P USDC → hop update → oracle reevaluate (tainted inbound to D defers keeper) |
 | `POST` | `/swaps` | Settle swap → event → oracle reevaluate (D pending → catch-up ~65) |
-| `POST` | `/demo/elapse` | Advance demo clock (`{ seconds: 121 }` → Mitigation B) |
+| `POST` | `/demo/elapse` | Advance demo clock (`{ seconds: 301 }` → Floor B) |
 | `POST` | `/demo/price-feed` | Bind / unbind USDC/USD (`{ bound: false }` → `MagnitudeQuoteFailed`) |
 | `GET` | `/transfers` | Transfer history |
 | `GET` | `/events` | Simulated hook trail |

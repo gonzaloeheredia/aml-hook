@@ -47,6 +47,7 @@ contract UnitFeeEscrowTest is Helpers {
     address depositor = address(0xDE90);
     address pool = address(0x1001);
     address fund = address(0xF11D);
+    address reserve = address(0xC0DE);
 
     bytes32 constant ORIGIN_TX = bytes32(uint256(0xabc123));
 
@@ -67,7 +68,7 @@ contract UnitFeeEscrowTest is Helpers {
 
     function setUp() public {
         token = new FeeToken();
-        escrow = new FeeEscrow(owner, address(token), fund, owner);
+        escrow = new FeeEscrow(owner, address(token), fund, reserve, owner);
 
         vm.startPrank(owner);
         escrow.setKeeper(keeper, true);
@@ -95,6 +96,8 @@ contract UnitFeeEscrowTest is Helpers {
         assertTrue(escrow.depositors(depositor));
         assertEq(address(escrow.feeToken()), address(token));
         assertEq(escrow.lpCompensationFund(), fund);
+        assertEq(escrow.complianceReserve(), reserve);
+        assertTrue(escrow.complianceReserve() != escrow.lpCompensationFund());
         assertEq(escrow.bootstrapper(), owner);
         assertEq(escrow.ESCROW_WINDOW(), 48 hours);
         assertEq(escrow.CHECKPOINT1_MIN_AGE(), 24 hours);
@@ -315,16 +318,24 @@ contract UnitFeeEscrowTest is Helpers {
 
     function test_Constructor_RevertsOnZeroAddress() external {
         vm.expectRevert(FeeEscrow.ZeroAddress.selector);
-        new FeeEscrow(address(0), address(token), fund, owner);
+        new FeeEscrow(address(0), address(token), fund, reserve, owner);
 
         vm.expectRevert(FeeEscrow.ZeroAddress.selector);
-        new FeeEscrow(owner, address(0), fund, owner);
+        new FeeEscrow(owner, address(0), fund, reserve, owner);
 
         vm.expectRevert(FeeEscrow.ZeroAddress.selector);
-        new FeeEscrow(owner, address(token), address(0), owner);
+        new FeeEscrow(owner, address(token), address(0), reserve, owner);
 
         vm.expectRevert(FeeEscrow.ZeroAddress.selector);
-        new FeeEscrow(owner, address(token), fund, address(0));
+        new FeeEscrow(owner, address(token), fund, address(0), owner);
+
+        vm.expectRevert(FeeEscrow.ZeroAddress.selector);
+        new FeeEscrow(owner, address(token), fund, reserve, address(0));
+    }
+
+    function test_Constructor_RevertsWhenDestinationsCollide() external {
+        vm.expectRevert(FeeEscrow.DestinationsMustDiffer.selector);
+        new FeeEscrow(owner, address(token), fund, fund, owner);
     }
 
     function test_Deposit_RevertsOnZeroWalletOrAmount() external {
@@ -384,7 +395,7 @@ contract UnitFeeEscrowTest is Helpers {
 
     function test_BootstrapDepositor_GrantsImmediatelyOnce() external {
         address hookAddr = makeAddr("hookDepositor");
-        FeeEscrow fresh = new FeeEscrow(owner, address(token), fund, owner);
+        FeeEscrow fresh = new FeeEscrow(owner, address(token), fund, reserve, owner);
 
         vm.prank(owner);
         fresh.bootstrapDepositor(hookAddr);
@@ -405,7 +416,7 @@ contract UnitFeeEscrowTest is Helpers {
         address gov = makeAddr("safe");
         address deployerEoa = makeAddr("deployerEoa");
         address hookAddr = makeAddr("hookDepositor");
-        FeeEscrow fresh = new FeeEscrow(gov, address(token), fund, deployerEoa);
+        FeeEscrow fresh = new FeeEscrow(gov, address(token), fund, reserve, deployerEoa);
 
         assertEq(fresh.owner(), gov);
         assertEq(fresh.bootstrapper(), deployerEoa);
@@ -474,6 +485,29 @@ contract UnitFeeEscrowTest is Helpers {
         vm.prank(owner);
         vm.expectRevert(FeeEscrow.ZeroAddress.selector);
         escrow.setLpCompensationFund(address(0));
+
+        vm.prank(owner);
+        vm.expectRevert(FeeEscrow.DestinationsMustDiffer.selector);
+        escrow.setLpCompensationFund(reserve);
+    }
+
+    function test_SetComplianceReserve() external {
+        address nextReserve = makeAddr("nextReserve");
+        vm.prank(owner);
+        escrow.setComplianceReserve(nextReserve);
+        assertEq(escrow.complianceReserve(), nextReserve);
+
+        vm.prank(stranger);
+        vm.expectRevert(FeeEscrow.NotOwner.selector);
+        escrow.setComplianceReserve(reserve);
+
+        vm.prank(owner);
+        vm.expectRevert(FeeEscrow.ZeroAddress.selector);
+        escrow.setComplianceReserve(address(0));
+
+        vm.prank(owner);
+        vm.expectRevert(FeeEscrow.DestinationsMustDiffer.selector);
+        escrow.setComplianceReserve(fund);
     }
 
     function test_TransferOwnership_TwoStep() external {
@@ -620,23 +654,29 @@ contract UnitFeeEscrowTest is Helpers {
     }
 
     event FeeRecovered(
-        uint256 indexed escrowId, address indexed wallet, uint256 amount, address indexed to
+        uint256 indexed escrowId,
+        address indexed wallet,
+        address indexed to,
+        address token,
+        uint256 amount,
+        bytes32 swapFingerprint
     );
 
-    function test_RecoverBlocked_OwnerCanRecoverToLpFund() external {
+    function test_RecoverBlocked_OwnerCanRecoverToComplianceReserve() external {
         uint256 amount = 30 ether;
         uint256 id = _blockedEscrow(amount);
         vm.warp(block.timestamp + escrow.OWNER_BLOCKED_RECOVERY_MIN_AGE());
 
         vm.expectEmit(true, true, true, true, address(escrow));
-        emit FeeRecovered(id, walletA, amount, fund);
+        emit FeeRecovered(id, walletA, reserve, address(token), amount, ORIGIN_TX);
 
         vm.prank(owner);
         escrow.recoverBlocked(id);
 
         IFeeEscrow.EscrowRecord memory rec = escrow.getEscrow(id);
         assertEq(uint8(rec.status), uint8(IFeeEscrow.EscrowStatus.Recovered));
-        assertEq(token.balanceOf(fund), amount);
+        assertEq(token.balanceOf(reserve), amount);
+        assertEq(token.balanceOf(fund), 0);
         assertEq(token.balanceOf(address(escrow)), 0);
     }
 
@@ -729,7 +769,8 @@ contract UnitFeeEscrowTest is Helpers {
         vm.warp(block.timestamp + 1 days);
         vm.prank(stranger);
         escrow.recoverExpiredBlocked(id);
-        assertEq(token.balanceOf(fund), 8 ether);
+        assertEq(token.balanceOf(reserve), 8 ether);
+        assertEq(token.balanceOf(fund), 0);
     }
 
     function test_RecoverBlocked_UsesMinOfOwnerFloorAndConfiguredDelay() external {
@@ -744,7 +785,51 @@ contract UnitFeeEscrowTest is Helpers {
         vm.warp(block.timestamp + 1 days);
         vm.prank(owner);
         escrow.recoverBlocked(id);
-        assertEq(token.balanceOf(fund), 4 ether);
+        assertEq(token.balanceOf(reserve), 4 ether);
+        assertEq(token.balanceOf(fund), 0);
+    }
+
+    function test_BlockedRecovery_NeverCreditsLpFund() external {
+        uint256 ownerAmount = 11 ether;
+        uint256 expiredAmount = 9 ether;
+        uint256 ownerId = _deposit(ownerAmount);
+        uint256 expiredId = _deposit(expiredAmount);
+
+        vm.warp(block.timestamp + 48 hours);
+        vm.startPrank(keeper);
+        escrow.resolveCheckpoint2(ownerId, true);
+        escrow.resolveCheckpoint2(expiredId, true);
+        vm.stopPrank();
+
+        vm.prank(owner);
+        escrow.setBlockedRecoveryDelay(1 days);
+        vm.warp(block.timestamp + 1 days);
+
+        vm.prank(owner);
+        escrow.recoverBlocked(ownerId);
+        vm.prank(stranger);
+        escrow.recoverExpiredBlocked(expiredId);
+
+        assertEq(token.balanceOf(reserve), ownerAmount + expiredAmount);
+        assertEq(token.balanceOf(fund), 0);
+        assertEq(token.balanceOf(pool), 0);
+        assertEq(token.balanceOf(address(escrow)), 0);
+    }
+
+    function test_UpdatedComplianceReserve_UsedOnRecoverBlocked() external {
+        address nextReserve = makeAddr("nextReserve");
+        uint256 amount = 6 ether;
+        uint256 id = _blockedEscrow(amount);
+
+        vm.prank(owner);
+        escrow.setComplianceReserve(nextReserve);
+        vm.warp(block.timestamp + escrow.OWNER_BLOCKED_RECOVERY_MIN_AGE());
+        vm.prank(owner);
+        escrow.recoverBlocked(id);
+
+        assertEq(token.balanceOf(nextReserve), amount);
+        assertEq(token.balanceOf(reserve), 0);
+        assertEq(token.balanceOf(fund), 0);
     }
 
     function test_ApplyDepositor_RevertsBeforeTimelock() external {

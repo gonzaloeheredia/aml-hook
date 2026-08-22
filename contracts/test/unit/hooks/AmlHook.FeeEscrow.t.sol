@@ -39,7 +39,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         riskPolicy = new RiskPolicy();
 
         feeToken = new MockFeeToken();
-        escrow = new FeeEscrow(owner, address(feeToken), owner, owner);
+        escrow = new FeeEscrow(owner, address(feeToken), owner, makeAddr("complianceReserve"), owner);
 
         hook = _deployHook(
             accessManager, sanctionRegistry, complianceOracle, riskPolicy, IFeeEscrow(address(escrow))

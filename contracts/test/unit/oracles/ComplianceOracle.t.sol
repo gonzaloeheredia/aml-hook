@@ -193,7 +193,8 @@ contract UnitComplianceOracleTest is Helpers {
     //////////////////////////////////////////////////////////////*/
 
     function test_UpdateScore_RevertsWhenWindowExceeded(address wallet) external {
-        for (uint256 i; i < 5; ++i) {
+        uint256 cap = complianceOracle.maxUpdatesPerWindow();
+        for (uint256 i; i < cap; ++i) {
             vm.prank(keeper);
             complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSig(wallet, 1, 0, origin, 0));
         }
@@ -204,7 +205,8 @@ contract UnitComplianceOracleTest is Helpers {
     }
 
     function test_UpdateScore_ResetsAfterWindow(address wallet) external {
-        for (uint256 i; i < 5; ++i) {
+        uint256 cap = complianceOracle.maxUpdatesPerWindow();
+        for (uint256 i; i < cap; ++i) {
             vm.prank(keeper);
             complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSig(wallet, 1, 0, origin, 0));
         }
@@ -217,7 +219,8 @@ contract UnitComplianceOracleTest is Helpers {
     }
 
     function test_UpdateScore_SlidingWindowDropsExpiredSamples(address wallet) external {
-        for (uint256 i; i < 5; ++i) {
+        uint256 cap = complianceOracle.maxUpdatesPerWindow();
+        for (uint256 i; i < cap; ++i) {
             vm.prank(keeper);
             complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSig(wallet, 1, 0, origin, 0));
         }

@@ -21,7 +21,9 @@ import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol"
 contract ComplianceOracle is AccessManaged, IComplianceOracle {
     mapping(address => WalletRisk) private _risk;
 
-    uint256 public maxUpdatesPerWindow = 5;
+    /// @dev Cap per wallet per `updateWindow`. 24 fits a 5-minute freshness write plus a few
+    ///      real tier changes (whitepaper §8.4). Governor retunes via `setRateLimit`.
+    uint256 public maxUpdatesPerWindow = 24;
     uint64 public updateWindow = 1 hours;
 
     /// @notice ECDSA attestor for `updateScore` payloads. Distinct from `_ORACLE_KEEPER`.

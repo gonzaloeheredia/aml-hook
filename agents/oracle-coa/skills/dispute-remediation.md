@@ -105,7 +105,7 @@ is still Active in `FeeEscrow`:
 | Score reduced to ALLOW band | Keeper may `releaseEarly` to `lpCompensationFund` (never the pool; never refund to the swap subject as default) |
 | Score remains ELEVATED on other sustained facts | Escrow follows Checkpoint 1/2 rules |
 | Challenge frivolous | Escrow continues; optional challenger cost |
-| Later illicit confirmation at Checkpoint 2 | `resolveCheckpoint2(true)` → fee stays Blocked in escrow |
+| Later illicit confirmation at Checkpoint 2 | `resolveCheckpoint2(true)` → Blocked; later recover* → `complianceReserve` only |
 
 Every remediation records original and new `auditHash`. The COA recommends;
 only the FeeEscrow keeper writes.

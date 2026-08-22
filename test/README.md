@@ -32,7 +32,7 @@ node test/flow-uniswap-metamask.mjs
 | Extra B ↔ A after hop 1 | B stays hop **1** (closer hop wins) |
 | Wallet D swap of already-held funds | Published score **0** · ALLOW · **0.30%** |
 | D 4th $1k in the hour | **ACTIVITY_WINDOW_CAP** · **8%** |
-| D after a swap + 121s | **STALE_WITH_POOL_ACTIVITY** · **8%** |
+| D after a swap + 301s | **STALE_WITH_POOL_ACTIVITY** · **8%** |
 | MetaMask **C → D** ~10k (C still clean) then D swap | Score **0** · no hop · inflow **FEE_OVERRIDE 8%** |
 | MetaMask **C → D** $25k (C still clean) | **InflowMagnitudeBlocked** |
 | Wallet E first swap (API or frontend) | USD < $1,000 → **3%**; $1,000–$24,999 → **8%**; ≥ $25,000 or window → **REVERT**; unbound feed → **MagnitudeQuoteFailed** |

@@ -19,7 +19,7 @@ Use this table as the map while running the demo. Each row points to the matchin
 | 4 | B → C | P2P | — | Keeper writes 42 | — |
 | 5 | C | Swap | 42 | FEE_OVERRIDE | 3% |
 | 6 | D | 4th $1,000 in the hour | 0 | FEE_OVERRIDE (C) | 8% |
-| 7 | D | Advance 2 min, swap | 0 stale | FEE_OVERRIDE (B) | 8% |
+| 7 | D | Advance 5 min, swap | 0 stale | FEE_OVERRIDE (B) | 8% |
 | 8 | C → D ~10k (C clean), then D swap | P2P, no hop | 0 | FEE_OVERRIDE (D relative) | 8% |
 | 9 | C → D $25k (C clean) | P2P, then any D swap | 0 | REVERT | `InflowMagnitudeBlocked` |
 | 10a | E | $500 | — | FEE_OVERRIDE | 3% |
@@ -58,7 +58,7 @@ Same order as the whitepaper (§3.3 / §8.4) and `RiskPolicy.decide`, then hook-
 | On the sanctions list | REVERT | `SanctionHit` |
 | Published 0, inbound USD > 50% of current USD, under $25,000, score still older than the baseline | FEE_OVERRIDE (D relative · differential) | 8% |
 | Published, inbound USD ≥ $25,000, score still older than the baseline | REVERT | `InflowMagnitudeBlocked` |
-| Score older than 120s **and** at least one swap in this hour | FEE_OVERRIDE (B) | 8% |
+| Score older than `stalenessThreshold` (demo 5 minutes) **and** at least one swap in this hour | FEE_OVERRIDE (B) | 8% |
 | Fourth swap after three completed ops in the hour (default; governor may retune) | FEE_OVERRIDE (C) | 8% |
 | Never written, assessed USD under $1,000 | FEE_OVERRIDE | 3% |
 | Never written, $1,000–$24,999 | FEE_OVERRIDE | 8% |
@@ -76,11 +76,11 @@ N-hop score:
 | B or C after a 1-hop peer | 2 | 42 | FEE_OVERRIDE 3% |
 | D after keeper catch-up from A | 1 | 65 | FEE_OVERRIDE 8% |
 
-A second inbound from a closer source replaces the farther hop. Clean-to-clean P2P does not contaminate. The keeper writes only when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band changes.
+A second inbound from a closer source replaces the farther hop. Clean-to-clean P2P does not contaminate. The keeper writes when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band changes, **or** when the last write is at least as old as `stalenessThreshold`. That freshness stamp stops a stable clean wallet from looking stale. Floor B still fires when the keeper is actually late (demo: **Advance 5 min** with no intervening write).
 
 ## 4. Walkthrough
 
-Reference for executing the demo step by step. Use the frontend (Connect + MetaMask panel) or the API. Amounts match the demo balances. On the swap card: **Advance 2 min** (Mitigation B) and **Unbind price feed** (E / D absolute quote). Restart data reseeds A–E.
+Reference for executing the demo step by step. Use the frontend (Connect + MetaMask panel) or the API. Amounts match the demo balances. On the swap card: **Advance 5 min** (Floor B) and **Unbind price feed** (E / D absolute quote). Restart data reseeds A–E.
 
 ### Step 0 — Clean swap (D, or B / C)
 
@@ -161,17 +161,17 @@ The **fourth** $1,000 swap in the same hour:
 
 ### Step 7 — Mitigation B (stale score + pool activity)
 
-Stay on D (or any published-clean wallet that already swapped in this hour). Press **Advance 2 min**. Swap again.
+Stay on D (or any published-clean wallet that already swapped in this hour). Press **Advance 5 min**. Swap again.
 
 | Check | Result |
 | --- | --- |
-| Score | 0, now older than 120s |
+| Score | 0, now older than 5 minutes (demo `stalenessThreshold`; the hook governor retunes this) |
 | Ops in window | > 0 |
 | Decision | FEE_OVERRIDE |
 | Floor | `STALE_WITH_POOL_ACTIVITY` |
 | Fee | 8% |
 
-A stale score with **no** swap in the hour stays ALLOW.
+A stale score with **no** swap in the hour stays ALLOW. The first swap of a new hour does not arm Floor B. Floor B fires when the keeper is actually late — the demo button advances the clock without a write. A healthy keeper stamps `updatedAt` again when the window ages, even if the score did not move.
 
 ### Step 8 — C sends to D (clean inbound, relative inflow)
 
@@ -231,17 +231,17 @@ The $1,000 and $25,000 defaults follow the order of magnitude used in internatio
 
 ### Step 12 — FeeEscrow (FEE_OVERRIDE only)
 
-On B (8%), C (3%), D floors (8%), and E (3% or 8%), the pool keeps 0.30%. The extra slice sits in FeeEscrow. The demo ledger shows the fee; it does not deposit on-chain.
+On B (8%), C (3%), D floors (8%), and E (3% or 8%), the pool keeps 0.30%. The extra slice sits in FeeEscrow. The demo ledger shows the fee; it does not deposit on-chain. On-chain, the two destinations cannot be the same address.
 
 | Window | What happens | Where the fee goes |
 | --- | --- | --- |
 | 0–24h | Optional review | Still in escrow |
 | 24–48h | Early release | LP compensation fund |
-| At 48h, illicit | Block | Stays in escrow (reporting reserve) |
+| At 48h, illicit | Block, then recover | Compliance reserve (never the LP fund) |
 | At 48h, not illicit | Release | LP compensation fund |
 | Nobody resolved | Default release | LP compensation fund |
 
-The fee never returns to the pool. User swap output settles in the same block.
+Owner recovery waits at least 7 days and can go only to the compliance reserve. After the full delay (default 90 days) anyone may send an expired blocked row to that same reserve. `FeeRecovered` records destination, token, amount, wallet, and the swap fingerprint. The fee never returns to the pool. User swap output settles in the same block.
 
 ### Step 13 — Opinion / COA file
 

@@ -11,15 +11,18 @@
 
 import {
   clearKeeperPending,
+  demoNow,
+  getLastScoreAt,
   getWallet,
   isKeeperPending,
   listEvents,
   listTransfers,
   listWallets,
   markKeeperPending,
+  STALENESS_MS,
   touchScoreAt,
 } from "../store.js";
-import { feeBand, scoreTier } from "../scoring.js";
+import { shouldPublishScore } from "../scoring.js";
 import type { WalletId } from "../types.js";
 import { buildFacts, scoreFromFacts } from "./factScoring.js";
 import {
@@ -103,11 +106,16 @@ export async function reevaluateWallet(
   );
   const opinion = buildOpinionFromScore(wallet, scoreResult, agentRun);
   const priorFee = prior == null ? null : getOracleFeeBps(walletId);
-  const shouldWrite =
-    !wallet.neverScored &&
-    (prior == null ||
-      scoreTier(prior) !== scoreTier(scoreResult.finalScore) ||
-      feeBand(priorFee ?? 0) !== feeBand(scoreResult.recommendedFeeBps));
+  const shouldWrite = shouldPublishScore({
+    neverScored: wallet.neverScored,
+    priorScore: prior,
+    nextScore: scoreResult.finalScore,
+    priorFeeBps: priorFee,
+    nextFeeBps: scoreResult.recommendedFeeBps,
+    lastScoreAt: getLastScoreAt(walletId),
+    now: demoNow(),
+    stalenessMs: STALENESS_MS,
+  });
 
   const onChainPublish = shouldWrite
     ? await publishScoreToChain(wallet, scoreResult)

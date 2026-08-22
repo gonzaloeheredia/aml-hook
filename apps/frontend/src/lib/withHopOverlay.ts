@@ -340,7 +340,7 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
         : latencyMitigation === "INFLOW_MAGNITUDE"
           ? "Inbound USD ≥ $25,000 since baseline — REVERT (InflowMagnitudeBlocked)."
           : latencyMitigation === "STALE_WITH_POOL_ACTIVITY"
-            ? "Score older than 120s and this wallet already swapped in the hour → FEE_OVERRIDE 8%."
+            ? "Score older than 5 minutes and this wallet already swapped in the hour → FEE_OVERRIDE 8%."
             : latencyMitigation === "ACTIVITY_WINDOW_CAP"
               ? "Already 3 ops in the hour — this swap is FEE_OVERRIDE 8%."
               : latencyMitigation === "SCORE_NEVER_WRITTEN"
