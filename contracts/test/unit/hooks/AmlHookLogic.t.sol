@@ -44,7 +44,7 @@ contract UnitAmlHookLogicTest is Helpers {
         oracleSelectors[0] = ComplianceOracle.updateScore.selector;
         _wireRole(accessManager, owner, address(complianceOracle), oracleSelectors, Roles._ORACLE_KEEPER, keeper);
 
-        bytes4[] memory hookSelectors = new bytes4[](7);
+        bytes4[] memory hookSelectors = new bytes4[](9);
         hookSelectors[0] = AmlHookLogic.setStalenessThreshold.selector;
         hookSelectors[1] = AmlHookLogic.setInflowThresholdBps.selector;
         hookSelectors[2] = AmlHookLogic.setTrustedRouter.selector;
@@ -52,6 +52,8 @@ contract UnitAmlHookLogicTest is Helpers {
         hookSelectors[4] = AmlHookLogic.setPriceFeed.selector;
         hookSelectors[5] = AmlHookLogic.setPriceStalenessThreshold.selector;
         hookSelectors[6] = AmlHookLogic.setActivityWindow.selector;
+        hookSelectors[7] = AmlHookLogic.observeSwap.selector;
+        hookSelectors[8] = AmlHookLogic.syncBaseline.selector;
         _wireRole(accessManager, owner, address(harness), hookSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
 
         vm.warp(1_000_000);
@@ -486,5 +488,32 @@ contract UnitAmlHookLogicTest is Helpers {
         vm.warp(block.timestamp + harness.minBaselineInterval());
         harness.updateKnownBalance(walletA, address(token));
         assertEq(harness.lastKnownBalance(walletA, address(token)), 150 ether);
+    }
+
+    function test_PreviewSwap_MatchesEvaluate() external {
+        token.mint(walletA, 1_000 ether);
+        (HookDecision d1, uint24 f1,) = harness.evaluate(walletA, address(token), 1_000 ether);
+        (HookDecision d2, uint24 f2,) = harness.previewSwap(walletA, address(token), 1_000 ether);
+        assertEq(uint8(d1), uint8(d2));
+        assertEq(f1, f2);
+    }
+
+    function test_ObserveSwap_RecordsActivityAndIsGovernorOnly() external {
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, _scoreSig(walletA, 0, 0));
+        token.mint(walletA, 1_000 ether);
+
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, address(this)));
+        harness.observeSwap(walletA, address(token), 1_000 ether);
+
+        vm.startPrank(hookGovernor);
+        harness.syncBaseline(walletA, address(token));
+        (HookDecision d,,) = harness.observeSwap(walletA, address(token), 1_000 ether);
+        vm.stopPrank();
+
+        assertEq(uint8(d), uint8(HookDecision.ALLOW));
+        (, uint32 ops,) = harness.poolActivity(walletA);
+        assertEq(ops, 1);
+        assertEq(harness.lastKnownBalance(walletA, address(token)), 1_000 ether);
     }
 }

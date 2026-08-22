@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-/// @title Fee escrow for FEE_OVERRIDE differential fees (whitepaper §3.7)
-/// @notice Holds only the differential fee for 48h with keeper-driven checkpoints.
-///         The Compliance Officer Agent (COA) has no write path on this contract.
+/// @title Fee escrow for the extra risk fee on a fee-override (whitepaper §8.3)
+/// @notice Holds only the extra slice for 48 hours. The Compliance Officer Agent cannot write here.
 interface IFeeEscrow {
     /// @notice Lifecycle of one escrowed differential-fee deposit.
     enum EscrowStatus {
@@ -14,7 +13,7 @@ interface IFeeEscrow {
         Recovered
     }
 
-    /// @notice One retained FEE_OVERRIDE fee slice.
+    /// @notice One extra slice from a fee-override swap.
     struct EscrowRecord {
         address wallet;
         address token;
@@ -37,23 +36,19 @@ interface IFeeEscrow {
     /// @notice Next escrow id that `deposit` will assign (starts at 1).
     function nextEscrowId() external view returns (uint256);
 
-    /// @notice Deposit the differential fee into the 48h escrow.
-    /// @dev Only an authorized depositor (e.g. settlement path). Pulls `token` via transferFrom.
-    ///      `token` must be in `allowedFeeTokens`.
-    /// @return escrowId Identifier for later keeper resolution.
+    /// @notice Deposit the extra slice for 48 hours. Only the hook (the depositor) may call this.
     function deposit(address wallet, address token, bytes32 swapFingerprint, uint256 amount)
         external
         returns (uint256 escrowId);
 
-    /// @notice Checkpoint 1 (~24h): early credit to `lpCompensationFund`. Never blocks; never the pool.
+    /// @notice 24–48h: early release to the LP compensation fund. Never blocks. Never the pool.
     function releaseEarly(uint256 escrowId) external;
 
-    /// @notice Checkpoint 2 (at/after 48h): COA-backed final resolution by the keeper.
-    /// @param illicitConfirmed True → fee stays blocked in escrow; false → lpCompensationFund (never the pool).
+    /// @notice At 48h: illicit stays blocked for the file; clean goes to the LP compensation fund.
+    /// @param illicitConfirmed True if the review confirmed a sanction or illicit typology.
     function resolveCheckpoint2(uint256 escrowId, bool illicitConfirmed) external;
 
-    /// @notice After the window with no prior resolution: credit LPs (`lpCompensationFund`).
-    /// @dev Wallet was not confirmed high-risk or sanctioned — same destination as Checkpoint 2 clean.
+    /// @notice Nobody resolved by 48h: credit the LP compensation fund, same as a clean checkpoint.
     function releaseDefault(uint256 escrowId) external;
 
     /// @notice Checkpoint 1 for many escrow ids (same rules as `releaseEarly`).
@@ -66,11 +61,11 @@ interface IFeeEscrow {
     /// @notice Default release for many escrow ids (same rules as `releaseDefault`).
     function batchReleaseDefault(uint256[] calldata escrowIds) external;
 
-    /// @notice Owner recovery of a blocked fee to lpCompensationFund after a minimum hold.
-    /// @dev Wait is `min(blockedRecoveryDelay, 7 days)`. Permissionless path is `recoverExpiredBlocked`.
+    /// @notice Escrow owner sends a blocked fee to the compliance reserve after at least 7 days.
+    ///         Never the LP compensation fund. `FeeRecovered` records destination, amount, and the swap.
     function recoverBlocked(uint256 escrowId) external;
 
-    /// @notice Permissionless recovery of a blocked fee after `blockedRecoveryDelay`.
+    /// @notice After the full delay (default 90 days), anyone may send an expired blocked fee to the compliance reserve.
     function recoverExpiredBlocked(uint256 escrowId) external;
 
     /// @notice Read a single escrow record. Restricted to owner or an auditor.

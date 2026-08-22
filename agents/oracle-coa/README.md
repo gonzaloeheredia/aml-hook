@@ -298,7 +298,9 @@ REVERT stops applying to already-held funds.
 `lpFeeOverride`. The pool charges its standard LP fee. In `afterSwap`, the hook
 takes the risk differential (`recommendedFeeBps − standardFeeBps`, e.g. 800−30)
 via `poolManager.take` and deposits it into `FeeEscrow`. The COA never writes
-escrow; a FeeEscrow keeper resolves after off-chain COA review (Checkpoint 1/2).
+escrow; a FeeEscrow keeper resolves after off-chain COA review (whitepaper §8.3).
+Clean / early / default → LP compensation fund. Confirmed illicit → blocked,
+then recovered to the compliance reserve only. Never the LP fund.
 
 `recommendedFeeBps` remains the COA/oracle source of truth for total intended
 friction (demo quotes + keeper `updateScore` fee field).

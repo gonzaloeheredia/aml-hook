@@ -41,6 +41,7 @@ export function applyTransfer(
   if (!sender || !recipient) return null;
   if (sender.usdc < amount) return null;
 
+  const hopped = applyHopContamination(wallets, from, to);
   if (recipient.neverScored) {
     const next: Record<WalletId, Wallet> = {
       ...wallets,
@@ -118,6 +119,55 @@ export function applyTransfer(
       at: new Date().toISOString(),
       resultingScore: hopScore(next[to]),
       hopDistance: next[to].hopDistance ?? 0,
+    },
+  };
+}
+
+/**
+ * Updates hop / origin only. Balances live on-chain; the keeper publishes this hop.
+ */
+export function applyHopContamination(
+  wallets: Record<WalletId, Wallet>,
+  from: WalletId,
+  to: WalletId,
+): Record<WalletId, Wallet> {
+  const sender = wallets[from];
+  const recipient = wallets[to];
+  if (!sender || !recipient || from === to) return wallets;
+  if (recipient.neverScored) return wallets;
+
+  const senderIsTainted = sender.exploitConfirmed || sender.hopDistance != null;
+  const incomingHop = senderIsTainted ? (sender.hopDistance ?? 0) + 1 : null;
+  const origin = sender.originId ?? (sender.exploitConfirmed ? sender.id : null);
+  const resolvedHop = recipient.exploitConfirmed
+    ? recipient.hopDistance
+    : incomingHop == null
+      ? recipient.hopDistance
+      : recipient.hopDistance == null
+        ? incomingHop
+        : Math.min(recipient.hopDistance, incomingHop);
+  const resolvedOrigin = recipient.exploitConfirmed
+    ? recipient.originId
+    : incomingHop == null
+      ? recipient.originId
+      : (origin ?? recipient.originId);
+
+  return {
+    ...wallets,
+    [to]: {
+      ...recipient,
+      hopDistance: resolvedHop,
+      originId: resolvedOrigin,
+      accountLabel: recipient.exploitConfirmed
+        ? recipient.accountLabel
+        : resolvedHop == null
+          ? `Account ${recipient.id} · Clean`
+          : `Account ${recipient.id} · ${resolvedHop}-hop`,
+      role: recipient.exploitConfirmed
+        ? recipient.role
+        : resolvedHop == null
+          ? `Clean wallet — ALLOW until contaminated by A or a tainted peer`
+          : `${resolvedHop}-hop from origin ${resolvedOrigin ?? EXPLOIT_SOURCE}`,
     },
   };
 }

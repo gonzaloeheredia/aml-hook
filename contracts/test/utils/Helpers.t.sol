@@ -146,7 +146,7 @@ contract Helpers is Test {
 
     /// @dev Wires `_HOOK_GOVERNOR` so tests can `setTrustedRouter`.
     function _wireHookGovernor() internal {
-        bytes4[] memory hookSelectors = new bytes4[](12);
+        bytes4[] memory hookSelectors = new bytes4[](14);
         hookSelectors[0] = AmlHookLogic.setStalenessThreshold.selector;
         hookSelectors[1] = AmlHookLogic.setInflowThresholdBps.selector;
         hookSelectors[2] = AmlHookLogic.setTrustedRouter.selector;
@@ -159,6 +159,8 @@ contract Helpers is Test {
         hookSelectors[9] = AmlHookLogic.setPriceFeed.selector;
         hookSelectors[10] = AmlHookLogic.setPriceStalenessThreshold.selector;
         hookSelectors[11] = AmlHookLogic.setActivityWindow.selector;
+        hookSelectors[12] = AmlHookLogic.observeSwap.selector;
+        hookSelectors[13] = AmlHookLogic.syncBaseline.selector;
         _wireRole(accessManager, owner, address(hook), hookSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
     }
 

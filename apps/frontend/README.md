@@ -39,7 +39,7 @@ REVERT is `beforeSwap` only — no `afterSwap` emit for that attempt.
 1. **Wallet A (exploit)** — score 100 · `REVERT`
 2. **Wallet B (clean)** — receives from A → ~65 / 8%; from tainted C → ~42 / 3%
 3. **Wallet C (clean)** — receives from A → ~65 / 8%; from tainted B → ~42 / 3%
-4. **Wallet D (score 0)** — 5,000 USDC published clean. Held funds → ALLOW 0.30%. 4th swap in the hour → 8% (C). Advance 2 min after a swap → 8% (B). Clean C→D ~10k → inflow 8% (no hop). Clean C→D $25k → revert
+4. **Wallet D (score 0)** — 5,000 USDC published clean. Held funds → ALLOW 0.30%. 4th swap in the hour → 8% (C). Advance 5 min after a swap (no intervening write) → 8% (B). Clean C→D ~10k → inflow 8% (no hop). Clean C→D $25k → revert
 5. **Wallet E (unknown)** — no oracle row. Chips: $500 → 3%; $1,000 / $10,000 → 8%; $25,000 or window sum → revert. Unbind feed → revert
 
 N-hop formula: `derived_score = origin_score × (0.65 ^ hops) × exposed_proportion`  
@@ -67,7 +67,7 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 2. Connect **Wallet A** → swap → REVERT
 3. Open **MetaMask Simulator** → Send USDC **A→B**, then **B→C**
 4. Swap with **B** → FEE_OVERRIDE 8%; with **C** → FEE_OVERRIDE 3%
-5. On **D**, swap $1,000 four times → 4th is 8% (activity window). **Advance 2 min** → 8% (stale + activity)
+5. On **D**, swap $1,000 four times → 4th is 8% (activity window). **Advance 5 min** with no keeper write → 8% (Floor B: stale + a prior swap in the hour). A healthy keeper stamps `updatedAt` again when the window ages.
 6. Restart. Send **10,000** C→D (C still clean) → D swap → 8% (inflow, no hop). Restart. Send **25,000** C→D → D swap → revert
 7. Connect **Wallet E** → $500 / $1,000 / $10,000 / $25,000 → 3% / 8% / 8% / revert. **Unbind price feed** → revert
 8. From **Fees**, advance → **AML stats** → **Opinion** → **Event**

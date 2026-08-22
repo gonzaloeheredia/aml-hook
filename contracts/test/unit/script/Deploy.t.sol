@@ -75,6 +75,8 @@ contract UnitDeployTest is Helpers {
         vm.prank(oracleKeeper);
         complianceOracle.updateScore(account, 65, 1, address(0), 0, _scoreSig(account, 65, 1, address(0), 0));
 
+        assertEq(hook.stalenessThreshold(), 300);
+
         vm.startPrank(hookGovernor);
         hook.setStalenessThreshold(120);
         hook.setActivityWindow(2 hours, 5);
@@ -193,6 +195,8 @@ contract UnitDeployTest is Helpers {
 
         assertEq(escrow.owner(), owner);
         assertEq(escrow.lpCompensationFund(), owner);
+        assertEq(escrow.complianceReserve(), deployment.LOCAL_COMPLIANCE_RESERVE());
+        assertTrue(escrow.complianceReserve() != escrow.lpCompensationFund());
         assertEq(escrow.bootstrapper(), address(0));
         assertFalse(escrow.keepers(configurer));
         assertFalse(escrow.depositors(configurer));

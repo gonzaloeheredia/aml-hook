@@ -19,6 +19,7 @@ import {UniversalRouters} from "../src/libraries/UniversalRouters.sol";
 import {MockPoolManager} from "./mocks/MockPoolManager.sol";
 import {MockTrustedRouter} from "./mocks/MockTrustedRouter.sol";
 import {MockFeeToken} from "./mocks/MockFeeToken.sol";
+import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
 
 /// @notice Deploys the REAL on-chain AML stack (manager, registry, oracle, policy, hook) and wires
 ///         its access manager.
@@ -43,8 +44,10 @@ import {MockFeeToken} from "./mocks/MockFeeToken.sol";
     ///      Optional env:
     ///      - POOL_MANAGER: real PoolManager address (else MockPoolManager)
     ///      - FEE_TOKEN: FeeEscrow custody asset (else MockFeeToken)
-    ///      - LP_COMPENSATION_FUND: FeeEscrow release destination. Defaults to FEE_ESCROW_OWNER /
-    ///        ADMIN, never to the deploying EOA when those keys differ.
+    ///      - LP_COMPENSATION_FUND: where a clean extra fee goes (early / clean / default). Defaults
+    ///        to FEE_ESCROW_OWNER / ADMIN, never to the deploying key when those differ.
+    ///      - COMPLIANCE_RESERVE: where a confirmed-illicit extra fee goes after recovery. Production
+    ///        must set the authority wallet. Local Anvil uses a labeled placeholder, never the LP fund.
     ///      - FEE_ESCROW_OWNER: FeeEscrow `owner` from genesis (defaults to ADMIN). Production MUST
     ///        be a Gnosis Safe; the deployer is only a one-shot `bootstrapper` for the hook depositor.
     ///      - TRUSTED_ROUTER: extra router to trust in addition to the canonical Universal Router
@@ -59,6 +62,16 @@ contract Deploy is Script {
     // Anvil account #0
     uint256 constant ANVIL_PK =
         0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
+    /// @dev Anvil account #9 — local-only attestor so keeper (#0) and attestor stay distinct.
+    uint256 constant LOCAL_ATTESTOR_PK =
+        0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6;
+
+    /// @dev Anvil accounts #1–#5. Demo wallets A–E. API holds the matching keys locally.
+    address constant DEMO_WALLET_A = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
+    address constant DEMO_WALLET_B = 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC;
+    address constant DEMO_WALLET_C = 0x90F79bf6EB2c4f870365E785982E1f101E93b906;
+    address constant DEMO_WALLET_D = 0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65;
+    address constant DEMO_WALLET_E = 0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc;
 
     /// @notice Thrown when a function ended up behind a different role than intended
     error Deploy_WrongFunctionRole(address target, bytes4 selector, uint64 expected, uint64 actual);
@@ -81,8 +94,14 @@ contract Deploy is Script {
     /// @notice Thrown when FeeEscrow owner is not the intended governance key
     error Deploy_WrongFeeEscrowOwner(address expected, address actual);
 
-    /// @notice Thrown when the LP compensation fund would pay the deploying EOA
+    /// @notice Thrown when the LP compensation fund would pay the deploying key
     error Deploy_LpFundIsConfigurer(address configurer);
+
+    /// @notice Thrown when the compliance reserve would pay the deploying key
+    error Deploy_ComplianceReserveIsConfigurer(address configurer);
+
+    /// @notice Thrown when the LP compensation fund and the compliance reserve are the same address (whitepaper §8.3)
+    error Deploy_DestinationsMustDiffer(address shared);
 
     /// @notice Thrown when the deploying key still holds FeeEscrow keeper / depositor / bootstrapper
     error Deploy_ConfigurerStillFeeEscrowPrivileged(address configurer);
@@ -103,11 +122,20 @@ contract Deploy is Script {
     /// @notice The deployed hook
     AmlHook public hook;
 
-    /// @notice 48h differential-fee escrow (§3.7) — hook deposits risk fees on FEE_OVERRIDE
+    /// @notice 48-hour hold of the extra risk fee (whitepaper §8.3)
     FeeEscrow public feeEscrow;
 
     /// @notice PoolManager used by the hook (real or MockPoolManager)
     address public poolManager;
+
+    /// @notice FeeEscrow custody token (MockFeeToken locally). Also the demo USDC.
+    address public feeToken;
+
+    /// @notice Bound USD-8 feed for the fee token (demo USDC = $1).
+    address public usdFeed;
+
+    /// @notice Bound ETH/USD feed (demo mark = $1,000). `setPriceFeed(address(0), …)`.
+    address public ethUsdFeed;
 
     /// @notice Primary trusted router (canonical Universal Router, env override, or local mock)
     address public trustedRouter;
@@ -117,6 +145,10 @@ contract Deploy is Script {
 
     /// @notice Intended FeeEscrow owner (ADMIN / FEE_ESCROW_OWNER). Not the deploying EOA when they differ.
     address public feeEscrowOwner;
+
+    /// @notice Local Anvil stand-in for the compliance reserve. Production sets COMPLIANCE_RESERVE to the authority wallet.
+    address public constant LOCAL_COMPLIANCE_RESERVE =
+        address(uint160(uint256(keccak256("aml-hook.local.complianceReserve"))));
 
     /// @notice Broadcast entry: read env keys, deploy the stack, write `deployments/<chainId>.json`.
     /// @dev Production must set `ATTESTOR` and `ADMIN` / `FEE_ESCROW_OWNER`. Local Anvil may default
@@ -130,6 +162,9 @@ contract Deploy is Script {
         address oracleKeeper = vm.envOr("ORACLE_KEEPER", deployer);
         address hookGovernor = vm.envOr("HOOK_GOVERNOR", deployer);
         address attestor = vm.envOr("ATTESTOR", address(0));
+        if (attestor == address(0) && block.chainid == 31337) {
+            attestor = vm.addr(LOCAL_ATTESTOR_PK);
+        }
         feeEscrowOwner = vm.envOr("FEE_ESCROW_OWNER", admin);
 
         address poolManagerAddr = vm.envOr("POOL_MANAGER", address(0));
@@ -178,7 +213,7 @@ contract Deploy is Script {
     /// @param attestor The ECDSA attestor for `updateScore` payloads (distinct from governor / keeper)
     /// @param poolManagerOverride A real `IPoolManager`, or zero to deploy `MockPoolManager`
     /// @param trustedRouterOverride Extra router to trust (in addition to the canonical Universal Router)
-    /// @param stalenessThreshold Seconds before a published score counts as stale (Mitigation B)
+    /// @param stalenessThreshold Seconds before a published score counts as stale (Floor B; default 5 minutes)
     /// @param activityWindow Initial Mitigation C window in seconds (governor retunes via `setActivityWindow`)
     /// @param maxOpsInWindow Initial completed-ops cap in that window (governor retunes via `setActivityWindow`)
     function _deploy(
@@ -236,10 +271,17 @@ contract Deploy is Script {
             feeTokenAddr = address(new MockFeeToken());
             console2.log("MockFeeToken", feeTokenAddr);
         }
+        feeToken = feeTokenAddr;
         address lpFund = vm.envOr("LP_COMPENSATION_FUND", address(0));
         if (lpFund == address(0)) lpFund = feeEscrowOwner;
         if (lpFund == configurer && configurer != feeEscrowOwner) revert Deploy_LpFundIsConfigurer(configurer);
-        feeEscrow = new FeeEscrow(feeEscrowOwner, feeTokenAddr, lpFund, configurer);
+        address reserve = vm.envOr("COMPLIANCE_RESERVE", address(0));
+        if (reserve == address(0)) reserve = LOCAL_COMPLIANCE_RESERVE;
+        if (reserve == configurer && configurer != feeEscrowOwner) {
+            revert Deploy_ComplianceReserveIsConfigurer(configurer);
+        }
+        if (reserve == lpFund) revert Deploy_DestinationsMustDiffer(reserve);
+        feeEscrow = new FeeEscrow(feeEscrowOwner, feeTokenAddr, lpFund, reserve, configurer);
 
         uint160 flags = uint160(
             Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
@@ -318,6 +360,11 @@ contract Deploy is Script {
             console2.log("MockTrustedRouter", trustedRouter);
         }
         hook.setTrustedRouter(trustedRouter, true);
+
+        usdFeed = address(new MockUsdFeed(1e8));
+        ethUsdFeed = address(new MockUsdFeed(1_000e8));
+        hook.setPriceFeed(feeToken, usdFeed);
+        hook.setPriceFeed(address(0), ethUsdFeed);
         if (canonical != address(0) && canonical != trustedRouter) {
             hook.setTrustedRouter(canonical, true);
             console2.log("UniversalRouter", canonical);
@@ -346,6 +393,7 @@ contract Deploy is Script {
         console2.log("FeeEscrow", address(feeEscrow));
         console2.log("FeeEscrowOwner", feeEscrowOwner);
         console2.log("LpCompensationFund", feeEscrow.lpCompensationFund());
+        console2.log("ComplianceReserve", feeEscrow.complianceReserve());
         console2.log("AmlHook", address(hook));
         console2.log("Attestor", oracleAttestor);
         console2.log("TrustedRouter", trustedRouter);
@@ -405,6 +453,12 @@ contract Deploy is Script {
         if (feeEscrow.lpCompensationFund() == configurer && configurer != feeEscrowOwner) {
             revert Deploy_LpFundIsConfigurer(configurer);
         }
+        if (feeEscrow.complianceReserve() == configurer && configurer != feeEscrowOwner) {
+            revert Deploy_ComplianceReserveIsConfigurer(configurer);
+        }
+        if (feeEscrow.complianceReserve() == feeEscrow.lpCompensationFund()) {
+            revert Deploy_DestinationsMustDiffer(feeEscrow.complianceReserve());
+        }
         if (
             configurer != feeEscrowOwner
                 && (
@@ -460,7 +514,7 @@ contract Deploy is Script {
 
     /// @notice The hook functions that require the governor role
     function _hookSelectors() internal pure returns (bytes4[] memory selectors) {
-        selectors = new bytes4[](12);
+        selectors = new bytes4[](14);
         selectors[0] = AmlHookLogic.setStalenessThreshold.selector;
         selectors[1] = AmlHookLogic.setInflowThresholdBps.selector;
         selectors[2] = AmlHookLogic.setTrustedRouter.selector;
@@ -473,6 +527,8 @@ contract Deploy is Script {
         selectors[9] = AmlHookLogic.setPriceFeed.selector;
         selectors[10] = AmlHookLogic.setPriceStalenessThreshold.selector;
         selectors[11] = AmlHookLogic.setActivityWindow.selector;
+        selectors[12] = AmlHookLogic.observeSwap.selector;
+        selectors[13] = AmlHookLogic.syncBaseline.selector;
     }
 
     /// @dev Persist addresses and intended keys for the SDK / API sync.
@@ -530,6 +586,9 @@ contract Deploy is Script {
             '  "lpCompensationFund": "',
             vm.toString(feeEscrow.lpCompensationFund()),
             '",\n',
+            '  "complianceReserve": "',
+            vm.toString(feeEscrow.complianceReserve()),
+            '",\n',
             '  "AmlHook": "',
             vm.toString(address(hook)),
             '",\n',
@@ -538,7 +597,33 @@ contract Deploy is Script {
             '",\n',
             '  "poolManager": "',
             vm.toString(poolManager),
+            '",\n',
+            '  "feeToken": "',
+            vm.toString(feeToken),
+            '",\n',
+            '  "usdFeed": "',
+            vm.toString(usdFeed),
+            '",\n',
+            '  "ethUsdFeed": "',
+            vm.toString(ethUsdFeed),
+            '",\n',
+            '  "wallets": {\n',
+            '    "A": "',
+            vm.toString(DEMO_WALLET_A),
+            '",\n',
+            '    "B": "',
+            vm.toString(DEMO_WALLET_B),
+            '",\n',
+            '    "C": "',
+            vm.toString(DEMO_WALLET_C),
+            '",\n',
+            '    "D": "',
+            vm.toString(DEMO_WALLET_D),
+            '",\n',
+            '    "E": "',
+            vm.toString(DEMO_WALLET_E),
             '"\n',
+            "  }\n",
             "}\n"
         );
 

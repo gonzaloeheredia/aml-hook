@@ -228,8 +228,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   } & T;
 
   if (!res.ok) {
+    const body = data as { error?: string; message?: string };
     throw new ApiError(
-      data.error || `API ${res.status} on ${path}`,
+      body.message || body.error || `API ${res.status} on ${path}`,
       res.status,
     );
   }
@@ -238,7 +239,41 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 /** GET /health */
 export function fetchHealth() {
-  return request<{ ok: boolean; mode: string }>(`/health`);
+  return request<{
+    ok: boolean;
+    mode: string;
+    chain?: { ok: boolean; hook: string | null; reason?: string };
+  }>(`/health`);
+}
+
+export type ApiEscrowRow = {
+  id: number;
+  wallet: string;
+  walletId: DemoCaseId | null;
+  token: string;
+  amountUsdc: number;
+  depositedAt: number;
+  swapFingerprint: string;
+  status: string;
+  blockedAt: number;
+};
+
+export function fetchEscrow() {
+  return request<{ rows: ApiEscrowRow[] }>(`/escrow`);
+}
+
+export function postEscrowCheckpoint2(id: number, illicit: boolean) {
+  return request<{ ok: boolean; txHash: string; rows: ApiEscrowRow[] }>(
+    `/escrow/${id}/checkpoint2`,
+    { method: "POST", body: JSON.stringify({ illicit }) },
+  );
+}
+
+export function postEscrowRecover(id: number) {
+  return request<{ ok: boolean; txHash: string; rows: ApiEscrowRow[] }>(
+    `/escrow/${id}/recover`,
+    { method: "POST" },
+  );
 }
 
 /** GET /wallets */
@@ -310,8 +345,8 @@ export function postKeeperCatchUp(id: DemoCaseId) {
   }>(`/oracle/${id}/catch-up`, { method: "POST" });
 }
 
-/** POST /demo/elapse — advance demo clock (121s makes a published score stale). */
-export function postDemoElapse(seconds = 121) {
+/** POST /demo/elapse — advance demo clock (301s makes a published score stale). */
+export function postDemoElapse(seconds = 301) {
   return request<{ ok: boolean; now: number; elapsedSeconds: number }>(
     `/demo/elapse`,
     {

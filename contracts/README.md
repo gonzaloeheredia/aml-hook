@@ -45,11 +45,11 @@ User → Router → PoolManager → AmlHook          (Uniswap callbacks only)
 | **AccessManager** | Shared OpenZeppelin authority (`Roles`: registry / oracle keepers, hook governor). Admin grants/revokes those roles. |
 | **SanctionRegistry** | Sanctions hit → REVERT before score. New hits: `commitSanction` + `revealSanction`. `setSanctioned` remains for emergencies. |
 | **ComplianceOracle** | Score / hop / origin / `feeBps` / `updatedAt`. `_ORACLE_KEEPER` submits `updateScore`; a distinct **attestor** ECDSA-signs `attestationHash` (wallet, score, hop, origin, feeBps, updatedAt, chainid). Missing hop/origin in the sig is rejected. |
-| **RiskPolicy** | Ternary bands + §3.8 floors (stale+activity, significant inflow) + never-scored USD bands (3% / 8% / REVERT at $1,000 / $25,000). Pure — no Chainlink call. |
+| **RiskPolicy** | Ternary bands + §8.4 floors (stale+activity, significant inflow) + never-scored USD bands (3% / 8% / REVERT at $1,000 / $25,000). Pure — no Chainlink call. |
 | **AmlHook** | Uniswap callbacks only. Must call `_beginSwap` then `_endSwap` in that order. |
 | **AmlHookLogic** | Subject resolve, L1→L3, mitigations A–D, Chainlink USD-8 quotes (`priceFeeds`). `_HOOK_GOVERNOR` retunes thresholds, feeds, and Mitigation C (`setActivityWindow`); cannot invent scores. |
 | **AmlHookSettlement** | Differential take + escrow deposit / `failedDeposits` / claim / retry. Does not decide risk. |
-| **FeeEscrow** | 48h hold of the FEE_OVERRIDE differential only. Own owner / keepers / depositors (not AccessManager). Owner is `ADMIN` / `FEE_ESCROW_OWNER` from genesis (Safe in prod), not the deploying EOA. Hook is wired as depositor via one-shot `bootstrapDepositor` (no 24h wait). Later depositor changes: 24h. Add keeper: 24h; revoke keeper: immediate. Sanction confirmed → blocked; owner `recoverBlocked` waits `min(blockedRecoveryDelay, 7 days)`. Else `lpCompensationFund`. Never the pool. |
+| **FeeEscrow** | 48h hold of the FEE_OVERRIDE differential only. Own owner / keepers / depositors (not AccessManager). Owner is `ADMIN` / `FEE_ESCROW_OWNER` from genesis (Safe in prod), not the deploying EOA. Hook is wired as depositor via one-shot `bootstrapDepositor` (no 24h wait). Later depositor changes: 24h. Add keeper: 24h; revoke keeper: immediate. Clean / early / default → `lpCompensationFund`. Sanction confirmed → Blocked; owner `recoverBlocked` waits `min(blockedRecoveryDelay, 7 days)` and pays `complianceReserve` only. Never the LP fund. Never the pool. |
 
 Subject resolution (§3.5): trusted routers (`hookGovernor` `setTrustedRouter`) report the end-user via
 `IMsgSender.msgSender()` as the **only** subject (`TrustedRouterSubjectFailed` if the call reverts or
@@ -87,13 +87,13 @@ Two casilleros. A keeper of scores cannot move escrow fees, and the reverse.
 
 | Role | Can |
 |---|---|
-| Owner (`ADMIN` / `FEE_ESCROW_OWNER`) | Keepers (add 24h / revoke now), depositors (24h after bootstrap), auditors, tokens, LP fund, `recoverBlocked` (≥7d floor) |
+| Owner (`ADMIN` / `FEE_ESCROW_OWNER`) | Keepers (add 24h / revoke now), depositors (24h after bootstrap), auditors, tokens, LP fund, compliance reserve, `recoverBlocked` (≥7d floor, to reserve only) |
 | Bootstrapper (deployer, one-shot) | `bootstrapDepositor(hook)` then cleared |
 | Depositor (the hook) | `deposit` only |
 | Escrow keeper | `releaseEarly` / `resolveCheckpoint2` / `releaseDefault` |
 | Auditor | Read full escrow rows |
 
-### Oracle latency (§3.8)
+### Oracle latency (whitepaper §8.4)
 
 Mitigations A–D elevate **ALLOW → FEE_OVERRIDE** (never soften an existing REVERT / FEE_OVERRIDE), except the never-scored **magnitude floor**, which may REVERT:
 
@@ -103,11 +103,11 @@ Mitigations A–D elevate **ALLOW → FEE_OVERRIDE** (never soften an existing R
 | A mid | Same, $1,000 ≤ assessed USD < $25,000 | FEE_OVERRIDE **8%** |
 | A + magnitude | Same, assessed USD ≥ $25,000 (this swap + window USD, including across tokens) | **REVERT** (`UnscoredMagnitudeBlocked`) |
 | A fail-closed | Never-scored and no Chainlink feed, stale feed, or bad answer | **REVERT** (`MagnitudeQuoteFailed`) |
-| B | Stale score + pool activity in window | FEE_OVERRIDE |
+| B | Score older than `stalenessThreshold` (default 5 minutes) + ≥1 settled swap already in the activity window | FEE_OVERRIDE 8%. First swap of a new window does not arm this. A healthy keeper stamps `updatedAt` again when the window ages, even if the score did not move. |
 | C | Activity-window cap (`maxOpsInWindow`) | FEE_OVERRIDE |
 | D | Inbound vs `lastKnownBalance` while oracle predates baseline, quoted to USD-8 | Relative (inbound USD > 50% of current USD) → FEE_OVERRIDE differential. Absolute (inbound USD ≥ $25,000) → **REVERT** `InflowMagnitudeBlocked`. **Skipped** when `updatedAt == 0` or there is no baseline |
 
-Defaults: `unscoredFeeThreshold = 1_000e8` ($1,000); `unscoredRevertThreshold = 25_000e8` ($25,000); `priceStalenessThreshold = 3600`; `activityWindow = 1 hour`; `maxOpsInWindow = 3`. Those USD floors are **8 decimals** (Chainlink). Governor binds `token => AggregatorV3Interface` via `setPriceFeed` (`address(0)` = ETH/USD) and retunes Mitigation C via `setActivityWindow` (60s–7d, 1–100 ops). Missing or stale feed is fail-closed. This adds an external-oracle surface (manipulation, heartbeat lag) that native-unit floors did not have. Revert threshold `0` disables the hard block.
+Defaults: `unscoredFeeThreshold = 1_000e8` ($1,000); `unscoredRevertThreshold = 25_000e8` ($25,000); `stalenessThreshold = 5 minutes` (`DEFAULT_STALENESS`; same as local `MAX_SCORE_AGE` unless set); `priceStalenessThreshold = 3600`; `activityWindow = 1 hour`; `maxOpsInWindow = 3`. Those USD floors are **8 decimals** (Chainlink). Governor binds `token => AggregatorV3Interface` via `setPriceFeed` (`address(0)` = ETH/USD), retunes Floor B via `setStalenessThreshold` (1s–24h), and retunes Mitigation C via `setActivityWindow` (60s–7d, 1–100 ops). Missing or stale feed is fail-closed. This adds an external-oracle surface (manipulation, heartbeat lag) that native-unit floors did not have. Revert threshold `0` disables the hard block.
 
 Published score 0 (`updatedAt != 0`) is confirmed-clean: magnitude REVERT does **not** apply to swap size of already-held funds.
 
@@ -162,12 +162,14 @@ Deployer = Anvil account #0 (local defaults for admin / registry keeper / oracle
 |---|---|
 | `ATTESTOR` | Required. Distinct ECDSA attestor. No default — missing value fails the script. |
 | `ADMIN` or `FEE_ESCROW_OWNER` | FeeEscrow + AccessManager admin from genesis (Safe). Not the configurer EOA. |
-| `LP_COMPENSATION_FUND` | Escrow release destination. Defaults to the fee-escrow owner, not the deployer. |
+| `LP_COMPENSATION_FUND` | Clean / early / default escrow destination. Defaults to the fee-escrow owner, not the deployer. |
+| `COMPLIANCE_RESERVE` | Recovered Blocked (confirmed-illicit) destination. Production MUST set the authority wallet. Local default is a labeled placeholder, never the LP fund. |
+| `MAX_SCORE_AGE` | Floor B `stalenessThreshold` at deploy. Script default is 5 minutes. If this is 0, the hook constructor falls back to `DEFAULT_STALENESS` (5 minutes). |
 | `REGISTRY_KEEPER` / `ORACLE_KEEPER` / `HOOK_GOVERNOR` | Split keys. Deploy verifies they do not overlap. |
 
 `bootstrapDepositor` runs in the same deploy tx so the first FEE_OVERRIDE `deposit` does not wait 24h.
 
-After deploy, `_HOOK_GOVERNOR` **must** bind a Chainlink `AggregatorV3` per pool token (`setPriceFeed`; `address(0)` = ETH/USD). Never-scored magnitude and Mitigation D's absolute floor quote to USD-8 (`1_000e8` / `25_000e8`). A token with no feed, or a feed older than `priceStalenessThreshold` (default 3600s), fail-closes (`MagnitudeQuoteFailed`). This is an extra operational surface — see whitepaper §3.8 known residual risk.
+After deploy, `_HOOK_GOVERNOR` **must** bind a Chainlink `AggregatorV3` per pool token (`setPriceFeed`; `address(0)` = ETH/USD). Never-scored magnitude and Mitigation D's absolute floor quote to USD-8 (`1_000e8` / `25_000e8`). A token with no feed, or a feed older than `priceStalenessThreshold` (default 3600s), fail-closes (`MagnitudeQuoteFailed`). This is an extra operational surface — see whitepaper §8.4.
 
 Writes `contracts/deployments/31337.json` and copies to `packages/sdk/deployments/`.
 
@@ -178,5 +180,5 @@ The CREATE2 address mined by `Deploy.sol` changed versus earlier deploys: the fl
 | Layer | Role |
 |---|---|
 | `apps/api` | Oracle Keeper — mock trail or real `updateScore` tx; defers D for latency demo |
-| `contracts/` | On-chain ALLOW / FEE_OVERRIDE / REVERT + §3.8 floors + Chainlink USD magnitude |
+| `contracts/` | On-chain ALLOW / FEE_OVERRIDE / REVERT + §8.4 floors + Chainlink USD magnitude |
 | `packages/sdk` | Shared ABIs / addresses for api + frontend |

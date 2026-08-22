@@ -10,43 +10,45 @@ interface IERC20Fee {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
 }
 
-/// @title FeeEscrow — 48h differential-fee hold for FEE_OVERRIDE swaps (§3.7)
-/// @notice Retains only the differential fee (not swap output). User capital settles in-block.
+/// @title FeeEscrow — 48-hour hold of the extra risk fee (whitepaper §8.3)
+/// @notice Holds only the extra slice on a fee-override. Not the swap output. User capital settles in the same block.
 ///
-/// @dev ═══════════════════════════════════════════════════════════════════════
-///      WHY ESCROW THE FEE AT ALL?
-///      ═══════════════════════════════════════════════════════════════════════
+/// @dev Whitepaper §2.2 and §8.3, in this contract.
 ///
-///      On FEE_OVERRIDE (score 31–70), the product applies economic friction without
-///      hard-blocking. The *differential* fee slice is parked here for 48h so a
-///      Compliance Officer Agent (COA) can review off-chain. User swap output still
-///      settles in the same block — we never hold the full swap.
+///      On score 31–70 the pool keeps its standard LP fee. After the swap, only the extra
+///      slice is taken and deposited here for 48 hours. That slice is the price of letting
+///      a medium-risk swap settle. It belongs in FeeEscrow, not in the pool.
 ///
-///      Two COA consultations → keeper-only on-chain transfers:
+///      Sending the extra fee to LPs on the same swap would pay them with funds that may
+///      still be illicit. That would make them instruments of money launderers.
 ///
-///        Moment              Call                         Destination
-///        ─────────────────   ──────────────────────────   ─────────────────────────────
-///        0–24h               (optional COA, no write)     still held
-///        Checkpoint 1        releaseEarly                 lpCompensationFund
-///          (≥24h, <48h)      after 1st COA + sanity       (never blocks; never the pool)
-///        Checkpoint 2        resolveCheckpoint2(…)        illicit → Blocked (tokens stay here)
-///          (≥48h)            after 2nd COA + sanity       clean   → lpCompensationFund
-///        No resolution       releaseDefault               lpCompensationFund
-///          (≥48h)                                         (not confirmed high-risk/sanctioned)
+///      The Compliance Officer Agent reviews the case off-chain. It cannot write this
+///      contract. A dedicated escrow keeper submits the on-chain call after a sanity
+///      check on the agent output.
 ///
-///      WHY split destinations? A confirmed sanction freezes the differential in
-///      a blocked reserve for reporting — later release calls revert. Every other
-///      path credits LPs as retroactive compensation. The risk fee never returns
-///      to the pool.
+///        Moment                         Action                         Destination
+///        ────────────────────────────   ────────────────────────────   ─────────────────────────
+///        0–24h                          Optional review                Still held
+///        24–48h                         Early release                  LP compensation fund
+///        At 48h, illicit confirmed      Block                          Stays here for the file;
+///                                                                      then compliance reserve
+///        At 48h, not illicit            Release                        LP compensation fund
+///        Nobody resolved by 48h         Default release                LP compensation fund
 ///
-///      Access: own owner / keepers / depositors (NOT the shared AccessManager).
-///      Keepers are granted after a 24h timelock (`applyKeeper`); revokes are immediate.
-///      The hook is wired as depositor at deploy via `bootstrapDepositor` (one-shot, no delay);
-///      later depositor changes still use the 24h timelock.
-///      The COA never writes on-chain; only a FeeEscrow keeper submits txs after
-///      an off-chain sanity check on the COA output.
+///      Two destinations, and they cannot be the same address. Every clean exit — early
+///      release, clean checkpoint, or default — goes to the LP compensation fund. A
+///      confirmed-illicit row stays blocked while the operator produces the file. Then
+///      the escrow owner (a Safe in production) recovers it after at least 7 days, only
+///      to the compliance reserve. After the full delay (default 90 days) anyone may
+///      send an expired blocked row to that same reserve. Never the LP fund. Never the pool.
 ///
-///      M-03: `owner` MUST be a multisig (Gnosis Safe) in production, never an EOA.
+///      `FeeRecovered` records destination, token, amount, wallet, and the originating
+///      swap fingerprint so the movement is auditable against the fee-override transaction.
+///
+///      FeeEscrow has its own owner, keeper, depositor, and auditor — not the shared
+///      AccessManager. Ownership is two-step and starts as the admin or a dedicated
+///      escrow owner, not the deploying key. The hook is registered as depositor once
+///      at deploy; that bootstrap key is then cleared.
 contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     /// @dev Full hold window before Checkpoint 2 / default release may run.
     uint64 public constant ESCROW_WINDOW = 48 hours;
@@ -55,12 +57,10 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     uint64 public constant DEPOSITOR_TIMELOCK = 24 hours;
     /// @dev Adding a keeper is delayed; revoking a keeper is immediate.
     uint64 public constant KEEPER_TIMELOCK = 24 hours;
-    /// @dev Fastest the owner path may recover a Blocked fee. Actual wait is
-    ///      `min(blockedRecoveryDelay, OWNER_BLOCKED_RECOVERY_MIN_AGE)` so the owner cannot
-    ///      skip the hold, and cannot be slower than the permissionless path if that delay is shortened.
+    /// @dev Whitepaper §8.1: the escrow owner recovers blocked fees after 7 days, only to the compliance reserve.
     uint64 public constant OWNER_BLOCKED_RECOVERY_MIN_AGE = 7 days;
 
-    /// @notice M-03: production owner MUST be a Gnosis Safe (or equivalent multisig), not an EOA.
+    /// @notice Production owner is a Safe (whitepaper §8.1). Not a single key.
     address public owner;
     /// @notice Two-step ownership: proposed owner must call `acceptOwnership`.
     address public pendingOwner;
@@ -70,11 +70,14 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     mapping(address => bool) public allowedFeeTokens;
     /// @notice Token amount currently retained per compliance subject (Active + Blocked).
     mapping(address => mapping(address => uint256)) public balances;
-    /// @notice Delay after Blocked before anyone may send the fee to lpCompensationFund.
+    /// @notice Wait after a confirmed-illicit block before anyone may send the fee to the compliance reserve (default 90 days).
     uint64 public blockedRecoveryDelay = 90 days;
-    /// @notice Sole release destination: LP compensation when the wallet is not confirmed sanctioned.
-    ///         Checkpoint 1, Checkpoint 2 clean, and `releaseDefault` all credit LPs here. Never the pool.
+    /// @notice LP compensation fund (whitepaper §8.3). Early release, clean checkpoint, and default all go here.
+    ///         Compensation for risk already taken on a swap that turned out clean. Never the pool.
     address public lpCompensationFund;
+    /// @notice Compliance reserve (whitepaper §2.2 / §8.3). Only destination for a fee confirmed illicit.
+    ///         Never the LP compensation fund, at any point. Production: the authority-controlled wallet.
+    address public complianceReserve;
 
     /// @dev Keepers alone call releaseEarly / resolveCheckpoint2 / releaseDefault.
     mapping(address => bool) public keepers;
@@ -120,6 +123,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     error NoPendingKeeper();
     error BlockedRecoveryTooEarly();
     error InvalidBlockedRecoveryDelay();
+    error DestinationsMustDiffer();
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
@@ -131,8 +135,9 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     event AllowedFeeTokenUpdated(address indexed token, bool allowed);
     event BlockedRecoveryDelayUpdated(uint64 previous, uint64 current);
     event LpCompensationFundUpdated(address indexed lpCompensationFund);
+    event ComplianceReserveUpdated(address indexed complianceReserve);
 
-    /// @notice Differential fee deposited into the 48h escrow (§3.6 / §3.7 audit trail).
+    /// @notice Extra slice deposited for 48 hours (whitepaper §8.3). `swapFingerprint` ties the row to the swap.
     event FeeDeposited(
         uint256 indexed escrowId,
         address indexed wallet,
@@ -141,44 +146,58 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         bytes32 swapFingerprint
     );
 
-    /// @notice Checkpoint 1 early release to the LP compensation fund (never the pool; never confiscates).
+    /// @notice Early release to the LP compensation fund. Never blocks. Never the pool.
     event FeeReleasedEarly(
         uint256 indexed escrowId, address indexed wallet, uint256 amount, address indexed to
     );
 
-    /// @notice Checkpoint 2 sanction confirmed: fee stays blocked in this contract.
+    /// @notice Sanction or illicit typology confirmed. The slice stays here so the operator can produce the file.
     event FeeBlocked(uint256 indexed escrowId, address indexed wallet, uint256 amount);
 
-    /// @notice Period expired without a confirmed sanction: release to LPs (default or Checkpoint 2 clean).
+    /// @notice Clean checkpoint or default after 48 hours: retroactive LP compensation. Never the pool.
     event FeeReleasedDefault(
         uint256 indexed escrowId, address indexed wallet, uint256 amount, address indexed to
     );
 
-    /// @notice Owner recovered a blocked fee to `to`.
+    /// @notice A blocked fee left this contract for the compliance reserve (`to`).
+    /// @dev `token`, `amount`, and `swapFingerprint` let a reader match this movement to the fee-override swap.
     event FeeRecovered(
-        uint256 indexed escrowId, address indexed wallet, uint256 amount, address indexed to
+        uint256 indexed escrowId,
+        address indexed wallet,
+        address indexed to,
+        address token,
+        uint256 amount,
+        bytes32 swapFingerprint
     );
 
-    constructor(address owner_, address feeToken_, address lpCompensationFund_, address bootstrapper_) {
+    constructor(
+        address owner_,
+        address feeToken_,
+        address lpCompensationFund_,
+        address complianceReserve_,
+        address bootstrapper_
+    ) {
         if (
             owner_ == address(0) || feeToken_ == address(0) || lpCompensationFund_ == address(0)
-                || bootstrapper_ == address(0)
+                || complianceReserve_ == address(0) || bootstrapper_ == address(0)
         ) {
             revert ZeroAddress();
         }
+        if (lpCompensationFund_ == complianceReserve_) revert DestinationsMustDiffer();
         owner = owner_;
         bootstrapper = bootstrapper_;
         _feeToken = IERC20Fee(feeToken_);
         allowedFeeTokens[feeToken_] = true;
         lpCompensationFund = lpCompensationFund_;
-        // Bootstrap: owner can resolve until keepers are specialized. Deposits go through
-        // `bootstrapDepositor` (hook) or a later timelocked `setDepositor`.
+        complianceReserve = complianceReserve_;
+        // Until keepers are appointed, the owner can resolve. The hook is wired as depositor at deploy.
         keepers[owner_] = true;
         depositors[owner_] = true;
         emit OwnershipTransferred(address(0), owner_);
         emit KeeperUpdated(owner_, true);
         emit DepositorUpdated(owner_, true);
         emit LpCompensationFundUpdated(lpCompensationFund_);
+        emit ComplianceReserveUpdated(complianceReserve_);
         emit AllowedFeeTokenUpdated(feeToken_, true);
     }
 
@@ -206,9 +225,8 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     }
 
     /// @inheritdoc IFeeEscrow
-    /// @notice Pull the differential fee from the depositor into this contract for 48h.
-    /// @dev `wallet` is the compliance subject (for the audit trail), not necessarily msg.sender.
-    ///      `swapFingerprint` links the escrow row to the FEE_OVERRIDE swap that created it.
+    /// @notice Take the extra slice from the hook and hold it for 48 hours.
+    /// @dev `wallet` is the swap subject. `swapFingerprint` links this row to that swap.
     function deposit(address wallet, address token, bytes32 swapFingerprint, uint256 amount)
         external
         onlyDepositor
@@ -238,9 +256,8 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     }
 
     /// @inheritdoc IFeeEscrow
-    /// @notice Checkpoint 1 (≥24h, <48h): first COA consult → early credit to LPs.
-    /// @dev Never confiscates here: blocking is reserved for Checkpoint 2 after a second COA pass.
-    ///      The risk fee never returns to the pool.
+    /// @notice 24–48h: early release to the LP compensation fund (whitepaper §8.3).
+    /// @dev Early release never blocks. Blocking waits for the second review at 48 hours.
     function releaseEarly(uint256 escrowId) external onlyKeeper nonReentrant {
         _releaseEarly(escrowId);
     }
@@ -256,9 +273,8 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     }
 
     /// @inheritdoc IFeeEscrow
-    /// @notice Checkpoint 2 (≥48h): second COA consult → block in escrow or release to LP fund.
-    /// @param illicitConfirmed Keeper's post-sanity conclusion from the COA (true = block).
-    /// @dev Illicit → Blocked, tokens stay here. Clean → lpCompensationFund (never pool).
+    /// @notice At 48h: second review. Illicit stays blocked for the file. Clean goes to the LP compensation fund.
+    /// @param illicitConfirmed True when the keeper, after the agent review, confirms a sanction or illicit typology.
     function resolveCheckpoint2(uint256 escrowId, bool illicitConfirmed) external onlyKeeper nonReentrant {
         _resolveCheckpoint2(escrowId, illicitConfirmed);
     }
@@ -279,9 +295,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     }
 
     /// @inheritdoc IFeeEscrow
-    /// @notice Default path if nobody resolved at Checkpoint 2: credit LPs.
-    /// @dev The wallet was not confirmed high-risk or sanctioned. Same destination as
-    ///      Checkpoint 2 clean (§3.7) — retroactive LP compensation, never the pool.
+    /// @notice Nobody resolved by 48h: treat as clean and credit the LP compensation fund.
     function releaseDefault(uint256 escrowId) external onlyKeeper nonReentrant {
         _releaseDefault(escrowId);
     }
@@ -333,8 +347,8 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     }
 
     /// @inheritdoc IFeeEscrow
-    /// @notice Owner recovery of a blocked fee to lpCompensationFund (exceptional; no batch).
-    /// @dev Cannot run immediately: waits `min(blockedRecoveryDelay, OWNER_BLOCKED_RECOVERY_MIN_AGE)`.
+    /// @notice Escrow owner recovers a blocked row to the compliance reserve, after at least 7 days (whitepaper §8.1 / §8.3).
+    /// @dev Never the LP compensation fund. `FeeRecovered` records where it went, how much, and which swap.
     function recoverBlocked(uint256 escrowId) external onlyOwner nonReentrant {
         if (escrowId == 0 || escrowId >= nextEscrowId) revert UnknownEscrow();
         EscrowRecord storage rec = _escrows[escrowId];
@@ -349,14 +363,17 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         rec.status = EscrowStatus.Recovered;
         uint256 amount = rec.amount;
         address wallet = rec.wallet;
-        address to = lpCompensationFund;
+        address token = rec.token;
+        bytes32 swapFingerprint = rec.swapFingerprint;
+        address to = complianceReserve;
 
         _debitAndTransfer(rec, to, amount);
-        emit FeeRecovered(escrowId, wallet, amount, to);
+        emit FeeRecovered(escrowId, wallet, to, token, amount, swapFingerprint);
     }
 
     /// @inheritdoc IFeeEscrow
-    /// @notice Anyone may send a Blocked fee to lpCompensationFund after `blockedRecoveryDelay`.
+    /// @notice After the full delay (default 90 days), anyone may send an expired blocked row to the compliance reserve.
+    /// @dev Same destination as owner recovery. Still never the LP fund and never the pool.
     function recoverExpiredBlocked(uint256 escrowId) external nonReentrant {
         if (escrowId == 0 || escrowId >= nextEscrowId) revert UnknownEscrow();
         EscrowRecord storage rec = _escrows[escrowId];
@@ -368,10 +385,12 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         rec.status = EscrowStatus.Recovered;
         uint256 amount = rec.amount;
         address wallet = rec.wallet;
-        address to = lpCompensationFund;
+        address token = rec.token;
+        bytes32 swapFingerprint = rec.swapFingerprint;
+        address to = complianceReserve;
 
         _debitAndTransfer(rec, to, amount);
-        emit FeeRecovered(escrowId, wallet, amount, to);
+        emit FeeRecovered(escrowId, wallet, to, token, amount, swapFingerprint);
     }
 
     /// @notice Schedule adding a keeper (`allowed = true`) or revoke immediately (`allowed = false`).
@@ -455,19 +474,29 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         emit AllowedFeeTokenUpdated(token, allowed);
     }
 
-    /// @notice Retune the permissionless blocked-recovery wait (floor 1 day).
-    /// @dev Owner `recoverBlocked` still waits at least `OWNER_BLOCKED_RECOVERY_MIN_AGE` (7 days).
+    /// @notice Retune how long a blocked row waits before anyone may send it to the compliance reserve (minimum one day).
+    /// @dev Owner recovery still waits at least 7 days.
     function setBlockedRecoveryDelay(uint64 delay) external onlyOwner {
         if (delay < 1 days) revert InvalidBlockedRecoveryDelay();
         emit BlockedRecoveryDelayUpdated(blockedRecoveryDelay, delay);
         blockedRecoveryDelay = delay;
     }
 
-    /// @notice Change the sole release destination for clean / default / recovered fees.
+    /// @notice Point clean / early / default releases at a new LP compensation fund.
+    /// @dev Cannot equal the compliance reserve. The two destinations stay distinct (whitepaper §8.3).
     function setLpCompensationFund(address lpCompensationFund_) external onlyOwner {
         if (lpCompensationFund_ == address(0)) revert ZeroAddress();
+        if (lpCompensationFund_ == complianceReserve) revert DestinationsMustDiffer();
         lpCompensationFund = lpCompensationFund_;
         emit LpCompensationFundUpdated(lpCompensationFund_);
+    }
+
+    /// @notice Point recovered blocked fees at a new compliance reserve. Cannot equal the LP compensation fund.
+    function setComplianceReserve(address complianceReserve_) external onlyOwner {
+        if (complianceReserve_ == address(0)) revert ZeroAddress();
+        if (complianceReserve_ == lpCompensationFund) revert DestinationsMustDiffer();
+        complianceReserve = complianceReserve_;
+        emit ComplianceReserveUpdated(complianceReserve_);
     }
 
     /// @notice Propose a new owner. Completes only when `newOwner` calls `acceptOwnership`.
@@ -486,7 +515,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         emit OwnershipTransferred(previous, msg.sender);
     }
 
-    /// @dev Checkpoint 1: 24h–48h, credit `lpCompensationFund`, never block.
+    /// @dev 24–48h: LP compensation fund. Early release never blocks.
     function _releaseEarly(uint256 escrowId) private {
         EscrowRecord storage rec = _requireActive(escrowId);
         uint256 age = block.timestamp - uint256(rec.depositedAt);
@@ -502,7 +531,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         emit FeeReleasedEarly(escrowId, wallet, amount, to);
     }
 
-    /// @dev Checkpoint 2 after 48h: illicit stays blocked here; clean pays the LP fund.
+    /// @dev At 48h: illicit stays here for the file; clean pays the LP compensation fund.
     function _resolveCheckpoint2(uint256 escrowId, bool illicitConfirmed) private {
         EscrowRecord storage rec = _requireActive(escrowId);
         if (block.timestamp < uint256(rec.depositedAt) + uint256(ESCROW_WINDOW)) {
@@ -524,7 +553,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         }
     }
 
-    /// @dev No Checkpoint 2 decision after 48h: treat as clean and credit LPs.
+    /// @dev Nobody resolved by 48h: same destination as a clean checkpoint.
     function _releaseDefault(uint256 escrowId) private {
         EscrowRecord storage rec = _requireActive(escrowId);
         if (block.timestamp < uint256(rec.depositedAt) + uint256(ESCROW_WINDOW)) {

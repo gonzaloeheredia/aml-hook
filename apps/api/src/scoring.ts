@@ -145,7 +145,7 @@ export function feeBpsFromHop(score: number, hopDistance: number | null): number
   return score >= 55 ? 800 : 300;
 }
 
-/** ALLOW / FEE / REVERT band — keeper writes when this (or the 3%/8% fee band) changes. */
+/** ALLOW / FEE / REVERT band — keeper writes on a tier/fee-band change, or when the last write aged out. */
 export function scoreTier(score: number): "allow" | "fee" | "revert" {
   if (score >= 71) return "revert";
   if (score >= 31) return "fee";
@@ -157,6 +157,31 @@ export function feeBand(feeBps: number): 30 | 300 | 800 | 0 {
   if (feeBps >= 100) return 300;
   if (feeBps > 0) return 30;
   return 0;
+}
+
+/**
+ * Whether the keeper should call `updateScore`.
+ * Write on first publish, on an ALLOW/FEE/REVERT or 3%/8% band change, or when the
+ * last write is at least as old as Floor B's window — so `updatedAt` cannot freeze
+ * under a skip and trip Floor B on a stable clean wallet (whitepaper §8.4).
+ */
+export function shouldPublishScore(input: {
+  neverScored: boolean;
+  priorScore: number | null;
+  nextScore: number;
+  priorFeeBps: number | null;
+  nextFeeBps: number;
+  lastScoreAt: number | null;
+  now: number;
+  stalenessMs: number;
+}): boolean {
+  if (input.neverScored) return false;
+  if (input.priorScore == null || input.lastScoreAt == null) return true;
+  if (input.now - input.lastScoreAt >= input.stalenessMs) return true;
+  return (
+    scoreTier(input.priorScore) !== scoreTier(input.nextScore) ||
+    feeBand(input.priorFeeBps ?? 0) !== feeBand(input.nextFeeBps)
+  );
 }
 
 /**

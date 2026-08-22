@@ -4,27 +4,19 @@
  * Includes §3.8 inflow elevation for Wallet D while the keeper is pending.
  */
 
+import { previewSwap, usdcToWei } from "./chain/index.js";
 import { ensureOracleEvaluation } from "./oracle/index.js";
-import {
-  applyFullPolicy,
-  ethOutFromSwap,
-  inflowDeltaBps,
-  INFLOW_THRESHOLD_BPS,
-  resolveWalletRisk,
-  swapUsdcAmount,
-  toHookOutput,
-} from "./scoring.js";
-import {
-  getLastKnownAt,
-  getLastKnownUsdc,
-  getLastScoreAt,
-  isKeeperPending,
-  isPriceFeedBound,
-  isScoreStale,
-  opsInCurrentWindow,
-  windowUsd,
-} from "./store.js";
-import type { CompliancePack, SwapQuote, Wallet } from "./types.js";
+import { ethOutFromSwap, swapUsdcAmount } from "./scoring.js";
+import { isKeeperPending } from "./store.js";
+import type {
+  CompliancePack,
+  Decision,
+  HookOutput,
+  LatencyMitigation,
+  RevertReason,
+  SwapQuote,
+  Wallet,
+} from "./types.js";
 
 /**
  * Resolves beforeSwap decision: unknown-wallet USD bands (E),
@@ -37,12 +29,12 @@ export async function resolveSwapDecision(
   oracleScore: number;
   score: number;
   feeBps: number;
-  decision: ReturnType<typeof applyFullPolicy>["decision"];
-  hookOutput: ReturnType<typeof toHookOutput>;
+  decision: Decision;
+  hookOutput: HookOutput;
   source: string;
   keeperPending: boolean;
-  latencyMitigation: ReturnType<typeof applyFullPolicy>["latencyMitigation"];
-  revertReason: ReturnType<typeof applyFullPolicy>["revertReason"];
+  latencyMitigation: LatencyMitigation;
+  revertReason: RevertReason;
   hasSignificantInflow: boolean;
   deltaBps: number;
   assessedUsd: number;
@@ -52,86 +44,29 @@ export async function resolveSwapDecision(
   priceFeedBound: boolean;
 }> {
   const usdcIn = swapUsdcAmount(wallet, preferredUsdc);
-  const ops = opsInCurrentWindow(wallet.id);
-  const priceFeedBound = isPriceFeedBound();
-  const lastKnown = getLastKnownUsdc(wallet.id);
-  const lastScoreAt = getLastScoreAt(wallet.id) ?? 0;
-  const lastKnownAt = getLastKnownAt(wallet.id);
-  const inflowLive = lastScoreAt <= lastKnownAt;
-  const rawInflow = wallet.usdc > lastKnown ? wallet.usdc - lastKnown : 0;
-  const inflowUsd = inflowLive ? rawInflow : 0;
-  const deltaBps = inflowLive ? inflowDeltaBps(wallet.usdc, lastKnown) : 0;
-
-  if (wallet.neverScored) {
-    const assessedUsd = usdcIn + windowUsd(wallet.id);
-    const floored = applyFullPolicy({
-      score: 0,
-      hopDistance: null,
-      recommendedFeeBps: 0,
-      neverScored: true,
-      assessedUsd,
-      inflowUsd: 0,
-      hasSignificantInflow: false,
-      isStale: true,
-      operationCount: ops,
-      priceFeedBound,
-    });
-    return {
-      oracleScore: 0,
-      score: 0,
-      feeBps: floored.feeBps,
-      decision: floored.decision,
-      hookOutput: toHookOutput(floored.decision),
-      source: "unscored",
-      keeperPending: false,
-      latencyMitigation: floored.latencyMitigation,
-      revertReason: floored.revertReason,
-      hasSignificantInflow: false,
-      deltaBps: 0,
-      assessedUsd,
-      inflowUsd: 0,
-      opsInWindow: ops,
-      isStale: true,
-      priceFeedBound,
-    };
-  }
-
-  const { score: oracleScore, feeBps: oracleFeeBps, source } =
-    await resolveWalletRisk(wallet);
-  const keeperPending = isKeeperPending(wallet.id);
-  const isStale = isScoreStale(wallet.id);
-  const hasSignificantInflow = deltaBps > INFLOW_THRESHOLD_BPS;
-
-  const floored = applyFullPolicy({
-    score: oracleScore,
-    hopDistance: wallet.hopDistance,
-    recommendedFeeBps: oracleFeeBps,
-    neverScored: false,
-    assessedUsd: usdcIn,
-    inflowUsd,
-    hasSignificantInflow,
-    isStale,
-    operationCount: ops,
-    priceFeedBound,
-  });
+  const preview = await previewSwap(wallet.address as `0x${string}`, usdcToWei(usdcIn));
+  const deltaBps =
+    wallet.usdc > 0
+      ? Math.floor((preview.inflowUsd * 10_000) / wallet.usdc)
+      : 0;
 
   return {
-    oracleScore,
-    score: oracleScore,
-    feeBps: floored.feeBps,
-    decision: floored.decision,
-    hookOutput: toHookOutput(floored.decision),
-    source,
-    keeperPending,
-    latencyMitigation: floored.latencyMitigation,
-    revertReason: floored.revertReason,
-    hasSignificantInflow,
+    oracleScore: preview.risk.score,
+    score: preview.neverScored ? 0 : preview.risk.score,
+    feeBps: preview.feeBps,
+    decision: preview.decision,
+    hookOutput: preview.hookOutput,
+    source: "onchain",
+    keeperPending: isKeeperPending(wallet.id),
+    latencyMitigation: preview.latencyMitigation,
+    revertReason: preview.revertReason,
+    hasSignificantInflow: preview.hasSignificantInflow,
     deltaBps,
-    assessedUsd: usdcIn,
-    inflowUsd,
-    opsInWindow: ops,
-    isStale,
-    priceFeedBound,
+    assessedUsd: preview.assessedUsd,
+    inflowUsd: preview.inflowUsd,
+    opsInWindow: preview.opsInWindow,
+    isStale: preview.isStale,
+    priceFeedBound: preview.priceFeedBound,
   };
 }
 
@@ -194,7 +129,7 @@ export async function buildCompliancePack(
       : resolved.latencyMitigation === "INFLOW_MAGNITUDE"
         ? `Inbound USD ${resolved.inflowUsd.toLocaleString("en-US")} ≥ $25,000 → REVERT (InflowMagnitudeBlocked).`
         : resolved.latencyMitigation === "STALE_WITH_POOL_ACTIVITY"
-          ? "Score older than 120s and this wallet already swapped in the hour → FEE_OVERRIDE 8%."
+          ? "Score older than 5 minutes and this wallet already swapped in the hour → FEE_OVERRIDE 8%."
           : resolved.latencyMitigation === "ACTIVITY_WINDOW_CAP"
             ? `Already ${resolved.opsInWindow} ops in the hour (cap 3) → FEE_OVERRIDE 8% on this swap.`
             : resolved.latencyMitigation === "INFLOW_HEURISTIC"

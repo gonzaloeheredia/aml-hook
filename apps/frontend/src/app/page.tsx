@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AmlStats, LegalOpinion } from "@/components/AuditReport";
 import { ConnectModal } from "@/components/ConnectModal";
+import { EscrowPanel } from "@/components/EscrowPanel";
 import { FeeSummary } from "@/components/FeeSummary";
 import { FlowSimulator } from "@/components/FlowSimulator";
 import { MetaMaskPanel } from "@/components/MetaMaskPanel";
@@ -31,11 +32,8 @@ import {
   type ApiCompliancePack,
 } from "@/lib/api";
 import {
-  applyPoolSwap,
-  applyTransfer,
   caseIdForSimWallet,
   ethOutFromSwap,
-  elapseDemo,
   initialSimWallets,
   setPriceFeedBound,
   type SimWallet,
@@ -43,12 +41,10 @@ import {
   type TransferRecord,
 } from "@/lib/hopScoring";
 import {
-  buildHookChainEvent,
   hookEventFromApi,
   type HookChainEvent,
 } from "@/lib/hookEvents";
 import { withComplianceOverlay } from "@/lib/withComplianceOverlay";
-import { withHopOverlay } from "@/lib/withHopOverlay";
 
 /**
  * Demo page — guided stages with morph transitions:
@@ -133,13 +129,13 @@ export default function HomePage() {
     };
   }, [caseId, swapAmountUsd]);
 
-  /** Prefer backend compliance pack; fall back to local hop overlay if offline. */
+  /** Decision comes from the API (hook previewSwap). No local policy fork. */
   const demoCase = useMemo(() => {
     if (compliance && compliance.walletId === caseId) {
       return withComplianceOverlay(baseCase, compliance);
     }
-    return withHopOverlay(baseCase, simWallets[caseId]);
-  }, [baseCase, caseId, compliance, simWallets, demoTick]);
+    return baseCase;
+  }, [baseCase, caseId, compliance, demoTick]);
 
   /**
    * Advances the guided stage and expands the unlock frontier.
@@ -182,8 +178,15 @@ export default function HomePage() {
     let cancelled = false;
     (async () => {
       try {
-        await fetchHealth();
+        const health = await fetchHealth();
         if (cancelled) return;
+        if (!health.ok || health.chain?.ok === false) {
+          throw new ApiError(
+            health.chain?.reason ||
+              "Anvil stack is down. Run npm run deploy:local and restart the API.",
+            503,
+          );
+        }
         await refreshLedger();
         if (cancelled) return;
         await refreshCompliance("A");
@@ -257,15 +260,7 @@ export default function HomePage() {
     amountUsd: number,
   ): Promise<string | null> => {
     if (apiStatus !== "online") {
-      // Offline fallback: local ledger + Wallet D keeper-pending latency window.
-      const result = applyTransfer(simWallets, from, to, amountUsd);
-      if (!result) {
-        return "Transfer failed — insufficient USDC or invalid route";
-      }
-      setSimWallets(result.wallets);
-      setTransfers((prev) => [...prev, result.record]);
-      setCompliance(null);
-      return null;
+      return "Anvil is required. Run npm run deploy:local and start the API.";
     }
     try {
       const res = await postTransfer(from, to, amountUsd);
@@ -318,7 +313,7 @@ export default function HomePage() {
       }
     }
 
-    setSimWallets(initialSimWallets());
+    setApiError("Anvil is required. Run npm run deploy:local and start the API.");
     setCompliance(null);
     setFeedBoundUi(true);
     setDemoTick((n) => n + 1);
@@ -327,7 +322,7 @@ export default function HomePage() {
   const handleAdvanceClock = useCallback(async () => {
     if (apiStatus === "online") {
       try {
-        await postDemoElapse(121);
+        await postDemoElapse(301);
         await refreshCompliance(caseId);
         setApiError(null);
       } catch (err) {
@@ -336,8 +331,7 @@ export default function HomePage() {
         );
       }
     } else {
-      elapseDemo(121_000);
-      setCompliance(null);
+      setApiError("Anvil is required. Run npm run deploy:local and start the API.");
     }
     setDemoTick((n) => n + 1);
   }, [apiStatus, caseId, refreshCompliance]);
@@ -357,9 +351,7 @@ export default function HomePage() {
         );
       }
     } else {
-      setPriceFeedBound(next);
-      setFeedBoundUi(next);
-      setCompliance(null);
+      setApiError("Anvil is required. Run npm run deploy:local and start the API.");
     }
     setDemoTick((n) => n + 1);
   }, [apiStatus, caseId, priceFeedBound, refreshCompliance]);
@@ -416,38 +408,12 @@ export default function HomePage() {
   const handleFlowComplete = useCallback(async () => {
     setRunning(false);
     const amount = demoCase.activity.amountUsd;
-    const walletAddress = address ?? demoCase.wallet;
 
-    const finishLocal = () => {
-      const ethOut =
-        demoCase.decision === "block"
-          ? 0
-          : ethOutFromSwap(amount, demoCase.appliedFeeBps);
-      if (demoCase.decision !== "block") {
-        setSimWallets((prev) => {
-          const next = applyPoolSwap(
-            prev,
-            caseId,
-            amount,
-            demoCase.appliedFeeBps,
-            demoCase.decision,
-          );
-          return next ?? prev;
-        });
-      }
-      setSwapStats((prev) => {
-        const current = prev[caseId];
-        return {
-          ...prev,
-          [caseId]: {
-            count: current.count + 1,
-            tradedUsd: current.tradedUsd + (ethOut > 0 ? amount : 0),
-            tradedEth: current.tradedEth + ethOut,
-          },
-        };
-      });
+    if (apiStatus !== "online") {
+      setApiError("Anvil is required. Run npm run deploy:local and start the API.");
       landOnFees();
-    };
+      return;
+    }
 
     if (apiStatus === "online") {
       try {
@@ -476,19 +442,9 @@ export default function HomePage() {
         setApiError(
           err instanceof ApiError ? err.message : "Swap settlement failed",
         );
+        landOnFees();
       }
     }
-
-    setChainEvents((events) => [
-      ...events,
-      buildHookChainEvent({
-        demoCase,
-        walletId: caseId,
-        address: walletAddress,
-        eventIndex: events.length + 1,
-      }),
-    ]);
-    finishLocal();
   }, [
     address,
     apiStatus,
@@ -744,7 +700,7 @@ export default function HomePage() {
             {apiStatus === "connecting"
               ? `Connecting to backend at ${API_BASE}…`
               : apiError ??
-                `API offline. Run \`npm run dev\` in apps/api/ (${API_BASE}).`}
+                `Run \`npm run deploy:local\`, then start apps/api (${API_BASE}).`}
           </div>
         )}
 
@@ -870,6 +826,10 @@ export default function HomePage() {
                       swapCount={liveStats.count}
                       tradedUsd={liveStats.tradedUsd}
                       tradedEth={liveStats.tradedEth}
+                    />
+                    <EscrowPanel
+                      apiOnline={apiStatus === "online"}
+                      tick={demoTick + liveStats.count}
                     />
                   </div>
                 </StageMorph>

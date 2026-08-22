@@ -68,11 +68,12 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     mapping(address => bool) public trustedRouters;
 
     /// @notice Max age of an oracle score before it is treated as stale (seconds).
-    /// @dev Mitigation B (§3.8). Default 120s (H-04). Validators can nudge `block.timestamp`
-    ///      within the protocol's allowed drift; a very short threshold is therefore
-    ///      manipulable. `_HOOK_GOVERNOR` may retune within `[1, MAX_STALENESS]`.
+    /// @dev Floor B (whitepaper §8.4). Default 5 minutes so a retail keeper that writes
+    ///      every 3–5 minutes does not look stale between honest writes. Busy pools can
+    ///      tighten to ~120s via `setStalenessThreshold`. Do not set below ~120s in
+    ///      production: validators can nudge `block.timestamp`. Bounds `[1, MAX_STALENESS]`.
     uint256 public stalenessThreshold;
-    uint256 public constant DEFAULT_STALENESS = 120;
+    uint256 public constant DEFAULT_STALENESS = 5 minutes;
     uint256 public constant MAX_STALENESS = 24 hours;
 
     /// @notice Minimum seconds between `lastKnownBalance` baseline writes (H-02).
@@ -266,7 +267,7 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         sanctionRegistry = sanctionRegistry_;
         complianceOracle = complianceOracle_;
         riskPolicy = riskPolicy_;
-        // Sensible defaults if deploy passes 0 (H-04: 120s minimum recommended).
+        // Zero means "use the published default" (5 minutes). Not "stale immediately".
         if (stalenessThreshold_ == 0) {
             stalenessThreshold = DEFAULT_STALENESS;
         } else {
@@ -288,11 +289,9 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         emit PriceStalenessThresholdUpdated(0, priceStalenessThreshold);
     }
 
-    /// @notice Hook governor retunes Mitigation B staleness window (§3.8).
-    /// @dev Why restricted: only `_HOOK_GOVERNOR` should change how aggressively we treat
-    ///      lagging scores (institutional 30–60s vs retail minutes). Keepers must not.
-    ///      H-04: validators can bias `block.timestamp`; do not set this below ~120s in
-    ///      production without accepting that trade-off.
+    /// @notice Hook governor retunes Floor B (whitepaper §8.4).
+    /// @dev Pair this with the keeper write cadence. Retail 3–5 minutes → keep the 5-minute
+    ///      default. Institutional 30–60s writes → 120s is fine. Keepers must not retune this.
     function setStalenessThreshold(uint256 stalenessThreshold_) external restricted {
         if (stalenessThreshold_ == 0) revert StalenessThresholdTooLow();
         if (stalenessThreshold_ > MAX_STALENESS) revert StalenessThresholdTooHigh();
@@ -549,6 +548,39 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     /// @notice Window volume already quoted to USD-8 (sum of per-swap quotes, not mixed native units).
     function windowVolumeUsd(address wallet) external view returns (uint256) {
         return _usdInCurrentWindow(wallet);
+    }
+
+    /// @notice Same L1→L3 path as beforeSwap, as a view. Reverts on REVERT / sanctions.
+    /// @dev Quote / operator path. Does not record activity or move tokens. Not a Uniswap swap.
+    function previewSwap(address wallet, address token, uint256 amount)
+        external
+        view
+        returns (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk)
+    {
+        return _evaluate(wallet, token, token, amount);
+    }
+
+    /// @notice Apply afterSwap bookkeeping (activity, baseline, SwapObserved) without a PoolManager.
+    /// @dev Honest local demo: evaluate + record. Does not take pool tokens or pretend Uniswap settled.
+    ///      Restricted to `_HOOK_GOVERNOR`.
+    function observeSwap(address wallet, address token, uint256 amount)
+        external
+        restricted
+        returns (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk)
+    {
+        SwapEvaluation memory ev;
+        ev.wallet = wallet;
+        ev.token = token;
+        (ev.decision, ev.feeBps, ev.risk, ev.inflowTriggered) =
+            _evaluateWithMitigationEvents(wallet, token, token, amount);
+        _endSwap(ev, token, amount);
+        return (ev.decision, ev.feeBps, ev.risk);
+    }
+
+    /// @notice Write `lastKnownBalance` to the current ERC-20 balance (Mitigation D baseline).
+    /// @dev Local reset / seed. Restricted to `_HOOK_GOVERNOR`. Honors `minBaselineInterval`.
+    function syncBaseline(address wallet, address token) external restricted {
+        _updateKnownBalance(wallet, token, false);
     }
 
     /// @notice Evaluate a swap subject (view path). Reverts on REVERT / sanctions.

@@ -137,7 +137,7 @@ export function SwapWidget({
               onClick={onAdvanceClock}
               className="rounded-full bg-uni-surface px-3 py-1 text-xs font-semibold text-uni-muted transition hover:text-white"
             >
-              Advance 2 min
+              Advance 5 min
             </button>
             <button
               type="button"

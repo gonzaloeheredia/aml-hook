@@ -19,6 +19,11 @@ export type ChainDeployment = {
   /** Key granted `_ORACLE_KEEPER` — must match apps/api KEEPER_PRIVATE_KEY for RPC publish */
   oracleKeeper?: Address;
   hookGovernor?: Address;
+  attestor?: Address;
+  FeeEscrow?: Address;
+  feeToken?: Address;
+  usdFeed?: Address;
+  ethUsdFeed?: Address;
   poolManager?: Address;
   /** Canonical trusted router (Universal Router on live chains, MockTrustedRouter on Anvil) */
   trustedRouter?: Address;

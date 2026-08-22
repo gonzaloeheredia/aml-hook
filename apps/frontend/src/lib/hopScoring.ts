@@ -34,7 +34,8 @@ export const UNSCORED_FEE_THRESHOLD_USD = 1_000;
 export const UNSCORED_REVERT_THRESHOLD_USD = 25_000;
 export const UNSCORED_DUST_FEE_BPS = 300;
 export const UNSCORED_MID_FEE_BPS = 800;
-export const STALENESS_MS = 120_000;
+/** Floor B window — keep in lockstep with `apps/api` / `AmlHookLogic.DEFAULT_STALENESS`. */
+export const STALENESS_MS = 300_000;
 export const ACTIVITY_WINDOW_MS = 3_600_000;
 export const MAX_OPS_IN_WINDOW = 3;
 
@@ -304,7 +305,7 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
       id: "A",
       accountLabel: "Account A · Exploit",
       role: "Exploit attacker — REVERT on pool; contaminates B, C, or D via P2P",
-      address: "0x8576aCC5C05D6Ce88f4e49bf65BdF0C62F91353C",
+      address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
       usdc: 10_000_000,
       eth: 5,
       hopDistance: 0,
@@ -321,7 +322,7 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
       id: "B",
       accountLabel: "Account B · Clean",
       role: "Clean wallet — A→B = 1-hop (~65); tainted C→B = 2-hop (~42)",
-      address: "0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD",
+      address: "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
       usdc: 25_000,
       eth: 4,
       hopDistance: null,
@@ -338,7 +339,7 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
       id: "C",
       accountLabel: "Account C · Clean",
       role: "Clean wallet — A→C = 1-hop (~65); tainted B→C = 2-hop (~42)",
-      address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      address: "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
       usdc: 50_000,
       eth: 8,
       hopDistance: null,
@@ -355,7 +356,7 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
       id: "D",
       accountLabel: "Account D · Score 0",
       role: "Published score 0 — ALLOW on already-held funds; clean C→D → inflow 8% (no hop)",
-      address: "0x4838B106FCe9647Bdf1E7877BF73cE8B0BAD5f97",
+      address: "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
       usdc: 5_000,
       eth: 2,
       hopDistance: null,
@@ -373,7 +374,7 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
       id: "E",
       accountLabel: "Account E · Unknown",
       role: "Unknown wallet — no oracle row. Under $1,000 → 3%; $1,000–$24,999 → 8%; $25,000+ → REVERT",
-      address: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+      address: "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
       usdc: 40_000,
       eth: 1,
       hopDistance: null,

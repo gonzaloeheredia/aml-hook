@@ -29,19 +29,19 @@ Supporting notes:
 | Condition | Output | Settlement |
 | --- | --- | --- |
 | Score 0–30, published and fresh | ALLOW | Pool fee 0.30% |
-| Score 31–70 | FEE_OVERRIDE | Pool keeps 0.30%. Extra slice → FeeEscrow (48h) |
+| Score 31–70 | FEE_OVERRIDE | Pool keeps 0.30%. Extra slice → FeeEscrow (48h). Clean exit → LP compensation fund. Confirmed illicit → compliance reserve |
 | Score 71–100 | REVERT | No swap |
 | Sanctions list | REVERT | No swap. Score is not read |
 | Published 0 + inbound USD > 50% of current USD, under $25,000 | FEE_OVERRIDE 8% | Medium-risk increment · differential |
 | Published + inbound USD ≥ $25,000, score still older than the baseline | REVERT | `InflowMagnitudeBlocked` |
-| Score older than 120s and at least one swap in the hour | FEE_OVERRIDE 8% | Mitigation B |
+| Score older than `stalenessThreshold` (default 5 minutes) and at least one prior swap in the hour | FEE_OVERRIDE 8% | Floor B. Governor retunes. A healthy keeper stamps `updatedAt` again when the window ages. |
 | Fourth swap after three completed ops in the hour (default) | FEE_OVERRIDE 8% | Mitigation C — governor retunes window / cap |
 | Never written, assessed USD &lt; $1,000 | FEE_OVERRIDE 3% | Unknown wallet (use-case wallet E) |
 | Never written, $1,000–$24,999 | FEE_OVERRIDE 8% | Unknown wallet |
 | Never written, ≥ $25,000 (this swap or the 1-hour window) | REVERT | `UnscoredMagnitudeBlocked` |
 | Never written, no usable USD price | REVERT | `MagnitudeQuoteFailed` |
 
-A published score of 0 is confirmed clean. An address with no oracle row is unknown. Those are different paths. Full thresholds and who may retune them: whitepaper §3.8. The A–E walkthrough: use case.
+A published score of 0 is confirmed clean. An address with no oracle row is unknown. Those are different paths. Full thresholds and who may retune them: whitepaper §8.4. The A–E walkthrough: use case. Fee escrow destinations: §8.3.
 
 N-hop score written by the keeper:
 
@@ -70,7 +70,7 @@ User → trusted router → PoolManager → AmlHook
 | `SanctionRegistry` | Static list. New hits are commit-reveal |
 | `ComplianceOracle` | Stored score, hop, origin, fee, timestamp |
 | `RiskPolicy` | Score + floors → decision. No external calls |
-| `FeeEscrow` | 48h hold of the extra fee. Own access list |
+| `FeeEscrow` | 48h hold of the extra fee. Clean / early / default → LP compensation fund. Confirmed illicit → compliance reserve. Own access list |
 | `AccessManager` | Shared authority for registry, oracle, and hook governor |
 
 Subject resolution uses a trusted router (`IMsgSender.msgSender()`). Uniswap `hookData` is ignored. An untrusted initiator reverts before any layer runs.
@@ -137,7 +137,7 @@ npm run deploy:local
 
 1. Starts Anvil on `:8545`.
 2. Deploys AccessManager, L1/L2/L3, AmlHook (CREATE2), and FeeEscrow. Uses `MockPoolManager` unless `POOL_MANAGER` is set.
-3. Wires roles. Anvil account #0 is the default admin / keepers / governor. Production requires a distinct `ATTESTOR` and a Safe as `ADMIN` or `FEE_ESCROW_OWNER`.
+3. Wires roles. Anvil account #0 is the default admin / keepers / governor. Production requires a distinct `ATTESTOR`, a Safe as `ADMIN` or `FEE_ESCROW_OWNER`, and a dedicated `COMPLIANCE_RESERVE` (never the LP fund). Floor B default is 5 minutes (`DEFAULT_STALENESS` / `MAX_SCORE_AGE`). Institutional pools may tighten to 120 seconds.
 4. Writes `contracts/deployments/31337.json` and copies it into `packages/sdk/deployments/`.
 5. Writes `apps/api/.env.local`.
 

@@ -5,6 +5,7 @@
  * On-chain scores live in ComplianceOracle when the keeper publishes via RPC.
  */
 
+import { DEMO_WALLETS } from "./chain/accounts.js";
 import { EXPLOIT_SOURCE } from "./scoring.js";
 import type { HookEvent, TransferRecord, Wallet, WalletId } from "./types.js";
 
@@ -20,7 +21,7 @@ function seedWallets(): Record<WalletId, Wallet> {
       id: "A",
       accountLabel: "Account A · Exploit",
       role: "Exploit attacker — REVERT on pool; contaminates B, C, or D via P2P",
-      address: "0x8576aCC5C05D6Ce88f4e49bf65BdF0C62F91353C",
+      address: DEMO_WALLETS.A.address,
       usdc: 10_000_000,
       eth: 5,
       hopDistance: 0,
@@ -32,7 +33,7 @@ function seedWallets(): Record<WalletId, Wallet> {
       id: "B",
       accountLabel: "Account B · Clean",
       role: "Clean wallet — A→B = 1-hop (~65); tainted C→B = 2-hop (~42)",
-      address: "0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD",
+      address: DEMO_WALLETS.B.address,
       usdc: 25_000,
       eth: 4,
       hopDistance: null,
@@ -44,7 +45,7 @@ function seedWallets(): Record<WalletId, Wallet> {
       id: "C",
       accountLabel: "Account C · Clean",
       role: "Clean wallet — A→C = 1-hop (~65); tainted B→C = 2-hop (~42)",
-      address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      address: DEMO_WALLETS.C.address,
       usdc: 50_000,
       eth: 8,
       hopDistance: null,
@@ -56,7 +57,7 @@ function seedWallets(): Record<WalletId, Wallet> {
       id: "D",
       accountLabel: "Account D · Score 0",
       role: "Published score 0 — ALLOW on already-held funds; clean C→D → inflow 8% (no hop)",
-      address: "0x4838B106FCe9647Bdf1E7877BF73cE8B0BAD5f97",
+      address: DEMO_WALLETS.D.address,
       usdc: 5_000,
       eth: 2,
       hopDistance: null,
@@ -68,7 +69,7 @@ function seedWallets(): Record<WalletId, Wallet> {
       id: "E",
       accountLabel: "Account E · Unknown",
       role: "Unknown wallet — no oracle row. Under $1,000 → 3%; $1,000–$24,999 → 8%; $25,000+ → REVERT",
-      address: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+      address: DEMO_WALLETS.E.address,
       usdc: 40_000,
       eth: 1,
       hopDistance: null,
@@ -105,7 +106,8 @@ export type WalletActivity = { windowStart: number; ops: number; windowUsd: numb
 const EMPTY_ACTIVITY: WalletActivity = { windowStart: 0, ops: 0, windowUsd: 0 };
 
 export const ACTIVITY_WINDOW_MS = 3_600_000;
-export const STALENESS_MS = 120_000;
+/** Floor B: same window as `AmlHookLogic.DEFAULT_STALENESS` (5 minutes). */
+export const STALENESS_MS = 300_000;
 
 function seedLastKnown(wallets: Record<WalletId, Wallet>): Record<WalletId, number> {
   return {
@@ -184,7 +186,7 @@ export function demoNow(): number {
   return Date.now() + store.demoOffsetMs;
 }
 
-/** Advance the demo clock (Mitigation B: 121s makes a published score stale). */
+/** Advance the demo clock (Floor B: 301s makes a published score stale). */
 export function elapseDemo(ms: number): number {
   store.demoOffsetMs += Math.max(0, ms);
   return demoNow();
