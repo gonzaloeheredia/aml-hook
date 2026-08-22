@@ -10,7 +10,7 @@ AML Hook is a compliance layer deployed natively as a Uniswap v4 hook. On swaps 
 
 This use case is swap-only. Independently, a sanctioned wallet that attempts to add or remove liquidity is reverted at beforeAddLiquidity / beforeRemoveLiquidity (SanctionRegistry only — no score, no RiskPolicy). The LP position is not transferred or confiscated; once the sanction is lifted, the same withdrawal succeeds with no extra step.
 
-This document describes a four-wallet scenario that exercises all three decision outputs of the hook, plus the oracle-latency inflow heuristic: full block (revert), FEE_OVERRIDE with punitive total friction (pool standard fee + FeeEscrow differential), FEE_OVERRIDE with proportional friction, and FEE_OVERRIDE under a stale score. The scenario is grounded in an exploit cash-out attack, two-hop fund propagation through intermediary wallets, and a third path that swaps inside the keeper's processing window.
+This document describes a four-wallet scenario that exercises all three decision outputs of the hook, plus the oracle-latency inflow heuristic and the never-scored **USD** magnitude bands: full block (revert), FEE_OVERRIDE with punitive total friction (pool standard fee + FeeEscrow differential), FEE_OVERRIDE with proportional friction, FEE_OVERRIDE under a stale scored-clean inflow (Wallet D), and Wallet E — a brand-new wallet (`updatedAt == 0`) whose first flow is quoted to USD via Chainlink (under $1,000 → 3%; $1,000–$24,999 → 8%; ≥ $25,000 or structured window USD → `UnscoredMagnitudeBlocked`; missing/stale feed → `MagnitudeQuoteFailed`). The scenario is grounded in an exploit cash-out attack, two-hop fund propagation through intermediary wallets, a third path that swaps inside the keeper's processing window, and a brand-new wallet with no oracle row.
 
 ### Actors
 
@@ -24,13 +24,16 @@ Wallet B    Starts clean (same rules as C). Receives from A → 1-hop (~65). Rec
 
 Wallet C    Starts clean (same rules as B). Receives from A → 1-hop (~65). Receives from tainted B → 2-hop (~42). Closer hop wins.     0 (clean)
 
-Wallet D    Fourth actor. Starts clean, score 0, no prior transaction history. Receives a direct P2P (peer-to-peer, wallet-to-wallet     0 (clean)
-            transfer outside the pool) transfer from Wallet A seconds before attempting a swap, before the keeper has processed that
-            transfer.
+Wallet D    Fourth actor. Previously published clean (score 0, non-zero updatedAt). Receives a direct P2P transfer from Wallet A          0 (published clean)
+            seconds before attempting a swap, before the keeper has processed that transfer. This is Mitigation D, not "unknown".
+
+Wallet E    Fifth actor. Brand-new wallet: oracle `updatedAt == 0` (never written). No inflow baseline. First-swap USD bands:               — (never written)
+            under $1,000 → 3%; $1,000–$24,999 → 8%; ≥ $25,000 (or window USD) → REVERT
+            (`UnscoredMagnitudeBlocked`). Missing/stale Chainlink feed fail-closes. Not Wallet D.
 ----------- -------------------------------------------------------------------------------------------------------------------------- -------------------------
 ```
 
-The walkthrough below uses one propagation path (A → B → C) to exercise all three hook outputs in a single run, then a third path (A → D) that isolates the causal latency gap from whitepaper section 3.8. The scoring engine treats B and C symmetrically for any P2P path.
+The walkthrough below uses one propagation path (A → B → C) to exercise all three hook outputs in a single run, then a third path (A → D) that isolates the causal latency gap from whitepaper section 3.8 (scored-clean + inflow), then Wallet E for a never-scored large first swap. The scoring engine treats B and C symmetrically for any P2P path. D has a keeper write in its past; E does not.
 
 The pool is configured as a Real World Asset (RWA) pool on Uniswap v4, with AML Hook attached (beforeSwap, afterSwap, afterSwapReturnDelta, beforeAddLiquidity, beforeRemoveLiquidity). The off-chain scoring keeper monitors transfer events continuously and, on the A → B → C path, writes updated scores on-chain before the corresponding swap is attempted. The A → D path deliberately places the swap inside the window before that write lands. Call path, AccessManager roles, and FeeEscrow settlement are specified in the whitepaper (sections 3.5 and 3.7).
 
@@ -47,6 +50,14 @@ Score Range   Hook Response                                      Fee Applied    
 31 – 70       Allow with FEE_OVERRIDE (pool standard fee + differential → FeeEscrow)   Dynamic (3% – 8% total friction)   Suspected contamination, not yet confirmed. Enhanced Due Diligence (EDD) equivalent. The swap still executes; friction is the escrowed differential, distinct from REVERT (which denies the swap in beforeSwap).
 
 71 – 100      Revert                                             N/A                 Confirmed exposure: exploit cluster, OFAC match, or direct link to sanctioned entity. No discretion.
+
+Never written (`updatedAt == 0`), assessed USD < $1,000   FEE_OVERRIDE (Mitigation A)   3%   Unknown ≠ clean. Wallet E dust / CDD-aligned band.
+
+Never written, $1,000 ≤ assessed USD < $25,000   FEE_OVERRIDE (Mitigation A mid)   8%   Unknown, economically material first flow.
+
+Never written, this swap + window USD ≥ $25,000   Revert (`UnscoredMagnitudeBlocked`)   N/A   Unknown + large or structured first flow. Not a score-band block.
+
+Never written, no / stale price feed   Revert (`MagnitudeQuoteFailed`)   N/A   Fail-closed. Same posture as a missing sanctions read.
 ------------- -------------------------------------------------- ------------------- ----------------------------------------------------------------------------------------------------------------------------------
 ```
 
@@ -244,12 +255,18 @@ Step   Actor    Action                                                          
 7      D        Swap under stale score 0; inflow heuristic elevates              0       FEE OVERRIDE (inflow)         8.00%
 
 8      —        Keeper catch-up: writes decay score 65 for Wallet D              65      Off-chain keeper update       —
+
+E-a    E        First swap under $1,000; never written (`updatedAt == 0`)        —       FEE OVERRIDE (Mitigation A)   3.00%
+
+E-a2   E        First swap $1,000–$24,999                                        —       FEE OVERRIDE (Mitigation A mid) 8.00%
+
+E-b    E        First swap or window USD ≥ $25,000                               —       REVERT (`UnscoredMagnitudeBlocked`) N/A
 ------ -------- ---------------------------------------------------------------- ------- ----------------------------- -------
 ```
 
 ## 5. On-Chain Audit Trail
 
-Every hook intervention emits a structured event via afterSwap. These events are indexed by The Graph and constitute the immutable audit record that the pool operator presents to regulators (Financial Crimes Enforcement Network, FinCEN; Markets in Crypto-Assets Regulation, MiCA; Office of Foreign Assets Control, OFAC) to demonstrate transaction-level due diligence. They also serve as the factual input for any Suspicious Transaction Report (STR) filed by the operator's compliance function.
+Successful swaps emit a structured event via afterSwap (`SwapObserved`). These events are indexed by The Graph and constitute the immutable audit record that the pool operator presents to regulators (Financial Crimes Enforcement Network, FinCEN; Markets in Crypto-Assets Regulation, MiCA; Office of Foreign Assets Control, OFAC) to demonstrate transaction-level due diligence. They also serve as the factual input for any Suspicious Transaction Report (STR) filed by the operator's compliance function. Reverted attempts do not keep those logs — index the custom errors below.
 
 Each event record contains:
 
@@ -266,6 +283,16 @@ Each event record contains:
 -   The origin wallet traced as the contamination source.
 
 -   The transaction amount and timestamp.
+
+Successful swaps emit `SwapObserved` (and `LatencyMitigationApplied` / `InflowHeuristicTriggered` when a floor applied). Reverted swaps do **not** keep those logs. Off-chain monitors must index custom errors on failed transactions:
+
+| Error | Cause |
+|---|---|
+| `SanctionHit` | Layer 1 list |
+| `WalletBlocked` | Score ≥ 71 |
+| `UnscoredMagnitudeBlocked` | `updatedAt == 0` and assessed USD-8 ≥ `unscoredRevertThreshold` ($25,000 default) |
+| `InflowMagnitudeBlocked` | Published score, inbound USD-8 since baseline ≥ `unscoredRevertThreshold` (Mitigation D absolute) |
+| `MagnitudeQuoteFailed` | Never-scored (or D inflow) and Chainlink feed missing, stale, or invalid — fail-closed |
 
 No existing compliance hook on Uniswap v4 produces this record. Binary allowlist models either permit or block, and emit no structured data on the decision rationale.
 
@@ -304,7 +331,7 @@ Keeper status           The transfer is detected by the off-chain monitor but th
 
 Elapsed time            Approximately 8 seconds between the transfer's confirmation and Wallet D submitting a swap.
 
-Oracle state at swap    ComplianceOracle still holds Wallet D's prior score: 0, with updatedAt predating the transfer.
+Oracle state at swap    ComplianceOracle still holds Wallet D's **published** score: 0, with a non-zero updatedAt that predates the transfer. This is not a never-written wallet. Mitigation D can fire; Mitigation A's magnitude REVERT does not.
 ----------------------- ---------------------------------------------------------------------------------------------------------------------------------------------------------
 ```
 
@@ -360,8 +387,41 @@ With inflow heuristic (Step 7, as designed)                 FEE_OVERRIDE        
 
 The heuristic identifies a behavioral pattern, a large inflow immediately followed by a swap attempt, not the origin of the funds. It cannot distinguish a transfer from a tainted wallet from a legitimate large deposit, such as a withdrawal from a centralized exchange. A wallet with a genuinely clean funding source that happens to deposit a large balance and swap immediately will incur the same intermediate fee. This is an accepted false positive cost, applied only within the narrow window before the keeper writes an updated score, and it is not a determination of guilt, only a temporary friction pending confirmation.
 
+A never-written wallet (`updatedAt == 0`) is **not** this path. Mitigation D is skipped without a score and without a baseline, so a first swap is not treated as a 100 percent inflow. That wallet is section 7.1.
+
+## 7.1 Never-scored magnitude: Wallet E
+
+Wallet E has no ComplianceOracle row. `updatedAt` is 0. There is no `lastKnownBalance` baseline.
+
+```text
+----------------------- ---------------------------------------------------------------------------------------------------------------------------------------------------------
+Event                   Detail
+
+Small first swap        Assessed USD below $1,000 (unscoredFeeThreshold = 1_000e8).
+                        Mitigation A: FEE_OVERRIDE at 3 percent. InflowHeuristicTriggered is not emitted.
+
+Mid first swap          Assessed USD from $1,000 up to but not including $25,000.
+                        Mitigation A mid: FEE_OVERRIDE at 8 percent.
+
+Large first swap        Assessed USD ≥ $25,000 (unscoredRevertThreshold = 25_000e8).
+                        RiskPolicy REVERT. beforeSwap reverts `UnscoredMagnitudeBlocked(E, assessedUsd, threshold)`.
+                        Distinct from Wallet A (`WalletBlocked`, score 100) and from a sanction (`SanctionHit`).
+
+Structuring             Never-scored swaps whose USD-8 window sum (quoted at each afterSwap) plus this swap
+                        reaches $25,000 → same REVERT, even across different tokens. Native units are not added.
+
+No / stale feed         Token has no governor-set Chainlink feed, or latestRoundData.updatedAt is older than
+                        priceStalenessThreshold (default 3600s) → `MagnitudeQuoteFailed`. Fail-closed.
+
+Published score 0       Keeper writes score 0 with a fresh updatedAt. E is now confirmed-clean.
+                        A $1m swap of already-held funds ALLOWs. Magnitude REVERT applies only while updatedAt == 0.
+
+Units                   Floors are USD with 8 decimals (Chainlink). Governor binds each pool token via setPriceFeed.
+----------------------- ---------------------------------------------------------------------------------------------------------------------------------------------------------
+```
+
 ## 8. Conclusion
 
-This scenario demonstrates the complete decision space of AML Hook in a single execution run. A direct attack by the exploit source triggers an immediate revert. An attempt to route contaminated funds through intermediary wallets is detected and penalized with mathematically decaying fees proportional to hop distance. A third path that swaps before the keeper publishes the decay score is caught by the balance-inflow heuristic and still receives FEE_OVERRIDE at 8 percent rather than an unconditioned ALLOW. Every decision is recorded on-chain with full traceability.
+This scenario demonstrates the complete decision space of AML Hook in a single execution run. A direct attack by the exploit source triggers an immediate revert. An attempt to route contaminated funds through intermediary wallets is detected and penalized with mathematically decaying fees proportional to hop distance. A third path that swaps before the keeper publishes the decay score on an already-written clean wallet is caught by the balance-inflow heuristic and still receives FEE_OVERRIDE at 8 percent rather than an unconditioned ALLOW. A brand-new wallet with no score pays 3 percent under $1,000, 8 percent from $1,000 to $24,999, and is reverted at or above $25,000 (or if the Chainlink quote fails). Successful decisions emit `SwapObserved`; reverted attempts are distinguished by `SanctionHit`, `WalletBlocked`, `UnscoredMagnitudeBlocked`, `InflowMagnitudeBlocked`, or `MagnitudeQuoteFailed`.
 
-The attack vectors covered — direct exploit cash-out, multi-hop fund propagation, and cash-out inside the oracle latency window — represent primary evasion strategies used in DeFi exploits. AML Hook addresses them at the execution layer, without requiring the attacker to appear on any external list, and without introducing latency into the normal swap path for clean addresses with a fresh keeper score.
+The attack vectors covered — direct exploit cash-out, multi-hop fund propagation, cash-out inside the oracle latency window, and a large first swap from an unknown wallet — represent primary evasion strategies used in DeFi exploits. AML Hook addresses them at the execution layer, without requiring the attacker to appear on any external list, and without introducing latency into the normal swap path for clean addresses with a fresh keeper score.

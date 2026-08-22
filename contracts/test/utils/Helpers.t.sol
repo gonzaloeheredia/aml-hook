@@ -21,6 +21,7 @@ import {SanctionRegistry} from "contracts/registries/SanctionRegistry.sol";
 import {IFeeEscrow} from "interfaces/escrow/IFeeEscrow.sol";
 import {Roles} from "libraries/Roles.sol";
 import {MockTrustedRouter} from "../../script/mocks/MockTrustedRouter.sol";
+import {MockAggregatorV3} from "test/mocks/MockAggregatorV3.sol";
 
 /// @notice Stand-in PoolManager so `AmlHook.onlyPoolManager` can be exercised in hook tests.
 /// @dev `take` forwards ERC-20 from this stub to `to` (mint tokens here before FEE_OVERRIDE afterSwap tests).
@@ -145,7 +146,7 @@ contract Helpers is Test {
 
     /// @dev Wires `_HOOK_GOVERNOR` so tests can `setTrustedRouter`.
     function _wireHookGovernor() internal {
-        bytes4[] memory hookSelectors = new bytes4[](8);
+        bytes4[] memory hookSelectors = new bytes4[](11);
         hookSelectors[0] = AmlHookLogic.setStalenessThreshold.selector;
         hookSelectors[1] = AmlHookLogic.setInflowThresholdBps.selector;
         hookSelectors[2] = AmlHookLogic.setTrustedRouter.selector;
@@ -154,7 +155,21 @@ contract Helpers is Test {
         hookSelectors[5] = AmlHookLogic.setTrustedMultisig.selector;
         hookSelectors[6] = AmlHookLogic.setMultisigAggregation.selector;
         hookSelectors[7] = AmlHookLogic.setMinBaselineInterval.selector;
+        hookSelectors[8] = AmlHookLogic.setUnscoredThresholds.selector;
+        hookSelectors[9] = AmlHookLogic.setPriceFeed.selector;
+        hookSelectors[10] = AmlHookLogic.setPriceStalenessThreshold.selector;
         _wireRole(accessManager, owner, address(hook), hookSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
+    }
+
+    /// @dev Bind a $1 Chainlink stand-in for stub pool currencies (address(1)/address(2)) and native ETH.
+    function _bindUsdFeeds() internal {
+        MockAggregatorV3 usdFeed = new MockAggregatorV3();
+        usdFeed.setRound(1e8, block.timestamp);
+        vm.startPrank(hookGovernor);
+        hook.setPriceFeed(address(0), address(usdFeed));
+        hook.setPriceFeed(address(1), address(usdFeed));
+        hook.setPriceFeed(address(2), address(usdFeed));
+        vm.stopPrank();
     }
 
     /// @dev Helper to list an account. Uses commit-reveal (production path). Tests that

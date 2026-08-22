@@ -12,12 +12,18 @@ import {HookDecision} from "libraries/HookDecision.sol";
 import {Roles} from "libraries/Roles.sol";
 import {AmlHookHarness} from "./AmlHookHarness.sol";
 import {MockERC20} from "test/mocks/MockERC20.sol";
+import {MockAggregatorV3} from "test/mocks/MockAggregatorV3.sol";
 import {Helpers} from "test/utils/Helpers.t.sol";
 
 /// @notice AmlHookLogic §3.8 oracle-latency mitigations (unset / stale / inflow / activity cap).
 contract UnitAmlHookLogicTest is Helpers {
     AmlHookHarness harness;
     MockERC20 token;
+    MockAggregatorV3 feed;
+
+    uint256 internal constant USD_1 = 1e8;
+    uint256 internal constant USD_1000 = 1_000e8;
+    uint256 internal constant USD_25000 = 25_000e8;
 
     event LatencyMitigationApplied(
         address indexed wallet, bytes32 reason, uint24 feeBps, uint8 oracleScore
@@ -38,24 +44,33 @@ contract UnitAmlHookLogicTest is Helpers {
         oracleSelectors[0] = ComplianceOracle.updateScore.selector;
         _wireRole(accessManager, owner, address(complianceOracle), oracleSelectors, Roles._ORACLE_KEEPER, keeper);
 
-        bytes4[] memory hookSelectors = new bytes4[](3);
+        bytes4[] memory hookSelectors = new bytes4[](6);
         hookSelectors[0] = AmlHookLogic.setStalenessThreshold.selector;
         hookSelectors[1] = AmlHookLogic.setInflowThresholdBps.selector;
         hookSelectors[2] = AmlHookLogic.setTrustedRouter.selector;
+        hookSelectors[3] = AmlHookLogic.setUnscoredThresholds.selector;
+        hookSelectors[4] = AmlHookLogic.setPriceFeed.selector;
+        hookSelectors[5] = AmlHookLogic.setPriceStalenessThreshold.selector;
         _wireRole(accessManager, owner, address(harness), hookSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
 
         vm.warp(1_000_000);
+        feed = new MockAggregatorV3();
+        feed.setRound(int256(USD_1), block.timestamp); // $1 per 18-decimal token
+        vm.startPrank(hookGovernor);
+        harness.setPriceFeed(address(0), address(feed));
+        harness.setPriceFeed(address(token), address(feed));
+        vm.stopPrank();
     }
 
     function test_UnsetScore_NotAllow() external {
         (HookDecision d, uint24 fee,) = harness.evaluate(walletA);
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
-        assertEq(fee, harness.LATENCY_FEE_BPS());
+        assertEq(fee, 300);
     }
 
     function test_UnsetScore_EmitsMitigationReason() external {
         vm.expectEmit(true, false, false, true, address(harness));
-        emit LatencyMitigationApplied(walletA, harness.REASON_SCORE_NEVER_WRITTEN(), 800, 0);
+        emit LatencyMitigationApplied(walletA, harness.REASON_SCORE_NEVER_WRITTEN(), 300, 0);
         harness.evaluateLive(walletA);
     }
 
@@ -264,6 +279,23 @@ contract UnitAmlHookLogicTest is Helpers {
         assertEq(fee, riskPolicy.LATENCY_FEE_BPS());
     }
 
+    function test_InflowAtRevertThreshold_RevertsEvenIfShareIsSmall() external {
+        // Whale: +$25,000 is 20% of $125,000 — below 50% relative floor, at the USD revert floor.
+        token.mint(walletA, 100_000 ether);
+        harness.updateKnownBalance(walletA, address(token));
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, _scoreSig(walletA, 0, 0));
+
+        vm.warp(block.timestamp + 10);
+        feed.setRound(int256(USD_1), block.timestamp);
+        token.mint(walletA, 25_000 ether);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(AmlHookLogic.InflowMagnitudeBlocked.selector, walletA, USD_25000, USD_25000)
+        );
+        harness.evaluateWithToken(walletA, address(token));
+    }
+
     function test_InflowBelowThreshold_DoesNotElevate() external {
         token.mint(walletA, 100 ether);
         harness.updateKnownBalance(walletA, address(token));
@@ -283,9 +315,130 @@ contract UnitAmlHookLogicTest is Helpers {
         vm.recordLogs();
         (HookDecision d, uint24 fee,) = harness.evaluateLiveWithToken(walletA, address(token));
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
-        assertEq(fee, harness.LATENCY_FEE_BPS());
+        assertEq(fee, 300);
         // Mitigation A only (`LatencyMitigationApplied`). Inflow must not fire without a score/baseline.
         assertEq(vm.getRecordedLogs().length, 1);
+    }
+
+    function test_UnscoredBelowFeeThreshold_ReducedFee() external {
+        (HookDecision d, uint24 fee,) = harness.evaluate(walletA, address(token), 999 ether);
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, 300);
+    }
+
+    function test_UnscoredAtFeeThreshold_StandardFee() external {
+        (HookDecision d, uint24 fee,) = harness.evaluate(walletA, address(token), 1_000 ether);
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, 800);
+    }
+
+    function test_UnscoredBetweenThresholds_StandardFee() external {
+        (HookDecision d, uint24 fee,) = harness.evaluate(walletA, address(token), 5_000 ether);
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, 800);
+    }
+
+    function test_UnscoredLowAndMidBands_AreDistinct() external {
+        (HookDecision dLow, uint24 feeLow,) = harness.evaluate(walletA, address(token), 999 ether);
+        (HookDecision dMid, uint24 feeMid,) = harness.evaluate(walletA, address(token), 1_000 ether);
+        assertEq(uint8(dLow), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(uint8(dMid), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(feeLow, 300);
+        assertEq(feeMid, 800);
+        assertTrue(feeLow != feeMid);
+    }
+
+    function test_UnscoredAtRevertThreshold_RevertsWithUsdInError() external {
+        vm.expectRevert(
+            abi.encodeWithSelector(AmlHookLogic.UnscoredMagnitudeBlocked.selector, walletA, USD_25000, USD_25000)
+        );
+        harness.evaluate(walletA, address(token), 25_000 ether);
+    }
+
+    function test_UnscoredAboveRevertThreshold_Reverts() external {
+        vm.expectRevert(
+            abi.encodeWithSelector(AmlHookLogic.UnscoredMagnitudeBlocked.selector, walletA, 30_000e8, USD_25000)
+        );
+        harness.evaluate(walletA, address(token), 30_000 ether);
+    }
+
+    function test_UnscoredMissingFeed_FailClosed() external {
+        MockERC20 orphan = new MockERC20();
+        vm.expectRevert(
+            abi.encodeWithSelector(AmlHookLogic.MagnitudeQuoteFailed.selector, address(orphan), harness.QUOTE_NO_FEED())
+        );
+        harness.evaluate(walletA, address(orphan), 1 ether);
+    }
+
+    function test_UnscoredStaleFeed_FailClosed() external {
+        feed.setRound(int256(USD_1), block.timestamp - 3_601);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                AmlHookLogic.MagnitudeQuoteFailed.selector, address(token), harness.QUOTE_STALE_FEED()
+            )
+        );
+        harness.evaluate(walletA, address(token), 1 ether);
+    }
+
+    function test_PublishedScoreZero_LargeSwapStillAllows() external {
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, _scoreSig(walletA, 0, 0));
+        (HookDecision d, uint24 fee,) = harness.evaluate(walletA, address(token), 800 ether);
+        assertEq(uint8(d), uint8(HookDecision.ALLOW));
+        assertEq(fee, 0);
+    }
+
+    function test_UnscoredStructuring_SumExceedsRevertThreshold() external {
+        harness.recordActivity(walletA, address(token), 10_000 ether);
+        harness.recordActivity(walletA, address(token), 10_000 ether);
+        harness.recordActivity(walletA, address(token), 4_000 ether);
+        assertEq(harness.windowVolume(walletA, address(token)), 24_000 ether);
+        assertEq(harness.windowVolumeUsd(walletA), 24_000e8);
+
+        // Individual swap is small; window USD + this swap crosses $25,000.
+        vm.expectRevert(
+            abi.encodeWithSelector(AmlHookLogic.UnscoredMagnitudeBlocked.selector, walletA, USD_25000, USD_25000)
+        );
+        harness.evaluate(walletA, address(token), 1_000 ether);
+    }
+
+    function test_UnscoredStructuring_SumsUsdAcrossTokens() external {
+        MockERC20 other = new MockERC20();
+        vm.prank(hookGovernor);
+        harness.setPriceFeed(address(other), address(feed));
+
+        harness.recordActivity(walletA, address(token), 10_000 ether);
+        harness.recordActivity(walletA, address(other), 15_000 ether);
+        assertEq(harness.windowVolumeUsd(walletA), USD_25000);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(AmlHookLogic.UnscoredMagnitudeBlocked.selector, walletA, USD_25000, USD_25000)
+        );
+        harness.evaluate(walletA, address(token), 0);
+    }
+
+    function test_UnscoredStructuring_WindowResetClearsVolume() external {
+        harness.recordActivity(walletA, address(token), 20_000 ether);
+        vm.warp(block.timestamp + 1001);
+        feed.setRound(int256(USD_1), block.timestamp);
+        (HookDecision d, uint24 fee,) = harness.evaluate(walletA, address(token), 20 ether);
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, 300);
+    }
+
+    function test_SetUnscoredThresholds_RestrictedToGovernor() external {
+        vm.prank(hookGovernor);
+        harness.setUnscoredThresholds(2_000e8, 50_000e8);
+        assertEq(harness.unscoredFeeThreshold(), 2_000e8);
+        assertEq(harness.unscoredRevertThreshold(), 50_000e8);
+
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
+        harness.setUnscoredThresholds(1_000e8, 25_000e8);
+
+        vm.prank(hookGovernor);
+        vm.expectRevert(AmlHookLogic.UnscoredThresholdsInvalid.selector);
+        harness.setUnscoredThresholds(25_000e8, 25_000e8);
     }
 
     function test_UpdateKnownBalance_SkipsWithinMinBaselineInterval() external {

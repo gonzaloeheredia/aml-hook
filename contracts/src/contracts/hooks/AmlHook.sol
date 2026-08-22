@@ -117,7 +117,9 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         SwapParams calldata params,
         bytes calldata
     ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
-        SwapEvaluation memory ev = _beginSwap(sender, _inputToken(key, params));
+        SwapEvaluation memory ev = _beginSwap(
+            sender, _inputToken(key, params), _specifiedToken(key, params), _absAmount(params.amountSpecified)
+        );
         SwapCache.store(key.toId(), ev.wallet, ev.token, ev.decision, ev.feeBps, ev.risk, ev.inflowTriggered);
 
         // ALLOW and FEE_OVERRIDE: do not override pool LP fee (standard path).
@@ -138,7 +140,7 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         (ev.wallet, ev.token, ev.decision, ev.feeBps, ev.risk, ev.inflowTriggered) = SwapCache.load(key.toId());
         SwapCache.clear(key.toId());
 
-        _endSwap(ev);
+        _endSwap(ev, _specifiedToken(key, params), _settledSpecifiedAmount(key, params, delta));
 
         int128 hookDelta = 0;
         if (ev.decision == HookDecision.FEE_OVERRIDE && address(feeEscrow) != address(0) && ev.feeBps > 0) {
@@ -156,5 +158,35 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
     {
         Currency c = params.zeroForOne ? key.currency0 : key.currency1;
         return Currency.unwrap(c);
+    }
+
+    /// @dev Currency of `amountSpecified`: input on exact-in, output on exact-out.
+    function _specifiedToken(PoolKey calldata key, SwapParams calldata params)
+        private
+        pure
+        returns (address)
+    {
+        bool exactIn = params.amountSpecified < 0;
+        Currency c = exactIn
+            ? (params.zeroForOne ? key.currency0 : key.currency1)
+            : (params.zeroForOne ? key.currency1 : key.currency0);
+        return Currency.unwrap(c);
+    }
+
+    /// @dev Absolute value of a Uniswap signed amount (`amountSpecified` or a balance delta).
+    function _absAmount(int256 amount) private pure returns (uint256) {
+        return amount < 0 ? uint256(-amount) : uint256(amount);
+    }
+
+    /// @dev Settled size of the specified currency after the swap (native units, no USD).
+    function _settledSpecifiedAmount(PoolKey calldata, SwapParams calldata params, BalanceDelta delta)
+        private
+        pure
+        returns (uint256)
+    {
+        bool exactIn = params.amountSpecified < 0;
+        bool useToken0 = exactIn ? params.zeroForOne : !params.zeroForOne;
+        int256 settled = useToken0 ? delta.amount0() : delta.amount1();
+        return _absAmount(settled);
     }
 }

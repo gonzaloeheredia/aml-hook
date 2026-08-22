@@ -187,16 +187,19 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         return address(_feeToken);
     }
 
+    /// @dev Restricts admin paths (keepers, depositors, recovery, ownership).
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
         _;
     }
 
+    /// @dev Restricts Checkpoint 1 / 2 / default release to the escrow keeper list.
     modifier onlyKeeper() {
         if (!keepers[msg.sender]) revert NotKeeper();
         _;
     }
 
+    /// @dev Restricts `deposit` to the hook (or another wired settlement contract).
     modifier onlyDepositor() {
         if (!depositors[msg.sender]) revert NotDepositor();
         _;
@@ -243,6 +246,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     }
 
     /// @inheritdoc IFeeEscrow
+    /// @notice Checkpoint 1 for many ids in one tx (cap `MAX_BATCH_SIZE`).
     function batchReleaseEarly(uint256[] calldata escrowIds) external onlyKeeper nonReentrant {
         if (escrowIds.length > MAX_BATCH_SIZE) revert BatchTooLarge();
         uint256 n = escrowIds.length;
@@ -260,6 +264,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     }
 
     /// @inheritdoc IFeeEscrow
+    /// @notice Checkpoint 2 for many ids; `illicitConfirmed` is parallel to `escrowIds`.
     function batchResolveCheckpoint2(uint256[] calldata escrowIds, bool[] calldata illicitConfirmed)
         external
         onlyKeeper
@@ -282,6 +287,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     }
 
     /// @inheritdoc IFeeEscrow
+    /// @notice Default LP credit for many unresolved ids after the 48h window.
     function batchReleaseDefault(uint256[] calldata escrowIds) external onlyKeeper nonReentrant {
         if (escrowIds.length > MAX_BATCH_SIZE) revert BatchTooLarge();
         uint256 n = escrowIds.length;
@@ -291,6 +297,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     }
 
     /// @inheritdoc IFeeEscrow
+    /// @notice Full escrow row for owner or an auditor (wallet plaintext).
     function getEscrow(uint256 escrowId) external view returns (EscrowRecord memory) {
         if (msg.sender != owner && !auditors[msg.sender]) revert UnauthorizedEscrowRead();
         if (escrowId == 0 || escrowId >= nextEscrowId) revert UnknownEscrow();
@@ -298,6 +305,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     }
 
     /// @inheritdoc IFeeEscrow
+    /// @notice Public escrow view with `wallet` hashed (no owner/auditor gate).
     function getEscrowPublic(uint256 escrowId)
         external
         view
@@ -411,6 +419,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         emit DepositorUpdated(depositor, true);
     }
 
+    /// @notice Schedule a depositor grant or revoke; takes effect after `DEPOSITOR_TIMELOCK`.
     function setDepositor(address depositor, bool allowed) external onlyOwner {
         if (depositor == address(0)) revert ZeroAddress();
         pendingDepositor = depositor;
@@ -432,24 +441,29 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         emit DepositorUpdated(depositor, allowed);
     }
 
+    /// @notice Grant or revoke full-row `getEscrow` read access.
     function setAuditor(address auditor, bool allowed) external onlyOwner {
         if (auditor == address(0)) revert ZeroAddress();
         auditors[auditor] = allowed;
         emit AuditorUpdated(auditor, allowed);
     }
 
+    /// @notice Allow or reject a token for `deposit` (constructor token starts allowed).
     function setAllowedFeeToken(address token, bool allowed) external onlyOwner {
         if (token == address(0)) revert ZeroAddress();
         allowedFeeTokens[token] = allowed;
         emit AllowedFeeTokenUpdated(token, allowed);
     }
 
+    /// @notice Retune the permissionless blocked-recovery wait (floor 1 day).
+    /// @dev Owner `recoverBlocked` still waits at least `OWNER_BLOCKED_RECOVERY_MIN_AGE` (7 days).
     function setBlockedRecoveryDelay(uint64 delay) external onlyOwner {
         if (delay < 1 days) revert InvalidBlockedRecoveryDelay();
         emit BlockedRecoveryDelayUpdated(blockedRecoveryDelay, delay);
         blockedRecoveryDelay = delay;
     }
 
+    /// @notice Change the sole release destination for clean / default / recovered fees.
     function setLpCompensationFund(address lpCompensationFund_) external onlyOwner {
         if (lpCompensationFund_ == address(0)) revert ZeroAddress();
         lpCompensationFund = lpCompensationFund_;
@@ -472,6 +486,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         emit OwnershipTransferred(previous, msg.sender);
     }
 
+    /// @dev Checkpoint 1: 24h–48h, credit `lpCompensationFund`, never block.
     function _releaseEarly(uint256 escrowId) private {
         EscrowRecord storage rec = _requireActive(escrowId);
         uint256 age = block.timestamp - uint256(rec.depositedAt);
@@ -487,6 +502,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         emit FeeReleasedEarly(escrowId, wallet, amount, to);
     }
 
+    /// @dev Checkpoint 2 after 48h: illicit stays blocked here; clean pays the LP fund.
     function _resolveCheckpoint2(uint256 escrowId, bool illicitConfirmed) private {
         EscrowRecord storage rec = _requireActive(escrowId);
         if (block.timestamp < uint256(rec.depositedAt) + uint256(ESCROW_WINDOW)) {
@@ -508,6 +524,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         }
     }
 
+    /// @dev No Checkpoint 2 decision after 48h: treat as clean and credit LPs.
     function _releaseDefault(uint256 escrowId) private {
         EscrowRecord storage rec = _requireActive(escrowId);
         if (block.timestamp < uint256(rec.depositedAt) + uint256(ESCROW_WINDOW)) {
@@ -523,6 +540,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         emit FeeReleasedDefault(escrowId, wallet, amount, to);
     }
 
+    /// @dev Load an Active row or revert (unknown id / already terminal).
     function _requireActive(uint256 escrowId) private view returns (EscrowRecord storage rec) {
         if (escrowId == 0 || escrowId >= nextEscrowId) revert UnknownEscrow();
         rec = _escrows[escrowId];
@@ -530,6 +548,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         if (rec.status != EscrowStatus.Active) revert NotActive();
     }
 
+    /// @dev Decrease per-wallet token balance then transfer; revert the whole call on failure.
     function _debitAndTransfer(EscrowRecord storage rec, address to, uint256 amount) private {
         balances[rec.wallet][rec.token] -= amount;
         if (!IERC20Fee(rec.token).transfer(to, amount)) revert TransferFailed();

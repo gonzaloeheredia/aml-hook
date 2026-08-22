@@ -52,6 +52,7 @@ contract UnitAmlHookResolveWalletTest is Helpers {
         _wireRole(accessManager, owner, address(sanctionRegistry), registrySelectors, Roles._REGISTRY_KEEPER, keeper);
 
         _wireHookGovernor();
+        _bindUsdFeeds();
 
         key = _buildKey(address(hook));
         params = _buildParams();
@@ -276,7 +277,7 @@ contract UnitAmlHookResolveWalletTest is Helpers {
 
         vm.expectEmit(true, false, false, true, address(hook));
         emit SwapObserved(
-            address(safe), 0, HookDecision.FEE_OVERRIDE, hook.LATENCY_FEE_BPS(), 0, address(0)
+            address(safe), 0, HookDecision.FEE_OVERRIDE, 300, 0, address(0)
         );
         manager.callAfterSwap(
             IHooks(address(hook)), sender, key, params, BalanceDelta.wrap(0), ""

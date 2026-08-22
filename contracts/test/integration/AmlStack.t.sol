@@ -11,6 +11,7 @@ import {IComplianceOracle} from "interfaces/oracles/IComplianceOracle.sol";
 import {HookDecision} from "libraries/HookDecision.sol";
 import {Roles} from "libraries/Roles.sol";
 import {AmlHookHarness} from "../unit/hooks/AmlHookHarness.sol";
+import {MockAggregatorV3} from "test/mocks/MockAggregatorV3.sol";
 import {Helpers} from "test/utils/Helpers.t.sol";
 
 contract IntegrationAmlStackTest is Helpers {
@@ -41,6 +42,15 @@ contract IntegrationAmlStackTest is Helpers {
         bytes4[] memory registrySelectors = new bytes4[](1);
         registrySelectors[0] = SanctionRegistry.setSanctioned.selector;
         _wireRole(accessManager, owner, address(sanctionRegistry), registrySelectors, Roles._REGISTRY_KEEPER, keeper);
+
+        bytes4[] memory hookSelectors = new bytes4[](1);
+        hookSelectors[0] = AmlHookLogic.setPriceFeed.selector;
+        _wireRole(accessManager, owner, address(harness), hookSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
+
+        MockAggregatorV3 feed = new MockAggregatorV3();
+        feed.setRound(1e8, block.timestamp);
+        vm.prank(hookGovernor);
+        harness.setPriceFeed(address(0), address(feed));
     }
 
     function _seedClean(address wallet) internal {
@@ -56,10 +66,10 @@ contract IntegrationAmlStackTest is Helpers {
     }
 
     function test_UnsetRisk_ElevatesToFeeOverride() external {
-        // Never written → not ALLOW (oracle latency mitigation).
+        // Never written, $0 assessed → reduced 3% USD band (below $1,000).
         (HookDecision d, uint24 fee,) = harness.evaluate(walletC);
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
-        assertEq(fee, 800);
+        assertEq(fee, 300);
     }
 
     function test_ExploitSourceReverts() external {

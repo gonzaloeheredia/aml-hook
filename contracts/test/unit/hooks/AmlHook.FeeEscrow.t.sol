@@ -55,6 +55,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         _wireRole(accessManager, owner, address(complianceOracle), oracleSelectors, Roles._ORACLE_KEEPER, keeper);
 
         _wireHookGovernor();
+        _bindUsdFeeds();
 
         // zeroForOne exactIn → output is currency1 = feeToken (escrow custody asset).
         key = PoolKey({

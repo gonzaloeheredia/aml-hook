@@ -130,6 +130,8 @@ Score              Output                               Regulatory basis
 
 Output 2 is the differentiator. In the real regulatory world, not all risk justifies a block. A regulator does not expect a pool to block a wallet with a medium score; it expects the pool to monitor it, segregate it, or apply friction to it. The differential fee, settled via FeeEscrow rather than by inflating the pool LP fee, is the on-chain translation of that principle. Later releases or LP compensation fund the pool-protection path described in section 3.7.
 
+When the keeper has not written, the score is stale, or a large inflow has not yet been published, those three bands are not enough. Section 3.8 is the catalogue of mitigations A–D, the decision map (situation → control → whether the swap executes), and the **threshold catalogue**: every numeric floor the hook uses (score cuts, USD-8, staleness, activity, inflow share, price-feed age) and who may retune it.
+
 ### Regulatory argument for the ternary split
 
 Sanctioned wallet (score 71 to 100 or OFAC match): unconditional block, no fee, the transaction reverts. There is no ternary exit and no discretion here. This segment matches what any binary competitor already does.
@@ -166,28 +168,75 @@ User → Router → PoolManager
               beforeSwap │ afterSwap
      beforeAddLiquidity │ beforeRemoveLiquidity
                        ▼
-                   AMLHook
-          ┌────────────┼────────────┐
-          ▼            ▼            ▼
-   SanctionRegistry  ComplianceOracle  RiskPolicy
-     (Layer 1)         (Layer 2)         (Layer 3)
-                          ▲
-                          │ updateScore(...)  ← _ORACLE_KEEPER
-              Oracle Keeper / COA (off-chain)
+                   AMLHook  (callbacks only)
+          ┌────────────┼────────────────────┐
+          ▼            ▼                    ▼
+   AmlHookLogic   AmlHookSettlement    SanctionRegistry
+   (decide)       (take / escrow)        (Layer 1)
+          │
+          ├─ ComplianceOracle (Layer 2)
+          │     ▲
+          │     │ updateScore ← _ORACLE_KEEPER + attestor ECDSA
+          │     │   (hash binds wallet, score, hop, origin, feeBps, updatedAt, chainid)
+          └─ RiskPolicy (Layer 3)
                           │
                           │ FeeEscrow keeper resolutions
                           ▼
                      FeeEscrow
               (FEE_OVERRIDE differential fee, 48h)
+              owner = ADMIN / Safe from genesis; hook depositor bootstrapped at deploy
               early / default / Checkpoint 2 clean → LP retroactive compensation (never pool)
               Checkpoint 2 illicit → blocked reserve for reporting (later releases revert)
 
 AccessManager (shared) → _REGISTRY_KEEPER · _ORACLE_KEEPER · _HOOK_GOVERNOR
+Attestor (ECDSA, not a manager role) → required, distinct from those three keys
 ```
 
 AMLHook is the Uniswap v4 hook the PoolManager invokes. On swaps it runs the three on-chain layers below. On liquidity add and remove it consults only SanctionRegistry: a sanctioned wallet reverts, the position stays intact, and neither the behavioral score nor RiskPolicy is evaluated. Governor pause() stops that swap path; it does not reach the liquidity boundary. SanctionRegistry is Layer 1 (static sanctions). A new sanction cannot be applied in one setSanctioned(..., true) call: _REGISTRY_KEEPER must commitSanction then revealSanction after REVEAL_DELAY (one block), so the target is not visible in the mempool before the flag lands. Delisting stays instant via setSanctioned(account, false). ComplianceOracle is Layer 2 (behavioral score store written by the off-chain Oracle Keeper). RiskPolicy is Layer 3 (ternary decision: ALLOW, FEE_OVERRIDE, or REVERT). The keeper monitors external exploit feeds and ERC-20 (Ethereum Request for Comments 20) peer-to-peer transfers and publishes scores via updateScore before the next swap.
 
-Authorization for those write paths is not a per-contract `owner`. SanctionRegistry, ComplianceOracle and AmlHookLogic are `AccessManaged` against a single OpenZeppelin `AccessManager`. Role ids live in `Roles`: `_REGISTRY_KEEPER` (sanctions list writes), `_ORACLE_KEEPER` (`updateScore`), and `_HOOK_GOVERNOR` (`setTrustedRouter`, `setTrustedMultisig`, `setMultisigAggregation`, `setStalenessThreshold`, `setInflowThresholdBps`; on ComplianceOracle, `setAttestor`). The deploy script wires function selectors to those roles, grants the operational keys, and verifies the result. FeeEscrow keeps a separate owner / keeper / depositor model and sits outside that shared manager.
+Authorization for those write paths is not a per-contract `owner`. The catalogue below is the application role model: which key does what, and which contract enforces it. A score keeper cannot move escrow fees, and an escrow keeper cannot publish scores.
+
+### Roles — who acts, on which contract
+
+There are two authorization casilleros. SanctionRegistry, ComplianceOracle and AmlHookLogic are `AccessManaged` against one OpenZeppelin `AccessManager` (`Roles`: `_REGISTRY_KEEPER`, `_ORACLE_KEEPER`, `_HOOK_GOVERNOR`; admin is role 0). FeeEscrow keeps its own owner / keeper / depositor / auditor list and is not on that manager. RiskPolicy is pure: no roles. AmlHook only forwards Uniswap callbacks; it has no extra role of its own.
+
+Deploy env: `ADMIN` (or `FEE_ESCROW_OWNER` for the escrow Safe), `REGISTRY_KEEPER`, `ORACLE_KEEPER`, `HOOK_GOVERNOR`, `ATTESTOR`. `ATTESTOR` is required and has no default. Deploy fails if it is zero or collides with the governor or either keeper.
+
+#### AccessManager casillero
+
+| Role | Env | Contracts | Can | Cannot |
+|---|---|---|---|---|
+| Admin | `ADMIN` (Safe in production) | `AccessManager` | Grant and revoke the three operational roles; retune selector wiring | Write sanctions, scores, or escrow day-to-day; run beforeSwap |
+| `_REGISTRY_KEEPER` | `REGISTRY_KEEPER` | `SanctionRegistry` | `commitSanction`, `revealSanction`, emergency `setSanctioned` | Publish scores, pause the hook, touch FeeEscrow, rotate the attestor |
+| `_ORACLE_KEEPER` | `ORACLE_KEEPER` | `ComplianceOracle` | Submit `updateScore` **with** a valid attestor signature | Sign the payload itself, write the sanctions list, retune thresholds, move escrow |
+| Attestor (not a manager role) | `ATTESTOR` (required) | `ComplianceOracle` (ECDSA check inside `updateScore`) | Sign `attestationHash` (wallet, score, hop, origin, feeBps, updatedAt, chainid) | Submit the tx alone; a governor-only or keeper-only sig is rejected |
+| `_HOOK_GOVERNOR` | `HOOK_GOVERNOR` | `AmlHookLogic`, `ComplianceOracle`, `SanctionRegistry` | On the hook: `setStalenessThreshold`, `setInflowThresholdBps`, `setUnscoredThresholds`, `setPriceFeed`, `setPriceStalenessThreshold`, `setMinBaselineInterval`, `setTrustedRouter`, `setTrustedMultisig`, `setMultisigAggregation`, `pause` / `unpause`. On the oracle: `setAttestor`, `setRateLimit`. On the registry: `setRevealDelay` | Write scores or sanctions; deposit or release escrow |
+
+The COA / Oracle Keeper (off-chain, section 8) is not a contract. On-chain it is `_ORACLE_KEEPER` plus the attestor. It never writes FeeEscrow and never runs inside beforeSwap.
+
+#### FeeEscrow casillero (own list)
+
+| Role | Contracts | Can | Cannot |
+|---|---|---|---|
+| Owner (`ADMIN` / `FEE_ESCROW_OWNER`, Safe from genesis) | `FeeEscrow` | `setKeeper` (add waits 24h, revoke is immediate), `applyKeeper`, `setDepositor` / `applyDepositor` (24h after bootstrap), `setAuditor`, `setAllowedFeeToken`, `setBlockedRecoveryDelay`, `setLpCompensationFund`, two-step `transferOwnership`, `recoverBlocked` (min 7 days, only to `lpCompensationFund`) | `deposit` the swap differential (that is the hook); skip the 7-day owner floor |
+| Bootstrapper (deploying EOA, one-shot) | `FeeEscrow` | `bootstrapDepositor(hook)` once, then the key is cleared | Remain privileged after deploy |
+| Depositor (the hook) | `FeeEscrow`, called from `AmlHookSettlement` | `deposit` only | Release, block, or recover fees |
+| Escrow keeper | `FeeEscrow` | `releaseEarly`, `resolveCheckpoint2`, `releaseDefault` (and batches) after off-chain COA review | Change owner, keepers, or depositors; write ComplianceOracle |
+| Auditor | `FeeEscrow` | `getEscrow` (full row, wallet plaintext) | Move tokens |
+
+Anyone may call `recoverExpiredBlocked` after the full configured delay (default 90 days), and the swap subject may `claimFailedDeposit` on `AmlHookSettlement` if a deposit failed. Those are not privileged roles.
+
+#### Contract → roles that write it
+
+| Contract | Who may write / configure |
+|---|---|
+| `AccessManager` | Admin |
+| `SanctionRegistry` | `_REGISTRY_KEEPER` (list); `_HOOK_GOVERNOR` (`setRevealDelay` only) |
+| `ComplianceOracle` | `_ORACLE_KEEPER` + attestor (`updateScore`); `_HOOK_GOVERNOR` (`setAttestor`, `setRateLimit`) |
+| `AmlHookLogic` (via `AmlHook`) | `_HOOK_GOVERNOR` (thresholds, routers, pause). Swap path is permissionless for users through the PoolManager |
+| `AmlHook` / `AmlHookSettlement` | No AccessManager role. Settlement is a FeeEscrow **depositor** |
+| `RiskPolicy` | Nobody (pure mapping) |
+| `FeeEscrow` | Owner, bootstrapper (once), depositor (hook), escrow keeper, auditor (read) |
 
 ### Contract relationship analysis
 
@@ -195,12 +244,20 @@ Authorization for those write paths is not a per-contract `owner`. SanctionRegis
 -------------------- ----------------------- ------------------------------------------ -------------------------------------------------- --------------------------------
 Contract             Role                    Reads / calls                              Writes / emits                                    Does not
 -------------------- ----------------------- ------------------------------------------ -------------------------------------------------- --------------------------------
-AmlHook              Orchestrator at swap    SanctionRegistry, ComplianceOracle,        Pool activity in afterSwap; SwapObserved;         Calculate the behavioral score
-                     time (beforeSwap /      RiskPolicy (swaps); SanctionRegistry       LatencyMitigationApplied; `_HOOK_GOVERNOR`     off-chain; hold the sanctions
-                     afterSwap) and          only on beforeAddLiquidity /               setters (routers, multisigs, thresholds);      list itself; score or price
-                     liquidity sanctions     beforeRemoveLiquidity; resolves            may revert (SanctionHit, WalletBlocked,         liquidity (no RiskPolicy on
-                     gate                    end-user via trusted IMsgSender            MissingSwapSubject, TrustedRouterSubjectFailed)  add/remove)
-                                             router only (Uniswap hookData is ignored)
+AmlHook              Uniswap callbacks       Delegates to AmlHookLogic /                None of its own (stores via SwapCache)         Decide risk or compute the
+                     only (beforeSwap /      AmlHookSettlement                          then `_endSwap` + optional take                differential; hold lists
+                     afterSwap / liquidity)
+AmlHookLogic         Decide + memory         SanctionRegistry, ComplianceOracle,        Pool activity + window USD-8                   Calculate the behavioral score
+                                             RiskPolicy, Chainlink AggregatorV3         (plus native debug volume);                   off-chain; take tokens
+                                             (governor `priceFeeds`); trusted           SwapObserved; LatencyMitigationApplied;        from the pool
+                                             IMsgSender only (hookData ignored)         `_HOOK_GOVERNOR` setters (`setPriceFeed`,
+                                                                                        `setUnscoredThresholds`, …); may revert
+                                                                                        SanctionHit, WalletBlocked,
+                                                                                        UnscoredMagnitudeBlocked,
+                                                                                        InflowMagnitudeBlocked,
+                                                                                        MagnitudeQuoteFailed,
+                                                                                        MissingSwapSubject, TrustedRouterSubjectFailed
+AmlHookSettlement    Fee take / deposit      PoolManager.take, FeeEscrow.deposit        RiskFeeEscrowed / Skipped; failedDeposits      Decide ALLOW / FEE / REVERT
 -------------------- ----------------------- ------------------------------------------ -------------------------------------------------- --------------------------------
 AccessManager        Shared authority        Queried by AccessManaged targets           Admin wires roles / selectors; no swap path      Hold scores or run
                      (OZ)                    via restricted()                           writes                                           beforeSwap
@@ -209,25 +266,27 @@ SanctionRegistry     Layer 1 — static list   Queried by AmlHook via isSanction
                                                                                 revealSanction (new hits); setSanctioned
                                                                                 delists only (`DirectSanctionForbidden`)
 -------------------- ----------------------- ------------------------------------------ -------------------------------------------------- --------------------------------
-ComplianceOracle     Layer 2 — score store   Queried by AmlHook via getRisk /           `_ORACLE_KEEPER` via updateScore (attestor        Decide ALLOW / FEE_OVERRIDE /
-                                             getScore                                   ECDSA; score, hop, origin, feeBps, updatedAt)    REVERT
+ComplianceOracle     Layer 2 — score store   Queried by AmlHook via getRisk /           `_ORACLE_KEEPER` via updateScore; attestor        Decide ALLOW / FEE_OVERRIDE /
+                                             getScore                                   ECDSA over hash that includes hop + origin        REVERT; accept a governor-only sig
 -------------------- ----------------------- ------------------------------------------ -------------------------------------------------- --------------------------------
-RiskPolicy           Layer 3 — ternary map   Called by AmlHook with score +             None (pure / view decision)                       Store scores or sanctions;
-                                             recommendedFeeBps → ALLOW /                                                                  talk to Uniswap
-                                             FEE_OVERRIDE / REVERT + feeBps
+RiskPolicy           Layer 3 — ternary map   Called by AmlHookLogic with score +        None (pure / view decision)                       Store scores or sanctions;
+                                             latency floors + neverScored /                                                               call Chainlink; talk to Uniswap
+                                             assessedUsd / inflowUsd (USD-8) →
+                                             ALLOW / FEE_OVERRIDE / REVERT + feeBps
 -------------------- ----------------------- ------------------------------------------ -------------------------------------------------- --------------------------------
 Oracle Keeper / COA  Off-chain analyst +     Off-chain graph, exploit feeds,            updateScore on ComplianceOracle (must hold        Write FeeEscrow or run
 (not a contract)     publisher               SwapObserved trail, COA memos (sec. 8)     `_ORACLE_KEEPER`); FeeEscrow keeper resolutions   inside beforeSwap
 -------------------- ----------------------- ------------------------------------------ -------------------------------------------------- --------------------------------
-FeeEscrow            Sec. 3.7 fee hold       per-wallet per-token balances; getEscrow   Own owner/keepers/depositors (not AccessManager): Hold full swap output; let COA
-                     (48h)                                                               deposit; releaseEarly; resolveCheckpoint2;         write on-chain; inflate LP fee
-                                                                                         releaseDefault                                    via lpFeeOverride
+FeeEscrow            Sec. 3.7 fee hold       per-wallet per-token balances; getEscrow   Own owner (Safe from genesis) / keepers /         Hold full swap output; let COA
+                     (48h)                                                               depositors; bootstrapDepositor (one-shot);         write on-chain; inflate LP fee
+                                                                                         deposit; releaseEarly; resolveCheckpoint2;         via lpFeeOverride; skip the
+                                                                                         releaseDefault; recoverBlocked (≥7d owner floor)   7-day owner wait
 -------------------- ----------------------- ------------------------------------------ -------------------------------------------------- --------------------------------
 ```
 
-FeeEscrow destinations: the risk fee never returns to the pool. Checkpoint 2 with illicitConfirmed=true does not release to LPs: the fee moves to a blocked reserve for reporting (FeeBlocked; tokens stay in the contract; later keeper release calls revert). The owner may invoke recoverBlocked only to lpCompensationFund, not to an arbitrary address. Every other path — releaseEarly, Checkpoint 2 with illicitConfirmed=false, or releaseDefault when nobody resolved — sends it only to lpCompensationFund as retroactive LP compensation for having taken on an elevated-risk counterparty during the hold. Ownership follows a two-step process (transferOwnership proposes; acceptOwnership completes). Keepers may resolve many ids in one transaction (batchReleaseEarly, batchResolveCheckpoint2, batchReleaseDefault), capped at MAX_BATCH_SIZE (50).
+FeeEscrow destinations: the risk fee never returns to the pool. Checkpoint 2 with illicitConfirmed=true does not release to LPs: the fee moves to a blocked reserve for reporting (FeeBlocked; tokens stay in the contract; later keeper release calls revert). The owner may invoke recoverBlocked only to lpCompensationFund, not to an arbitrary address, and not before min(blockedRecoveryDelay, OWNER_BLOCKED_RECOVERY_MIN_AGE) where that minimum age is 7 days. Anyone may recoverExpiredBlocked after the full configured delay (default 90 days). Every other path — releaseEarly, Checkpoint 2 with illicitConfirmed=false, or releaseDefault when nobody resolved — sends it only to lpCompensationFund as retroactive LP compensation for having taken on an elevated-risk counterparty during the hold. Ownership follows a two-step process (transferOwnership proposes; acceptOwnership completes) and begins as ADMIN / FEE_ESCROW_OWNER, not the deploying EOA. The hook is a depositor from the deploy transaction via bootstrapDepositor (one-shot, then the bootstrapper key is cleared). Later depositor changes still use a 24-hour timelock. Adding an escrow keeper is delayed 24 hours; revoking one is immediate and cancels a pending grant. Keepers may resolve many ids in one transaction (batchReleaseEarly, batchResolveCheckpoint2, batchReleaseDefault), capped at MAX_BATCH_SIZE (50).
 
-Read path at beforeSwap: PoolManager → AmlHook → resolve swap subject (trusted router `IMsgSender.msgSender()` only; Uniswap `hookData` is ignored; EOA as-is, contract only if `trustedMultisigs` and owners pass L1 `ALL_CLEAN` / `ANY_CLEAN` sanctions) → SanctionRegistry (fail closed on match) → ComplianceOracle (WalletRisk) → AmlHookLogic derives isStale, operationCount and hasSignificantInflow → RiskPolicy.decide (score bands plus FEE_OVERRIDE floor) → optional hook-local elevation for never-written scores or the activity-window cap. Write path at afterSwap: AmlHook updates per-wallet activity counters and lastKnownBalance, emits SwapObserved for the off-chain engine, and on FEE_OVERRIDE takes the risk differential (`feeBps −` standard pool fee) via `poolManager.take`, then try/catch `FeeEscrow.deposit` (hook must be a depositor; deposit failure emits `RiskFeeSkipped`, credits `failedDeposits[wallet][token]`, and does not revert, while `hookDelta` is still returned). Write path between swaps: the oracle keeper publishes fresh scores into ComplianceOracle (AccessManager role `_ORACLE_KEEPER`, ECDSA from the distinct attestor); the hook never writes the oracle. The trusted-router and trusted-multisig registries (`setTrustedRouter`, `setTrustedMultisig`, `setMultisigAggregation`) are maintained by `_HOOK_GOVERNOR` out of band, not during the swap.
+Read path at beforeSwap: PoolManager → AmlHook → `_beginSwap` → resolve swap subject (trusted router `IMsgSender.msgSender()` only; Uniswap `hookData` is ignored; EOA as-is, contract only if `trustedMultisigs` and owners pass L1 `ALL_CLEAN` / `ANY_CLEAN` sanctions) → SanctionRegistry (fail closed on match) → ComplianceOracle (WalletRisk) → AmlHookLogic derives isStale, operationCount, hasSignificantInflow, and quotes this swap plus window volume to USD-8 via the governor-set Chainlink feed (`token => priceFeeds`; `address(0)` = ETH/USD) → RiskPolicy.decide (score bands, FEE_OVERRIDE floors, and never-scored USD bands: 3% / 8% / REVERT). A never-written score (`updatedAt == 0`) whose assessed USD is at or above `unscoredRevertThreshold` (default 25_000e8 = $25,000) reverts with `UnscoredMagnitudeBlocked(wallet, assessedUsd, threshold)`. Below $1,000 the same wallet pays 3%; from $1,000 to $24,999 it pays 8%. A published score whose inbound USD since baseline is at or above the same $25,000 floor reverts with `InflowMagnitudeBlocked`. No feed, a stale feed (`latestRoundData.updatedAt` older than `priceStalenessThreshold`, default 3600s), or an invalid answer fail-closes with `MagnitudeQuoteFailed`. Those are custom errors, not events: a revert discards logs, so monitors must index the error selectors on failed transactions. Write path at afterSwap: AmlHook `_endSwap` updates per-wallet activity counters, quotes the settled specified amount to USD-8 into the window accumulator (native per-token volume is debug-only), refreshes lastKnownBalance, emits SwapObserved for the off-chain engine, and on FEE_OVERRIDE AmlHookSettlement takes the risk differential (`feeBps −` standard pool fee) via `poolManager.take`, then try/catch `FeeEscrow.deposit` (hook must be a depositor; deposit failure emits `RiskFeeSkipped`, credits `failedDeposits[wallet][token]`, and does not revert, while `hookDelta` is still returned). Write path between swaps: the oracle keeper publishes fresh scores into ComplianceOracle (AccessManager role `_ORACLE_KEEPER`, ECDSA from the distinct attestor over hop and origin as well as score); the hook never writes the oracle. The trusted-router and trusted-multisig registries (`setTrustedRouter`, `setTrustedMultisig`, `setMultisigAggregation`), the USD floors (`setUnscoredThresholds`), and the Chainlink map (`setPriceFeed`, `setPriceStalenessThreshold`) are maintained by `_HOOK_GOVERNOR` out of band, not during the swap.
 
 ### Off-chain analysis engine
 
@@ -235,11 +294,13 @@ The engine processes the on-chain transaction graph continuously. For each walle
 
 ### On-chain oracle
 
-A contract stores the state of each wallet and the hook can query it: the risk score calculated by the off-chain engine, hop distance and origin, the keeper-recommended fee, and the timestamp of the last update. Static sanctions live in SanctionRegistry (Layer 1), not in this store. Identity credentials such as Civic or Polygon ID sit outside the current oracle surface.
+A contract stores the state of each wallet and the hook can query it: the risk score calculated by the off-chain engine, hop distance and origin, the keeper-recommended fee, and the timestamp of the last update. Static sanctions live in SanctionRegistry (Layer 1), not in this store. Identity credentials such as Civic or Polygon ID sit outside the current oracle surface. Token/USD prices used for never-scored magnitude are a separate governor-set Chainlink map on AmlHookLogic (`priceFeeds`); they are not written by the oracle keeper.
 
 ### Multi-layer architecture with fallback
 
-Instead of depending on a single oracle, AML Hook runs on redundant layers. The static layer is the updatable on-chain OFAC list, with no external dependency at execution time. The primary dynamic layer is the negotiated provider's oracle, Chainalysis or TRM Labs. The fallback layer engages when the primary oracle does not respond: the hook executes with the static layer alone instead of reverting the transaction, eliminating single-point-of-failure risk.
+Instead of depending on a single **behavioral** oracle, AML Hook runs on redundant layers. The static layer is the updatable on-chain OFAC list, with no external dependency at execution time. The primary dynamic layer is the negotiated provider's oracle, Chainalysis or TRM Labs. The fallback layer engages when the primary oracle does not respond: the hook executes with the static layer plus the last published score instead of reverting the transaction, eliminating single-point-of-failure risk on the scoring path.
+
+That fallback does **not** apply to the Chainlink **price** feed used for never-scored USD bands and Mitigation D's absolute floor (section 3.8). A missing, stale, or invalid `AggregatorV3` answer fail-closes (`MagnitudeQuoteFailed`). Price-oracle downtime over-blocks unknown wallets; it does not silently ALLOW them. Do not confuse ComplianceOracle (keeper-written score) with `priceFeeds` (token/USD).
 
 ### Verification of institutional Smart Accounts
 
@@ -273,7 +334,7 @@ For medium-risk swaps, with a score between 31 and 70 (FEE_OVERRIDE), the pool k
 
 At deposit, FeeEscrow records the subject wallet, the retained amount, the deposit timestamp and the origin transaction hash, and emits FeeDeposited for the immutable audit trail in section 3.6.
 
-The Compliance Officer Agent (COA) analyzes the case off-chain. It has no write function on FeeEscrow. Every on-chain release or block executes exclusively through a FeeEscrow keeper (that contract's own access list, not the shared AccessManager roles used for sanctions, scores and hook governance). Before submitting a transaction, the keeper applies an off-chain sanity rule on the COA output (for example a minimum confidence threshold).
+The Compliance Officer Agent (COA) analyzes the case off-chain. It has no write function on FeeEscrow. Every on-chain release or block executes exclusively through a FeeEscrow keeper (that contract's own access list, not the shared AccessManager roles used for sanctions, scores and hook governance). The full role catalogue — AccessManager keys versus FeeEscrow owner / keeper / depositor / auditor, and which contract each key may call — is in section 3.5. Before submitting a transaction, the keeper applies an off-chain sanity rule on the COA output (for example a minimum confidence threshold).
 
 Two COA consultations sit on the escrow path, and each maps to a fixed on-chain destination for the retained fee:
 
@@ -299,7 +360,7 @@ No resolution by 48h —                       releaseDefault                   
 
 Checkpoint 1 falls at or after 24 hours and before the 48-hour window closes. The keeper may invoke releaseEarly, which credits the retained fee to lpCompensationFund. Checkpoint 1 never blocks and never returns the fee to the pool.
 
-Checkpoint 2 falls at or after 48 hours, when the defined period expires. The keeper invokes the COA again with any information accumulated since Checkpoint 1 and then calls resolveCheckpoint2. If the risk is confirmed (the conclusion meets the keeper's sanity threshold for a confirmed sanction), the escrow is not released to LPs: it moves to a blocked reserve for reporting. Status becomes Blocked, tokens do not leave the contract, and later keeper release calls revert. Owner recoverBlocked is the exceptional exit, and it can send the fee only to lpCompensationFund. If, when the period expires, the wallet was not confirmed as high-risk or sanctioned, the escrow is released and credited to lpCompensationFund as retroactive compensation for LPs having taken on an elevated-risk counterparty during that period, never to the pool. That is also the path when the window elapses with no prior resolution: releaseDefault credits lpCompensationFund, not the pool.
+Checkpoint 2 falls at or after 48 hours, when the defined period expires. The keeper invokes the COA again with any information accumulated since Checkpoint 1 and then calls resolveCheckpoint2. If the risk is confirmed (the conclusion meets the keeper's sanity threshold for a confirmed sanction), the escrow is not released to LPs: it moves to a blocked reserve for reporting. Status becomes Blocked, tokens do not leave the contract, and later keeper release calls revert. Owner recoverBlocked is the exceptional exit: it can send the fee only to lpCompensationFund, and only after min(blockedRecoveryDelay, 7 days). If, when the period expires, the wallet was not confirmed as high-risk or sanctioned, the escrow is released and credited to lpCompensationFund as retroactive compensation for LPs having taken on an elevated-risk counterparty during that period, never to the pool. That is also the path when the window elapses with no prior resolution: releaseDefault credits lpCompensationFund, not the pool.
 
 FeeEscrow emits FeeReleasedEarly, FeeBlocked and FeeReleasedDefault on each terminal transition. It does not alter RiskPolicy, ComplianceOracle or AmlHookLogic; it integrates only at the point where the differential fee separates from the rest of the swap output.
 
@@ -313,19 +374,136 @@ The behavioral calculation does not happen during the swap. The off-chain engine
 
 The freshness of the behavioral score depends on the keeper interval, and that interval is not uniform across signal types: each type of signal tolerates a different latency and carries a different write cost. An OFAC match is event-driven and deterministic, written when the list updates rather than on a fixed interval, since the volume involved runs a few dozen addresses per update and the tolerable latency stays low because the obligation is objective. A new on-chain hit uses commit-reveal (commitSanction, then revealSanction after one block) so the address is not exposed in the mempool before the block takes effect; delisting remains a single setSanctioned(account, false) call. Behavioral score updates, by contrast, run on an interval: 30 to 60 seconds for high-volume institutional pools and 3 to 5 minutes for retail pools. That figure marks the maximum age of the data, not a delay in the operation.
 
-A structural gap needs mitigation on-chain, not just description. If an address executes a swap and that swap changes its risk profile, the score the hook reads on the following swap may not yet reflect it, so an actor operating across consecutive blocks can transact against a stale or missing score. The keeper cannot publish a fresh score for a transfer it has not yet observed. AML Hook therefore keeps pool-local state in AmlHookLogic and passes derived signals into RiskPolicy.decide as pure inputs (isStale, operationCount, hasSignificantInflow). RiskPolicy itself remains a pure mapping: it does not read block.timestamp and makes no external calls.
+A structural gap needs mitigation on-chain, not just description. If an address executes a swap and that swap changes its risk profile, the score the hook reads on the following swap may not yet reflect it, so an actor operating across consecutive blocks can transact against a stale or missing score. The keeper cannot publish a fresh score for a transfer it has not yet observed. AML Hook therefore keeps pool-local state in AmlHookLogic and passes derived signals into RiskPolicy.decide as pure inputs (isStale, operationCount, hasSignificantInflow, neverScored, assessedUsd, inflowUsd). RiskPolicy itself remains a pure mapping: it does not read block.timestamp, does not call Chainlink, and makes no external calls. USD quotes happen in the hook before decide.
 
-**Mitigation A, never written.** ComplianceOracle stores updatedAt with every keeper write. If updatedAt is zero, the wallet never received a keeper publication. A raw score of 0 would map to ALLOW; the hook elevates that path to FEE_OVERRIDE (default latency fee 8%, or the keeper-written feeBps when present). A legitimately clean wallet must be published explicitly with score 0 and a non-zero updatedAt. That is the on-chain distinction between an unknown wallet and a confirmed clean one.
+The catalogue and map below are the on-chain answers. Score bands and Layer 1 apply when the keeper (or the sanctions list) already wrote. Mitigations A–D close the window while that write is missing, stale, or not yet incorporating a peer-to-peer inflow. Detail for each mitigation follows the map.
 
-**Mitigation B, stale score with recent pool activity.** AmlHookLogic compares block.timestamp minus WalletRisk.updatedAt against a configurable stalenessThreshold (seconds; default 60 for high-volume institutional pools, updatable by `_HOOK_GOVERNOR` via setStalenessThreshold). When the score is stale and the wallet's operationCount in the current activity window exceeds zero, RiskPolicy applies a floor: the result cannot be ALLOW even if the stored score sits in the low band. The minimum outcome is FEE_OVERRIDE, using the intermediate-tier fallback fee in basis points (bps, hundredths of a percent) when the keeper did not publish a usable recommendedFeeBps. A stale score with zero operations in the current window leaves the stored score mapping unchanged.
+#### What the score and the sanctions list already decide
 
-**Mitigation C, hook-local activity window.** Independently of the oracle, afterSwap records per-wallet pool activity (window start, operation count, lastSwapAt) in a rolling activityWindow. When the operation count in the current window reaches maxOpsInWindow, the next beforeSwap elevates ALLOW to FEE_OVERRIDE. This counters burst behavior across consecutive blocks while the keeper has not yet moved the score tier. The counter resets when the window elapses.
+| Situation | Outcome |
+|---|---|
+| Published clean / low risk, score 0–30, fresh | ALLOW (pool fee 0.30%) |
+| Medium contamination, score 31–70 (for example 1–2 hops) | FEE_OVERRIDE (about 3%–8%; differential into FeeEscrow for 48h) |
+| Exploit / OFAC-grade, score 71–100 | REVERT (`WalletBlocked`) |
+| Layer 1 sanctions list | REVERT immediately, score is not read (`SanctionHit`) |
 
-**Mitigation D, recent-funds inflow heuristic.** This mitigation closes the causal gap Mitigations A through C leave open: a wallet previously published as clean (score 0, non-zero updatedAt) receives a large peer-to-peer transfer and attempts a swap before the keeper's updateScore confirms it. Mitigations A through C do not elevate that path, because the score is written, may still sit inside stalenessThreshold, and the wallet has no prior pool activity. Before RiskPolicy.decide runs, beforeSwap reads the end-user's balance of the swap's input token through a minimal IERC20 (fungible token interface) balanceOf call and compares it to lastKnownBalance for that wallet and token. The delta as a share of the current balance gets expressed in bps; if that share exceeds inflowThresholdBps (default 5000, or 50 percent) and the oracle's updatedAt still predates the inflow baseline, the hook passes hasSignificantInflow as true. RiskPolicy then applies a FEE_OVERRIDE floor. When no keeper-recommended feeBps is available, the designed product behavior for this path is the intermediate latency fee of 8 percent (800 bps), the same economic friction used for other oracle-latency elevations, rather than an unconditioned ALLOW at the pool's 0.30 percent base. isStale and hasSignificantInflow do not accumulate into a harsher tier when both fire: the floor remains FEE_OVERRIDE unless the score already maps to REVERT. When the signal fires, the hook emits InflowHeuristicTriggered(wallet, deltaBps, timestamp) for the audit trail. afterSwap refreshes lastKnownBalance and lastKnownBalanceTimestamp with the post-swap balance, giving the next beforeSwap a correct baseline. The extra balanceOf call is an intentional gas cost of this architecture, on the order of a few thousand gas for a typical ERC-20 read. The accompanying use case develops this path end-to-end as Wallet D (section 7).
+#### Mitigations A–D — gap each one closes
+
+| Code | Against | Outcome |
+|---|---|---|
+| **A** | Unknown wallet (`updatedAt == 0`). Unknown is not score 0. Assessed USD (this swap + window, Chainlink 8 decimals) is below `unscoredFeeThreshold` (default $1,000). | FEE_OVERRIDE ~3% (same `FeeBps.PROPORTIONAL` as the 2-hop band). |
+| **A (mid)** | Same unknown wallet, assessed USD at/above $1,000 and below $25,000. | FEE_OVERRIDE ~8%. |
+| **A + magnitude** | Same unknown wallet, assessed USD at/above `unscoredRevertThreshold` (default $25,000), including structured small swaps quoted to USD in the activity window. Missing or stale price feed is fail-closed (same outcome). | REVERT (`UnscoredMagnitudeBlocked` / `MagnitudeQuoteFailed`). Does not apply once a score is published, even score 0. |
+| **B** | Score still in the low band but older than `stalenessThreshold`, and the wallet already swapped in this pool during the activity window. | FEE_OVERRIDE ~8%. A stale score with zero pool ops does not fire. |
+| **C** | Burst of ALLOW swaps while the keeper has not moved the tier (default 3 ops in 1 hour). | FEE_OVERRIDE ~8%. The same window accumulates **USD-8** (not mixed native units) for A's magnitude check. |
+| **D** | Wallet **already published clean**, then receives a peer-to-peer transfer and swaps before `updateScore` (use-case Wallet D). | Two floors, same baseline (score still predates `lastKnownBalance`): **relative** — balance rose more than `inflowThresholdBps` (default 50%) → FEE_OVERRIDE ~8%; **absolute** — inbound delta quoted to USD ≥ `unscoredRevertThreshold` (default $25,000) → REVERT (`InflowMagnitudeBlocked`). A whale receiving $25,000 is not excused because it is 5% of their bag. |
+
+B and relative D do not stack into a harsher tier: both together remain FEE_OVERRIDE. D's absolute floor is the exception (REVERT). A–D never soften a score-band REVERT or an existing FEE_OVERRIDE. Magnitude floors are USD-8 via a governor-set Chainlink `token => priceFeed` map. No feed, a stale feed (`latestRoundData.updatedAt` older than `priceStalenessThreshold`, default 3600s), or an invalid answer is fail-closed.
+
+#### Decision map
+
+| Situation | Which control | Swap executes? |
+|---|---|---|
+| On the OFAC-style list | Layer 1 | No (`SanctionHit`) |
+| Score 71+ | Score band | No (`WalletBlocked`) |
+| New wallet, first swap under $1,000 | **A** | Yes, ~3% |
+| New wallet, $1,000–$24,999 (or window USD in that band) | **A** mid | Yes, ~8% |
+| New wallet, ≥ $25,000 (or window USD sum) | **A + magnitude** | No (`UnscoredMagnitudeBlocked`) |
+| New wallet, token has no feed / feed stale | **A** fail-closed | No (`MagnitudeQuoteFailed`) |
+| Published score 0, enormous swap of already-held funds | Score band (confirmed-clean) | Yes, ALLOW |
+| Published score stale + already swapped here | **B** | Yes, ~8% |
+| Many swaps in the activity window | **C** | Yes, ~8% |
+| Published clean + inbound P2P above 50% of current balance, below $25,000 | **D** relative | Yes, ~8% |
+| Published clean + inbound P2P ≥ $25,000, even if it is 5% of a whale | **D** absolute | No (`InflowMagnitudeBlocked`) |
+| Published score 0, swap of **already-held** funds (no new inflow) | Score band | Yes, ALLOW — swap size alone does not block a confirmed-clean wallet |
+| New wallet + “the whole balance just appeared” | not D (no score / no baseline); **A** | Fee or block by size |
+
+REVERT does not leave a `SwapObserved` log. Index the custom error on the failed transaction: `SanctionHit`, `WalletBlocked`, `UnscoredMagnitudeBlocked`, `InflowMagnitudeBlocked`, or `MagnitudeQuoteFailed`.
+
+#### Threshold catalogue — defaults and who retunes them
+
+This is the operational card. USD floors use Chainlink 8 decimals (`1_000e8` = $1,000). Score, basis points, seconds, and operation counts are not USD. The pool base fee is always 0.30% (30 bps) on an executing swap; FeeEscrow holds `feeBps − 30` when FEE_OVERRIDE is above that base. `_HOOK_GOVERNOR` retunes the named setters. Score-band cuts and fee constants are bytecode (`RiskPolicy` / `FeeBps`).
+
+**Published score (`updatedAt ≠ 0`)**
+
+| Score | Outcome | Fee when the keeper omitted `feeBps` |
+|---|---|---|
+| 0–30 | ALLOW | Pool 0.30% only |
+| 31–54 | FEE_OVERRIDE | 3% (`FeeBps.PROPORTIONAL` = 300) — ~2-hop band |
+| 55–70 | FEE_OVERRIDE | 8% (`FeeBps.PUNITIVE` = 800) — ~1-hop band |
+| 71–100 | REVERT `WalletBlocked` | — |
+
+If the keeper published `feeBps` in `1…1000`, that value wins in the 31–70 band. Layer 1 OFAC-style list: REVERT `SanctionHit` immediately; no amount floor.
+
+**Never-scored wallet (`updatedAt == 0`) — Mitigation A**
+
+Assessed USD = this swap's specified size + USD already recorded in the activity window, quoted through the governor-set Chainlink feed.
+
+| Assessed USD-8 | Parameter | Outcome |
+|---|---|---|
+| < $1,000 | `unscoredFeeThreshold` = `1_000e8` | FEE_OVERRIDE **3%** (FATF Recommendation 10 / CDD-aligned dust band) |
+| $1,000 – $24,999 | between the two floors | FEE_OVERRIDE **8%** |
+| ≥ $25,000 | `unscoredRevertThreshold` = `25_000e8` | REVERT `UnscoredMagnitudeBlocked` (includes structured window USD across tokens) |
+
+A **published score 0** is confirmed-clean, not this path. Swap size of **already-held** funds does not hard-block. `setUnscoredThresholds(fee, revert)`: `revert == 0` disables the $25,000 hard block; the 3% / 8% bands remain. Otherwise `fee` must be strictly below `revert`.
+
+**Chainlink price feed (only when a USD quote is required)**
+
+| Situation | Parameter | Outcome |
+|---|---|---|
+| Token has no `priceFeeds[token]` | governor `setPriceFeed` (use `address(0)` for native ETH) | REVERT `MagnitudeQuoteFailed` (`NO_FEED`) |
+| Feed `latestRoundData.updatedAt` older than the staleness window | `priceStalenessThreshold` = **3600** seconds (max 24h; 0 rejected) | REVERT `MagnitudeQuoteFailed` (`STALE_FEED`) |
+| Answer ≤ 0, bad round, or `decimals()` unusable | — | REVERT `MagnitudeQuoteFailed` (`BAD_PRICE`) |
+
+Quotes are required for never-scored magnitude and for Mitigation D's absolute inbound floor. A published-clean wallet with **no new inflow** does not need a feed. Fail-closed matches SanctionRegistry: missing price is not ALLOW.
+
+**Mitigation D — published clean, funds just arrived, score still predates the baseline**
+
+Requires a `lastKnownBalance` baseline and `updatedAt ≤` that baseline.
+
+| Signal | Threshold | Outcome |
+|---|---|---|
+| Relative | inbound share of **current** balance > `inflowThresholdBps` (default **5000** = 50%; governor floor 100 = 1%, ceiling 10000 = 100%) | FEE_OVERRIDE **8%** |
+| Absolute | inbound delta quoted to USD ≥ `unscoredRevertThreshold` ($25,000) | REVERT `InflowMagnitudeBlocked` |
+
+The 50% floor catches small bags that just doubled. The $25,000 floor catches a whale receiving a large absolute inbound even when it is 5% of their bag. A swap of already-held funds (inflow delta 0) does not fire D. B plus relative D do not stack past FEE_OVERRIDE.
+
+**Other latency floors (score already written)**
+
+| Control | Threshold | Outcome |
+|---|---|---|
+| **B** stale score + already swapped in this pool | `stalenessThreshold` = **120** seconds (H-04; governor range 1…24h) **and** ≥ 1 op in the current activity window | FEE_OVERRIDE **8%** |
+| **C** burst | `maxOpsInWindow` = **3** ops inside `activityWindow` = **1 hour** (both immutable at deploy; 0 → these defaults) | FEE_OVERRIDE **8%** |
+
+A stale score with zero pool ops does not fire B. The same 1-hour window accumulates USD-8 for Mitigation A's structuring check. Native ETH and USDC are never added as raw units.
+
+**Who retunes what**
+
+| Parameter | Default | Setter | Role |
+|---|---|---|---|
+| Score cuts 31 / 55 / 71 and 3% / 8% / 0.30% constants | bytecode | — | — |
+| `unscoredFeeThreshold` / `unscoredRevertThreshold` | $1,000 / $25,000 (USD-8) | `setUnscoredThresholds` | `_HOOK_GOVERNOR` |
+| `inflowThresholdBps` | 50% | `setInflowThresholdBps` | `_HOOK_GOVERNOR` |
+| `stalenessThreshold` | 120s | `setStalenessThreshold` | `_HOOK_GOVERNOR` |
+| `priceStalenessThreshold` | 3600s | `setPriceStalenessThreshold` | `_HOOK_GOVERNOR` |
+| `priceFeeds[token]` | none (fail-closed until bound) | `setPriceFeed` | `_HOOK_GOVERNOR` |
+| `activityWindow` / `maxOpsInWindow` | 1 hour / 3 | constructor only | deploy |
+
+The governor must bind a Chainlink `AggregatorV3` for every pool currency after deploy. Detail for why each mitigation exists follows immediately below.
+
+**Mitigation A, never written.** ComplianceOracle stores updatedAt with every keeper write. If updatedAt is zero, the wallet never received a keeper publication. A raw score of 0 would map to ALLOW; unknown is not confirmed-clean. The hook quotes this swap's specified size (Uniswap `amountSpecified`) plus the activity-window USD already recorded in afterSwap through a governor-set Chainlink `AggregatorV3Interface` feed (`token => priceFeed`; `address(0)` is native ETH). Amounts are converted to USD with 8 decimals. RiskPolicy then applies three bands: below `unscoredFeeThreshold` (default 1_000e8 = $1,000, aligned to FATF Recommendation 10 CDD) → FEE_OVERRIDE at 3%; from that floor up to but not including `unscoredRevertThreshold` (default 25_000e8 = $25,000) → FEE_OVERRIDE at 8%; at or above the revert floor → REVERT with `UnscoredMagnitudeBlocked(wallet, assessedUsd, threshold)`. If the token has no feed, the feed's `updatedAt` is older than `priceStalenessThreshold` (default 3600 seconds; this is the feed clock, not WalletRisk.updatedAt), or the answer is invalid, the hook fail-closes with `MagnitudeQuoteFailed` — the same closed posture as SanctionRegistry, treating the swap as if it exceeded the high floor. A published score 0 with a non-zero updatedAt is confirmed-clean: Mitigation A and the magnitude REVERT do not apply, even on a $1m swap of already-held funds. The first swap of a never-scored wallet is therefore treated as unknown (fee, or block if large / structured), not as Mitigation D inflow.
+
+**Mitigation B, stale score with recent pool activity.** AmlHookLogic compares block.timestamp minus WalletRisk.updatedAt against a configurable stalenessThreshold (seconds; default **120**, H-04; updatable by `_HOOK_GOVERNOR` via setStalenessThreshold). When the score is stale and the wallet's operationCount in the current activity window exceeds zero, RiskPolicy applies a floor: the result cannot be ALLOW even if the stored score sits in the low band. The minimum outcome is FEE_OVERRIDE, using the intermediate-tier fallback fee in basis points (bps, hundredths of a percent) when the keeper did not publish a usable recommendedFeeBps. A stale score with zero operations in the current window leaves the stored score mapping unchanged.
+
+**Mitigation C, hook-local activity window.** Independently of the behavioral oracle, afterSwap records per-wallet pool activity (window start, operation count, lastSwapAt, epoch) in a rolling activityWindow, and quotes the settled specified-currency amount to USD-8 at that moment (per-token native volume is kept only as a debug accumulator). When the operation count in the current window reaches maxOpsInWindow, the next beforeSwap elevates ALLOW to FEE_OVERRIDE. The USD accumulator feeds Mitigation A's magnitude check: several small never-scored swaps whose USD sum reaches $25,000 still REVERT (structuring), including across different tokens — native ETH and USDC are never added together as raw units. The counter and USD total reset when the window elapses (epoch increments so stale per-token natives are ignored).
+
+**Mitigation D, recent-funds inflow heuristic.** This mitigation closes the causal gap Mitigations A through C leave open: a wallet previously published as clean (score 0, non-zero updatedAt) receives a peer-to-peer transfer and attempts a swap before the keeper's updateScore confirms it. Mitigations A through C do not elevate that path, because the score is written, may still sit inside stalenessThreshold, and the wallet has no prior pool activity. Before RiskPolicy.decide runs, beforeSwap reads the end-user's balance of the swap's input token through a minimal IERC20 (fungible token interface) balanceOf call and compares it to lastKnownBalance for that wallet and token. The raw inbound delta (tokens that appeared since the baseline) and that delta as a share of the current balance (bps) are both passed into policy, but only when the oracle's updatedAt still predates the baseline. Two floors then apply, sharing `unscoredRevertThreshold` with Mitigation A (USD-8 via the same Chainlink map): if the inbound delta quoted to USD is at or above that floor (default $25,000), RiskPolicy REVERTs and the hook reverts with `InflowMagnitudeBlocked` — a $25,000 deposit into a whale is treated as large even when it is 5 percent of their bag. If the USD delta is below that floor but the share exceeds inflowThresholdBps (default 5000, or 50 percent), RiskPolicy applies a FEE_OVERRIDE floor (~8 percent when the keeper omitted feeBps). A confirmed-clean wallet swapping $1m of **already-held** funds (inflow delta 0) is ALLOW; the absolute floor measures what just arrived, not the swap size. A missing or stale feed on a non-zero inflow is fail-closed (`MagnitudeQuoteFailed`). The heuristic does **not** fire when `updatedAt == 0` or when no baseline timestamp exists: a brand-new wallet's first swap would otherwise look like a 100 percent inflow (false positive). That wallet is Mitigation A (unknown), not D. isStale and the relative inflow floor do not accumulate into a harsher tier when both fire: that combination remains FEE_OVERRIDE unless the score already maps to REVERT or the absolute inflow floor hits. When the relative signal fires, the hook emits InflowHeuristicTriggered(wallet, deltaBps, timestamp). afterSwap refreshes lastKnownBalance and lastKnownBalanceTimestamp with the post-swap balance, giving the next beforeSwap a correct baseline, and skips that write in the same transaction the heuristic fired. The extra balanceOf call is an intentional gas cost of this architecture. The accompanying use case develops the relative path as Wallet D (section 7) and the never-scored large first swap as Wallet E (section 7.1).
 
 The inflow heuristic detects a generic behavioral pattern (recent funds followed by a swap attempt). It does not trace the origin of those funds. A legitimate large deposit followed by an immediate swap incurs the same temporary 8 percent friction until the keeper publishes a refreshed score. That false-positive cost is accepted and bounded to the keeper catch-up window; it is not a determination of guilt. N-hop decay scoring remains the mechanism that attributes contamination through hops once the keeper writes.
 
-These mitigations elevate ALLOW to FEE_OVERRIDE. They leave REVERT and an existing FEE_OVERRIDE from the score bands intact. Elevations emit LatencyMitigationApplied with a reason code (SCORE_NEVER_WRITTEN, STALE_WITH_POOL_ACTIVITY, or ACTIVITY_WINDOW_CAP) and, for the inflow path, InflowHeuristicTriggered. Default deploy parameters in the local stack set stalenessThreshold = 60 seconds for high-volume institutional pools (governor-updatable), activityWindow = 1 hour, maxOpsInWindow = 3, inflowThresholdBps = 5000; `_HOOK_GOVERNOR` may retune stalenessThreshold and inflowThresholdBps after deploy. inflowThresholdBps cannot be set below 100 (1 percent) or above 10000.
+These mitigations elevate ALLOW to FEE_OVERRIDE, except the absolute USD magnitude floors (never-scored assessed USD, or Mitigation D inbound USD), which REVERT. They leave an existing score-band REVERT or FEE_OVERRIDE intact. Elevations emit LatencyMitigationApplied with a reason code (SCORE_NEVER_WRITTEN, STALE_WITH_POOL_ACTIVITY, or ACTIVITY_WINDOW_CAP) and, for the relative inflow path, InflowHeuristicTriggered. Magnitude blocks are `UnscoredMagnitudeBlocked`, `InflowMagnitudeBlocked`, or `MagnitudeQuoteFailed` on the reverted transaction, not events. Default deploy parameters set stalenessThreshold = 120 seconds (H-04; governor-updatable, max 24 hours), activityWindow = 1 hour, maxOpsInWindow = 3, inflowThresholdBps = 5000, unscoredFeeThreshold = 1_000e8 ($1,000), unscoredRevertThreshold = 25_000e8 ($25,000), priceStalenessThreshold = 3600 seconds; `_HOOK_GOVERNOR` may retune those after deploy and must bind each pool token (and native ETH) with `setPriceFeed`. inflowThresholdBps cannot be set below 100 (1 percent) or above 10000. A zero unscoredRevertThreshold disables the hard block. A zero price-staleness value is rejected.
+
+**Known residual risk — external price oracle.** Magnitude treatment of never-scored wallets (and Mitigation D's absolute floor) now depends on Chainlink availability and honesty. That surface did not exist when floors were native token units. A manipulated, halted, or lagged feed can over-block (fail-closed) or, if an operator disables fail-closed by mistake, under-block. Heartbeats differ by pair (ETH/USD is often ~3600s; some stables are faster). The governor must only bind audited mainnet/L2 feeds and keep `priceStalenessThreshold` at or above the feed heartbeat. This is an operational and oracle-manipulation risk, not a substitute for the behavioral score.
 
 The keeper writes only when the score variation exceeds a configurable threshold that changes the hook's decision tier, rather than on every recalculation. An address moving from 12 to 15 does not trigger a write; one moving from 28 to 34 does, because it crosses into the differential-fee tier. This reduces writes to a small fraction of recalculations. Regardless of the interval chosen, the score carries the timestamp of its last update in the same WalletRisk storage record, which enables Mitigations B and D.
 
@@ -339,15 +517,15 @@ Version 4 of the protocol concentrates all pools in a single contract called the
 
 **Step 2. Acquiring the PoolManager lock.** The router invokes the PoolManager's unlock function. The contract marks itself as unlocked and returns control to the router through a callback called unlockCallback. This mechanism exists so the PoolManager can verify, at the end of the sequence, that all recorded obligations have settled.
 
-**Step 3. Invocation of the swap function.** Within the lock, the router calls the PoolManager's swap function and passes it the PoolKey, which identifies the pool through the two currencies of the pair, the fee, the tick spacing and the address of the associated hook, together with the operation's parameters and a field called hookData. In the Uniswap v4 interface hookData is optional. For AML Hook, hookData is ignored as an end-user source: the subject is resolved only from a trusted router's IMsgSender.msgSender(). An untrusted initiator reverts with MissingSwapSubject. A trusted router whose msgSender() reverts or returns zero fails closed with TrustedRouterSubjectFailed. Two further parameters are decisive for AML Hook. The zeroForOne field indicates the direction of the exchange, that is, which of the two currencies is delivered and which is received, enabling the analysis of directional turnover patterns. The amountSpecified field indicates the amount of the operation, and feeds directly into the risk scoring model.
+**Step 3. Invocation of the swap function.** Within the lock, the router calls the PoolManager's swap function and passes it the PoolKey, which identifies the pool through the two currencies of the pair, the fee, the tick spacing and the address of the associated hook, together with the operation's parameters and a field called hookData. In the Uniswap v4 interface hookData is optional. For AML Hook, hookData is ignored as an end-user source: the subject is resolved only from a trusted router's IMsgSender.msgSender(). An untrusted initiator reverts with MissingSwapSubject. A trusted router whose msgSender() reverts or returns zero fails closed with TrustedRouterSubjectFailed. Two further parameters are decisive for AML Hook. The zeroForOne field indicates the direction of the exchange, that is, which of the two currencies is delivered and which is received, enabling the analysis of directional turnover patterns. The amountSpecified field is the native size of the specified currency. For never-scored wallets the hook converts it to USD-8 via Chainlink before RiskPolicy.decide; it does not feed a behavioral graph on-chain.
 
 **Step 4. Hook identification and permission verification.** The PoolManager obtains the hook's address from the PoolKey. A pool with no hook has that field set to zero and the sequence continues directly at step 6. Uniswap v4 encodes the hook's permissions in the least significant bits of its own contract address, so the address determines which lifecycle functions it has enabled and avoids additional lookups at execution time. The practical consequence: deploying a hook requires locating an address that contains the corresponding bit pattern. AML Hook requires beforeSwap, afterSwap and afterSwapReturnDelta (so the hook can take the FeeEscrow differential without rewriting the pool LP fee), plus beforeAddLiquidity and beforeRemoveLiquidity (sanctions-only gate on liquidity entry and exit).
 
-**Step 5. Execution of beforeSwap, AML Hook's first intervention.** The PoolManager invokes the hook's beforeSwap function before executing any movement of funds. Before any compliance layer runs, the hook resolves the swap subject. If the PoolManager-reported swap initiator is a trusted router, the hook calls IMsgSender.msgSender() on that router inside a try/catch and, on a non-zero result, takes that address as the candidate subject. An EOA (`code.length == 0`) is accepted as-is. A contract is accepted only if it is a governor-attested trusted multisig whose owners pass the on-chain L1 `ALL_CLEAN` or `ANY_CLEAN` sanctions check (section 3.5); otherwise beforeSwap reverts with MissingSwapSubject. Uniswap hookData is ignored. If msgSender() reverts or returns zero, beforeSwap reverts with TrustedRouterSubjectFailed. If the router is not trusted, the function reverts immediately with MissingSwapSubject. The hook never scores the router itself as the economic actor. Trusted-router and trusted-multisig enablement remain hook-governor operational attestations as described in section 3.5, not on-chain factory proofs. Once a valid subject is present, the hook queries Layer 1: the on-chain registry of sanctioned addresses for that wallet. On a confirmed match, the function reverts immediately and the transaction cancels in full, with no subsequent evaluation or margin of discretion. Absent a match, the hook reads the behavioral score and the keeper-written recommended fee stored in the oracle, calculates isStale, operationCount and hasSignificantInflow from pool-local state and the input-token balance (section 3.8), and calls RiskPolicy.decide with those inputs. RiskPolicy maps the score bands and applies the FEE_OVERRIDE floor when stale activity or a significant unreflected inflow is present. When that floor is driven by the inflow heuristic and the keeper has not yet published a recommended fee, the designed outcome is FEE_OVERRIDE at 8 percent total intended friction rather than ALLOW at the pool base. If the policy result is still ALLOW, the hook applies the remaining section 3.8 mitigations (never-written score, activity-window cap), which likewise elevate at the 8 percent latency fee when no keeper feeBps is present. Low risk with a fresh keeper write and no mitigation hit: the operation continues at the standard pool fee (beforeSwap does not override lpFee). Intermediate risk from the score bands or a latency floor: beforeSwap still leaves the pool at its standard fee and caches FEE_OVERRIDE plus recommendedFeeBps for afterSwap. High risk: the transaction reverts, with the basis recorded.
+**Step 5. Execution of beforeSwap, AML Hook's first intervention.** The PoolManager invokes the hook's beforeSwap function before executing any movement of funds. Before any compliance layer runs, the hook resolves the swap subject. If the PoolManager-reported swap initiator is a trusted router, the hook calls IMsgSender.msgSender() on that router inside a try/catch and, on a non-zero result, takes that address as the candidate subject. An EOA (`code.length == 0`) is accepted as-is. A contract is accepted only if it is a governor-attested trusted multisig whose owners pass the on-chain L1 `ALL_CLEAN` or `ANY_CLEAN` sanctions check (section 3.5); otherwise beforeSwap reverts with MissingSwapSubject. Uniswap hookData is ignored. If msgSender() reverts or returns zero, beforeSwap reverts with TrustedRouterSubjectFailed. If the router is not trusted, the function reverts immediately with MissingSwapSubject. The hook never scores the router itself as the economic actor. Trusted-router and trusted-multisig enablement remain hook-governor operational attestations as described in section 3.5, not on-chain factory proofs. Once a valid subject is present, the hook queries Layer 1: the on-chain registry of sanctioned addresses for that wallet. On a confirmed match, the function reverts immediately (`SanctionHit`) and the transaction cancels in full, with no subsequent evaluation or margin of discretion. Absent a match, the hook reads the behavioral score and the keeper-written recommended fee stored in the oracle, derives isStale, operationCount and hasSignificantInflow from pool-local state, and quotes `amountSpecified` plus the activity-window USD to USD-8 through the governor-set Chainlink feed (section 3.8). RiskPolicy.decide then maps score bands and the USD magnitude bands. A never-written score (`updatedAt == 0`) is not ALLOW: assessed USD below $1,000 (`unscoredFeeThreshold` = 1_000e8) is FEE_OVERRIDE at 3 percent; from $1,000 to $24,999 is FEE_OVERRIDE at 8 percent; at or above $25,000 (`unscoredRevertThreshold` = 25_000e8), including structured window USD across tokens, is REVERT (`UnscoredMagnitudeBlocked`) — not a score-band block and not a sanction. A published-clean wallet whose inbound USD since baseline is at or above $25,000 reverts with `InflowMagnitudeBlocked`. Missing, stale, or invalid price data fail-closes with `MagnitudeQuoteFailed`. If the policy result is still ALLOW, the hook applies the remaining section 3.8 mitigations (activity-window cap). Low risk with a fresh keeper write and no mitigation hit: the operation continues at the standard pool fee (beforeSwap does not override lpFee). Intermediate risk from the score bands or a latency floor: beforeSwap still leaves the pool at its standard fee and caches FEE_OVERRIDE plus feeBps for afterSwap. High risk (score ≥ 71): the transaction reverts with `WalletBlocked`. Monitors must index `SanctionHit`, `WalletBlocked`, `UnscoredMagnitudeBlocked`, `InflowMagnitudeBlocked`, and `MagnitudeQuoteFailed` on reverted transactions; a log emitted before revert is discarded.
 
 **Step 6. Execution of the exchange and calculation of the BalanceDelta.** The PoolManager executes the pool's arithmetic: tick traversal, determination of the execution price and calculation of the output amount. The result is expressed in a structure called BalanceDelta, which records each party's pending obligation with respect to each of the two currencies. At this stage no token has moved. Deferred accounting records balances in transient memory and defers settlement to the close of the sequence.
 
-**Step 7. Execution of afterSwap, AML Hook's second intervention.** Once the operation has executed, the PoolManager invokes the afterSwap function and passes it the result. This is the moment at which AML Hook writes state, which constitutes its structural difference from existing solutions. The hook updates its per-wallet pool activity record used by section 3.8 (window start, operation count, lastSwapAt) and refreshes lastKnownBalance for the swap's input token, both available immediately and independent of the oracle. It then emits SwapObserved with the address, the score, the decision adopted, the fee and hop metadata, and the off-chain scoring engine consumes that trail to update the wallet's cumulative risk profile ahead of its next swap. On FEE_OVERRIDE, when FeeEscrow is configured, the hook additionally takes the risk differential from the unspecified currency (output for exact-in, input for exact-out) via poolManager.take, approves, and calls FeeEscrow.deposit inside a try/catch. On DEPOSIT_FAILED the swap does not revert; take and approve have already run, so hookDelta is still returned and the amount is written to failedDeposits[wallet][token] for claimFailedDeposit or retryEscrowDeposit. ZERO_BASIS and FEE_TOKEN_NOT_ALLOWED skip the take, emit RiskFeeSkipped, and return a zero hookDelta. That emitted event constitutes the input for the reporting module in section 3.6 and, in the later development track, for the analysis agent in section 8.
+**Step 7. Execution of afterSwap, AML Hook's second intervention.** Once the operation has executed, the PoolManager invokes the afterSwap function and passes it the result. This is the moment at which AML Hook writes state, which constitutes its structural difference from existing solutions. The hook updates its per-wallet pool activity record used by section 3.8 (window start, operation count, lastSwapAt) and quotes the settled specified amount to USD-8 into that window (so later never-scored swaps cannot structure by summing mixed native units), then refreshes lastKnownBalance for the swap's input token. Activity counters are independent of the behavioral oracle; the USD quote uses the same Chainlink map as beforeSwap. It then emits SwapObserved with the address, the score, the decision adopted, the fee and hop metadata, and the off-chain scoring engine consumes that trail to update the wallet's cumulative risk profile ahead of its next swap. On FEE_OVERRIDE, when FeeEscrow is configured, the hook additionally takes the risk differential from the unspecified currency (output for exact-in, input for exact-out) via poolManager.take, approves, and calls FeeEscrow.deposit inside a try/catch. On DEPOSIT_FAILED the swap does not revert; take and approve have already run, so hookDelta is still returned and the amount is written to failedDeposits[wallet][token] for claimFailedDeposit or retryEscrowDeposit. ZERO_BASIS and FEE_TOKEN_NOT_ALLOWED skip the take, emit RiskFeeSkipped, and return a zero hookDelta. That emitted event constitutes the input for the reporting module in section 3.6 and, in the later development track, for the analysis agent in section 8.
 
 **Step 8. Settlement of pending balances.** Control returns to the router, which must cancel the recorded obligations, transfer the currency delivered by the user and withdraw the currency acquired. The protocol provides for an alternative: keeping the credit balance within the PoolManager as a withdrawal right, without extracting the tokens.
 

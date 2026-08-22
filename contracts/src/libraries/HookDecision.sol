@@ -16,8 +16,9 @@ pragma solidity ^0.8.26;
 ///                                      elevate a would-be ALLOW (Wallet D / stale / inflow).
 ///
 ///        REVERT        Score 71–100 → unconditional block (exploit source, OFAC-grade, or
-///                      (+ L1 hit)     direct sanctioned link). No fee path. SanctionRegistry
-///                                      hits also revert before the score is even read.
+///                      (+ L1 hit)     direct sanctioned link). Never-scored magnitude at/above
+///                                      the hook's revert floor also REVERTs. No fee path.
+///                                      SanctionRegistry hits revert before the score is read.
 ///
 ///      FeeEscrow (§3.7) only applies to the differential fee from FEE_OVERRIDE settlements.
 enum HookDecision {

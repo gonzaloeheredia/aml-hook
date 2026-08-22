@@ -10,8 +10,10 @@ import {IRiskPolicy} from "../../interfaces/policies/IRiskPolicy.sol";
 import {IMsgSender} from "../../interfaces/external/IMsgSender.sol";
 import {IGnosisSafeOwners} from "../../interfaces/external/IGnosisSafeOwners.sol";
 import {IERC20Minimal} from "../../interfaces/external/IERC20Minimal.sol";
+import {IAggregatorV3} from "../../interfaces/external/IAggregatorV3.sol";
 import {FeeBps} from "../../libraries/FeeBps.sol";
 import {HookDecision} from "../../libraries/HookDecision.sol";
+import {UsdQuote} from "../../libraries/UsdQuote.sol";
 
 /// @title Shared beforeSwap decision logic for AMLHook
 /// @notice This is where the whitepaper's on-chain read path lives (§3.5 / §3.8 / §3.9).
@@ -34,6 +36,8 @@ import {HookDecision} from "../../libraries/HookDecision.sol";
 ///        L3 RiskPolicy        — pure mapping score(+floors) → decision + fee
 ///        Hook-local           — Mitigations A & C (never-written, activity cap)
 ///                               Mitigations B & D are floors inside RiskPolicy
+///                               Never-scored magnitude (3% / 8% / REVERT) is decided in
+///                               RiskPolicy from hook-quoted USD (Chainlink, 8 decimals)
 ///
 ///      Why pool-local state? If the keeper has not yet published after a P2P
 ///      transfer (use-case Wallet D), a stale score 0 would wrongly ALLOW.
@@ -105,6 +109,28 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     ///      clean score. Default 3 matches the local deploy / whitepaper example.
     uint32 public immutable maxOpsInWindow;
 
+    /// @notice USD-8 floor below which an unscored swap pays the reduced 3% latency fee.
+    /// @dev Chainlink 8 decimals (1_000e8 = $1,000). GAFI Rec. 10 / CDD-aligned dust band.
+    uint256 public unscoredFeeThreshold;
+
+    /// @notice USD-8 floor at which an unscored wallet (or D inflow) is REVERTed.
+    /// @dev Default 25_000e8 = $25,000. Applies when oracle `updatedAt == 0` (this swap +
+    ///      window USD) or when Mitigation D inbound USD is at/above the floor.
+    uint256 public unscoredRevertThreshold;
+
+    /// @notice Chainlink token/USD feed per specified-currency token (`address(0)` = native ETH).
+    /// @dev Governor-attested. Missing or stale feed is fail-closed for magnitude quotes.
+    mapping(address => IAggregatorV3) public priceFeeds;
+
+    /// @notice Max age of `latestRoundData.updatedAt` before a feed is treated as stale (seconds).
+    /// @dev Distinct from score `stalenessThreshold` / WalletRisk.updatedAt. Default 3600.
+    uint256 public priceStalenessThreshold;
+
+    uint256 public constant DEFAULT_USD_FEE_THRESHOLD = 1_000e8;
+    uint256 public constant DEFAULT_USD_REVERT_THRESHOLD = 25_000e8;
+    uint256 public constant DEFAULT_PRICE_STALENESS = 3600;
+    uint256 public constant MAX_PRICE_STALENESS = 24 hours;
+
     /// @notice Balance-delta share (bps of current balance) that flags a significant inflow.
     /// @dev Mitigation D (§3.8) / use-case Wallet D. Default 5000 = 50%.
     ///      Detects "large new funds then immediate swap" — not fund origin (N-hop does that).
@@ -115,15 +141,28 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     ///      Same constant as RiskPolicy (`FeeBps.LATENCY`) so A/C cannot drift from B/D.
     uint24 public constant LATENCY_FEE_BPS = FeeBps.LATENCY;
 
-    /// @dev Per-wallet pool activity for Mitigation C. Independent of the oracle so the
-    ///      hook can still elevate while `updateScore` is pending.
+    /// @dev Per-wallet pool activity for Mitigation C and unscored structuring volume.
+    ///      Independent of the oracle so the hook can still elevate / block while
+    ///      `updateScore` is pending. `epoch` bumps when the window resets so per-token
+    ///      volume from a previous window is ignored without a second accumulator.
     struct PoolActivity {
         uint64 windowStart;
         uint32 opCount;
         uint64 lastSwapAt;
+        uint32 epoch;
+        /// @dev Sum of settled specified amounts quoted to USD-8 at each afterSwap.
+        ///      `type(uint256).max` is a fail-closed sentinel (quote failed while recording).
+        uint256 volumeUsd;
+    }
+
+    /// @dev Volume of the specified swap currency inside the current activity window.
+    struct TokenVolume {
+        uint32 epoch;
+        uint256 amount;
     }
 
     mapping(address => PoolActivity) internal _activity;
+    mapping(address => mapping(address => TokenVolume)) internal _windowVolume;
 
     /// @notice Last observed ERC-20 balance per wallet and token (inflow heuristic baseline).
     /// @dev Written in afterSwap so the *next* beforeSwap can measure a sudden increase.
@@ -136,6 +175,17 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
 
     error WalletBlocked(address wallet, uint8 score, string reason);
     error SanctionHit(address wallet);
+    /// @notice Never-scored wallet: assessed USD-8 (this swap + window) is at/above `unscoredRevertThreshold`.
+    /// @dev Index this selector on reverted txs — a log would be discarded by the revert
+    ///      (same reason `WalletBlocked` / `SanctionHit` are errors, not events).
+    error UnscoredMagnitudeBlocked(address wallet, uint256 assessedUsd, uint256 threshold);
+    /// @notice Published score, but inbound USD-8 since baseline is at/above `unscoredRevertThreshold`
+    ///         and the oracle timestamp still predates that baseline (Mitigation D absolute floor).
+    error InflowMagnitudeBlocked(address wallet, uint256 inflowUsd, uint256 threshold);
+    /// @notice Magnitude quote failed (no feed, stale feed, or invalid answer). Fail-closed.
+    error MagnitudeQuoteFailed(address token, bytes32 reason);
+    error UnscoredThresholdsInvalid();
+    error PriceStalenessThresholdInvalid();
     /// @notice Caller is not a trusted router — no end-user can be resolved (fail-closed §3.5).
     error MissingSwapSubject();
     /// @notice Trusted router `msgSender()` reverted or returned zero — fail closed.
@@ -151,6 +201,14 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
 
     event StalenessThresholdUpdated(uint256 previous, uint256 current);
     event InflowThresholdUpdated(uint256 previous, uint256 current);
+    event UnscoredThresholdsUpdated(
+        uint256 previousFeeThreshold,
+        uint256 previousRevertThreshold,
+        uint256 feeThreshold,
+        uint256 revertThreshold
+    );
+    event PriceFeedUpdated(address indexed token, address previousFeed, address feed);
+    event PriceStalenessThresholdUpdated(uint256 previous, uint256 current);
     event TrustedRouterUpdated(address indexed router, bool trusted);
 
     /// @notice afterSwap audit trail for off-chain scoring + reporting (§3.4 / §3.6 / §3.9 Step 7).
@@ -177,6 +235,10 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     bytes32 public constant REASON_SCORE_NEVER_WRITTEN = keccak256("SCORE_NEVER_WRITTEN");
     bytes32 public constant REASON_STALE_WITH_POOL_ACTIVITY = keccak256("STALE_WITH_POOL_ACTIVITY");
     bytes32 public constant REASON_ACTIVITY_WINDOW_CAP = keccak256("ACTIVITY_WINDOW_CAP");
+    bytes32 public constant QUOTE_NO_FEED = keccak256("NO_FEED");
+    bytes32 public constant QUOTE_STALE_FEED = keccak256("STALE_FEED");
+    bytes32 public constant QUOTE_BAD_PRICE = keccak256("BAD_PRICE");
+    bytes32 public constant QUOTE_WINDOW_FAILED = keccak256("WINDOW_FAILED");
 
     constructor(
         address accessManager_,
@@ -200,8 +262,14 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         activityWindow = activityWindow_ == 0 ? 1 hours : activityWindow_;
         maxOpsInWindow = maxOpsInWindow_ == 0 ? 3 : maxOpsInWindow_;
         inflowThresholdBps = 5000; // 50% — Wallet D / Mitigation D default
+        // USD-8 floors (Chainlink decimals). Governor retunes via setUnscoredThresholds.
+        unscoredFeeThreshold = DEFAULT_USD_FEE_THRESHOLD;
+        unscoredRevertThreshold = DEFAULT_USD_REVERT_THRESHOLD;
+        priceStalenessThreshold = DEFAULT_PRICE_STALENESS;
         emit StalenessThresholdUpdated(0, stalenessThreshold);
         emit InflowThresholdUpdated(0, inflowThresholdBps);
+        emit UnscoredThresholdsUpdated(0, 0, unscoredFeeThreshold, unscoredRevertThreshold);
+        emit PriceStalenessThresholdUpdated(0, priceStalenessThreshold);
     }
 
     /// @notice Hook governor retunes Mitigation B staleness window (§3.8).
@@ -244,6 +312,35 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         }
         emit InflowThresholdUpdated(inflowThresholdBps, inflowThresholdBps_);
         inflowThresholdBps = inflowThresholdBps_;
+    }
+
+    /// @notice Hook governor retunes never-scored fee / revert floors in USD-8 (Chainlink decimals).
+    /// @dev `revertThreshold == 0` disables the hard block. Otherwise `feeThreshold` must be
+    ///      strictly below `revertThreshold`. Restricted to `_HOOK_GOVERNOR`, not a contract owner.
+    function setUnscoredThresholds(uint256 feeThreshold, uint256 revertThreshold) external restricted {
+        if (revertThreshold != 0 && feeThreshold >= revertThreshold) revert UnscoredThresholdsInvalid();
+        emit UnscoredThresholdsUpdated(
+            unscoredFeeThreshold, unscoredRevertThreshold, feeThreshold, revertThreshold
+        );
+        unscoredFeeThreshold = feeThreshold;
+        unscoredRevertThreshold = revertThreshold;
+    }
+
+    /// @notice Hook governor binds a Chainlink token/USD feed (`token` = address(0) for native ETH).
+    /// @dev Passing `feed` = address(0) clears the binding. Magnitude quotes fail-closed without a feed.
+    function setPriceFeed(address token, address feed) external restricted {
+        address previous = address(priceFeeds[token]);
+        priceFeeds[token] = IAggregatorV3(feed);
+        emit PriceFeedUpdated(token, previous, feed);
+    }
+
+    /// @notice Hook governor retunes how old a Chainlink `updatedAt` may be before fail-closed.
+    function setPriceStalenessThreshold(uint256 priceStalenessThreshold_) external restricted {
+        if (priceStalenessThreshold_ == 0 || priceStalenessThreshold_ > MAX_PRICE_STALENESS) {
+            revert PriceStalenessThresholdInvalid();
+        }
+        emit PriceStalenessThresholdUpdated(priceStalenessThreshold, priceStalenessThreshold_);
+        priceStalenessThreshold = priceStalenessThreshold_;
     }
 
     /// @notice Hook governor grants or revokes trusted-router status.
@@ -376,19 +473,23 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     /// @notice beforeSwap compliance entry: resolve the subject, then decide (events on).
     /// @dev Order is fixed here so AmlHook cannot evaluate a router as the subject or
     ///      skip mitigations. `token` is the swap input (address(0) skips Mitigation D).
-    function _beginSwap(address router, address token) internal returns (SwapEvaluation memory ev) {
+    ///      `volumeToken` + `amount` are the specified-currency magnitude (native units).
+    function _beginSwap(address router, address token, address volumeToken, uint256 amount)
+        internal
+        returns (SwapEvaluation memory ev)
+    {
         ev.wallet = _resolveWallet(router);
         ev.token = token;
         (ev.decision, ev.feeBps, ev.risk, ev.inflowTriggered) =
-            _evaluateWithMitigationEvents(ev.wallet, token);
+            _evaluateWithMitigationEvents(ev.wallet, token, volumeToken, amount);
     }
 
     /// @notice afterSwap compliance exit: activity → baseline → SwapObserved, in that order.
-    /// @dev Activity must land before the next beforeSwap sees Mitigation C. Baseline must
-    ///      wait until after this swap's inflow flag is consumed (H-02). Observation is last
-    ///      so the COA trail reflects the settled decision.
-    function _endSwap(SwapEvaluation memory ev) internal {
-        _recordActivity(ev.wallet);
+    /// @dev Activity must land before the next beforeSwap sees Mitigation C / structuring
+    ///      volume. Baseline must wait until after this swap's inflow flag is consumed (H-02).
+    ///      Observation is last so the COA trail reflects the settled decision.
+    function _endSwap(SwapEvaluation memory ev, address volumeToken, uint256 settledAmount) internal {
+        _recordActivity(ev.wallet, volumeToken, settledAmount);
         _updateKnownBalance(ev.wallet, ev.token, ev.inflowTriggered);
         _emitSwapObserved(ev.wallet, ev.decision, ev.feeBps, ev.risk);
     }
@@ -403,6 +504,16 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         return (a.windowStart, a.opCount, a.lastSwapAt);
     }
 
+    /// @notice Specified-currency volume already settled for `wallet` in the current activity window.
+    function windowVolume(address wallet, address token) external view returns (uint256) {
+        return _volumeInCurrentWindow(wallet, token);
+    }
+
+    /// @notice Window volume already quoted to USD-8 (sum of per-swap quotes, not mixed native units).
+    function windowVolumeUsd(address wallet) external view returns (uint256) {
+        return _usdInCurrentWindow(wallet);
+    }
+
     /// @notice Evaluate a swap subject (view path). Reverts on REVERT / sanctions.
     /// @param wallet End-user compliance subject — not the router (§3.5).
     /// @param token Input token of the swap (address(0) skips the inflow heuristic).
@@ -410,7 +521,7 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     /// @return feeBps Override fee when FEE_OVERRIDE; 0 on ALLOW
     /// @return risk Snapshot from the oracle
     /// @dev PIPELINE (same order as whitepaper §3.5 / §3.9 Step 5):
-    ///      L1 isSanctioned → L2 getRisk → derive isStale / ops / inflow →
+    ///      L1 isSanctioned → L2 getRisk → derive isStale / ops / inflow / assessed volume →
     ///      L3 RiskPolicy.decide → if still ALLOW, apply hook-local A & C.
     function _evaluate(address wallet, address token)
         internal
@@ -421,9 +532,22 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
             IComplianceOracle.WalletRisk memory risk
         )
     {
+        return _evaluate(wallet, token, token, 0);
+    }
+
+    /// @notice View evaluate with specified-currency magnitude (`volumeToken` + `amount`).
+    function _evaluate(address wallet, address token, address volumeToken, uint256 amount)
+        internal
+        view
+        returns (
+            HookDecision decision,
+            uint24 feeBps,
+            IComplianceOracle.WalletRisk memory risk
+        )
+    {
         _requireNotPaused();
         EvalSignals memory sig;
-        (decision, feeBps, risk, sig) = _evaluateCore(wallet, token);
+        (decision, feeBps, risk, sig) = _evaluateCore(wallet, token, volumeToken, amount);
         if (decision == HookDecision.ALLOW) {
             (decision, feeBps) = _applyHookLocalMitigations(wallet, risk, sig.operationCount);
         }
@@ -436,9 +560,12 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         uint32 operationCount;
         bool hasSignificantInflow;
         uint256 deltaBps;
+        uint256 assessedUsd;
+        uint256 inflowDelta;
+        uint256 inflowUsd;
     }
 
-    function _evaluateCore(address wallet, address token)
+    function _evaluateCore(address wallet, address token, address volumeToken, uint256 amount)
         private
         view
         returns (
@@ -460,15 +587,39 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         // (RiskPolicy must stay free of block.timestamp / external calls).
         sig.operationCount = _opsInCurrentWindow(wallet);
         sig.isStale = _isStale(risk.updatedAt);
-        (sig.hasSignificantInflow, sig.deltaBps) = _inflowSignal(wallet, token, risk.updatedAt);
+        (sig.hasSignificantInflow, sig.deltaBps, sig.inflowDelta) = _inflowSignal(wallet, token, risk.updatedAt);
 
-        // ── Layer 3 — ternary bands + floors B/D (§3.3 / §3.8) ───────────────
+        // USD-8 quotes for magnitude floors. Fail-closed: missing/stale/invalid feed is treated
+        // as exceeding the high threshold (same principle as SanctionRegistry).
+        bool neverScored = risk.updatedAt == 0;
+        if (neverScored) {
+            (sig.assessedUsd, ) = _requireUsdQuote(volumeToken, amount, _usdInCurrentWindow(wallet));
+        } else if (sig.inflowDelta > 0) {
+            (sig.inflowUsd, ) = _requireUsdQuote(token, sig.inflowDelta, 0);
+        }
+
+        // ── Layer 3 — ternary bands + floors B/D + USD magnitude ─────────────
         (decision, feeBps) = riskPolicy.decide(
-            risk.score, risk.feeBps, sig.isStale, sig.operationCount, sig.hasSignificantInflow
+            risk.score,
+            risk.feeBps,
+            sig.isStale,
+            sig.operationCount,
+            sig.hasSignificantInflow,
+            neverScored,
+            sig.assessedUsd,
+            sig.inflowUsd,
+            unscoredFeeThreshold,
+            unscoredRevertThreshold
         );
 
-        // High band (71–100) or policy REVERT: unconditional block (§3.3 Output 3).
+        // Distinct revert reasons: score band vs unknown size vs scored + large unreflected inflow.
         if (decision == HookDecision.REVERT) {
+            if (neverScored) {
+                revert UnscoredMagnitudeBlocked(wallet, sig.assessedUsd, unscoredRevertThreshold);
+            }
+            if (sig.inflowUsd >= unscoredRevertThreshold && unscoredRevertThreshold != 0) {
+                revert InflowMagnitudeBlocked(wallet, sig.inflowUsd, unscoredRevertThreshold);
+            }
             revert WalletBlocked(wallet, risk.score, "SCORE_REVERT_BAND");
         }
     }
@@ -508,14 +659,37 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
             bool inflowTriggered
         )
     {
+        return _evaluateWithMitigationEvents(wallet, token, token, 0);
+    }
+
+    /// @notice Live evaluate: same as `_evaluate` plus mitigation / inflow events for the audit trail.
+    function _evaluateWithMitigationEvents(
+        address wallet,
+        address token,
+        address volumeToken,
+        uint256 amount
+    )
+        internal
+        returns (
+            HookDecision decision,
+            uint24 feeBps,
+            IComplianceOracle.WalletRisk memory risk,
+            bool inflowTriggered
+        )
+    {
         _requireNotPaused();
         EvalSignals memory sig;
-        (decision, feeBps, risk, sig) = _evaluateCore(wallet, token);
+        (decision, feeBps, risk, sig) = _evaluateCore(wallet, token, volumeToken, amount);
         inflowTriggered = sig.hasSignificantInflow;
 
         // Mitigation D audit: generic "recent funds → swap" pattern (not origin attribution).
         if (sig.hasSignificantInflow) {
             emit InflowHeuristicTriggered(wallet, sig.deltaBps, block.timestamp);
+        }
+
+        // Never-scored USD bands are decided in RiskPolicy (3% / 8%); emit the A reason here.
+        if (risk.updatedAt == 0 && decision == HookDecision.FEE_OVERRIDE) {
+            emit LatencyMitigationApplied(wallet, REASON_SCORE_NEVER_WRITTEN, feeBps, risk.score);
         }
 
         // Audit when RiskPolicy floored ALLOW→FEE_OVERRIDE via Mitigation B (score still ≤ 30).
@@ -558,21 +732,21 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     /// @notice Balance-delta inflow heuristic — oracle-latency Mitigation D (§3.8 / Wallet D).
     /// @dev WHY: Mitigations A–C miss the path "wallet was published clean, then receives a large
     ///      P2P transfer, then swaps before keeper updateScore". We compare token.balanceOf(wallet)
-    ///      to lastKnownBalance; if the delta share exceeds inflowThresholdBps AND the oracle's
-    ///      updatedAt still predates the baseline, we signal hasSignificantInflow to RiskPolicy.
+    ///      to lastKnownBalance. Relative share > inflowThresholdBps → FEE_OVERRIDE.
+    ///      Absolute inbound USD-8 ≥ unscoredRevertThreshold → REVERT (same floor as Mitigation A).
     ///      Extra gas for balanceOf is intentional. Skipped when `token` is address(0).
     function _inflowSignal(address wallet, address token, uint64 scoreUpdatedAt)
         private
         view
-        returns (bool hasSignificantInflow, uint256 deltaBps)
+        returns (bool hasSignificantInflow, uint256 deltaBps, uint256 inflowDelta)
     {
         if (token == address(0) || token.code.length == 0) {
-            return (false, 0);
+            return (false, 0, 0);
         }
 
         uint256 currentBalance = IERC20Minimal(token).balanceOf(wallet);
         if (currentBalance == 0) {
-            return (false, 0);
+            return (false, 0, 0);
         }
 
         uint256 previous = lastKnownBalance[wallet][token];
@@ -584,14 +758,20 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         // inflow to measure — a new wallet's first swap would otherwise look like a 100% delta.
         uint256 baselineTs = lastKnownBalanceTimestamp[wallet][token];
         if (scoreUpdatedAt == 0 || baselineTs == 0) {
-            return (false, 0);
+            return (false, 0, 0);
         }
-        if (deltaBps > inflowThresholdBps && uint256(scoreUpdatedAt) <= baselineTs) {
+        // Oracle already newer than the baseline: inflow was incorporated; do not fee or block on it.
+        if (uint256(scoreUpdatedAt) > baselineTs) {
+            return (false, deltaBps, 0);
+        }
+        inflowDelta = delta;
+        if (deltaBps > inflowThresholdBps) {
             hasSignificantInflow = true;
         }
     }
 
     /// @dev Ops counted inside the current Mitigation C window (0 if window elapsed / never started).
+    /// @dev Ops still inside `activityWindow`, or 0 if the window never started / already elapsed.
     function _opsInCurrentWindow(address wallet) private view returns (uint32) {
         PoolActivity storage a = _activity[wallet];
         if (a.windowStart == 0) return 0;
@@ -599,18 +779,120 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         return a.opCount;
     }
 
+    /// @dev Specified-currency volume still inside the Mitigation C / structuring window.
+    function _volumeInCurrentWindow(address wallet, address token) private view returns (uint256) {
+        PoolActivity storage a = _activity[wallet];
+        if (a.windowStart == 0) return 0;
+        if (block.timestamp >= uint256(a.windowStart) + uint256(activityWindow)) return 0;
+        TokenVolume storage v = _windowVolume[wallet][token];
+        if (v.epoch != a.epoch) return 0;
+        return v.amount;
+    }
+
+    /// @dev USD-8 already recorded in the current activity window (0 if elapsed / never started).
+    function _usdInCurrentWindow(address wallet) private view returns (uint256) {
+        PoolActivity storage a = _activity[wallet];
+        if (a.windowStart == 0) return 0;
+        if (block.timestamp >= uint256(a.windowStart) + uint256(activityWindow)) return 0;
+        return a.volumeUsd;
+    }
+
+    /// @dev Quote `amount` of `token` to USD-8 and add `windowUsd`. Reverts fail-closed on any quote error.
+    function _requireUsdQuote(address token, uint256 amount, uint256 windowUsd)
+        private
+        view
+        returns (uint256 assessedUsd, bytes32)
+    {
+        if (windowUsd == type(uint256).max) {
+            revert MagnitudeQuoteFailed(token, QUOTE_WINDOW_FAILED);
+        }
+        (uint256 usd, bytes32 reason) = _tryQuoteUsd(token, amount);
+        if (reason != bytes32(0)) revert MagnitudeQuoteFailed(token, reason);
+        return (windowUsd + usd, bytes32(0));
+    }
+
+    /// @dev Chainlink latestRoundData → USD-8. `reason != 0` means the quote must fail-closed.
+    function _tryQuoteUsd(address token, uint256 amount) private view returns (uint256 usd, bytes32 reason) {
+        IAggregatorV3 feed = priceFeeds[token];
+        if (address(feed) == address(0)) return (0, QUOTE_NO_FEED);
+
+        uint80 roundId;
+        int256 answer;
+        uint256 updatedAt;
+        uint80 answeredInRound;
+        try feed.latestRoundData() returns (uint80 r, int256 a, uint256, uint256 u, uint80 ar) {
+            roundId = r;
+            answer = a;
+            updatedAt = u;
+            answeredInRound = ar;
+        } catch {
+            return (0, QUOTE_BAD_PRICE);
+        }
+
+        if (answer <= 0 || updatedAt == 0 || answeredInRound < roundId) {
+            return (0, QUOTE_BAD_PRICE);
+        }
+        if (block.timestamp > updatedAt + priceStalenessThreshold) {
+            return (0, QUOTE_STALE_FEED);
+        }
+
+        uint8 feedDecimals;
+        try feed.decimals() returns (uint8 d) {
+            feedDecimals = d;
+        } catch {
+            return (0, QUOTE_BAD_PRICE);
+        }
+        if (feedDecimals > 18) return (0, QUOTE_BAD_PRICE);
+
+        (uint8 tokenDecimals, bool decOk) = _tokenDecimals(token);
+        if (!decOk) return (0, QUOTE_BAD_PRICE);
+
+        usd = UsdQuote.toUsd8(amount, tokenDecimals, uint256(answer), feedDecimals);
+    }
+
+    /// @dev Native ETH (`address(0)`) and no-code currencies are 18 decimals. ERC-20 `decimals()`
+    ///      is fail-closed if missing or > 36. A feed is still required to quote.
+    function _tokenDecimals(address token) private view returns (uint8 decimals_, bool ok) {
+        if (token == address(0) || token.code.length == 0) return (18, true);
+        try IERC20Minimal(token).decimals() returns (uint8 d) {
+            if (d > 36) return (0, false);
+            return (d, true);
+        } catch {
+            return (0, false);
+        }
+    }
+
     /// @notice Record a successful pool swap for latency / activity mitigations (afterSwap; §3.9 Step 7).
     /// @dev Why afterSwap (not beforeSwap): only count ops that actually settled. Resets the
     ///      rolling window when it has elapsed so old bursts do not permanently elevate.
+    ///      `amount` is added to the same window (per specified token) for never-scored structuring.
+    /// @notice Record one settled op with no volume (Mitigation C tests / zero-size path).
     function _recordActivity(address wallet) internal {
+        _recordActivity(wallet, address(0), 0);
+    }
+
+    function _recordActivity(address wallet, address token, uint256 amount) internal {
         PoolActivity storage a = _activity[wallet];
         if (a.windowStart == 0 || block.timestamp >= uint256(a.windowStart) + uint256(activityWindow)) {
+            if (a.windowStart != 0) {
+                a.epoch += 1;
+            }
             a.windowStart = uint64(block.timestamp);
             a.opCount = 1;
+            a.volumeUsd = 0;
         } else {
             a.opCount += 1;
         }
         a.lastSwapAt = uint64(block.timestamp);
+        if (amount == 0) return;
+        _windowVolume[wallet][token] =
+            TokenVolume({epoch: a.epoch, amount: _volumeInCurrentWindow(wallet, token) + amount});
+        (uint256 usd, bytes32 reason) = _tryQuoteUsd(token, amount);
+        if (reason != bytes32(0)) {
+            a.volumeUsd = type(uint256).max;
+        } else if (a.volumeUsd != type(uint256).max) {
+            a.volumeUsd += usd;
+        }
     }
 
     /// @notice Refresh the Mitigation D baseline after a successful swap (afterSwap; §3.8).

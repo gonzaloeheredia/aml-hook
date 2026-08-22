@@ -50,6 +50,7 @@ contract UnitAmlHookTest is Helpers {
         _wireRole(accessManager, owner, address(sanctionRegistry), registrySelectors, Roles._REGISTRY_KEEPER, keeper);
 
         _wireHookGovernor();
+        _bindUsdFeeds();
 
         key = _buildKey(address(hook));
         params = _buildParams();
@@ -90,7 +91,7 @@ contract UnitAmlHookTest is Helpers {
         assertEq(fee, 0);
 
         vm.expectEmit(true, false, false, true, address(hook));
-        emit SwapObserved(walletC, 0, HookDecision.FEE_OVERRIDE, 800, 0, address(0));
+        emit SwapObserved(walletC, 0, HookDecision.FEE_OVERRIDE, 300, 0, address(0));
         manager.callAfterSwap(IHooks(address(hook)), sender, key, params, BalanceDelta.wrap(0), "");
     }
 

@@ -118,6 +118,9 @@ contract Deploy is Script {
     /// @notice Intended FeeEscrow owner (ADMIN / FEE_ESCROW_OWNER). Not the deploying EOA when they differ.
     address public feeEscrowOwner;
 
+    /// @notice Broadcast entry: read env keys, deploy the stack, write `deployments/<chainId>.json`.
+    /// @dev Production must set `ATTESTOR` and `ADMIN` / `FEE_ESCROW_OWNER`. Local Anvil may default
+    ///      keepers to the deployer; attestor still cannot be left zero.
     function run() external {
         uint256 pk = vm.envOr("PRIVATE_KEY", ANVIL_PK);
         address deployer = vm.addr(pk);
@@ -206,6 +209,7 @@ contract Deploy is Script {
         );
     }
 
+    /// @dev CREATE2-mine the hook, construct FeeEscrow under `feeEscrowOwner`, bootstrap the hook depositor.
     function _deployContracts(
         address configurer,
         address poolManagerOverride,
@@ -273,6 +277,7 @@ contract Deploy is Script {
         feeEscrow.bootstrapDepositor(address(hook));
     }
 
+    /// @dev Wire selectors to roles, grant keepers / governor, seed trusted routers, hand admin to `admin`.
     function _configureAccess(
         address configurer,
         address admin,
@@ -454,7 +459,7 @@ contract Deploy is Script {
 
     /// @notice The hook functions that require the governor role
     function _hookSelectors() internal pure returns (bytes4[] memory selectors) {
-        selectors = new bytes4[](8);
+        selectors = new bytes4[](11);
         selectors[0] = AmlHookLogic.setStalenessThreshold.selector;
         selectors[1] = AmlHookLogic.setInflowThresholdBps.selector;
         selectors[2] = AmlHookLogic.setTrustedRouter.selector;
@@ -463,8 +468,12 @@ contract Deploy is Script {
         selectors[5] = AmlHookLogic.setTrustedMultisig.selector;
         selectors[6] = AmlHookLogic.setMultisigAggregation.selector;
         selectors[7] = AmlHookLogic.setMinBaselineInterval.selector;
+        selectors[8] = AmlHookLogic.setUnscoredThresholds.selector;
+        selectors[9] = AmlHookLogic.setPriceFeed.selector;
+        selectors[10] = AmlHookLogic.setPriceStalenessThreshold.selector;
     }
 
+    /// @dev Persist addresses and intended keys for the SDK / API sync.
     function _writeDeploymentJson(
         address deployer,
         address admin,

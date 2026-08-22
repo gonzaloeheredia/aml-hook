@@ -13,7 +13,7 @@ The TypeScript runner lives in `apps/api/src/oracle/`:
 | `factScoring.ts` | `fact-scoring.md` over the in-memory ledger |
 | `report.ts` | `task-regulatory-report` → Opinion UI pack |
 | `store.ts` | In-memory score cache (demo beforeSwap read) |
-| `onchainPublisher.ts` | Keeper → `ComplianceOracle.updateScore` (mock or rpc) |
+| `onchainPublisher.ts` | Keeper → `ComplianceOracle.updateScore` (mock or rpc). The attestor must sign `attestationHash(wallet, score, hopDistance, origin, feeBps, updatedAt, chainid)`. A score-only signature is rejected. |
 | `types.ts` | `ScoreResult` · `OracleOpinion` · `ScorePublishResult` |
 
 No live Anthropic / OpenSanctions / Etherscan calls. Facts are derived from
@@ -41,11 +41,24 @@ POST /swaps      → afterSwap SwapObserved → reevaluate(wallet)
                  → or WalletBlocked → reevaluate(wallet)
                  → if D keeperPending: catch-up publish (~65) after latency swap
 POST /oracle/:id/catch-up → manual deferred publish (Wallet D)
-POST /reset      → clear + seed oracle for A–D
+POST /reset      → clear + seed oracle for A–D (E has no row until first seen)
 ```
 
 `beforeSwap` (simulated in quotes / swap route) reads the oracle cache, then
-applies the §3.8 inflow floor when D has a significant USDC delta and pending keeper.
+applies the §3.8 inflow floor when D has a **published** score, a significant USDC
+delta, and a pending keeper. A wallet with `updatedAt == 0` is Mitigation A
+(unknown / Wallet E): the hook converts the specified amount (plus window USD)
+through Chainlink to USD-8.
+
+| Assessed USD-8 | Hook output |
+|---|---|
+| < `unscoredFeeThreshold` (default $1,000 / `1_000e8`) | `FEE_OVERRIDE` 3% |
+| $1,000 – $24,999 | `FEE_OVERRIDE` 8% |
+| ≥ `unscoredRevertThreshold` (default $25,000 / `25_000e8`) | `UnscoredMagnitudeBlocked` |
+| No feed / stale `latestRoundData.updatedAt` (> 3600s) / bad answer | `MagnitudeQuoteFailed` (fail-closed) |
+
+That path is not Wallet D. The COA should publish an explicit score 0 once E is
+reviewed so a later large swap of already-held funds is ALLOW.
 
 ## API
 
