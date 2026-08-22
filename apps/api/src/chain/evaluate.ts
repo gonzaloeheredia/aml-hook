@@ -220,15 +220,23 @@ async function inferFloor(
   const priceFeedBound = feed !== ZERO;
 
   const { erc20Abi } = await import("./abi.js");
-  const bal = await client.readContract({
-    address: cfg.feeToken,
-    abi: erc20Abi,
-    functionName: "balanceOf",
-    args: [wallet],
-  });
+  const [bal, tokenDecimals] = await Promise.all([
+    client.readContract({
+      address: cfg.feeToken,
+      abi: erc20Abi,
+      functionName: "balanceOf",
+      args: [wallet],
+    }),
+    client.readContract({
+      address: cfg.feeToken,
+      abi: erc20Abi,
+      functionName: "decimals",
+    }).catch(() => 18 as number),
+  ]);
+  const divisor = 10 ** tokenDecimals;
   const inflowWei = bal > lastKnown ? bal - lastKnown : 0n;
-  const inflowUsd = Number(inflowWei) / 1e18;
-  const currentUsd = Number(bal) / 1e18;
+  const inflowUsd = Number(inflowWei) / divisor;
+  const currentUsd = Number(bal) / divisor;
   const deltaBps =
     currentUsd > 0 ? Math.floor((inflowUsd * 10_000) / currentUsd) : 0;
   const hasSignificantInflow = deltaBps > Number(inflowBps);

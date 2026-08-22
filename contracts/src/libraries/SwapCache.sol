@@ -10,6 +10,9 @@ import {PoolId} from "v4-core/src/types/PoolId.sol";
 /// @dev Slots are keccak-tagged with PoolId plus a per-pool transient nonce (L-03) so
 ///      concurrent swaps, and any future Uniswap v4 execution-model change, cannot
 ///      collide with a leftover key from an earlier swap in the same transaction.
+///      Slot uniqueness relies on PoolId uniqueness, which is guaranteed by Uniswap v4
+///      (two pools with identical currency/fee/tick parameters cannot coexist).
+///      If a future deployment bypasses that invariant, transient slot collisions are possible.
 library SwapCache {
     bytes32 private constant _WALLET = keccak256("aml.hook.transient.wallet");
     bytes32 private constant _TOKEN = keccak256("aml.hook.transient.token");

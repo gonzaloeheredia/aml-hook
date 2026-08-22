@@ -8,10 +8,9 @@
 import {
   ethOutFromSwap,
   EXPLOIT_SOURCE,
-  hopScore,
   swapUsdcAmount,
 } from "./scoring.js";
-import type { Decision, TransferRecord, Wallet, WalletId } from "./types.js";
+import type { Decision, Wallet, WalletId } from "./types.js";
 
 /**
  * Applies a P2P USDC transfer between two wallets.
@@ -26,103 +25,6 @@ import type { Decision, TransferRecord, Wallet, WalletId } from "./types.js";
  *
  * Returns the next wallet map + transfer record, or null on failure.
  */
-export function applyTransfer(
-  wallets: Record<WalletId, Wallet>,
-  from: WalletId,
-  to: WalletId,
-  amountUsd: number,
-): { wallets: Record<WalletId, Wallet>; record: TransferRecord } | null {
-  if (from === to) return null;
-  const amount = Math.round(amountUsd);
-  if (!Number.isFinite(amount) || amount <= 0) return null;
-
-  const sender = wallets[from];
-  const recipient = wallets[to];
-  if (!sender || !recipient) return null;
-  if (sender.usdc < amount) return null;
-
-  const hopped = applyHopContamination(wallets, from, to);
-  if (recipient.neverScored) {
-    const next: Record<WalletId, Wallet> = {
-      ...wallets,
-      [from]: { ...sender, usdc: sender.usdc - amount },
-      [to]: { ...recipient, usdc: recipient.usdc + amount },
-    };
-    return {
-      wallets: next,
-      record: {
-        id: `tx-${Date.now()}`,
-        from,
-        to,
-        amountUsd: amount,
-        at: new Date().toISOString(),
-        resultingScore: 0,
-        hopDistance: 0,
-      },
-    };
-  }
-
-  const senderIsTainted = sender.exploitConfirmed || sender.hopDistance != null;
-  const incomingHop = senderIsTainted ? (sender.hopDistance ?? 0) + 1 : null;
-  const origin =
-    sender.originId ?? (sender.exploitConfirmed ? sender.id : null);
-
-  const nextSender: Wallet = {
-    ...sender,
-    usdc: sender.usdc - amount,
-  };
-
-  const resolvedHop = recipient.exploitConfirmed
-    ? recipient.hopDistance
-    : incomingHop == null
-      ? recipient.hopDistance
-      : recipient.hopDistance == null
-        ? incomingHop
-        : Math.min(recipient.hopDistance, incomingHop);
-
-  const resolvedOrigin = recipient.exploitConfirmed
-    ? recipient.originId
-    : incomingHop == null
-      ? recipient.originId
-      : (origin ?? recipient.originId);
-
-  const nextRecipient: Wallet = {
-    ...recipient,
-    usdc: recipient.usdc + amount,
-    hopDistance: resolvedHop,
-    originId: resolvedOrigin,
-    accountLabel: recipient.exploitConfirmed
-      ? recipient.accountLabel
-      : resolvedHop == null
-        ? `Account ${recipient.id} · Clean`
-        : `Account ${recipient.id} · ${resolvedHop}-hop`,
-    role: recipient.exploitConfirmed
-      ? recipient.role
-      : resolvedHop == null
-        ? `Clean wallet — ALLOW until contaminated by A or a tainted peer`
-        : `${resolvedHop}-hop from origin ${resolvedOrigin ?? EXPLOIT_SOURCE}`,
-  };
-
-  const next: Record<WalletId, Wallet> = {
-    ...wallets,
-    [from]: nextSender,
-    [to]: nextRecipient,
-  };
-
-  return {
-    wallets: next,
-    record: {
-      id: `tx-${Date.now()}`,
-      from,
-      to,
-      amountUsd: amount,
-      at: new Date().toISOString(),
-      resultingScore: hopScore(next[to]),
-      hopDistance: next[to].hopDistance ?? 0,
-    },
-  };
-}
-
 /**
  * Updates hop / origin only. Balances live on-chain; the keeper publishes this hop.
  */
