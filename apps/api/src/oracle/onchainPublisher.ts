@@ -55,7 +55,7 @@ export async function publishScoreToChain(
     wallet.hopDistance == null ? 0 : Math.min(255, Math.max(0, wallet.hopDistance));
   const origin = resolveOriginAddress(wallet);
   const feeBps = Math.min(
-    10_000,
+    1_000,
     Math.max(0, Math.round(score.recommendedFeeBps)),
   );
   const base = {

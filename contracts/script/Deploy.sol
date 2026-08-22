@@ -627,7 +627,8 @@ contract Deploy is Script {
             "}\n"
         );
 
-        vm.writeFile("deployments/31337.json", json);
-        console2.log("Wrote deployments/31337.json");
+        string memory deployFile = string.concat("deployments/", vm.toString(block.chainid), ".json");
+        vm.writeFile(deployFile, json);
+        console2.log(string.concat("Wrote ", deployFile));
     }
 }

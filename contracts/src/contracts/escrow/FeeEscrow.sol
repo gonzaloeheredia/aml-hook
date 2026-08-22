@@ -353,7 +353,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         if (escrowId == 0 || escrowId >= nextEscrowId) revert UnknownEscrow();
         EscrowRecord storage rec = _escrows[escrowId];
         if (rec.status != EscrowStatus.Blocked) revert NotBlocked();
-        uint256 ownerDelay = uint256(blockedRecoveryDelay) < uint256(OWNER_BLOCKED_RECOVERY_MIN_AGE)
+        uint256 ownerDelay = uint256(blockedRecoveryDelay) > uint256(OWNER_BLOCKED_RECOVERY_MIN_AGE)
             ? uint256(blockedRecoveryDelay)
             : uint256(OWNER_BLOCKED_RECOVERY_MIN_AGE);
         if (rec.blockedAt == 0 || block.timestamp < uint256(rec.blockedAt) + ownerDelay) {

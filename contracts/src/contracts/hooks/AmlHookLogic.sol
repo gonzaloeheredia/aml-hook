@@ -562,7 +562,10 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
 
     /// @notice Apply afterSwap bookkeeping (activity, baseline, SwapObserved) without a PoolManager.
     /// @dev Honest local demo: evaluate + record. Does not take pool tokens or pretend Uniswap settled.
-    ///      Restricted to `_HOOK_GOVERNOR`.
+    ///      Restricted to `_HOOK_GOVERNOR`. `_requireNotPaused()` is intentionally absent here:
+    ///      governors must be able to inject observations even during an emergency pause to keep
+    ///      the COA audit trail accurate. Off-chain monitors should account for events emitted
+    ///      during a paused period and not treat them as evidence of permitted swap activity.
     function observeSwap(address wallet, address token, uint256 amount)
         external
         restricted
@@ -592,6 +595,8 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     /// @dev PIPELINE (same order as whitepaper §3.5 / §3.9 Step 5):
     ///      L1 isSanctioned → L2 getRisk → derive isStale / ops / inflow / assessed volume →
     ///      L3 RiskPolicy.decide → if still ALLOW, apply hook-local A & C.
+    /// @dev TEST-ONLY: called with amount=0, which bypasses _inflowSignal magnitude computation.
+    ///      Do not use from production code paths where amount-sensitive compliance is required.
     function _evaluate(address wallet, address token)
         internal
         view

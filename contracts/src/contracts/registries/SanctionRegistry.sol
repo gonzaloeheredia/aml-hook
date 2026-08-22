@@ -55,6 +55,10 @@ contract SanctionRegistry is AccessManaged, ISanctionRegistry {
 
     /// @notice Paso 1: comprometer la intencion sin revelar la direccion.
     /// @param commitHash keccak256(abi.encode(account, sanctioned, salt))
+    /// @dev Salt-reuse note: `revealSanction` deletes the commit entry, so the same
+    ///      (account, sanctioned, salt) triple can be re-committed after a reveal.
+    ///      Use a unique salt per operation to avoid accidental hash collisions across
+    ///      list/delist/re-list sequences.
     function commitSanction(bytes32 commitHash) external restricted {
         if (commitBlocks[commitHash] != 0) revert CommitAlreadyUsed();
         commitBlocks[commitHash] = block.number;

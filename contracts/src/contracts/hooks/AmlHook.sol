@@ -98,6 +98,8 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
     ///      non-confiscation: capital already in the pool must remain withdrawable.
     ///      This is pending confirmation by compliance counsel. Do not add a sanctions
     ///      check here until that definition is written and a recovery path exists.
+    ///      Note: `_requireNotPaused()` is also intentionally omitted — LPs must always
+    ///      be able to exit, including during an emergency pause (whitepaper §8.1 M-02).
     function _beforeRemoveLiquidity(
         address /* sender */,
         PoolKey calldata,
