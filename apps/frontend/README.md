@@ -3,8 +3,8 @@
 Hackathon UI for **Uniswap Hook Incubator 10 (UHI10)**.  
 Uniswap-styled demo of the AML Hook use case: **exploit cash-out detection**, **N-hop decay**, **oracle-latency / inflow (Wallet D)**, **never-scored USD bands (Wallet E)**, and ternary **ALLOW / FEE_OVERRIDE / REVERT**.
 
-> Scores and sanctions checks are **simulated** from the N-hop ledger — no live OpenSanctions / Etherscan / GoPlus (or OFAC) API calls.  
-> The UI talks to the in-memory API at `NEXT_PUBLIC_API_URL` (default `http://localhost:4000`).
+> Scores and sanctions checks come from Anvil via the API (`AmlHook.previewSwap`). No live OpenSanctions / Etherscan / GoPlus (or OFAC) API calls.  
+> The UI talks only to the API at `NEXT_PUBLIC_API_URL` (default `http://localhost:4000`). If Anvil is down the API returns `503` `{ error: "deploy_local" }` — there is no offline `withHopOverlay` policy.
 
 ## Guided stages
 
@@ -12,7 +12,7 @@ Uniswap-styled demo of the AML Hook use case: **exploit cash-out detection**, **
 |---|---|---|
 | 1 | **Swap** | Uniswap entry point — connect wallet + `Get started` |
 | 2 | **Hook** | Flow simulator for the hook lifecycle |
-| 3 | **Fees** | Pool standard fee + FeeEscrow differential (FEE_OVERRIDE) · gas · **Sold (USDC)** / **Bought (ETH)** |
+| 3 | **Fees** | Pool standard fee + FeeEscrow differential (FEE_OVERRIDE) · **EscrowPanel** (live Anvil rows, Warp 48h / 7d, checkpoint 2, recover) · **Sold (USDC)** / **Bought (ETH)** |
 | 4 | **AML stats** | Score gauge, report overview, detection data |
 | 5 | **Opinion** | Legal / technical opinion (A–E) from **oracle COA** via `/compliance` |
 | 6 | **Event** | `afterSwap` pool-chain payload only |
@@ -48,7 +48,10 @@ Closer hop wins if a wallet is contaminated more than once. Never-scored magnitu
 ## Run locally
 
 ```bash
-# Terminal 1 — API (required for live ledger)
+# repo root — required. Starts Anvil, deploys the stack, writes apps/api/.env.local
+npm run deploy:local
+
+# Terminal 1 — API (Anvil adapter)
 cd apps/api
 npm install
 npm run dev
@@ -59,7 +62,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000/health](http://localhost:4000/health).
+Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000/health](http://localhost:4000/health) (`mode: "anvil"`, `chain.ok`). Restart the API after every `deploy:local`.
 
 ## Demo walkthrough
 
@@ -75,14 +78,12 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 ## Data source
 
 - Static case templates: `src/data/cases.ts`
-- Live ledger / compliance: `src/lib/api.ts` → `apps/api`
-- Offline fallback overlay: `src/lib/withHopOverlay.ts`
+- Live ledger / compliance / escrow: `src/lib/api.ts` → `apps/api` → Anvil
+- Keys stay on the API. The browser never sees keeper or attestor keys.
 
 ## Related docs (repo root)
 
 - `docs/Whitepaper.md` — product + AccessManager roles (§3.5)
 - `docs/Use_Case.md` — A–E demo narrative
 - `contracts/README.md` — Foundry layout (`src/contracts/…`, `script/Deploy.sol`)
-- `apps/api/README.md` — ledger + COA + on-chain `updateScore` (`_ORACLE_KEEPER`)
-
-Optional local stack: from repo root run `npm run deploy:local` (Anvil + AccessManager-wired contracts), then restart the API so quotes can read on-chain scores.
+- `apps/api/README.md` — Anvil adapter + COA + signed `updateScore`

@@ -1,27 +1,30 @@
-# AML Hook · API (demo, no DB)
+# AML Hook · API (Anvil adapter)
 
-In-memory TypeScript API that owns the demo ledger and the **off-chain oracle COA** (Compliance Officer Agent mock).
+TypeScript API that talks to the local stack. It does not own the ledger. Balances, scores, quotes, and FeeEscrow rows live on Anvil. Without `npm run deploy:local` every chain route returns `503` `{ error: "deploy_local" }`.
 
-State lives in process memory — **resets when the server restarts**. No Postgres.
+**Oracle COA (MOCK_MODE):** scores and Opinion are produced by `apps/api/src/oracle/` using the skill pack in [`agents/oracle-coa/`](../../agents/oracle-coa/). Facts come from Anvil wallets, P2P ERC-20 transfers, and `SwapObserved` / `WalletBlocked`. There are **no live calls** to Anthropic, OpenSanctions, Etherscan, GoPlus, Chainalysis, TRM, or OFAC APIs.
 
-**Oracle COA (MOCK_MODE):** scores and Opinion are produced by `apps/api/src/oracle/` using the skill pack in [`agents/oracle-coa/`](../../agents/oracle-coa/). Facts come from the N-hop ledger + swap/event trail. There are **no live calls** to Anthropic, OpenSanctions, Etherscan, GoPlus, Chainalysis, TRM, or OFAC APIs.
+**Quotes:** `GET /wallets/:id/quote` and swap settlement call `AmlHook.previewSwap` — the same L1→L3 path `beforeSwap` uses. There is no TypeScript policy fallback.
 
-**FEE_OVERRIDE settlement (aligned with contracts):** the COA publishes `recommendedFeeBps` as total intended friction. On-chain, the pool keeps its standard fee; `afterSwap` takes the extra slice into `FeeEscrow`. A later clean exit goes to the LP compensation fund. A confirmed-illicit row is recovered to the compliance reserve only (whitepaper §8.3). Opinion copy must not describe settlement as `lpFeeOverride`.
+**FEE_OVERRIDE settlement:** the COA publishes `recommendedFeeBps` as total intended friction. A demo swap is `previewSwap` + `observeSwap` (activity / baseline / `SwapObserved`). On FEE_OVERRIDE the API mints the extra slice and calls `FeeEscrow.deposit`. That is not a live Uniswap `PoolManager` fill. A later clean exit goes to the LP compensation fund. A confirmed-illicit row is recovered to the compliance reserve only (whitepaper §8.3).
 
-The keeper writes when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band changes, **or** when the last write is at least as old as Floor B (`STALENESS_MS` = 5 minutes). That freshness stamp stops a stable clean wallet from looking stale. Floor B still charges 8% if the keeper is actually late and the wallet already swapped in the hour.
+The keeper writes when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band changes, **or** when the last write is at least as old as Floor B (`STALENESS_MS` = 5 minutes). That freshness stamp stops a stable clean wallet from looking stale. Floor B still charges 8% if the keeper is actually late and the wallet already swapped in the hour. `updateScore` is signed by Anvil **#9** (attestor) over `attestationHash`. An empty signature is rejected.
 
 ## What it replaces (conceptually)
 
 | Frontend today | API endpoint |
 |---|---|
 | `simWallets` / `initialSimWallets` | `GET /wallets`, `GET /wallets/:id` |
-| `applyTransfer` | `POST /transfers` (+ oracle reevaluate) |
-| `applyPoolSwap` + quote | `GET /wallets/:id/quote`, `POST /swaps` (+ afterSwap oracle) |
-| `withHopOverlay` / agent opinion | `GET /wallets/:id/compliance` (oracle opinion) |
+| `applyTransfer` | `POST /transfers` (ERC-20 `transfer` on Anvil + oracle reevaluate) |
+| quote / swap | `GET /wallets/:id/quote`, `POST /swaps` (`previewSwap` + `observeSwap` + escrow deposit) |
+| agent opinion | `GET /wallets/:id/compliance` (oracle opinion) |
 
 ## Run
 
 ```bash
+# repo root — Anvil + Deploy + apps/api/.env.local
+npm run deploy:local
+
 cd apps/api
 npm install
 npm run dev
@@ -29,26 +32,31 @@ npm run dev
 
 Default: [http://localhost:4000](http://localhost:4000)
 
+Restart the API after every `deploy:local` so it loads `.env.local`.
+
 ## Endpoints
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/health` | Liveness + mode (`in-memory`, `oracle: coa-mock`) |
-| `GET` | `/wallets` | All wallets + live oracle score/decision |
+| `GET` | `/health` | `mode: "anvil"`, `scoreSource: "onchain"`, `chain.ok` |
+| `GET` | `/wallets` | All wallets + live `previewSwap` quote |
 | `GET` | `/wallets/:id` | One wallet (`A`–`E`) + quote |
 | `GET` | `/wallets/:id/compliance` | **Oracle opinion** for Opinion UI |
-| `GET` | `/wallets/:id/quote` | USDC→ETH quote (`?amountUsd=1000`). Same policy as on-chain: A–E, B/C floors, D $25k revert, E window + feed |
+| `GET` | `/wallets/:id/quote` | USDC→ETH quote (`?amountUsd=1000`). Same policy as on-chain |
 | `GET` | `/oracle` | All cached ScoreResults |
 | `GET` | `/oracle/:id` | ScoreResult + opinion for one wallet |
 | `POST` | `/oracle/:id/catch-up` | Publish deferred keeper score (Wallet D latency path) |
-| `GET` | `/oracle/publishes` | Keeper `updateScore` trail (mock or rpc) |
-| `POST` | `/transfers` | P2P USDC → hop update → oracle reevaluate (tainted inbound to D defers keeper) |
-| `POST` | `/swaps` | Settle swap → event → oracle reevaluate (D pending → catch-up ~65) |
-| `POST` | `/demo/elapse` | Advance demo clock (`{ seconds: 301 }` → Floor B) |
+| `GET` | `/oracle/publishes` | Keeper `updateScore` trail (`txHash`) |
+| `POST` | `/transfers` | P2P USDC on Anvil → hop update → oracle reevaluate (tainted inbound to D defers keeper) |
+| `POST` | `/swaps` | `previewSwap` + `observeSwap` + FeeEscrow deposit on FEE_OVERRIDE |
+| `POST` | `/demo/elapse` | `evm_increaseTime` + `evm_mine` (`{ seconds: 301 }` → Floor B) |
 | `POST` | `/demo/price-feed` | Bind / unbind USDC/USD (`{ bound: false }` → `MagnitudeQuoteFailed`) |
+| `GET` | `/escrow` | Live FeeEscrow rows |
+| `POST` | `/escrow/:id/checkpoint2` | Checkpoint 2 illicit → Blocked |
+| `POST` | `/escrow/:id/recover` | Recover Blocked → compliance reserve |
 | `GET` | `/transfers` | Transfer history |
-| `GET` | `/events` | Simulated hook trail |
-| `POST` | `/reset` | Reseed A–E + oracle baseline (E stays unpublished) |
+| `GET` | `/events` | Hook trail (`SwapObserved` / blocked) |
+| `POST` | `/reset` | Mint + `syncBaseline` + publish A–D (E stays unpublished) |
 
 ### Oracle flow
 
@@ -58,17 +66,17 @@ P2P transfer or afterSwap / WalletBlocked
         ▼
   oracle COA (skills in agents/oracle-coa)
         │
-        ├─► in-memory score store  ←── demo beforeSwap / quote reads this
+        ├─► cache for Opinion UI only
         │
-        └─► ComplianceOracle.updateScore
-              · mock (default): recorded in GET /oracle/publishes
-              · rpc: set ORACLE_RPC_URL + COMPLIANCE_ORACLE_ADDRESS + KEEPER_PRIVATE_KEY
+        └─► ComplianceOracle.updateScore (signed RPC, or fail)
+              keeper = Anvil #0 · attestor = Anvil #9
         │
         ▼
+  quote / swap → AmlHook.previewSwap
   opinion → GET /compliance → Opinion stage
 ```
 
-See [`.env.example`](.env.example) for on-chain keeper env vars.
+See [`.env.example`](.env.example) for required Anvil env vars.
 
 ### Example — compliance opinion (oracle-backed)
 
@@ -102,7 +110,7 @@ curl http://localhost:4000/wallets/D/quote
 curl -X POST http://localhost:4000/swaps ^
   -H "Content-Type: application/json" ^
   -d "{\"walletId\":\"D\",\"amountUsd\":1000}"
-# → settles at 8%; D stays score 0 (no hop to publish)
+# → observeSwap + FeeEscrow.deposit; D stays score 0 (no hop to publish)
 ```
 
 ## Use-case baseline
@@ -114,28 +122,28 @@ curl -X POST http://localhost:4000/swaps ^
 - Receive from the other after it was tainted by A → ~42 / 3% (2-hop); closer hop wins  
 - Clean **C → D** (or B while clean) is **not** a hop: ~10k → **FEE_OVERRIDE 8%** (inflow); ≥ $25,000 → `InflowMagnitudeBlocked`  
 - **Wallet E** (no oracle row): on-chain Chainlink USD-8 bands — < $1,000 → 3%; $1,000–$24,999 → 8%; ≥ $25,000 → `UnscoredMagnitudeBlocked`; no/stale feed → `MagnitudeQuoteFailed`  
-- **1 ETH = 1,000 USDC** (demo ledger). On-chain floors are USD-8 (`1_000e8` / `25_000e8`), not native ether.
+- **1 ETH = 1,000 USDC** (`MockUsdFeed` at local deploy). On-chain floors are USD-8 (`1_000e8` / `25_000e8`), not native ether.
 
-## On-chain keeper + beforeSwap score read
+## Anvil identities + keeper
 
 ```bash
-# repo root — Anvil + Deploy (AccessManager + L1/L2/L3 + hook) + apps/api/.env.local
+# repo root
 npm run deploy:local
-
-# then restart API
-cd apps/api && npm run dev
+cd apps/api
+npm run dev
 ```
 
-`.env.local` sets `ORACLE_RPC_*`, `COMPLIANCE_ORACLE_ADDRESS`, `KEEPER_PRIVATE_KEY`, `SCORE_SOURCE=onchain`.
+`.env.local` (from `scripts/sync-deployment.mjs`) sets RPC, hook, oracle, FeeEscrow, fee token, feeds, `KEEPER_PRIVATE_KEY` (Anvil **#0**), and `ATTESTOR_PRIVATE_KEY` (Anvil **#9**).
 
-Local deploy defaults Anvil account #0 for **admin**, **registry keeper**, **oracle keeper** and **hook governor**. The API's `KEEPER_PRIVATE_KEY` must be a key that holds AccessManager role `_ORACLE_KEEPER` (role id `2`) or `updateScore` reverts with `AccessManagedUnauthorized`.
-
-| Mode | Behavior |
+| Account | Role |
 |---|---|
-| no rpc env | publish **mock**; quotes use **memory** COA |
-| rpc + `SCORE_SOURCE=onchain` | publish **tx**; quotes/swaps read **ComplianceOracle.getRisk** (if `updatedAt>0`) |
+| Anvil #0 | Admin / registry keeper / oracle keeper / hook governor / FeeEscrow owner |
+| Anvil #1–#5 | Demo wallets A–E. Keys stay on the API |
+| Anvil #9 | Distinct attestor. Signs `attestationHash` |
 
-Check: `GET /health` → `scoreSource` / `publisher.mode`.  
+`KEEPER_PRIVATE_KEY` must hold AccessManager role `_ORACLE_KEEPER` (role id `2`) or `updateScore` reverts with `AccessManagedUnauthorized`. `ATTESTOR_PRIVATE_KEY` must be the oracle attestor or the signature is rejected.
+
+Check: `GET /health` → `ok` / `mode: "anvil"` / `chain.ok`.  
 Trail: `GET /oracle/publishes` → `status: "submitted"` + `txHash`.
 
-See also [`contracts/README.md`](../../contracts/README.md) for `script/Deploy.sol` env overrides (`ORACLE_KEEPER`, `HOOK_GOVERNOR`, …).
+See also [`contracts/README.md`](../../contracts/README.md) for `script/Deploy.sol` env overrides (`ORACLE_KEEPER`, `HOOK_GOVERNOR`, `ATTESTOR`, …).

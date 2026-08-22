@@ -20,7 +20,7 @@ Supporting notes:
 | Document | Contents |
 | --- | --- |
 | [`contracts/README.md`](contracts/README.md) | Foundry layout, call path, roles |
-| [`apps/api/README.md`](apps/api/README.md) | Demo ledger and keeper |
+| [`apps/api/README.md`](apps/api/README.md) | Anvil adapter and keeper |
 | [`apps/frontend/README.md`](apps/frontend/README.md) | Guided UI |
 | [`agents/oracle-coa/`](agents/oracle-coa/) | COA skill specs |
 
@@ -79,7 +79,7 @@ Writes are split so a score keeper cannot move escrow, and an escrow keeper cann
 
 ## Demo wallets
 
-The frontend and API implement the use-case ledger.
+The frontend talks to the API. The API reads and writes the use-case ledger on Anvil (wallets A–E = accounts #1–#5).
 
 | Wallet | Starting state | What to try |
 | --- | --- | --- |
@@ -94,24 +94,24 @@ The frontend and API implement the use-case ledger.
 ```bash
 npm install
 
-# optional — Anvil, AccessManager-wired stack, keeper env for the API
+# required — Anvil, AccessManager-wired stack, keeper env for the API
 npm run deploy:local
 
 npm run dev:api        # http://localhost:4000
 npm run dev:frontend   # http://localhost:3000
 ```
 
-`NEXT_PUBLIC_API_URL` defaults to `http://localhost:4000`. After `deploy:local`, restart the API so it loads `apps/api/.env.local`.
+`NEXT_PUBLIC_API_URL` defaults to `http://localhost:4000`. After `deploy:local`, restart the API so it loads `apps/api/.env.local`. Without Anvil the API returns `503` `{ error: "deploy_local" }`.
 
 ```bash
 curl http://127.0.0.1:4000/health
-# publisher.mode: "rpc"  ·  scoreSource: "onchain"
+# mode: "anvil"  ·  scoreSource: "onchain"  ·  chain.ok: true
 ```
 
 | Package | Path | Role |
 | --- | --- | --- |
 | Contracts | [`contracts/`](contracts/README.md) | Foundry. `forge test` · `script/Deploy.sol` |
-| API / keeper | [`apps/api/`](apps/api/README.md) | In-memory ledger + COA + optional RPC publish |
+| API / keeper | [`apps/api/`](apps/api/README.md) | Anvil adapter + COA + signed `updateScore` |
 | Frontend | [`apps/frontend/`](apps/frontend/README.md) | Six-stage demo |
 | SDK | [`packages/sdk/`](packages/sdk/README.md) | ABIs + `getDeployment(31337)` |
 | Headless flows | [`test/`](test/README.md) | HTTP scripts against the API. Not Forge |
@@ -124,9 +124,9 @@ curl http://127.0.0.1:4000/health
 | --- | --- |
 | AccessManager, SanctionRegistry, ComplianceOracle, RiskPolicy, AmlHook, FeeEscrow | Deployed contracts |
 | Liquidity sanctions gate | On-chain. Demo UI is still swap-only |
-| PoolManager | Local `MockPoolManager` unless `POOL_MANAGER` is set |
-| `updateScore` | Real tx when RPC env is set and the key holds `_ORACLE_KEEPER` |
-| Demo balances, P2P, swap settlement | In-memory API ledger |
+| PoolManager | Local `MockPoolManager` unless `POOL_MANAGER` is set. Demo swap is `previewSwap` + `observeSwap` + FeeEscrow deposit — not a live Uniswap fill |
+| `updateScore` | Signed tx (keeper #0 + attestor #9) |
+| Demo balances, P2P, quotes, escrow rows | Anvil. P2P is ERC-20 `transfer` |
 | COA opinion | Deterministic stand-in. No live LLM or vendor feeds |
 
 ## Local deploy
@@ -136,9 +136,9 @@ npm run deploy:local
 ```
 
 1. Starts Anvil on `:8545`.
-2. Deploys AccessManager, L1/L2/L3, AmlHook (CREATE2), and FeeEscrow. Uses `MockPoolManager` unless `POOL_MANAGER` is set.
-3. Wires roles. Anvil account #0 is the default admin / keepers / governor. Production requires a distinct `ATTESTOR`, a Safe as `ADMIN` or `FEE_ESCROW_OWNER`, and a dedicated `COMPLIANCE_RESERVE` (never the LP fund). Floor B default is 5 minutes (`DEFAULT_STALENESS` / `MAX_SCORE_AGE`). Institutional pools may tighten to 120 seconds.
-4. Writes `contracts/deployments/31337.json` and copies it into `packages/sdk/deployments/`.
+2. Deploys AccessManager, L1/L2/L3, AmlHook (CREATE2), and FeeEscrow. Uses `MockPoolManager` unless `POOL_MANAGER` is set. Binds `MockUsdFeed` ($1 USDC, $1000 ETH) and seeds wallets A–E (Anvil #1–#5).
+3. Wires roles. Anvil account #0 is the default admin / keepers / governor. Anvil #9 is the local attestor. Production requires a distinct `ATTESTOR`, a Safe as `ADMIN` or `FEE_ESCROW_OWNER`, and a dedicated `COMPLIANCE_RESERVE` (never the LP fund). Floor B default is 5 minutes (`DEFAULT_STALENESS` / `MAX_SCORE_AGE`). Institutional pools may tighten to 120 seconds.
+4. Writes `contracts/deployments/31337.json` (hook, escrow, fee token, feeds, wallets, attestor) and copies it into `packages/sdk/deployments/`.
 5. Writes `apps/api/.env.local`.
 
 ```ts
@@ -153,7 +153,7 @@ const d = getDeployment(31337);
 aml-hook/
 ├── docs/               Whitepaper and use case
 ├── contracts/          Foundry — src/contracts · interfaces · AccessManager deploy
-├── apps/api/           Ledger, COA, keeper
+├── apps/api/           Anvil adapter, COA, keeper
 ├── apps/frontend/      Next.js demo
 ├── packages/sdk/       ABIs and Anvil addresses
 ├── agents/oracle-coa/  COA skill specs
