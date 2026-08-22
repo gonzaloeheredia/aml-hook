@@ -155,6 +155,9 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
 
     /// @dev H-05: at most `maxUpdatesPerWindow` updates whose timestamps fall in
     ///      `(now - updateWindow, now]`. Oldest samples outside the window are dropped.
+    ///      The compaction loop is O(n) in the number of retained samples (bounded by
+    ///      `maxUpdatesPerWindow`, default 24). A ring-buffer would reduce this to O(1)
+    ///      but the current bound keeps gas predictable for all realistic keeper cadences.
     function _enforceSlidingWindow(address wallet) private {
         uint64[] storage stamps = _updateTimestamps[wallet];
         uint256 cutoff =

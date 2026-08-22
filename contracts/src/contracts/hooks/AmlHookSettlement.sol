@@ -115,7 +115,7 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
         );
 
         poolManager.take(feeCurrency, address(this), feeAmount);
-        IERC20Approve(token).approve(address(feeEscrow), 0);
+        if (!IERC20Approve(token).approve(address(feeEscrow), 0)) revert FeeApproveFailed();
         if (!IERC20Approve(token).approve(address(feeEscrow), feeAmount)) revert FeeApproveFailed();
 
         try feeEscrow.deposit(wallet, token, swapFingerprint, feeAmount) returns (uint256 escrowId) {
@@ -153,7 +153,7 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
             abi.encode(wallet, token, amount, block.number, block.timestamp, feeEscrow.nextEscrowId(), nonce)
         );
 
-        IERC20Approve(token).approve(address(feeEscrow), 0);
+        if (!IERC20Approve(token).approve(address(feeEscrow), 0)) revert FeeApproveFailed();
         if (!IERC20Approve(token).approve(address(feeEscrow), amount)) revert FeeApproveFailed();
 
         try feeEscrow.deposit(wallet, token, swapFingerprint, amount) returns (uint256 escrowId) {

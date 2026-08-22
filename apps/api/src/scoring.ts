@@ -17,7 +17,6 @@ import { getOracleFeeBps, getOracleScore } from "./oracle/store.js";
 import type {
   Decision,
   LatencyMitigation,
-  RevertReason,
   Wallet,
   WalletId,
 } from "./types.js";
@@ -185,119 +184,6 @@ export function shouldPublishScore(input: {
 }
 
 /**
- * RiskPolicy.decide + hook-local Mitigation C, same order as AmlHookLogic.
- */
-export function applyFullPolicy(input: {
-  score: number;
-  hopDistance: number | null;
-  recommendedFeeBps: number;
-  neverScored: boolean;
-  assessedUsd: number;
-  inflowUsd: number;
-  hasSignificantInflow: boolean;
-  isStale: boolean;
-  operationCount: number;
-  priceFeedBound: boolean;
-}): {
-  decision: Decision;
-  feeBps: number;
-  latencyMitigation: LatencyMitigation;
-  revertReason: RevertReason;
-} {
-  if (input.score >= 71) {
-    return {
-      decision: "block",
-      feeBps: 0,
-      latencyMitigation: null,
-      revertReason: "WalletBlocked",
-    };
-  }
-
-  if (input.neverScored) {
-    if (!input.priceFeedBound) {
-      return {
-        decision: "block",
-        feeBps: 0,
-        latencyMitigation: "MAGNITUDE_QUOTE_FAILED",
-        revertReason: "MagnitudeQuoteFailed",
-      };
-    }
-    const bands = applyUnscoredBands(input.assessedUsd);
-    return {
-      ...bands,
-      revertReason:
-        bands.decision === "block" ? "UnscoredMagnitudeBlocked" : null,
-    };
-  }
-
-  if (input.inflowUsd > 0 && !input.priceFeedBound) {
-    return {
-      decision: "block",
-      feeBps: 0,
-      latencyMitigation: "MAGNITUDE_QUOTE_FAILED",
-      revertReason: "MagnitudeQuoteFailed",
-    };
-  }
-
-  if (input.inflowUsd >= UNSCORED_REVERT_THRESHOLD_USD) {
-    return {
-      decision: "block",
-      feeBps: 0,
-      latencyMitigation: "INFLOW_MAGNITUDE",
-      revertReason: "InflowMagnitudeBlocked",
-    };
-  }
-
-  if (input.score >= 31) {
-    const feeBps =
-      input.recommendedFeeBps > 0 && input.recommendedFeeBps !== BASE_FEE_BPS
-        ? input.recommendedFeeBps
-        : feeBpsFromHop(input.score, input.hopDistance);
-    return {
-      decision: "fee_override",
-      feeBps,
-      latencyMitigation: null,
-      revertReason: null,
-    };
-  }
-
-  if (input.hasSignificantInflow) {
-    return {
-      decision: "fee_override",
-      feeBps: LATENCY_FEE_BPS,
-      latencyMitigation: "INFLOW_HEURISTIC",
-      revertReason: null,
-    };
-  }
-
-  if (input.isStale && input.operationCount > 0) {
-    return {
-      decision: "fee_override",
-      feeBps: LATENCY_FEE_BPS,
-      latencyMitigation: "STALE_WITH_POOL_ACTIVITY",
-      revertReason: null,
-    };
-  }
-
-  // Default Mitigation C cap (on-chain `maxOpsInWindow`; hook governor retunes).
-  if (input.operationCount >= 3) {
-    return {
-      decision: "fee_override",
-      feeBps: LATENCY_FEE_BPS,
-      latencyMitigation: "ACTIVITY_WINDOW_CAP",
-      revertReason: null,
-    };
-  }
-
-  return {
-    decision: "allow",
-    feeBps: BASE_FEE_BPS,
-    latencyMitigation: null,
-    revertReason: null,
-  };
-}
-
-/**
  * Picks how much USDC to sell in a swap: min(preferred, available balance).
  */
 export function swapUsdcAmount(wallet: Wallet, preferred = DEFAULT_SWAP_USDC): number {
@@ -306,6 +192,8 @@ export function swapUsdcAmount(wallet: Wallet, preferred = DEFAULT_SWAP_USDC): n
 
 /**
  * Computes ETH received after selling `usdcIn` USDC, net of pool fee (bps).
+ * Uses a constant-product approximation with a hardcoded ETH_USD rate — demo only.
+ * SwapQuote.ethOut values are illustrative, not real Uniswap v4 pool quotes.
  */
 export function ethOutFromSwap(usdcIn: number, feeBps: number): number {
   if (usdcIn <= 0) return 0;
@@ -375,44 +263,3 @@ export function inflowDeltaBps(currentUsdc: number, lastKnownUsdc: number): numb
   return Math.floor((delta * 10_000) / currentUsdc);
 }
 
-/**
- * Applies §3.8 FEE_OVERRIDE floors on top of the score-band decision.
- * Elevates ALLOW only; never softens REVERT or an existing FEE_OVERRIDE.
- */
-export function applyLatencyFloor(input: {
-  score: number;
-  feeBps: number;
-  hasSignificantInflow: boolean;
-}): {
-  decision: Decision;
-  feeBps: number;
-  latencyMitigation: LatencyMitigation;
-} {
-  const baseDecision = decisionFromScore(input.score);
-  if (baseDecision === "block") {
-    return { decision: "block", feeBps: 0, latencyMitigation: null };
-  }
-  if (baseDecision === "fee_override") {
-    return {
-      decision: "fee_override",
-      feeBps: input.feeBps,
-      latencyMitigation: null,
-    };
-  }
-  if (input.hasSignificantInflow) {
-    const feeBps =
-      input.feeBps > 0 && input.feeBps !== BASE_FEE_BPS
-        ? input.feeBps
-        : LATENCY_FEE_BPS;
-    return {
-      decision: "fee_override",
-      feeBps: feeBps > 0 ? feeBps : LATENCY_FEE_BPS,
-      latencyMitigation: "INFLOW_HEURISTIC",
-    };
-  }
-  return {
-    decision: "allow",
-    feeBps: BASE_FEE_BPS,
-    latencyMitigation: null,
-  };
-}

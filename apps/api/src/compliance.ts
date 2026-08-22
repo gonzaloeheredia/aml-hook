@@ -45,6 +45,9 @@ export async function resolveSwapDecision(
 }> {
   const usdcIn = swapUsdcAmount(wallet, preferredUsdc);
   const preview = await previewSwap(wallet.address as `0x${string}`, usdcToWei(usdcIn));
+  // Display-only: denominator uses the demo wallet's nominal usdc balance, not the real
+  // on-chain balance. May diverge from on-chain deltaBps when wallet.usdc is stale.
+  // This value is used only for latencySummary UI — it does not affect the compliance decision.
   const deltaBps =
     wallet.usdc > 0
       ? Math.floor((preview.inflowUsd * 10_000) / wallet.usdc)
