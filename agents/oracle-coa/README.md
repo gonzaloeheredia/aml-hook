@@ -18,9 +18,9 @@ agents/oracle-coa/
 
 apps/api/src/oracle/           # CURRENT runtime (MOCK_MODE)
 ├── agent.ts                  # FULL / INCREMENTAL skill flow
-├── factScoring.ts            # Deterministic fact-scoring over in-memory ledger
+├── factScoring.ts            # Deterministic fact-scoring over Anvil wallets / events
 ├── report.ts                 # Opinion pack (FinCEN Who–How narrative model)
-├── store.ts                  # In-memory ComplianceOracle stand-in
+├── store.ts                  # Opinion cache only — quotes use AmlHook.previewSwap
 ├── types.ts                  # ScoreResult · OracleOpinion schemas
 └── index.ts
 ```

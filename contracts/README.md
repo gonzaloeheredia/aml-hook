@@ -169,7 +169,9 @@ Deployer = Anvil account #0 (local defaults for admin / registry keeper / oracle
 
 `bootstrapDepositor` runs in the same deploy tx so the first FEE_OVERRIDE `deposit` does not wait 24h.
 
-After deploy, `_HOOK_GOVERNOR` **must** bind a Chainlink `AggregatorV3` per pool token (`setPriceFeed`; `address(0)` = ETH/USD). Never-scored magnitude and Mitigation D's absolute floor quote to USD-8 (`1_000e8` / `25_000e8`). A token with no feed, or a feed older than `priceStalenessThreshold` (default 3600s), fail-closes (`MagnitudeQuoteFailed`). This is an extra operational surface — see whitepaper §8.4.
+On chainid 31337 the script binds `MockUsdFeed` ($1 USDC, $1000 ETH) and seeds wallets A–E as Anvil **#1–#5**. The demo API then calls `previewSwap` (same L1→L3 as `beforeSwap`), `observeSwap` (activity / baseline / `SwapObserved`), and `syncBaseline` on reset. That is still not a live `PoolManager` fill.
+
+On other chains, `_HOOK_GOVERNOR` **must** bind a Chainlink `AggregatorV3` per pool token (`setPriceFeed`; `address(0)` = ETH/USD). Never-scored magnitude and Mitigation D's absolute floor quote to USD-8 (`1_000e8` / `25_000e8`). A token with no feed, or a feed older than `priceStalenessThreshold` (default 3600s), fail-closes (`MagnitudeQuoteFailed`). This is an extra operational surface — see whitepaper §8.4.
 
 Writes `contracts/deployments/31337.json` and copies to `packages/sdk/deployments/`.
 
@@ -179,6 +181,6 @@ The CREATE2 address mined by `Deploy.sol` changed versus earlier deploys: the fl
 
 | Layer | Role |
 |---|---|
-| `apps/api` | Oracle Keeper — mock trail or real `updateScore` tx; defers D for latency demo |
-| `contracts/` | On-chain ALLOW / FEE_OVERRIDE / REVERT + §8.4 floors + Chainlink USD magnitude |
+| `apps/api` | Anvil adapter — `previewSwap` / `observeSwap` / signed `updateScore` (keeper #0 + attestor #9); defers D for latency demo |
+| `contracts/` | On-chain ALLOW / FEE_OVERRIDE / REVERT + §8.4 floors + Chainlink USD magnitude. Local `MockPoolManager` is not a live Uniswap pool |
 | `packages/sdk` | Shared ABIs / addresses for api + frontend |

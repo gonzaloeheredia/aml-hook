@@ -1,6 +1,6 @@
 # AML Hook — Use case
 
-This walkthrough is the product demo of the whitepaper. Every decision below is the same mapping `RiskPolicy` + hook-local Mitigation C apply on-chain. The frontend and the in-memory API reproduce that surface so you can press it.
+This walkthrough is the product demo of the whitepaper. Every decision below is the same mapping `RiskPolicy` + hook-local Mitigation C apply on-chain. The frontend talks to the API; the API calls `AmlHook.previewSwap` on Anvil so quotes cannot drift from the hook.
 
 The pool is a Uniswap v4 RWA (Real World Asset) pool with AML Hook attached. Swaps go through `beforeSwap` and `afterSwap`. Peer-to-peer USDC transfers happen off-pool. Those transfers are what move risk. Pool swaps never raise a score.
 
@@ -30,7 +30,7 @@ Use this table as the map while running the demo. Each row points to the matchin
 | 12 | FEE_OVERRIDE paths | Escrow hold 24h / 48h | — | On-chain FeeEscrow | Differential |
 | 13 | Operator | Opinion stage | — | COA (Compliance Officer Agent) file | — |
 
-How to run it: open the frontend, connect A–E from the wallet picker, move USDC in the MetaMask panel, use the size chips and the two swap-card controls, and swap. The API exposes the same ledger on `POST /transfers`, `POST /swaps`, `POST /demo/elapse`, and `POST /demo/price-feed`.
+How to run it: from the repo root, `npm run deploy:local`, then start the API and the frontend. Without Anvil the API returns `503` `{ error: "deploy_local" }`. Connect A–E from the wallet picker, move USDC in the MetaMask panel, use the size chips and the two swap-card controls, and swap. The API exposes the same Anvil ledger on `POST /transfers`, `POST /swaps`, `POST /demo/elapse`, `POST /demo/price-feed`, and `GET /escrow`. A demo swap is `previewSwap` + `observeSwap` + a FeeEscrow deposit on FEE_OVERRIDE — not a live Uniswap `PoolManager` fill.
 
 ## 2. The five wallets
 
@@ -80,7 +80,7 @@ A second inbound from a closer source replaces the farther hop. Clean-to-clean P
 
 ## 4. Walkthrough
 
-Reference for executing the demo step by step. Use the frontend (Connect + MetaMask panel) or the API. Amounts match the demo balances. On the swap card: **Advance 5 min** (Floor B) and **Unbind price feed** (E / D absolute quote). Restart data reseeds A–E.
+Reference for executing the demo step by step. Anvil must already be running (`npm run deploy:local`). Use the frontend (Connect + MetaMask panel) or the API. Amounts match the Anvil A–E wallets (#1–#5). On the swap card: **Advance 5 min** (Floor B) and **Unbind price feed** (E / D absolute quote). Restart data reseeds A–E on-chain.
 
 ### Step 0 — Clean swap (D, or B / C)
 
@@ -231,7 +231,7 @@ The $1,000 and $25,000 defaults follow the order of magnitude used in internatio
 
 ### Step 12 — FeeEscrow (FEE_OVERRIDE only)
 
-On B (8%), C (3%), D floors (8%), and E (3% or 8%), the pool keeps 0.30%. The extra slice sits in FeeEscrow. The demo ledger shows the fee; it does not deposit on-chain. On-chain, the two destinations cannot be the same address.
+On B (8%), C (3%), D floors (8%), and E (3% or 8%), the pool keeps 0.30%. The extra slice is deposited on Anvil into `FeeEscrow`. Open **Fees**: the panel lists those rows. Warp **48h** → **Checkpoint 2 · illicit** (Blocked) → Warp **7d** → **Recover → reserve**. The recovered amount goes to the compliance reserve, never the LP fund. The two destinations cannot be the same address. `GET /escrow`, `POST /escrow/:id/checkpoint2`, and `POST /escrow/:id/recover` are the same path without the UI.
 
 | Window | What happens | Where the fee goes |
 | --- | --- | --- |

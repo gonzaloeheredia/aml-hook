@@ -2,18 +2,21 @@
 
 This folder is **not** the Foundry suite — Solidity tests live in [`contracts/test/`](../contracts/test/).
 
-Scripts here exercise the same API routes the frontend uses (`/swaps`, `/transfers`, `/compliance`) **without opening a browser**. Swaps/transfers are **mocked in the API ledger**; with `npm run deploy:local` the keeper can still write **real** `updateScore` txs on Anvil.
+Scripts here exercise the same API routes the frontend uses (`/swaps`, `/transfers`, `/compliance`, `/escrow`) **without opening a browser**. Those routes hit Anvil: quotes are `previewSwap`, P2P is ERC-20 `transfer`, FEE_OVERRIDE deposits into `FeeEscrow`. Need Anvil + API (`npm run deploy:local`, then `apps/api`).
 
 Foundry Solidity tests (mirroring `contracts/src/`) live in [`contracts/test/`](../contracts/test/) — see that folder's README for the layout.
 
 ## Prerequisites
 
 ```bash
+# repo root
+npm run deploy:local
+
 cd apps/api
 npm run dev
 ```
 
-API default: `http://localhost:4000` (override with `API_BASE`).
+API default: `http://localhost:4000` (override with `API_BASE`). Without Anvil the API returns `503` `{ error: "deploy_local" }`.
 
 ## Uniswap + MetaMask demo flow
 

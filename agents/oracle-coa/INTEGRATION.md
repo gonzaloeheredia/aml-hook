@@ -10,14 +10,14 @@ The TypeScript runner lives in `apps/api/src/oracle/`:
 | Module | Role |
 |---|---|
 | `agent.ts` | Skill flow FULL / INCREMENTAL + publish after score |
-| `factScoring.ts` | `fact-scoring.md` over the in-memory ledger |
+| `factScoring.ts` | `fact-scoring.md` over Anvil wallets, P2P, and swap events |
 | `report.ts` | `task-regulatory-report` → Opinion UI pack |
-| `store.ts` | In-memory score cache (demo beforeSwap read) |
-| `onchainPublisher.ts` | Keeper → `ComplianceOracle.updateScore` (mock or rpc). The attestor must sign `attestationHash(wallet, score, hopDistance, origin, feeBps, updatedAt, chainid)`. A score-only signature is rejected. |
+| `store.ts` | In-memory cache for Opinion UI only. Quotes do not read this |
+| `onchainPublisher.ts` | Keeper → `ComplianceOracle.updateScore` (signed RPC, or fail). The attestor must sign `attestationHash(wallet, score, hopDistance, origin, feeBps, updatedAt, chainid)`. A score-only or empty signature is rejected. |
 | `types.ts` | `ScoreResult` · `OracleOpinion` · `ScorePublishResult` |
 
 No live Anthropic / OpenSanctions / Etherscan calls. Facts are derived from
-wallets, P2P transfers, and `SwapObserved` / `WalletBlocked` events. N-hop
+Anvil wallets, P2P ERC-20 transfers, and `SwapObserved` / `WalletBlocked` events. N-hop
 decay (`100 × 0.65^hops`) stays the demo backbone so A/B/C/D remain demonstrable.
 
 ## FEE_OVERRIDE vs FeeEscrow (aligned with contracts)
@@ -44,9 +44,10 @@ POST /oracle/:id/catch-up → manual deferred publish (Wallet D)
 POST /reset      → clear + seed oracle for A–D (E has no row until first seen)
 ```
 
-`beforeSwap` (simulated in quotes / swap route) reads the oracle cache, then
-applies the §8.4 floors. The keeper writes when the decision tier or fee
-band changes, or when the last write is at least as old as Floor B (5 minutes).
+Quotes and swaps call `AmlHook.previewSwap` (same L1→L3 as `beforeSwap`). They
+do not apply TypeScript floors on the COA cache. The keeper writes when the
+decision tier or fee band changes, or when the last write is at least as old
+as Floor B (5 minutes). The publisher is signed RPC or it fails.
 That freshness stamp stops a stable clean wallet from looking stale. Floor B
 still charges 8% if the keeper is late and the wallet already swapped in the hour.
 A wallet with `updatedAt == 0` is Mitigation A
@@ -70,7 +71,7 @@ reviewed so a later large swap of already-held funds is ALLOW.
 | `GET` | `/oracle` | All cached ScoreResults |
 | `GET` | `/oracle/:id` | ScoreResult + Opinion for A–D |
 | `POST` | `/oracle/:id/catch-up` | Publish deferred keeper score (Wallet D) |
-| `GET` | `/oracle/publishes` | Keeper `updateScore` trail (mock or rpc tx) |
+| `GET` | `/oracle/publishes` | Keeper `updateScore` trail (`txHash`) |
 | `GET` | `/wallets/:id/compliance` | Pack for frontend Opinion (oracle-backed) |
 
 ## Schema keys (must match `types.ts`)
