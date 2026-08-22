@@ -257,6 +257,10 @@ dates, on-chain events, and norms — never skill filenames (`ofac-screening`,
 `fact-scoring`, `task-*`, `skills/…`).
 
 Ternary outputs use English keys: `ALLOW` · `FEE_OVERRIDE` · `REVERT`.
+A missing oracle row (`updatedAt == 0`) is **not** ALLOW. On-chain Mitigation A
+quotes the swap to USD-8 (Chainlink): under $1,000 → 3%; $1,000–$24,999 → 8%;
+≥ $25,000 or structured window USD → `UnscoredMagnitudeBlocked`; no/stale feed →
+`MagnitudeQuoteFailed`. Do not describe that path as a published score 0.
 Score schema keys: `finalScore`, `riskLevel`, `hookOutput`, `scoreBreakdown`,
 `triggeringFacts`, `regulatoryFlags`, `validity`, `auditHash`, `skillsApplied`.
 

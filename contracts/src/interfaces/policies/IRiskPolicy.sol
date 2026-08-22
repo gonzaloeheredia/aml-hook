@@ -28,4 +28,26 @@ interface IRiskPolicy {
         uint32 operationCount,
         bool hasSignificantInflow
     ) external pure returns (HookDecision decision, uint24 feeBps);
+
+    /// @notice Same mapping, plus USD magnitude floors (Chainlink 8 decimals).
+    /// @dev `neverScored` (`updatedAt == 0`):
+    ///        assessedUsd < feeThreshold     → FEE_OVERRIDE at 3% (GAFI-aligned dust / CDD band)
+    ///        feeThreshold ≤ assessedUsd < revertThreshold → FEE_OVERRIDE at 8%
+    ///        assessedUsd ≥ revertThreshold  → REVERT
+    ///      Published score: REVERT when Mitigation D `inflowUsd` (inbound tokens since baseline,
+    ///      quoted to USD) is at/above `revertThreshold` — not the swap size of already-held funds.
+    ///      A zero `revertThreshold` disables the hard block. Quote failure is handled by the hook
+    ///      (fail-closed), not by this function.
+    function decide(
+        uint8 score,
+        uint24 recommendedFeeBps,
+        bool isStale,
+        uint32 operationCount,
+        bool hasSignificantInflow,
+        bool neverScored,
+        uint256 assessedUsd,
+        uint256 inflowUsd,
+        uint256 unscoredFeeThreshold,
+        uint256 unscoredRevertThreshold
+    ) external pure returns (HookDecision decision, uint24 feeBps);
 }

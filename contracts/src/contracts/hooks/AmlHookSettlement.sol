@@ -57,6 +57,8 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
     /// @dev Extra entropy mixed into `swapFingerprint` (L-01), on top of `nextEscrowId`.
     uint256 private _fingerprintNonce;
 
+    /// @param poolManager_ Uniswap v4 PoolManager (BaseHook).
+    /// @param feeEscrow_ Differential escrow; `address(0)` disables take / deposit.
     constructor(IPoolManager poolManager_, IFeeEscrow feeEscrow_) BaseHook(poolManager_) {
         feeEscrow = feeEscrow_;
     }

@@ -35,7 +35,7 @@ Default: [http://localhost:4000](http://localhost:4000)
 | `GET` | `/wallets` | All wallets + live oracle score/decision |
 | `GET` | `/wallets/:id` | One wallet (`A`–`D`) + quote |
 | `GET` | `/wallets/:id/compliance` | **Oracle opinion** for Opinion UI |
-| `GET` | `/wallets/:id/quote` | USDC→ETH quote (`?amountUsd=1000`); D may show inflow FEE_OVERRIDE 8% |
+| `GET` | `/wallets/:id/quote` | USDC→ETH quote (`?amountUsd=1000`); D may show inflow FEE_OVERRIDE 8%. On-chain never-scored wallets use USD bands ($1k → 3%, $1k–$25k → 8%, ≥ $25k → REVERT) |
 | `GET` | `/oracle` | All cached ScoreResults |
 | `GET` | `/oracle/:id` | ScoreResult + opinion for one wallet |
 | `POST` | `/oracle/:id/catch-up` | Publish deferred keeper score (Wallet D latency path) |
@@ -108,8 +108,9 @@ curl -X POST http://localhost:4000/swaps ^
 - **D** starts clean with 0 USDC — latency / inflow path (§3.8)  
 - Receive from **A** → ~65 / 8% (1-hop)  
 - Receive from the other after it was tainted by A → ~42 / 3% (2-hop); closer hop wins  
-- **A → D** defers keeper `updateScore`; D swap under stale score 0 → **FEE_OVERRIDE 8%** (inflow); catch-up → score **65**  
-- **1 ETH = 1,000 USDC**
+- **A → D** defers keeper `updateScore`; D swap under stale score 0 → **FEE_OVERRIDE 8%** (inflow); inbound USD ≥ $25,000 would REVERT on-chain (`InflowMagnitudeBlocked`); catch-up → score **65**  
+- **Wallet E** (no oracle row): on-chain Chainlink USD-8 bands — < $1,000 → 3%; $1,000–$24,999 → 8%; ≥ $25,000 → `UnscoredMagnitudeBlocked`; no/stale feed → `MagnitudeQuoteFailed`  
+- **1 ETH = 1,000 USDC** (demo ledger). On-chain floors are USD-8 (`1_000e8` / `25_000e8`), not native ether.
 
 ## On-chain keeper + beforeSwap score read
 

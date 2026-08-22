@@ -26,6 +26,7 @@ library SwapCache {
     uint256 private constant _ORACLE_FEE_SHIFT = 112;
     uint256 private constant _INFLOW_SHIFT = 136;
 
+    /// @notice Write the beforeSwap snapshot into transient storage for this `poolId`.
     function store(
         PoolId poolId,
         address wallet,
@@ -45,6 +46,7 @@ library SwapCache {
         _tstore(_slot(_PACKED, poolId), packed);
     }
 
+    /// @notice Read the transient snapshot written by `store` for this `poolId`.
     function load(PoolId poolId)
         internal
         view
@@ -70,6 +72,7 @@ library SwapCache {
         inflowTriggered = uint8(packed >> _INFLOW_SHIFT) != 0;
     }
 
+    /// @notice Wipe the snapshot and bump the per-pool nonce so a later swap cannot reuse it.
     function clear(PoolId poolId) internal {
         _tstore(_slot(_WALLET, poolId), 0);
         _tstore(_slot(_TOKEN, poolId), 0);
@@ -78,20 +81,24 @@ library SwapCache {
         _tstore(_nonceSlot(poolId), _tload(_nonceSlot(poolId)) + 1);
     }
 
+    /// @dev Transient slot tagged with pool id and the current nonce.
     function _slot(bytes32 baseSlot, PoolId poolId) private view returns (bytes32) {
         return keccak256(abi.encode(baseSlot, poolId, _tload(_nonceSlot(poolId))));
     }
 
+    /// @dev Per-pool nonce slot (not mixed with the data tags).
     function _nonceSlot(PoolId poolId) private pure returns (bytes32) {
         return keccak256(abi.encode(_NONCE, poolId));
     }
 
+    /// @dev EIP-1153 `tstore`.
     function _tstore(bytes32 slot, uint256 value) private {
         assembly ("memory-safe") {
             tstore(slot, value)
         }
     }
 
+    /// @dev EIP-1153 `tload`.
     function _tload(bytes32 slot) private view returns (uint256 value) {
         assembly ("memory-safe") {
             value := tload(slot)

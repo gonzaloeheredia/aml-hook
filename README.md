@@ -7,17 +7,20 @@ Compliance layer for **Uniswap v4** (UHI10). The hook intercepts swaps at `befor
 | 0–30 | **ALLOW** | Standard pool fee (0.30%) |
 | 31–70 | **FEE_OVERRIDE** | Pool keeps standard fee; risk differential (e.g. total friction 3%–8%) taken in `afterSwap` → **FeeEscrow** 48h (sanction confirmed → blocked in escrow; confirmed clean → LP compensation, never the pool) |
 | 71–100 | **REVERT** | Fail-closed (exploit / sanctions exposure) |
+| Never written (`updatedAt == 0`), assessed USD < $1,000 | **FEE_OVERRIDE 3%** | Unknown ≠ clean. GAFI Rec. 10 / CDD-aligned dust band |
+| Never written, $1,000–$24,999 | **FEE_OVERRIDE 8%** | Unknown, economically material first flow |
+| Never written, assessed USD ≥ $25,000 (this swap + window USD) | **REVERT** | Large or structured first flow (`UnscoredMagnitudeBlocked`). Missing/stale Chainlink feed fail-closes (`MagnitudeQuoteFailed`) |
 
 The score is computed **off-chain** by the **Oracle Keeper** — a Compliance Officer Agent (COA): an AI AML analyst that will connect to external information sources (sanctions feeds, exploit monitors, on-chain graph signals) — and stored **on-chain** (`ComplianceOracle`). The hook only reads; it does not invent the score.
 
-On-chain writes for sanctions, scores and hook thresholds go through a shared OpenZeppelin **AccessManager** (`Roles`: `_REGISTRY_KEEPER`, `_ORACLE_KEEPER`, `_HOOK_GOVERNOR`). FeeEscrow keeps its own owner / keepers / depositors.
+On-chain writes for sanctions, scores and hook thresholds go through a shared OpenZeppelin **AccessManager** (`Roles`: `_REGISTRY_KEEPER`, `_ORACLE_KEEPER`, `_HOOK_GOVERNOR`). `updateScore` also requires a distinct **attestor** ECDSA signature (hop + origin bound). FeeEscrow keeps its own owner / keepers / depositors: owner is `ADMIN` / Safe from genesis; the hook is bootstrapped as depositor at deploy.
 
 ## Docs
 
 | Doc | What it is |
 |---|---|
 | [`docs/Whitepaper.md`](docs/Whitepaper.md) | Product thesis, regulatory framing, why this exists |
-| [`docs/Use_Case.md`](docs/Use_Case.md) | A/B/C/D exploit → N-hop + oracle-latency (Wallet D) scenario |
+| [`docs/Use_Case.md`](docs/Use_Case.md) | A/B/C/D exploit → N-hop + oracle-latency (Wallet D) + never-scored USD bands (Wallet E) |
 | [`agents/oracle-coa/`](agents/oracle-coa/) | COA skill specs — AI Compliance Officer / AML analyst (Oracle Keeper) |
 
 ## Quick start
@@ -59,22 +62,27 @@ User → Router → PoolManager
               beforeSwap │ afterSwap
      beforeAddLiquidity │ beforeRemoveLiquidity
                        ▼
-                   AMLHook
-          ┌────────────┼────────────┐
-          ▼            ▼            ▼
-   SanctionRegistry  ComplianceOracle  RiskPolicy
-     (Layer 1)         (Layer 2)         (Layer 3)
-                          ▲
-                          │ updateScore(...)  ← _ORACLE_KEEPER
+                   AMLHook  (callbacks)
+          ┌────────────┼────────────────┐
+          ▼            ▼                ▼
+   AmlHookLogic  AmlHookSettlement  SanctionRegistry
+                          │              (Layer 1)
+          ┌───────────────┴───────────────┐
+          ▼                               ▼
+   ComplianceOracle                   RiskPolicy
+     (Layer 2)                         (Layer 3)
+          ▲
+          │ updateScore ← _ORACLE_KEEPER + attestor sig
               Oracle Keeper / COA (off-chain)
          AI Compliance Officer · AML analyst
-         → will connect to info sources / feeds
                           │
                           │ FeeEscrow keeper resolutions
                           ▼
                      FeeEscrow
+              owner = ADMIN / Safe from genesis
+              hook depositor bootstrapped at deploy
               (FEE_OVERRIDE differential fee, 48h)
-              early / default → pool
+              early / default → LP compensation (never the pool)
               Checkpoint 2 illicit → blocked in escrow
               Checkpoint 2 clean → LP compensation (never pool)
 
@@ -86,10 +94,10 @@ AccessManager (shared) → _REGISTRY_KEEPER · _ORACLE_KEEPER · _HOOK_GOVERNOR
 | **AccessManager** | Shared OZ authority for registry / oracle / hook governance |
 | **AmlHook** | Uniswap v4 hook — `beforeSwap` / `afterSwap` (ternary score path); `beforeAddLiquidity` / `beforeRemoveLiquidity` gate sanctioned wallets only (position left intact; no score / RiskPolicy). Governor `pause()` stops swaps, not LP add/remove |
 | **SanctionRegistry** | L1 — sanctions screen (fail-closed). New hits: `_REGISTRY_KEEPER` `commitSanction` + `revealSanction`. `setSanctioned` delists only |
-| **ComplianceOracle** | L2 — score / hop / origin; `_ORACLE_KEEPER` writes (`updateScore`) |
-| **RiskPolicy** | L3 — score → ALLOW / FEE_OVERRIDE / REVERT (+ §3.8 latency floors); pure |
+| **ComplianceOracle** | L2 — score / hop / origin; `_ORACLE_KEEPER` submits `updateScore`; distinct attestor signs hop + origin |
+| **RiskPolicy** | L3 — score → ALLOW / FEE_OVERRIDE / REVERT (+ §3.8 latency floors + never-scored USD bands 3% / 8% / REVERT); pure. Does not call Chainlink |
 | **Oracle Keeper (COA)** | Off-chain AI Compliance Officer — scores wallets, publishes `updateScore`, drives FeeEscrow after COA memos (COA never writes on-chain; deferred publish for Wallet D) |
-| **FeeEscrow** | Holds FEE_OVERRIDE differential fee for 48h (not swap output). Own access list. Sanction confirmed → blocked reserve (keeper releases revert; owner `recoverBlocked` only to `lpCompensationFund`). Otherwise the risk fee goes to lpCompensationFund (`releaseEarly`, `resolveCheckpoint2(false)`, `releaseDefault`). Never the pool. Batches cap at 50 ids. |
+| **FeeEscrow** | Holds FEE_OVERRIDE differential fee for 48h (not swap output). Own access list. Owner is `ADMIN` / `FEE_ESCROW_OWNER` from genesis. Hook depositor via `bootstrapDepositor` (no 24h gap). Add keeper 24h / revoke immediately. Sanction confirmed → blocked (owner `recoverBlocked` waits at least 7 days, only to `lpCompensationFund`). Otherwise the risk fee goes to lpCompensationFund. Never the pool. |
 
 In this repo, **apps/api** is the demo keeper (deterministic mock of that COA; live LLM and vendor feeds are the production path). **apps/frontend** drives the UI. Pool swaps in the UI are still settled in the API ledger until a real PoolManager is wired; scores can already be published/read on Anvil.
 
@@ -114,7 +122,7 @@ npm run deploy:local
 
 1. Starts Anvil on `:8545` (WSL: detached so it survives the shell)
 2. Deploys AccessManager + L1/L2/L3 + AmlHook (CREATE2); MockPoolManager unless `POOL_MANAGER` is set
-3. Wires roles; Anvil account #0 defaults for admin / registry keeper / oracle keeper / hook governor
+3. Wires roles; Anvil account #0 defaults for admin / registry keeper / oracle keeper / hook governor. Production requires `ATTESTOR` (distinct, no default) and `ADMIN` or `FEE_ESCROW_OWNER` (Safe). First hook deposit is bootstrapped in the same tx.
 4. Writes `contracts/deployments/31337.json` → `packages/sdk/deployments/`
 5. Writes `apps/api/.env.local` (`ORACLE_RPC_URL`, `COMPLIANCE_ORACLE_ADDRESS`, `KEEPER_PRIVATE_KEY`, `SCORE_SOURCE=onchain`)
 
@@ -148,9 +156,9 @@ Attacker **A** (score 100) is blocked at the pool, then moves USDC via P2P. The 
 | 7 | D swaps under stale score | FEE_OVERRIDE **8%** (inflow heuristic) |
 | 8 | Keeper catch-up | D ≈ **65** |
 
-Latency floors elevate ALLOW → FEE_OVERRIDE only (never soften REVERT). When no keeper `feeBps` is present, the latency/inflow fee is **8%** (`LATENCY_FEE_BPS`).
+Latency floors elevate ALLOW → FEE_OVERRIDE only (never soften REVERT), except a never-scored wallet whose swap (or window USD) is at or above `$25,000` (`unscoredRevertThreshold = 25_000e8`) — that **REVERT**s. Below $1,000 the unknown-wallet fee is **3%**; from $1,000 to $24,999 it is **8%**. Mitigation D does not fire on a wallet that was never scored (no 100% first-swap false positive). Floors are USD-8 via Chainlink; no feed or a stale feed is fail-closed.
 
-Full narrative: [`docs/Use_Case.md`](docs/Use_Case.md) (§7 Wallet D).
+Full narrative: [`docs/Use_Case.md`](docs/Use_Case.md) (§7 Wallet D, §7.1 Wallet E).
 
 ## Guided UI (6 stages)
 

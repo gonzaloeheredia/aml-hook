@@ -31,6 +31,7 @@ node test/flow-uniswap-metamask.mjs
 | MetaMask **B → C** (or C → B) after that | Hop **2** · score ~42 · fee **3%** |
 | Extra B ↔ A after hop 1 | B stays hop **1** (closer hop wins) |
 | MetaMask **A → D** then D swap (API) | Stale score **0** · inflow **FEE_OVERRIDE 8%** · catch-up ~**65** |
+| Never-scored first swap (Wallet E, on-chain) | USD < $1,000 → **3%**; $1,000–$24,999 → **8%**; ≥ $25,000 → **REVERT**; no/stale Chainlink feed fail-closes |
 
 Script steps: clean multi-swaps → A REVERT → A→B → B→A (still hop 1) → B→C (hop 2) → B @ 8% vs C @ 3%.  
 Wallet D latency path: exercise via API (`POST /transfers` A→D, `POST /swaps` D) or the frontend walkthrough — see [`apps/api/README.md`](../apps/api/README.md).

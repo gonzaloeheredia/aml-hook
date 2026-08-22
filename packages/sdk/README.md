@@ -30,3 +30,5 @@ const d = getDeployment(31337);
 ```
 
 `ComplianceOracle.updateScore` is AccessManaged: the API's `KEEPER_PRIVATE_KEY` must be the granted oracle keeper (Anvil #0 by default on local Deploy).
+
+After deploy, `_HOOK_GOVERNOR` must call `AmlHook.setPriceFeed(token, aggregator)` for each pool currency (`address(0)` = ETH/USD). Never-scored magnitude floors are USD-8 (`1_000e8` / `25_000e8`). No feed or a stale feed fail-closes.

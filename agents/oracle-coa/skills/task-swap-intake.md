@@ -71,8 +71,8 @@ series analysis (unilateral extraction vs bidirectional trading).
 | Level | Criterion | Response |
 |---|---|---|
 | **Critical** | Sanctions hit, designated contract, TF nexus, active exploit alert | Immediate → `task-blocking-protocol` |
-| **High** | Prior score ≥ 71, active cumulative typology, validated LP report, unscored wallet above threshold | Priority recalc |
-| **Medium** | Prior 31–70, routine post-swap, new wallet below threshold | Standard queue |
+| **High** | Prior score ≥ 71, active cumulative typology, validated LP report, unscored wallet assessed USD ≥ $1,000 (hook 8% or $25,000 REVERT) | Priority recalc |
+| **Medium** | Prior 31–70, routine post-swap, new wallet assessed USD < $1,000 (hook 3% band) | Standard queue |
 | **Low** | Scheduled review in STANDARD band | Deferred queue |
 
 ---

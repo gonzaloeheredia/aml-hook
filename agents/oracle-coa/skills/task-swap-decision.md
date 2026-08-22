@@ -62,6 +62,20 @@ friction, event trail, participant not excluded.
 `recommendedFeeBps` is total intended friction (e.g. 800 = 8%). On-chain split:
 pool keeps ~30 bps; escrow holds `recommendedFeeBps − 30` when above standard.
 
+**Never-scored wallets (`updatedAt == 0`) are not this table.** The hook does
+not treat a missing row as score 0. It quotes the swap (plus Mitigation C
+window USD) via Chainlink to USD-8 and applies Mitigation A:
+
+| Assessed USD | hookOutput | Fee |
+|---|---|---|
+| < $1,000 (`1_000e8`) | `FEE_OVERRIDE` | 3% (`FeeBps.PROPORTIONAL`) |
+| $1,000 – $24,999 | `FEE_OVERRIDE` | 8% (`FeeBps.LATENCY`) |
+| ≥ $25,000 (`25_000e8`), including structured window USD | `REVERT` `UnscoredMagnitudeBlocked` | — |
+| No / stale / invalid price feed | `REVERT` `MagnitudeQuoteFailed` | fail-closed |
+
+Publish an explicit score 0 with a fresh `updatedAt` when the wallet is
+confirmed-clean. Until then, do not describe a large first swap as ALLOW.
+
 ---
 
 ## Step 3: Evidentiary sufficiency (REVERT 71–99)

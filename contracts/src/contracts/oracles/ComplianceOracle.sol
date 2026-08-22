@@ -123,6 +123,7 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
         attestor = attestor_;
     }
 
+    /// @dev Recover the ECDSA signer over `attestationHash` and require it equals `attestor`.
     function _verifyAttestation(
         address wallet,
         uint8 score,

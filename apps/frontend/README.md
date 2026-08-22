@@ -1,7 +1,7 @@
 # AML Hook · Frontend demo
 
 Hackathon UI for **Uniswap Hook Incubator 10 (UHI10)**.  
-Uniswap-styled demo of the AML Hook use case: **exploit cash-out detection**, **N-hop decay**, **oracle-latency / inflow (Wallet D)**, and ternary **ALLOW / FEE_OVERRIDE / REVERT**.
+Uniswap-styled demo of the AML Hook use case: **exploit cash-out detection**, **N-hop decay**, **oracle-latency / inflow (Wallet D)**, **never-scored USD bands (Wallet E)**, and ternary **ALLOW / FEE_OVERRIDE / REVERT**.
 
 > Scores and sanctions checks are **simulated** from the N-hop ledger — no live OpenSanctions / Etherscan / GoPlus (or OFAC) API calls.  
 > The UI talks to the in-memory API at `NEXT_PUBLIC_API_URL` (default `http://localhost:4000`).
@@ -39,10 +39,11 @@ REVERT is `beforeSwap` only — no `afterSwap` emit for that attempt.
 1. **Wallet A (exploit)** — score 100 · `REVERT`
 2. **Wallet B (clean)** — same rules as C: A→B ≈ 65 / 8%; tainted C→B ≈ 42 / 3%
 3. **Wallet C (clean)** — same rules as B: A→C ≈ 65 / 8%; tainted B→C ≈ 42 / 3%
-4. **Wallet D (latency)** — starts clean (0 USDC); A→D defers keeper; swap under stale score 0 → inflow `FEE_OVERRIDE` 8%; catch-up → ~65
+4. **Wallet D (latency)** — starts clean (0 USDC); A→D defers keeper; swap under stale score 0 → inflow `FEE_OVERRIDE` 8% (or REVERT if inbound USD ≥ $25,000); catch-up → ~65
+5. **Wallet E (never written)** — no oracle row. On-chain Chainlink quote: under $1,000 → 3%; $1,000–$24,999 → 8%; ≥ $25,000 (or window USD) → `UnscoredMagnitudeBlocked`. Missing/stale feed fail-closes.
 
 N-hop formula: `derived_score = origin_score × (0.65 ^ hops) × exposed_proportion`  
-Closer hop wins if a wallet is contaminated more than once.
+Closer hop wins if a wallet is contaminated more than once. Never-scored magnitude is **USD-8**, not native token units.
 
 ## Run locally
 
@@ -67,7 +68,8 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 3. Open **MetaMask Simulator** → Send USDC **A→B**, then **B→C**
 4. Swap with **B** → FEE_OVERRIDE 8%; with **C** → FEE_OVERRIDE 3%
 5. Send USDC **A→D**, connect **D** → swap → FEE_OVERRIDE 8% (inflow / stale score 0); keeper catch-up → score 65
-6. From **Fees**, advance → **AML stats** → **Opinion** → **Event**
+6. A brand-new wallet with no score (Wallet E) pays **3%** under $1,000, **8%** from $1,000 to $24,999, and **reverts** at $25,000 (or if the price feed is missing/stale)
+7. From **Fees**, advance → **AML stats** → **Opinion** → **Event**
 
 ## Data source
 
@@ -78,7 +80,7 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 ## Related docs (repo root)
 
 - `docs/Whitepaper.md` — product + AccessManager roles (§3.5)
-- `docs/Use_Case.md` — A/B/C/D demo narrative
+- `docs/Use_Case.md` — A/B/C/D + Wallet E (USD magnitude) demo narrative
 - `contracts/README.md` — Foundry layout (`src/contracts/…`, `script/Deploy.sol`)
 - `apps/api/README.md` — ledger + COA + on-chain `updateScore` (`_ORACLE_KEEPER`)
 
