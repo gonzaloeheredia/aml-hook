@@ -32,7 +32,17 @@ export function withComplianceOverlay(
   base: DemoCase,
   pack: ApiCompliancePack,
 ): DemoCase {
-  const { decision, score, appliedFeeBps, hopDistance, originId } = pack;
+  const usdcIn = Math.min(base.activity.amountUsd, pack.usdc);
+  const unknown =
+    pack.latencyMitigation === "SCORE_NEVER_WRITTEN" ||
+    pack.latencyMitigation === "MAGNITUDE_QUOTE_FAILED" ||
+    base.id === "E";
+  const decision = pack.decision;
+  const score = pack.score;
+  const appliedFeeBps = pack.appliedFeeBps;
+  const hookOutput = pack.hookOutput;
+  const hopDistance = pack.hopDistance;
+  const originId = pack.originId;
   const feeMultiplier =
     decision === "block"
       ? 0
@@ -40,7 +50,6 @@ export function withComplianceOverlay(
         ? 1
         : appliedFeeBps / base.baseFeeBps;
 
-  const usdcIn = Math.min(base.activity.amountUsd, pack.usdc);
   const ethOut =
     decision === "block" ? 0 : ethOutFromSwap(usdcIn, appliedFeeBps);
 
@@ -51,14 +60,25 @@ export function withComplianceOverlay(
         ? "Fee override"
         : "Allow";
 
-  const inflow = pack.latencyMitigation === "INFLOW_HEURISTIC";
-  const hopTag = inflow
-    ? "Inflow heuristic"
-    : hopDistance == null
-      ? "Clean path"
-      : hopDistance === 0
-        ? "Exploit source"
-        : `${hopDistance}-hop decay`;
+  const mitigation = pack.latencyMitigation;
+  const hopTag =
+    mitigation === "MAGNITUDE_QUOTE_FAILED"
+      ? "No price feed"
+      : mitigation === "INFLOW_MAGNITUDE"
+        ? "Inflow magnitude"
+        : mitigation === "STALE_WITH_POOL_ACTIVITY"
+          ? "Stale + activity"
+          : mitigation === "ACTIVITY_WINDOW_CAP"
+            ? "Activity window"
+            : unknown
+              ? "Unknown wallet"
+              : mitigation === "INFLOW_HEURISTIC"
+                ? "Inflow heuristic"
+                : hopDistance == null
+                  ? "Clean path"
+                  : hopDistance === 0
+                    ? "Exploit source"
+                    : `${hopDistance}-hop decay`;
 
   return {
     ...base,
@@ -80,13 +100,24 @@ export function withComplianceOverlay(
       totalUsd: pack.usdc + pack.eth * ETH_USD,
       amountUsd: usdcIn,
     },
+    latencyMitigation: pack.latencyMitigation,
     typology: pack.exploitConfirmed
       ? "Exploit cash-out"
-      : inflow
-        ? "Oracle latency · inflow"
-        : hopDistance
-          ? "N-hop propagation"
-          : "None",
+      : mitigation === "MAGNITUDE_QUOTE_FAILED"
+        ? "Price feed fail-closed"
+        : mitigation === "INFLOW_MAGNITUDE"
+          ? "Inflow magnitude"
+          : mitigation === "STALE_WITH_POOL_ACTIVITY"
+            ? "Stale score · activity"
+            : mitigation === "ACTIVITY_WINDOW_CAP"
+              ? "Activity window"
+              : unknown
+                ? "Unknown wallet"
+                : mitigation === "INFLOW_HEURISTIC"
+                  ? "Oracle latency · inflow"
+                  : hopDistance
+                    ? "N-hop propagation"
+                    : "None",
     flowPath: decision,
     sellToken: "USDC",
     buyToken: "ETH",
@@ -131,7 +162,7 @@ export function withComplianceOverlay(
     tags: [
       { label: hopTag, tone: decision === "allow" ? "ok" : "warn" },
       {
-        label: pack.hookOutput,
+        label: hookOutput,
         tone:
           decision === "block"
             ? "bad"
@@ -143,7 +174,7 @@ export function withComplianceOverlay(
     agent: {
       ...base.agent,
       status: pack.agent.status,
-      hookOutput: pack.hookOutput,
+      hookOutput,
       documentType: pack.agent.documentType,
       confidence: pack.agent.confidence,
       humanReview: pack.agent.humanReview,

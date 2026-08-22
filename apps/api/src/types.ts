@@ -1,17 +1,29 @@
 /**
  * Shared types for the in-memory AML Hook demo API.
- * Mirrors the frontend use-case model (A exploit · B/C N-hop · D latency/inflow).
+ * Mirrors the frontend use-case model:
+ * A exploit · B/C N-hop · D published score 0 · E unknown (never written).
  */
 
 /** Demo wallet identifiers used across the use case. */
-export type WalletId = "A" | "B" | "C" | "D";
+export type WalletId = "A" | "B" | "C" | "D" | "E";
 
 /** §3.8 latency mitigation reason when ALLOW is elevated to FEE_OVERRIDE. */
 export type LatencyMitigation =
   | "INFLOW_HEURISTIC"
+  | "INFLOW_MAGNITUDE"
   | "SCORE_NEVER_WRITTEN"
   | "STALE_WITH_POOL_ACTIVITY"
   | "ACTIVITY_WINDOW_CAP"
+  | "MAGNITUDE_QUOTE_FAILED"
+  | null;
+
+/** On-chain-style revert selector when beforeSwap denies the swap. */
+export type RevertReason =
+  | "WalletBlocked"
+  | "UnscoredMagnitudeBlocked"
+  | "InflowMagnitudeBlocked"
+  | "MagnitudeQuoteFailed"
+  | "SanctionHit"
   | null;
 
 /** Internal ternary decision used by scoring / settlement. */
@@ -31,6 +43,8 @@ export type Wallet = {
   hopDistance: number | null;
   originId: WalletId | null;
   exploitConfirmed: boolean;
+  /** True when the oracle has never published a row (Wallet E). */
+  neverScored: boolean;
 };
 
 /** Record of a completed P2P USDC transfer. */
@@ -107,6 +121,11 @@ export type CompliancePack = {
   keeperPending: boolean;
   /** §3.8 floor applied on the current quote path, if any. */
   latencyMitigation: LatencyMitigation;
+  revertReason: RevertReason;
+  assessedUsd: number;
+  opsInWindow: number;
+  isStale: boolean;
+  priceFeedBound: boolean;
   summary: string[];
   agent: {
     status: string;
@@ -154,4 +173,9 @@ export type SwapQuote = {
   oracleScore: number;
   keeperPending: boolean;
   latencyMitigation: LatencyMitigation;
+  revertReason: RevertReason;
+  assessedUsd: number;
+  opsInWindow: number;
+  isStale: boolean;
+  priceFeedBound: boolean;
 };

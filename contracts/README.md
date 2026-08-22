@@ -47,7 +47,7 @@ User → Router → PoolManager → AmlHook          (Uniswap callbacks only)
 | **ComplianceOracle** | Score / hop / origin / `feeBps` / `updatedAt`. `_ORACLE_KEEPER` submits `updateScore`; a distinct **attestor** ECDSA-signs `attestationHash` (wallet, score, hop, origin, feeBps, updatedAt, chainid). Missing hop/origin in the sig is rejected. |
 | **RiskPolicy** | Ternary bands + §3.8 floors (stale+activity, significant inflow) + never-scored USD bands (3% / 8% / REVERT at $1,000 / $25,000). Pure — no Chainlink call. |
 | **AmlHook** | Uniswap callbacks only. Must call `_beginSwap` then `_endSwap` in that order. |
-| **AmlHookLogic** | Subject resolve, L1→L3, mitigations A–D, Chainlink USD-8 quotes (`priceFeeds`). `_HOOK_GOVERNOR` retunes thresholds and feeds; cannot invent scores. |
+| **AmlHookLogic** | Subject resolve, L1→L3, mitigations A–D, Chainlink USD-8 quotes (`priceFeeds`). `_HOOK_GOVERNOR` retunes thresholds, feeds, and Mitigation C (`setActivityWindow`); cannot invent scores. |
 | **AmlHookSettlement** | Differential take + escrow deposit / `failedDeposits` / claim / retry. Does not decide risk. |
 | **FeeEscrow** | 48h hold of the FEE_OVERRIDE differential only. Own owner / keepers / depositors (not AccessManager). Owner is `ADMIN` / `FEE_ESCROW_OWNER` from genesis (Safe in prod), not the deploying EOA. Hook is wired as depositor via one-shot `bootstrapDepositor` (no 24h wait). Later depositor changes: 24h. Add keeper: 24h; revoke keeper: immediate. Sanction confirmed → blocked; owner `recoverBlocked` waits `min(blockedRecoveryDelay, 7 days)`. Else `lpCompensationFund`. Never the pool. |
 
@@ -105,15 +105,15 @@ Mitigations A–D elevate **ALLOW → FEE_OVERRIDE** (never soften an existing R
 | A fail-closed | Never-scored and no Chainlink feed, stale feed, or bad answer | **REVERT** (`MagnitudeQuoteFailed`) |
 | B | Stale score + pool activity in window | FEE_OVERRIDE |
 | C | Activity-window cap (`maxOpsInWindow`) | FEE_OVERRIDE |
-| D | Inbound tokens vs `lastKnownBalance` while oracle predates baseline | Relative (> `inflowThresholdBps`, default 50%) → FEE_OVERRIDE. Absolute (inbound **USD** ≥ $25,000) → **REVERT** `InflowMagnitudeBlocked`. **Skipped** when `updatedAt == 0` or there is no baseline |
+| D | Inbound vs `lastKnownBalance` while oracle predates baseline, quoted to USD-8 | Relative (inbound USD > 50% of current USD) → FEE_OVERRIDE differential. Absolute (inbound USD ≥ $25,000) → **REVERT** `InflowMagnitudeBlocked`. **Skipped** when `updatedAt == 0` or there is no baseline |
 
-Defaults: `unscoredFeeThreshold = 1_000e8` ($1,000); `unscoredRevertThreshold = 25_000e8` ($25,000); `priceStalenessThreshold = 3600`. Those floors are **USD with 8 decimals** (Chainlink). Governor binds `token => AggregatorV3Interface` via `setPriceFeed` (`address(0)` = ETH/USD). Missing or stale feed is fail-closed. This adds an external-oracle surface (manipulation, heartbeat lag) that native-unit floors did not have. Revert threshold `0` disables the hard block.
+Defaults: `unscoredFeeThreshold = 1_000e8` ($1,000); `unscoredRevertThreshold = 25_000e8` ($25,000); `priceStalenessThreshold = 3600`; `activityWindow = 1 hour`; `maxOpsInWindow = 3`. Those USD floors are **8 decimals** (Chainlink). Governor binds `token => AggregatorV3Interface` via `setPriceFeed` (`address(0)` = ETH/USD) and retunes Mitigation C via `setActivityWindow` (60s–7d, 1–100 ops). Missing or stale feed is fail-closed. This adds an external-oracle surface (manipulation, heartbeat lag) that native-unit floors did not have. Revert threshold `0` disables the hard block.
 
 Published score 0 (`updatedAt != 0`) is confirmed-clean: magnitude REVERT does **not** apply to swap size of already-held funds.
 
 Window volume is accumulated in USD-8 inside Mitigation C's activity window so ETH and USDC are not added as raw units. Small swaps that sum over $25,000 still REVERT (structuring).
 
-Product paths: Wallet D (inflow) and never-scored large first swap in [`docs/Use_Case.md`](../docs/Use_Case.md) §7–§7.1.
+Product paths: Wallet D (inflow, B, C, $25k) and Wallet E (USD bands, window, feed) in [`docs/Use_Case.md`](../docs/Use_Case.md).
 
 REVERT does not emit a lasting log. Index custom errors on reverted txs: `SanctionHit`, `WalletBlocked` (score ≥ 71), `UnscoredMagnitudeBlocked`, `InflowMagnitudeBlocked`, `MagnitudeQuoteFailed`.
 

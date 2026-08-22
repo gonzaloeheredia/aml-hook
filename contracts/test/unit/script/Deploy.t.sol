@@ -75,13 +75,17 @@ contract UnitDeployTest is Helpers {
         vm.prank(oracleKeeper);
         complianceOracle.updateScore(account, 65, 1, address(0), 0, _scoreSig(account, 65, 1, address(0), 0));
 
-        vm.prank(hookGovernor);
+        vm.startPrank(hookGovernor);
         hook.setStalenessThreshold(120);
+        hook.setActivityWindow(2 hours, 5);
+        vm.stopPrank();
 
         // It grants each role exactly the writes it needs
         assertTrue(sanctionRegistry.isSanctioned(account));
         assertEq(complianceOracle.getScore(account), 65);
         assertEq(hook.stalenessThreshold(), 120);
+        assertEq(hook.activityWindow(), 2 hours);
+        assertEq(hook.maxOpsInWindow(), 5);
     }
 
     /// @dev The separation only holds if the wiring made it hold; this is the assertion the script encodes.

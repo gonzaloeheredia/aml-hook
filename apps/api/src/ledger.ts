@@ -17,7 +17,7 @@ import type { Decision, TransferRecord, Wallet, WalletId } from "./types.js";
  * Applies a P2P USDC transfer between two wallets.
  * Risk/score changes ONLY here — pool swaps never raise behavioral score.
  *
- * Hop rules (B, C, D start clean / green / score 0):
+ * Hop rules (B, C, D start clean / published score 0; E stays unknown):
  * - Receive from exploit A → hop 1 → score ≈ 65 → fee 8%
  * - Receive from a 1-hop peer (e.g. tainted B→C or C→B) → hop 2 → score ≈ 42 → fee 3%
  * - A second inbound from A keeps the closer hop (min); hop 1 wins over hop 2
@@ -40,6 +40,26 @@ export function applyTransfer(
   const recipient = wallets[to];
   if (!sender || !recipient) return null;
   if (sender.usdc < amount) return null;
+
+  if (recipient.neverScored) {
+    const next: Record<WalletId, Wallet> = {
+      ...wallets,
+      [from]: { ...sender, usdc: sender.usdc - amount },
+      [to]: { ...recipient, usdc: recipient.usdc + amount },
+    };
+    return {
+      wallets: next,
+      record: {
+        id: `tx-${Date.now()}`,
+        from,
+        to,
+        amountUsd: amount,
+        at: new Date().toISOString(),
+        resultingScore: 0,
+        hopDistance: 0,
+      },
+    };
+  }
 
   const senderIsTainted = sender.exploitConfirmed || sender.hopDistance != null;
   const incomingHop = senderIsTainted ? (sender.hopDistance ?? 0) + 1 : null;

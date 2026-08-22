@@ -25,6 +25,8 @@ import {
   postSwap,
   postTransfer,
   postReset,
+  postDemoElapse,
+  postDemoPriceFeed,
   walletsRecord,
   type ApiCompliancePack,
 } from "@/lib/api";
@@ -33,7 +35,9 @@ import {
   applyTransfer,
   caseIdForSimWallet,
   ethOutFromSwap,
+  elapseDemo,
   initialSimWallets,
+  setPriceFeedBound,
   type SimWallet,
   type SimWalletId,
   type TransferRecord,
@@ -57,6 +61,7 @@ const EMPTY_STATS: Record<DemoCaseId, SwapStats> = {
   B: { count: 0, tradedUsd: 0, tradedEth: 0 },
   C: { count: 0, tradedUsd: 0, tradedEth: 0 },
   D: { count: 0, tradedUsd: 0, tradedEth: 0 },
+  E: { count: 0, tradedUsd: 0, tradedEth: 0 },
 };
 
 type ApiStatus = "connecting" | "online" | "offline";
@@ -106,6 +111,11 @@ export default function HomePage() {
   const [apiStatus, setApiStatus] = useState<ApiStatus>("connecting");
   const [apiError, setApiError] = useState<string | null>(null);
   const [compliance, setCompliance] = useState<ApiCompliancePack | null>(null);
+  const [swapAmountUsd, setSwapAmountUsd] = useState(
+    DEMO_CASES.A.activity.amountUsd,
+  );
+  const [priceFeedBound, setFeedBoundUi] = useState(true);
+  const [demoTick, setDemoTick] = useState(0);
 
   const wheelLockRef = useRef(false);
   const feesHoldRef = useRef(false);
@@ -115,7 +125,13 @@ export default function HomePage() {
   unlockedRef.current = unlockedThrough;
 
   const liveStats = swapStats[caseId];
-  const baseCase = DEMO_CASES[caseId];
+  const baseCase = useMemo(() => {
+    const raw = DEMO_CASES[caseId];
+    return {
+      ...raw,
+      activity: { ...raw.activity, amountUsd: swapAmountUsd },
+    };
+  }, [caseId, swapAmountUsd]);
 
   /** Prefer backend compliance pack; fall back to local hop overlay if offline. */
   const demoCase = useMemo(() => {
@@ -123,7 +139,7 @@ export default function HomePage() {
       return withComplianceOverlay(baseCase, compliance);
     }
     return withHopOverlay(baseCase, simWallets[caseId]);
-  }, [baseCase, caseId, compliance, simWallets]);
+  }, [baseCase, caseId, compliance, simWallets, demoTick]);
 
   /**
    * Advances the guided stage and expands the unlock frontier.
@@ -152,11 +168,14 @@ export default function HomePage() {
   /**
    * Pulls live opinion for the active wallet from the API.
    */
-  const refreshCompliance = useCallback(async (id: DemoCaseId) => {
-    const pack = await fetchCompliance(id);
-    setCompliance(pack);
-    return pack;
-  }, []);
+  const refreshCompliance = useCallback(
+    async (id: DemoCaseId, amountUsd?: number) => {
+      const pack = await fetchCompliance(id, amountUsd ?? swapAmountUsd);
+      setCompliance(pack);
+      return pack;
+    },
+    [swapAmountUsd],
+  );
 
   /** Bootstrap API connection on mount. */
   useEffect(() => {
@@ -211,6 +230,7 @@ export default function HomePage() {
     const wallet = simWallets[id];
     setCaseId(id);
     setSimActiveId(id);
+    setSwapAmountUsd(DEMO_CASES[id].activity.amountUsd);
     setAddress(wallet.address);
     setConnected(true);
     setRunning(false);
@@ -223,6 +243,7 @@ export default function HomePage() {
     const wallet = simWallets[id];
     setSimActiveId(id);
     setCaseId(mapped);
+    setSwapAmountUsd(DEMO_CASES[mapped].activity.amountUsd);
     setAddress(wallet.address);
     setConnected(true);
     setRunning(false);
@@ -261,7 +282,7 @@ export default function HomePage() {
   };
 
   /**
-   * Reseeds A–D to the use-case baseline and returns the demo to Swap.
+   * Reseeds A–E to the use-case baseline and returns the demo to Swap.
    */
   const handleRestartData = useCallback(async () => {
     setRunning(false);
@@ -273,6 +294,8 @@ export default function HomePage() {
     setStage("swap");
     setUnlockedThrough("swap");
     setAuditRevealKey((k) => k + 1);
+    setFeedBoundUi(true);
+    setDemoTick((n) => n + 1);
     window.scrollTo({ top: 0, behavior: "smooth" });
 
     if (apiStatus === "online") {
@@ -285,6 +308,7 @@ export default function HomePage() {
         );
         const pack = await refreshCompliance(caseId);
         setAddress((prev) => (connected ? pack.address : prev));
+        setPriceFeedBound(true);
         setApiError(null);
         return;
       } catch (err) {
@@ -296,7 +320,49 @@ export default function HomePage() {
 
     setSimWallets(initialSimWallets());
     setCompliance(null);
+    setFeedBoundUi(true);
+    setDemoTick((n) => n + 1);
   }, [apiStatus, caseId, connected, refreshCompliance]);
+
+  const handleAdvanceClock = useCallback(async () => {
+    if (apiStatus === "online") {
+      try {
+        await postDemoElapse(121);
+        await refreshCompliance(caseId);
+        setApiError(null);
+      } catch (err) {
+        setApiError(
+          err instanceof ApiError ? err.message : "Failed to advance clock",
+        );
+      }
+    } else {
+      elapseDemo(121_000);
+      setCompliance(null);
+    }
+    setDemoTick((n) => n + 1);
+  }, [apiStatus, caseId, refreshCompliance]);
+
+  const handleTogglePriceFeed = useCallback(async () => {
+    const next = !priceFeedBound;
+    if (apiStatus === "online") {
+      try {
+        const res = await postDemoPriceFeed(next);
+        setPriceFeedBound(res.priceFeedBound);
+        setFeedBoundUi(res.priceFeedBound);
+        await refreshCompliance(caseId);
+        setApiError(null);
+      } catch (err) {
+        setApiError(
+          err instanceof ApiError ? err.message : "Failed to toggle price feed",
+        );
+      }
+    } else {
+      setPriceFeedBound(next);
+      setFeedBoundUi(next);
+      setCompliance(null);
+    }
+    setDemoTick((n) => n + 1);
+  }, [apiStatus, caseId, priceFeedBound, refreshCompliance]);
 
   const handleSimulate = () => {
     if (!connected || running) return;
@@ -440,6 +506,7 @@ export default function HomePage() {
     }
     setCaseId(id);
     setSimActiveId(id);
+    setSwapAmountUsd(DEMO_CASES[id].activity.amountUsd);
     setAddress(simWallets[id].address);
     setRunning(false);
     // Keep unlock frontier, but return to Swap for a fresh run
@@ -765,6 +832,14 @@ export default function HomePage() {
                       walletEth={simWallets[caseId].eth}
                       onConnectClick={() => setModalOpen(true)}
                       onSimulate={handleSimulate}
+                      onAmountChange={setSwapAmountUsd}
+                      priceFeedBound={priceFeedBound}
+                      onAdvanceClock={() => {
+                        void handleAdvanceClock();
+                      }}
+                      onTogglePriceFeed={() => {
+                        void handleTogglePriceFeed();
+                      }}
                     />
                   </div>
                 </StageMorph>

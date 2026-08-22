@@ -44,13 +44,14 @@ contract UnitAmlHookLogicTest is Helpers {
         oracleSelectors[0] = ComplianceOracle.updateScore.selector;
         _wireRole(accessManager, owner, address(complianceOracle), oracleSelectors, Roles._ORACLE_KEEPER, keeper);
 
-        bytes4[] memory hookSelectors = new bytes4[](6);
+        bytes4[] memory hookSelectors = new bytes4[](7);
         hookSelectors[0] = AmlHookLogic.setStalenessThreshold.selector;
         hookSelectors[1] = AmlHookLogic.setInflowThresholdBps.selector;
         hookSelectors[2] = AmlHookLogic.setTrustedRouter.selector;
         hookSelectors[3] = AmlHookLogic.setUnscoredThresholds.selector;
         hookSelectors[4] = AmlHookLogic.setPriceFeed.selector;
         hookSelectors[5] = AmlHookLogic.setPriceStalenessThreshold.selector;
+        hookSelectors[6] = AmlHookLogic.setActivityWindow.selector;
         _wireRole(accessManager, owner, address(harness), hookSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
 
         vm.warp(1_000_000);
@@ -439,6 +440,36 @@ contract UnitAmlHookLogicTest is Helpers {
         vm.prank(hookGovernor);
         vm.expectRevert(AmlHookLogic.UnscoredThresholdsInvalid.selector);
         harness.setUnscoredThresholds(25_000e8, 25_000e8);
+    }
+
+    function test_SetActivityWindow_RestrictedToGovernor() external {
+        assertEq(harness.activityWindow(), 1000);
+        assertEq(harness.maxOpsInWindow(), 3);
+
+        vm.prank(hookGovernor);
+        harness.setActivityWindow(2 hours, 5);
+        assertEq(harness.activityWindow(), 2 hours);
+        assertEq(harness.maxOpsInWindow(), 5);
+
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
+        harness.setActivityWindow(1 hours, 3);
+    }
+
+    function test_SetActivityWindow_RevertsOutOfRange() external {
+        vm.startPrank(hookGovernor);
+        vm.expectRevert(AmlHookLogic.ActivityWindowInvalid.selector);
+        harness.setActivityWindow(59, 3);
+
+        vm.expectRevert(AmlHookLogic.ActivityWindowInvalid.selector);
+        harness.setActivityWindow(uint64(7 days) + 1, 3);
+
+        vm.expectRevert(AmlHookLogic.MaxOpsInWindowInvalid.selector);
+        harness.setActivityWindow(1 hours, 0);
+
+        vm.expectRevert(AmlHookLogic.MaxOpsInWindowInvalid.selector);
+        harness.setActivityWindow(1 hours, 101);
+        vm.stopPrank();
     }
 
     function test_UpdateKnownBalance_SkipsWithinMinBaselineInterval() external {

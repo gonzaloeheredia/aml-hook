@@ -5,8 +5,8 @@
  * REAL optional: keeper publishes + scoreSource=onchain reads ComplianceOracle.
  * Check GET /health → publisher.mode (`mock`|`rpc`) and scoreSource (`memory`|`onchain`).
  *
- * Wallet D: A→D defers keeper updateScore; D swap applies §3.8 inflow FEE_OVERRIDE 8%,
- * then catch-up publishes decay score ~65.
+ * Wallet D: published score 0 (ALLOW). Clean C→D is inflow (no hop). Tainted inbound defers keeper.
+ * Wallet E: never written — USD bands 3% / 8% / REVERT.
  */
 
 import type { FastifyInstance } from "fastify";
@@ -30,18 +30,23 @@ import { preferOnChainScore } from "./oracle/onchainReader.js";
 import {
   appendEvent,
   appendTransfer,
+  demoNow,
+  elapseDemo,
   getStore,
   getWallet,
+  isPriceFeedBound,
   listEvents,
   listTransfers,
   listWallets,
+  recordAfterSwap,
   resetStore,
   setLastKnownUsdc,
+  setPriceFeedBound,
   setWallets,
 } from "./store.js";
 import type { WalletId } from "./types.js";
 
-const WALLET_IDS_HINT = "A, B, C, or D";
+const WALLET_IDS_HINT = "A, B, C, D, or E";
 
 /** Body shape for POST /transfers. */
 type TransferBody = {
@@ -77,7 +82,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     scoreSource: preferOnChainScore() ? "onchain" : "memory",
     publisher: getPublisherStatus(),
     persistence: "none — state resets on process restart",
-    wallets: ["A", "B", "C", "D"],
+    wallets: ["A", "B", "C", "D", "E"],
+    demo: {
+      now: demoNow(),
+      priceFeedBound: isPriceFeedBound(),
+    },
   }));
 
   /** Lists all wallets with live oracle score, decision, and applied fee. */
@@ -101,7 +110,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { wallets };
   });
 
-  /** Returns one wallet (A–D) plus a current swap quote. */
+  /** Returns one wallet (A–E) plus a current swap quote. */
   app.get<{ Params: { id: string } }>("/wallets/:id", async (req, reply) => {
     const id = req.params.id.toUpperCase();
     if (!isWalletId(id)) {
@@ -132,7 +141,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
    * Returns the live compliance opinion for a wallet
    * (oracle COA → technical opinion + SAR annex + decision record).
    */
-  app.get<{ Params: { id: string } }>(
+  app.get<{ Params: { id: string }; Querystring: { amountUsd?: string } }>(
     "/wallets/:id/compliance",
     async (req, reply) => {
       const id = req.params.id.toUpperCase();
@@ -143,7 +152,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       if (!wallet) {
         return reply.code(404).send({ error: "Wallet not found" });
       }
-      return await buildCompliancePack(wallet);
+      const amount = Number(req.query?.amountUsd);
+      return await buildCompliancePack(
+        wallet,
+        Number.isFinite(amount) && amount > 0 ? amount : undefined,
+      );
     },
   );
 
@@ -319,7 +332,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const oracle = await reevaluateAfterBlock(idRaw);
       return {
         settled: false,
-        reason: "REVERT — beforeSwap fail-closed",
+        reason: quote.revertReason ?? "REVERT — beforeSwap fail-closed",
         quote,
         wallet,
         oracle: oracle.scoreResult,
@@ -349,6 +362,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     setWallets(next);
     const updated = next[idRaw];
     setLastKnownUsdc(idRaw, updated.usdc);
+    recordAfterSwap(idRaw, quote.usdcIn);
 
     appendEvent({
       id: `ev-${Date.now()}`,
@@ -394,7 +408,27 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  /** Reseeds A–D, clears history, and reseeds oracle scores. */
+  /**
+   * Advance the demo clock. 121 seconds makes a published score stale (Mitigation B)
+   * if the wallet already has a pool op in the hour.
+   */
+  app.post<{ Body: { seconds?: number } }>("/demo/elapse", async (req) => {
+    const seconds = Number(req.body?.seconds ?? 121);
+    const now = elapseDemo((Number.isFinite(seconds) ? seconds : 121) * 1000);
+    return { ok: true, now, elapsedSeconds: Number.isFinite(seconds) ? seconds : 121 };
+  });
+
+  /**
+   * Bind or unbind the demo USDC/USD feed. Unbound + unknown (E) or D inflow USD
+   * fail-closes with MagnitudeQuoteFailed.
+   */
+  app.post<{ Body: { bound?: boolean } }>("/demo/price-feed", async (req) => {
+    const bound = req.body?.bound !== false;
+    setPriceFeedBound(bound);
+    return { ok: true, priceFeedBound: isPriceFeedBound() };
+  });
+
+  /** Reseeds A–E, clears history, and reseeds oracle scores (E stays unpublished). */
   app.post("/reset", async () => {
     const store = resetStore();
     await resetOracle();
