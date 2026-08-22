@@ -40,6 +40,11 @@ export type PreviewResult = {
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 
+/** Convert a token amount to nominal USD using the token's decimals (not hardcoded 1e18). */
+export function tokenAmountToUsd(amount: bigint, tokenDecimals: number): number {
+  return Number(amount) / 10 ** tokenDecimals;
+}
+
 function toDecision(d: number): Decision {
   if (d === 1) return "fee_override";
   if (d === 2) return "block";
@@ -233,10 +238,9 @@ async function inferFloor(
       functionName: "decimals",
     }).catch(() => 18 as number),
   ]);
-  const divisor = 10 ** tokenDecimals;
   const inflowWei = bal > lastKnown ? bal - lastKnown : 0n;
-  const inflowUsd = Number(inflowWei) / divisor;
-  const currentUsd = Number(bal) / divisor;
+  const inflowUsd = tokenAmountToUsd(inflowWei, tokenDecimals);
+  const currentUsd = tokenAmountToUsd(bal, tokenDecimals);
   const deltaBps =
     currentUsd > 0 ? Math.floor((inflowUsd * 10_000) / currentUsd) : 0;
   const hasSignificantInflow = deltaBps > Number(inflowBps);

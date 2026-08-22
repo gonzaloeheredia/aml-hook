@@ -405,6 +405,27 @@ contract UnitAmlHookLogicTest is Helpers {
         harness.evaluate(walletA, address(token), 1_000 ether);
     }
 
+    function test_UnscoredSixDecimalToken_UsesOnChainDecimalsForUsdBands() external {
+        MockERC20 usdc = new MockERC20();
+        usdc.setDecimals(6);
+        vm.prank(hookGovernor);
+        harness.setPriceFeed(address(usdc), address(feed));
+
+        // 999 * 10^6 at $1 → dust band 3%. 1_000 * 10^6 → mid band 8%.
+        (HookDecision dust, uint24 dustFee,) = harness.evaluate(walletA, address(usdc), 999 * 10 ** 6);
+        assertEq(uint8(dust), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(dustFee, 300);
+
+        (HookDecision mid, uint24 midFee,) = harness.evaluate(walletA, address(usdc), 1_000 * 10 ** 6);
+        assertEq(uint8(mid), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(midFee, 800);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(AmlHookLogic.UnscoredMagnitudeBlocked.selector, walletA, USD_25000, USD_25000)
+        );
+        harness.evaluate(walletA, address(usdc), 25_000 * 10 ** 6);
+    }
+
     function test_UnscoredStructuring_SumsUsdAcrossTokens() external {
         MockERC20 other = new MockERC20();
         vm.prank(hookGovernor);

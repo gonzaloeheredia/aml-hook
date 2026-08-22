@@ -7,6 +7,7 @@ import {FeeBps} from "libraries/FeeBps.sol";
 import {HookDecision} from "libraries/HookDecision.sol";
 import {Roles} from "libraries/Roles.sol";
 import {UniversalRouters} from "libraries/UniversalRouters.sol";
+import {UsdQuote} from "libraries/UsdQuote.sol";
 
 /// @notice Unit coverage for `src/libraries/` (constants / enum ordinals must not drift).
 contract UnitLibrariesTest is Test {
@@ -37,6 +38,24 @@ contract UnitLibrariesTest is Test {
         assertEq(uint8(HookDecision.ALLOW), 0);
         assertEq(uint8(HookDecision.FEE_OVERRIDE), 1);
         assertEq(uint8(HookDecision.REVERT), 2);
+    }
+
+    function test_UsdQuote_EighteenDecimalsMatchesOneToOneUsd() external pure {
+        // 1e18 tokens at $1 (1e8, 8 feed decimals) → $1 in USD-8.
+        assertEq(UsdQuote.toUsd8(1e18, 18, 1e8, 8), 1e8);
+        assertEq(UsdQuote.toUsd8(1_000e18, 18, 1e8, 8), 1_000e8);
+    }
+
+    function test_UsdQuote_SixDecimalsMatchesOneToOneUsd() external pure {
+        // 1e6 tokens (USDC-like) at $1 → $1 in USD-8. Same USD as 1e18 of an 18-dec token.
+        assertEq(UsdQuote.toUsd8(1e6, 6, 1e8, 8), 1e8);
+        assertEq(UsdQuote.toUsd8(1_000e6, 6, 1e8, 8), 1_000e8);
+        assertEq(UsdQuote.toUsd8(1e6, 6, 1e8, 8), UsdQuote.toUsd8(1e18, 18, 1e8, 8));
+    }
+
+    function test_UsdQuote_ZeroAmountOrPriceIsZero() external pure {
+        assertEq(UsdQuote.toUsd8(0, 18, 1e8, 8), 0);
+        assertEq(UsdQuote.toUsd8(1e18, 18, 0, 8), 0);
     }
 
     function test_UniversalRouters_AppUniswapOrgAddresses() external pure {

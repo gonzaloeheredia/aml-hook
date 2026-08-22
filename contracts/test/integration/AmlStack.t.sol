@@ -12,6 +12,7 @@ import {HookDecision} from "libraries/HookDecision.sol";
 import {Roles} from "libraries/Roles.sol";
 import {AmlHookHarness} from "../unit/hooks/AmlHookHarness.sol";
 import {MockAggregatorV3} from "test/mocks/MockAggregatorV3.sol";
+import {MockERC20} from "test/mocks/MockERC20.sol";
 import {Helpers} from "test/utils/Helpers.t.sol";
 
 contract IntegrationAmlStackTest is Helpers {
@@ -153,6 +154,40 @@ contract IntegrationAmlStackTest is Helpers {
 
         vm.expectRevert(abi.encodeWithSelector(AmlHookLogic.SanctionHit.selector, walletB));
         harness.evaluate(walletB);
+    }
+
+    function test_UnscoredUsdBands_AcrossOraclePolicyAndHook() external {
+        MockERC20 token = new MockERC20();
+        MockAggregatorV3 feed = new MockAggregatorV3();
+        feed.setRound(1e8, block.timestamp);
+        vm.prank(hookGovernor);
+        harness.setPriceFeed(address(token), address(feed));
+
+        (HookDecision dust, uint24 dustFee,) = harness.evaluate(walletC, address(token), 999 ether);
+        assertEq(uint8(dust), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(dustFee, 300);
+
+        (HookDecision mid, uint24 midFee,) = harness.evaluate(walletC, address(token), 1_000 ether);
+        assertEq(uint8(mid), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(midFee, 800);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(AmlHookLogic.UnscoredMagnitudeBlocked.selector, walletC, 25_000e8, 25_000e8)
+        );
+        harness.evaluate(walletC, address(token), 25_000 ether);
+    }
+
+    function test_SixDecimalToken_SameUsdBandsAsEighteenDecimal() external {
+        MockERC20 usdc = new MockERC20();
+        usdc.setDecimals(6);
+        MockAggregatorV3 feed = new MockAggregatorV3();
+        feed.setRound(1e8, block.timestamp);
+        vm.prank(hookGovernor);
+        harness.setPriceFeed(address(usdc), address(feed));
+
+        (HookDecision mid, uint24 fee,) = harness.evaluate(walletC, address(usdc), 1_000 * 10 ** 6);
+        assertEq(uint8(mid), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, 800);
     }
 
     function test_EvaluateReturnsRiskSnapshot() external {

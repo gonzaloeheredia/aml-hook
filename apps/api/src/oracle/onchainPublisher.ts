@@ -14,6 +14,11 @@ import type { ScorePublishResult, ScoreResult } from "./types.js";
 
 export type PublishMode = "rpc";
 
+/** On-chain FeeBps.MAX_OVERRIDE is 1_000. Keeper writes cannot exceed that. */
+export function capPublishedFeeBps(recommendedFeeBps: number): number {
+  return Math.min(1_000, Math.max(0, Math.round(recommendedFeeBps)));
+}
+
 const publishes: ScorePublishResult[] = [];
 
 export function getPublishMode(): PublishMode {
@@ -54,10 +59,7 @@ export async function publishScoreToChain(
   const hopDistance =
     wallet.hopDistance == null ? 0 : Math.min(255, Math.max(0, wallet.hopDistance));
   const origin = resolveOriginAddress(wallet);
-  const feeBps = Math.min(
-    1_000,
-    Math.max(0, Math.round(score.recommendedFeeBps)),
-  );
+  const feeBps = capPublishedFeeBps(score.recommendedFeeBps);
   const base = {
     walletId: wallet.id,
     address: wallet.address,

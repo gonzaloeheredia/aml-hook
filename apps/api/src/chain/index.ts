@@ -3,7 +3,13 @@ export { publishScore, signAttestation } from "./attestor.js";
 export { chainHealth, requireChain } from "./clients.js";
 export { getChainConfig, clearChainConfig } from "./config.js";
 export { ChainUnavailableError, isChainUnavailable } from "./errors.js";
-export { previewSwap, readRisk, type PreviewResult, type ChainRisk } from "./evaluate.js";
+export {
+  previewSwap,
+  readRisk,
+  tokenAmountToUsd,
+  type PreviewResult,
+  type ChainRisk,
+} from "./evaluate.js";
 export {
   listEscrows,
   resolveCheckpoint2,
