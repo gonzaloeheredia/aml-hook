@@ -17,15 +17,15 @@ script/                         test/unit/script/
 
 | Folder | Covers |
 |---|---|
-| `unit/escrow/` | `FeeEscrow` lifecycle + admin |
+| `unit/escrow/` | `FeeEscrow` lifecycle + admin + fuzz (clean default → LP fund; blocked recover → reserve) |
 | `unit/external/` | Official `v4-periphery` BaseHook gating / `HookNotImplemented` |
-| `unit/hooks/` | `AmlHook`, `AmlHookLogic` (incl. Chainlink USD quotes, missing/stale feed fail-closed, three never-scored bands), resolve-wallet, FeeEscrow take path, afterSwap cache. `AmlHookLogic.ComplianceParams` covers `_COMPLIANCE_OFFICER` propose / 48h confirm, FATF $1,000 floor, pair ordering, and live fees / USD / pool-impact flowing into `evaluate`. |
-| `unit/oracles/` | `ComplianceOracle` (fuzz + role isolation) |
-| `unit/policies/` | `RiskPolicy.decide` + latency floors + never-scored USD bands (3% / 8% / REVERT). `RiskPolicy.FloorFees` covers the 12-arg form: live proportional / punitive fees, score cuts 31 / 55 / 71 stay fixed, `MAX_OVERRIDE` caps only keeper `recommendedFeeBps`. |
-| `unit/registries/` | `SanctionRegistry` (fuzz + isolation) |
-| `unit/libraries/` | `Roles` + `HookDecision` ordinals + `ChainlinkFeeds` official proxies (live quote if `MAINNET_RPC_URL` is set) |
+| `unit/hooks/` | `AmlHook`, `AmlHookLogic` (incl. Chainlink USD quotes, missing/stale feed fail-closed, three never-scored bands), resolve-wallet, FeeEscrow take path, afterSwap cache. `AmlHookLogic.Admin` covers constructor defaults, pause, governor setters. `AmlHookLogic.Fuzz` matches `evaluate` to `RiskPolicy.decide` (published score, never-scored USD, Floor B/C). `AmlHookLogic.ComplianceParams` covers `_COMPLIANCE_OFFICER` propose / 48h confirm, FATF $1,000 floor, pair ordering, and live fees / USD / pool-impact flowing into `evaluate`. |
+| `unit/oracles/` | `ComplianceOracle` (fuzz + role isolation + attestation hash binding) |
+| `unit/policies/` | `RiskPolicy.decide` + latency floors + never-scored USD bands (3% / 8% / REVERT). `RiskPolicy.FloorFees` covers the 12-arg form: live proportional / punitive fees, score cuts 31 / 55 / 71 stay fixed, `MAX_OVERRIDE` caps only keeper `recommendedFeeBps`. `RiskPolicy.Fuzz` invariants on every `decide` overload. |
+| `unit/registries/` | `SanctionRegistry` (fuzz + isolation + commit-reveal) |
+| `unit/libraries/` | `Roles` + `HookDecision` ordinals + `FeeBps` / `UsdQuote` / `PoolImpact` / `ChainlinkFeeds` / `UniversalRouters` (unit + fuzz). `SwapCache` EIP-1153 beforeSwap → afterSwap snapshot. `ChainlinkFeeds.t.sol` live quote if `MAINNET_RPC_URL` is set. |
 | `unit/script/` | `Deploy.sol` AccessManager wiring (four roles, officer 48h, Chainlink vs `MockUsdFeed`) |
-| `integration/` | Full stack evaluate path (A/B/C bands) plus compliance-officer retune of USD / floor fees |
+| `integration/` | Full stack evaluate path (A/B/C bands) plus compliance-officer retune of USD / floor fees. `AmlStack.Relations` covers L1→L2→L3→hook→FeeEscrow, role isolation, Floor B/C vs policy, and liquidity ignoring score. |
 | `utils/` | Shared fixtures (`Helpers`, `HookPoolManagerStub`) |
 | `mocks/` | Test-only ERC-20s + `MockAggregatorV3` (Chainlink stand-in) |
 

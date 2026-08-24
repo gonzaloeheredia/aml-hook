@@ -305,4 +305,35 @@ contract UnitComplianceOracleTest is Helpers {
         vm.expectRevert(ComplianceOracle.ZeroAddress.selector);
         new ComplianceOracle(address(accessManager), address(0));
     }
+
+    function test_SetAttestor_RevertsOnZero() external {
+        vm.prank(hookGovernor);
+        vm.expectRevert(ComplianceOracle.ZeroAddress.selector);
+        complianceOracle.setAttestor(address(0));
+    }
+
+    function testFuzz_AttestationHashBindsEveryField(
+        address wallet,
+        uint8 score,
+        uint8 hopDistance,
+        address originAddr,
+        uint24 feeBps
+    ) external view {
+        bytes32 hash = complianceOracle.attestationHash(
+            wallet, score, hopDistance, originAddr, feeBps, uint64(block.timestamp)
+        );
+        bytes32 expected = keccak256(
+            abi.encode(wallet, score, hopDistance, originAddr, feeBps, uint64(block.timestamp), block.chainid)
+        );
+        assertEq(hash, expected);
+    }
+
+    function testFuzz_GetScoreMatchesGetRisk(address wallet, uint8 score, uint24 feeBps) external {
+        score = uint8(bound(score, 0, 100));
+        vm.prank(keeper);
+        complianceOracle.updateScore(wallet, score, 0, address(0), feeBps, _scoreSig(wallet, score, feeBps));
+        assertEq(complianceOracle.getScore(wallet), score);
+        assertEq(complianceOracle.getRisk(wallet).score, score);
+        assertEq(complianceOracle.getRisk(wallet).updatedAt, uint64(block.timestamp));
+    }
 }
