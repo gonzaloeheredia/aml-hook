@@ -7,9 +7,9 @@ type Props = {
   stageKey: string;
   /** 1 = next (enter from right); -1 = previous (enter from left) */
   direction?: 1 | -1;
-  /** Triple-length slide — first visit to Opinion */
+  /** Triple-length slide when entering Opinion from the left (forward) */
   slow?: boolean;
-  /** Already-seen / going back — short slide */
+  /** Going back — short slide from the left */
   swift?: boolean;
   children: ReactNode;
   className?: string;

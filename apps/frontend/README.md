@@ -1,28 +1,31 @@
 # AML Hook · Frontend demo
 
 Hackathon UI for **Uniswap Hook Incubator 10 (UHI10)**.  
-Uniswap-styled demo of the AML Hook use case: **exploit `WalletBlocked` (Wallet A, score 100)**, **N-hop decay**, **oracle-latency / inflow (Wallet D)**, **never-scored USD bands (Wallet E, funded by C)**, and ternary **ALLOW / FEE_OVERRIDE / REVERT**.
+Institutional six-stage demo of the AML Hook use case: **exploit `WalletBlocked` (Wallet A, score 100)**, **N-hop decay**, **oracle-latency / inflow (Wallet D)**, **never-scored USD bands (Wallet E, funded by C)**, and ternary **ALLOW / FEE_OVERRIDE / REVERT**. Newsreader + Inter, ink/cream surfaces, Uniswap logo kept. Dark is the default; the round control in the navbar toggles light.
 
 > Scores and sanctions checks come from Anvil via the API (`AmlHook.previewSwap`). No live OpenSanctions / Etherscan / GoPlus (or OFAC) API calls.  
 > The UI talks only to the API at `NEXT_PUBLIC_API_URL` (default `http://localhost:4000`). If Anvil is down the API returns `503` `{ error: "deploy_local" }` — there is no offline `withHopOverlay` policy.
 
 ## Guided stages
 
-| # | Stage | Purpose |
-|---|---|---|
-| 1 | **Swap** | Uniswap entry point — connect wallet + `Get started` |
-| 2 | **Hook** | Flow simulator for the hook lifecycle |
-| 3 | **Fees** | Pool standard fee + FeeEscrow differential (FEE_OVERRIDE) · **EscrowPanel** (live Anvil rows, Warp 48h / 7d, checkpoint 2, recover) · **Sold (USDC)** / **Bought (ETH)** |
-| 4 | **AML stats** | Score gauge, report overview, detection data |
-| 5 | **Opinion** | Legal / technical opinion (A–E) from **oracle COA** via `/compliance` |
-| 6 | **Event** | `afterSwap` pool-chain payload only |
+On-screen titles (serif, same size on every stage): **Swap**, **Hook execution**, **Fee summary**, **AML stats**, **AML Analysis**, **Event**. The rail under the title is Swap · Hook · Fees · Stats · Opinion · Event.
+
+| # | Rail | Title | Purpose |
+|---|---|---|---|
+| 1 | **Swap** | Swap | Connect wallet + `Get started` |
+| 2 | **Hook** | Hook execution | Hook lifecycle (`beforeSwap`) |
+| 3 | **Fees** | Fee summary | Pool standard fee + FeeEscrow differential (FEE_OVERRIDE) · **EscrowPanel** (live Anvil rows, Warp 48h / 7d, checkpoint 2, recover) · **Sold (USDC)** / **Bought (ETH)** |
+| 4 | **Stats** | AML stats | Score gauge, report overview, detection data |
+| 5 | **Opinion** | AML Analysis | Legal / technical opinion (A–E) from **oracle COA** via `/compliance` |
+| 6 | **Event** | Event | `afterSwap` pool-chain payload only |
 
 **Navigation**
 
-- **Auto:** Swap → Hook on simulate. Hook completion lands on Fees (hold; no auto jump to AML stats).
-- **All stages:** upper half of the screen = previous, lower half = next (click or wheel). Wheel scrolls content first; stage change at scroll edges. Stage rail also works.
-- **Opinion → Event:** click only, lower half, after scrolling to the **end** of Opinion (wheel does not advance).
-- **Restart data** (navbar): calls `POST /reset`, clears local swap/event state, returns to Swap.
+- **Auto:** Swap → Hook on simulate. Hook wheels fill to each layer's `stepTimesSec`, then hold 3s and land on Fees (no auto jump to AML stats).
+- **All stages:** left half of the screen = previous, right half = next (click). Wheel scrolls content first; stage change at scroll edges. Desktop also shows chevrons on the sides of the current module. The stage rail jumps to any unlocked step.
+- **Forward** (next module, enters from the right): slow slide (2s; Opinion 6s). **Back** (previous module): short (~0.4s).
+- **Opinion → Event (first visit):** Event stays locked for the Opinion slide plus **15s** so the file can be scrolled, then the demo advances. Wheel does not skip this wait. Revisit: Event is already unlocked.
+- **Restart data** (fixed control, bottom-right): calls `POST /reset`, clears local swap/event state, returns to Swap.
 
 **Event** shows the use-case `afterSwap` record:
 
@@ -32,7 +35,7 @@ Uniswap-styled demo of the AML Hook use case: **exploit `WalletBlocked` (Wallet 
 
 REVERT is `beforeSwap` only — no `afterSwap` emit for that attempt.
 
-**Navbar:** Connect chip shows `A · 0x…` with a **green / yellow / red** border from live risk (clean · hop/latency/unknown FEE_OVERRIDE · REVERT score-band / list). Wallet D shows **Score 0** until contaminated; **Latency** while keeper-pending. Wallet E stays **Unknown** and starts empty. P2P USDC transfers run from the MetaMask simulator panel.
+**Navbar:** Uniswap logo, **MetaMask Simulator** text link, theme switch, **Connect** pill. Connect always shows that label (title has the address when a wallet is connected). Wallet D shows **Score 0** until contaminated; **Latency** while keeper-pending. Wallet E stays **Unknown** and starts empty. P2P USDC transfers run from the MetaMask simulator panel.
 
 ### The five use-case wallets
 
