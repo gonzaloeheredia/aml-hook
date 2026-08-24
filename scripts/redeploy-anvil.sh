@@ -10,7 +10,7 @@ bash "$ROOT/scripts/ensure-anvil-wsl.sh"
 
 mkdir -p "$ROOT/contracts/deployments"
 cd "$ROOT/contracts"
-forge script script/Deploy.sol:Deploy \
+FOUNDRY_PROFILE=deploy forge script script/Deploy.sol:Deploy \
   --rpc-url "$RPC" \
   --broadcast \
   --private-key "$ANVIL_KEY"

@@ -129,13 +129,13 @@ forge install Uniswap/v4-core --no-git --shallow
 forge install Uniswap/v4-periphery --no-git --shallow
 forge install OpenZeppelin/openzeppelin-contracts --no-git --shallow
 forge build
-forge test
+forge test --threads 2
 ```
 
 Focused latency / policy / deploy tests:
 
 ```bash
-forge test --match-contract "UnitRiskPolicyDecideTest|UnitRiskPolicyLatencyFloorTest|UnitAmlHookLogicTest|UnitDeployTest" -vv
+forge test --match-contract "UnitRiskPolicyDecideTest|UnitRiskPolicyLatencyFloorTest|UnitAmlHookLogicTest|UnitDeployTest" --threads 2 -vv
 ```
 
 ## Local deploy (Anvil + keeper)
@@ -151,7 +151,7 @@ Manual:
 ```bash
 anvil   # :8545
 cd contracts
-forge script script/Deploy.sol:Deploy \
+FOUNDRY_PROFILE=deploy forge script script/Deploy.sol:Deploy \
   --rpc-url http://127.0.0.1:8545 --broadcast
 cd ..
 node scripts/sync-deployment.mjs

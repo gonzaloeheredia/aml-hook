@@ -16,5 +16,5 @@ cp -a "$SRC/src" "$SRC/test" "$SRC/script" "$DST/"
 cp -a "$SRC/foundry.toml" "$DST/foundry.toml"
 
 cd "$DST"
-echo "=== forge test --summary ==="
-forge test --summary
+echo "=== forge test --threads 2 --summary ==="
+forge test --threads 2 --summary
