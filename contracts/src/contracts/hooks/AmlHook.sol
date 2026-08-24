@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import {AmlHookGovernance} from "./AmlHookGovernance.sol";
 import {AmlHookLogic} from "./AmlHookLogic.sol";
 import {AmlHookSettlement} from "./AmlHookSettlement.sol";
 import {ISanctionRegistry} from "../../interfaces/registries/ISanctionRegistry.sol";
@@ -43,7 +44,7 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         uint32 maxOpsInWindow_
     )
         AmlHookSettlement(poolManager_, feeEscrow_)
-        AmlHookLogic(
+        AmlHookGovernance(
             accessManager_,
             sanctionRegistry_,
             complianceOracle_,

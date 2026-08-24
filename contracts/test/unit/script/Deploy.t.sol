@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {IAccessManaged} from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
 
+import {AmlHookGovernance} from "contracts/hooks/AmlHookGovernance.sol";
 import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ChainlinkFeeds} from "libraries/ChainlinkFeeds.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
@@ -328,19 +329,19 @@ contract UnitDeployTest is Helpers {
 
     function test_DeployWhenRunWiresPolicyApplyToComplianceOfficerNotGovernor() external view {
         assertEq(
-            accessManager.getTargetFunctionRole(address(hook), AmlHookLogic.applyUnscoredThresholds.selector),
+            accessManager.getTargetFunctionRole(address(hook), AmlHookGovernance.applyUnscoredThresholds.selector),
             Roles._COMPLIANCE_OFFICER
         );
         assertEq(
-            accessManager.getTargetFunctionRole(address(hook), AmlHookLogic.applyPoolImpactThresholdBps.selector),
+            accessManager.getTargetFunctionRole(address(hook), AmlHookGovernance.applyPoolImpactThresholdBps.selector),
             Roles._COMPLIANCE_OFFICER
         );
         assertEq(
-            accessManager.getTargetFunctionRole(address(hook), AmlHookLogic.applyFloorFees.selector),
+            accessManager.getTargetFunctionRole(address(hook), AmlHookGovernance.applyFloorFees.selector),
             Roles._COMPLIANCE_OFFICER
         );
         assertEq(
-            accessManager.getTargetFunctionRole(address(hook), AmlHookLogic.setStalenessThreshold.selector),
+            accessManager.getTargetFunctionRole(address(hook), AmlHookGovernance.setStalenessThreshold.selector),
             Roles._HOOK_GOVERNOR
         );
     }

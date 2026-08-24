@@ -14,6 +14,7 @@ import {BeforeSwapDelta} from "v4-core/src/types/BeforeSwapDelta.sol";
 import {LPFeeLibrary} from "v4-core/src/libraries/LPFeeLibrary.sol";
 
 import {AmlHook} from "contracts/hooks/AmlHook.sol";
+import {AmlHookGovernance} from "contracts/hooks/AmlHookGovernance.sol";
 import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
@@ -157,20 +158,20 @@ contract Helpers is Test {
     /// @dev Wires `_HOOK_GOVERNOR` so tests can `setTrustedRouter`.
     function _wireHookGovernor() internal {
         bytes4[] memory hookSelectors = new bytes4[](14);
-        hookSelectors[0] = AmlHookLogic.setStalenessThreshold.selector;
-        hookSelectors[1] = AmlHookLogic.setInflowThresholdBps.selector;
-        hookSelectors[2] = AmlHookLogic.setTrustedRouter.selector;
-        hookSelectors[3] = AmlHookLogic.pause.selector;
-        hookSelectors[4] = AmlHookLogic.unpause.selector;
-        hookSelectors[5] = AmlHookLogic.setTrustedMultisig.selector;
-        hookSelectors[6] = AmlHookLogic.setMultisigAggregation.selector;
-        hookSelectors[7] = AmlHookLogic.setMinBaselineInterval.selector;
-        hookSelectors[8] = AmlHookLogic.setPriceFeed.selector;
-        hookSelectors[9] = AmlHookLogic.setPriceStalenessThreshold.selector;
-        hookSelectors[10] = AmlHookLogic.setActivityWindow.selector;
+        hookSelectors[0] = AmlHookGovernance.setStalenessThreshold.selector;
+        hookSelectors[1] = AmlHookGovernance.setInflowThresholdBps.selector;
+        hookSelectors[2] = AmlHookGovernance.setTrustedRouter.selector;
+        hookSelectors[3] = AmlHookGovernance.pause.selector;
+        hookSelectors[4] = AmlHookGovernance.unpause.selector;
+        hookSelectors[5] = AmlHookGovernance.setTrustedMultisig.selector;
+        hookSelectors[6] = AmlHookGovernance.setMultisigAggregation.selector;
+        hookSelectors[7] = AmlHookGovernance.setMinBaselineInterval.selector;
+        hookSelectors[8] = AmlHookGovernance.setPriceFeed.selector;
+        hookSelectors[9] = AmlHookGovernance.setPriceStalenessThreshold.selector;
+        hookSelectors[10] = AmlHookGovernance.setActivityWindow.selector;
         hookSelectors[11] = AmlHookLogic.observeSwap.selector;
         hookSelectors[12] = AmlHookLogic.syncBaseline.selector;
-        hookSelectors[13] = AmlHookLogic.setDailyWindow.selector;
+        hookSelectors[13] = AmlHookGovernance.setDailyWindow.selector;
         _wireRole(accessManager, owner, address(hook), hookSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
     }
 
@@ -181,9 +182,9 @@ contract Helpers is Test {
 
     function _wireComplianceOfficer(address target, uint32 executionDelay) internal {
         bytes4[] memory selectors = new bytes4[](3);
-        selectors[0] = AmlHookLogic.applyUnscoredThresholds.selector;
-        selectors[1] = AmlHookLogic.applyPoolImpactThresholdBps.selector;
-        selectors[2] = AmlHookLogic.applyFloorFees.selector;
+        selectors[0] = AmlHookGovernance.applyUnscoredThresholds.selector;
+        selectors[1] = AmlHookGovernance.applyPoolImpactThresholdBps.selector;
+        selectors[2] = AmlHookGovernance.applyFloorFees.selector;
         vm.startPrank(owner);
         accessManager.setTargetFunctionRole(target, selectors, Roles._COMPLIANCE_OFFICER);
         accessManager.grantRole(Roles._COMPLIANCE_OFFICER, complianceOfficer, executionDelay);

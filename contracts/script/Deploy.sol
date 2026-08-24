@@ -12,6 +12,7 @@ import {ComplianceOracle} from "../src/contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "../src/contracts/policies/RiskPolicy.sol";
 import {FeeEscrow} from "../src/contracts/escrow/FeeEscrow.sol";
 import {AmlHook} from "../src/contracts/hooks/AmlHook.sol";
+import {AmlHookGovernance} from "../src/contracts/hooks/AmlHookGovernance.sol";
 import {AmlHookLogic} from "../src/contracts/hooks/AmlHookLogic.sol";
 import {IFeeEscrow} from "../src/interfaces/escrow/IFeeEscrow.sol";
 import {Roles} from "../src/libraries/Roles.sol";
@@ -556,20 +557,20 @@ contract Deploy is Script {
     /// @notice The hook functions that require the governor role
     function _hookSelectors() internal pure returns (bytes4[] memory selectors) {
         selectors = new bytes4[](14);
-        selectors[0] = AmlHookLogic.setStalenessThreshold.selector;
-        selectors[1] = AmlHookLogic.setInflowThresholdBps.selector;
-        selectors[2] = AmlHookLogic.setTrustedRouter.selector;
-        selectors[3] = AmlHookLogic.pause.selector;
-        selectors[4] = AmlHookLogic.unpause.selector;
-        selectors[5] = AmlHookLogic.setTrustedMultisig.selector;
-        selectors[6] = AmlHookLogic.setMultisigAggregation.selector;
-        selectors[7] = AmlHookLogic.setMinBaselineInterval.selector;
-        selectors[8] = AmlHookLogic.setPriceFeed.selector;
-        selectors[9] = AmlHookLogic.setPriceStalenessThreshold.selector;
-        selectors[10] = AmlHookLogic.setActivityWindow.selector;
+        selectors[0] = AmlHookGovernance.setStalenessThreshold.selector;
+        selectors[1] = AmlHookGovernance.setInflowThresholdBps.selector;
+        selectors[2] = AmlHookGovernance.setTrustedRouter.selector;
+        selectors[3] = AmlHookGovernance.pause.selector;
+        selectors[4] = AmlHookGovernance.unpause.selector;
+        selectors[5] = AmlHookGovernance.setTrustedMultisig.selector;
+        selectors[6] = AmlHookGovernance.setMultisigAggregation.selector;
+        selectors[7] = AmlHookGovernance.setMinBaselineInterval.selector;
+        selectors[8] = AmlHookGovernance.setPriceFeed.selector;
+        selectors[9] = AmlHookGovernance.setPriceStalenessThreshold.selector;
+        selectors[10] = AmlHookGovernance.setActivityWindow.selector;
         selectors[11] = AmlHookLogic.observeSwap.selector;
         selectors[12] = AmlHookLogic.syncBaseline.selector;
-        selectors[13] = AmlHookLogic.setDailyWindow.selector;
+        selectors[13] = AmlHookGovernance.setDailyWindow.selector;
     }
 
     /// @dev Bind Chainlink AggregatorV3 proxies so USD floors use live prices.
@@ -624,9 +625,9 @@ contract Deploy is Script {
     /// @notice Policy-knob confirmations — `_COMPLIANCE_OFFICER` (48h grant delay), not the governor.
     function _complianceSelectors() internal pure returns (bytes4[] memory selectors) {
         selectors = new bytes4[](3);
-        selectors[0] = AmlHookLogic.applyUnscoredThresholds.selector;
-        selectors[1] = AmlHookLogic.applyPoolImpactThresholdBps.selector;
-        selectors[2] = AmlHookLogic.applyFloorFees.selector;
+        selectors[0] = AmlHookGovernance.applyUnscoredThresholds.selector;
+        selectors[1] = AmlHookGovernance.applyPoolImpactThresholdBps.selector;
+        selectors[2] = AmlHookGovernance.applyFloorFees.selector;
     }
 
     /// @dev Persist addresses and intended keys for the SDK / API sync.

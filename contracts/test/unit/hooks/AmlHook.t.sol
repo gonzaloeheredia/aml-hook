@@ -8,6 +8,7 @@ import {Hooks} from "v4-core/src/libraries/Hooks.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 
+import {AmlHookGovernance} from "contracts/hooks/AmlHookGovernance.sol";
 import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ImmutableState} from "v4-periphery/src/base/ImmutableState.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
@@ -192,12 +193,12 @@ contract UnitAmlHookTest is Helpers {
 
     function test_UntrustedRouterRevertsEvenWithHookData() external {
         bytes memory data = abi.encode(walletC);
-        vm.expectRevert(AmlHookLogic.MissingSwapSubject.selector);
+        vm.expectRevert(AmlHookGovernance.MissingSwapSubject.selector);
         manager.callBeforeSwap(IHooks(address(hook)), router, key, params, data);
     }
 
     function test_EmptyHookDataRevertsNotRouter() external {
-        vm.expectRevert(AmlHookLogic.MissingSwapSubject.selector);
+        vm.expectRevert(AmlHookGovernance.MissingSwapSubject.selector);
         manager.callBeforeSwap(IHooks(address(hook)), router, key, params, "");
     }
 }

@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {AccessManager} from "@openzeppelin/contracts/access/manager/AccessManager.sol";
 
+import {AmlHookGovernance} from "contracts/hooks/AmlHookGovernance.sol";
 import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
@@ -35,10 +36,10 @@ contract UnitAmlHookLogicFuzzTest is Helpers {
         _wireRole(accessManager, owner, address(complianceOracle), oracleSelectors, Roles._ORACLE_KEEPER, keeper);
 
         bytes4[] memory hookSelectors = new bytes4[](5);
-        hookSelectors[0] = AmlHookLogic.setPriceFeed.selector;
-        hookSelectors[1] = AmlHookLogic.setStalenessThreshold.selector;
-        hookSelectors[2] = AmlHookLogic.setInflowThresholdBps.selector;
-        hookSelectors[3] = AmlHookLogic.setActivityWindow.selector;
+        hookSelectors[0] = AmlHookGovernance.setPriceFeed.selector;
+        hookSelectors[1] = AmlHookGovernance.setStalenessThreshold.selector;
+        hookSelectors[2] = AmlHookGovernance.setInflowThresholdBps.selector;
+        hookSelectors[3] = AmlHookGovernance.setActivityWindow.selector;
         hookSelectors[4] = AmlHookLogic.observeSwap.selector;
         _wireRole(accessManager, owner, address(harness), hookSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
 
@@ -114,7 +115,7 @@ contract UnitAmlHookLogicFuzzTest is Helpers {
 
         if (inflow < 100 || inflow > 10_000) {
             vm.prank(hookGovernor);
-            vm.expectRevert(AmlHookLogic.InflowThresholdOutOfRange.selector);
+            vm.expectRevert(AmlHookGovernance.InflowThresholdOutOfRange.selector);
             harness.setInflowThresholdBps(inflow);
         } else {
             vm.prank(hookGovernor);

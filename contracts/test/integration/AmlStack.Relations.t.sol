@@ -11,6 +11,7 @@ import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 
 import {AmlHook} from "contracts/hooks/AmlHook.sol";
+import {AmlHookGovernance} from "contracts/hooks/AmlHookGovernance.sol";
 import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {FeeEscrow} from "contracts/escrow/FeeEscrow.sol";
@@ -71,8 +72,8 @@ contract IntegrationAmlStackRelationsTest is Helpers {
         );
 
         bytes4[] memory hookGov = new bytes4[](3);
-        hookGov[0] = AmlHookLogic.setPriceFeed.selector;
-        hookGov[1] = AmlHookLogic.setTrustedRouter.selector;
+        hookGov[0] = AmlHookGovernance.setPriceFeed.selector;
+        hookGov[1] = AmlHookGovernance.setTrustedRouter.selector;
         hookGov[2] = AmlHookLogic.observeSwap.selector;
         _wireRole(accessManager, owner, address(harness), hookGov, Roles._HOOK_GOVERNOR, hookGovernor);
         _wireHookGovernor();
