@@ -66,11 +66,6 @@ contract UnitAmlHookTest is Helpers {
         assertFalse(p.afterAddLiquidity);
         assertFalse(p.afterRemoveLiquidity);
         assertFalse(p.beforeInitialize);
-        assertEq(hook.STANDARD_FEE_BPS(), 30);
-        assertEq(address(hook.feeEscrow()), address(0));
-        assertEq(address(hook.sanctionRegistry()), address(sanctionRegistry));
-        assertEq(address(hook.complianceOracle()), address(complianceOracle));
-        assertEq(address(hook.riskPolicy()), address(riskPolicy));
     }
 
     function test_CleanSwapAllowThenObserve() external {

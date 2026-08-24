@@ -111,13 +111,13 @@ curl http://127.0.0.1:4000/health
 
 | Package | Path | Role |
 | --- | --- | --- |
-| Contracts | [`contracts/`](contracts/README.md) | Foundry. `forge test --threads 2` · `script/Deploy.sol` |
+| Contracts | [`contracts/`](contracts/README.md) | Foundry. `forge test` · `script/Deploy.sol` |
 | API / keeper | [`apps/api/`](apps/api/README.md) | Anvil adapter + COA + signed `updateScore` |
 | Frontend | [`apps/frontend/`](apps/frontend/README.md) | Six-stage demo |
 | SDK | [`packages/sdk/`](packages/sdk/README.md) | ABIs + `getDeployment(31337)` |
 | Headless flows | [`test/`](test/README.md) | HTTP scripts against the API. Not Forge |
 
-`test/` is Node against the API. `contracts/test/` is Solidity (`forge test --threads 2`).
+`test/` is Node against the API. `contracts/test/` is Solidity (`forge test`).
 
 ## What is real vs mocked
 
