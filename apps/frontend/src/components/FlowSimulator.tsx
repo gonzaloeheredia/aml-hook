@@ -184,6 +184,16 @@ function Spinner({ className = "" }: { className?: string }) {
   );
 }
 
+type StepId = keyof DemoCase["stepTimesSec"];
+
+/**
+ * Dwell time for a flow node — matches the layer's recorded execution time.
+ */
+function stepDurationMs(times: DemoCase["stepTimesSec"], id: string): number {
+  const sec = times[id as StepId] ?? 0.2;
+  return Math.max(1, Math.round(sec * 1000));
+}
+
 type Props = {
   demoCase: DemoCase;
   /** When true, advances through nodes with green borders + spinners */
@@ -207,9 +217,12 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
   );
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
   const dragOffset = useRef<Point>({ x: 0, y: 0 });
   const onCompleteRef = useRef(onComplete);
+  const orderRef = useRef(order);
   onCompleteRef.current = onComplete;
+  orderRef.current = order;
 
   /** Final result node label depends on the active wallet / risk path */
   const outcomeNode: NodeDef = useMemo(() => {
@@ -258,37 +271,66 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
     setPositions(initialPositions(ids));
     setActiveIndex(-1);
     setDone(false);
+    setElapsedMs(0);
     setDraggingId(null);
     setDropTargetId(null);
   }, [demoCase.id]);
 
   /**
-   * Step-through animation: highlights each node with a spinner, then marks
-   * completed steps green. Re-runs only when `running` or the case changes.
+   * Step-through animation: each node stays active for that layer's real
+   * execution time (`stepTimesSec`), then completes. Re-runs when `running`
+   * or the case changes — not when the user reorders nodes mid-layout.
    */
   useEffect(() => {
     if (!running) return;
 
-    const total = nodes.length || DEFAULT_ORDER.length;
+    const ids = orderRef.current;
+    const total = ids.length || DEFAULT_ORDER.length;
+    const times = demoCase.stepTimesSec;
     setActiveIndex(0);
     setDone(false);
-    let i = 0;
-    const timer = setInterval(() => {
-      i += 1;
-      if (i >= total) {
-        clearInterval(timer);
-        setDone(true);
-        setActiveIndex(total - 1);
-        onCompleteRef.current();
-        return;
-      }
-      setActiveIndex(i);
-    }, 750);
+    setElapsedMs(0);
 
-    return () => clearInterval(timer);
-    // Do not restart when the user reorders nodes mid-layout
+    let i = 0;
+    let cancelled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let raf = 0;
+    let stepStarted = performance.now();
+
+    const tick = () => {
+      if (cancelled) return;
+      setElapsedMs(performance.now() - stepStarted);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+
+    const arm = () => {
+      const id = ids[i] ?? DEFAULT_ORDER[i];
+      timeout = setTimeout(() => {
+        if (cancelled) return;
+        i += 1;
+        if (i >= total) {
+          setDone(true);
+          setActiveIndex(total - 1);
+          setElapsedMs(0);
+          onCompleteRef.current();
+          return;
+        }
+        stepStarted = performance.now();
+        setElapsedMs(0);
+        setActiveIndex(i);
+        arm();
+      }, stepDurationMs(times, id));
+    };
+    arm();
+
+    return () => {
+      cancelled = true;
+      if (timeout) clearTimeout(timeout);
+      cancelAnimationFrame(raf);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [running, demoCase.id]);
+  }, [running, demoCase.id, demoCase.stepTimesSec]);
 
   /**
    * Inserts `fromId` before `toId` in the flow order (used on drag-and-drop).
@@ -363,11 +405,11 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
         : "ok";
 
   return (
-    <section className="relative w-full animate-fadeUp">
-      <div className="rounded-[24px] border border-uni-border bg-uni-surface/90 p-3 shadow-glow backdrop-blur md:p-4">
+    <section className="relative w-full">
+      <div className="surface radius-e border-l hair p-3 md:translate-x-5 md:p-5">
         <div
           ref={canvasRef}
-          className="relative overflow-x-auto overflow-y-hidden rounded-[20px] border border-uni-border/70 bg-uni-card/40 dot-grid select-none"
+          className="relative overflow-x-auto overflow-y-hidden bg-transparent dot-grid select-none"
           style={{ minHeight: canvasHeight }}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -394,7 +436,7 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
                     key={`${id}-${nextId}`}
                     d={connectorPath(id, nextId, from, to)}
                     fill="none"
-                    stroke={active ? "#40B66B" : "#3a3a3a"}
+                    stroke={active ? "rgb(var(--ink))" : "rgb(var(--border))"}
                     strokeWidth="2.5"
                     strokeLinejoin="round"
                     strokeLinecap="round"
@@ -413,23 +455,27 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
               const isResult = node.id === "out";
               const height = nodeHeight(node.id);
 
-              let borderClass = "border-uni-border";
+              let borderClass = "border-l hair";
+              let radiusClass = "radius-node-action";
+              if (node.kind === "trigger") radiusClass = "radius-node-trigger";
+              if (node.kind === "decision") radiusClass = "radius-node-decision";
+              if (isResult) radiusClass = "radius-node-result";
+
               if (isActive) {
-                borderClass =
-                  "border-uni-ok shadow-[0_0_0_1px_#40B66B,0_0_20px_rgba(64,182,107,0.35)]";
+                borderClass = "border-l-[1.5px] border-uni-ok";
               } else if (done && isResult) {
                 borderClass =
                   resultTone === "bad"
-                    ? "border-uni-bad shadow-[0_0_16px_rgba(255,83,112,0.35)]"
+                    ? "border-l-[1.5px] border-uni-bad"
                     : resultTone === "warn"
-                      ? "border-uni-warn shadow-[0_0_16px_rgba(240,185,11,0.35)]"
-                      : "border-uni-ok shadow-[0_0_16px_rgba(64,182,107,0.35)]";
+                      ? "border-l-[1.5px] border-uni-warn"
+                      : "border-l-[1.5px] border-uni-ok";
               } else if (completed) {
-                borderClass = "border-uni-ok";
+                borderClass = "border-l border-uni-ok/45";
               } else if (node.kind === "trigger") {
-                borderClass = "border-uni-pink/40";
+                borderClass = "border-l hair";
               } else if (node.kind === "decision") {
-                borderClass = "border-uni-warn/40";
+                borderClass = "border-l border-uni-warn/25";
               }
 
               return (
@@ -437,9 +483,9 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
                   key={node.id}
                   data-node-id={node.id}
                   onPointerDown={(e) => onPointerDown(e, node.id)}
-                  className={`absolute rounded-xl border-2 bg-uni-card/95 p-2 shadow-lg transition-[border-color,box-shadow,opacity,transform] duration-300 ${borderClass} ${
-                    isDragging ? "z-20 cursor-grabbing scale-[1.03] shadow-glow" : "z-10 cursor-grab"
-                  } ${isDropTarget ? "ring-2 ring-uni-pink" : ""} ${
+                  className={`absolute surface p-2 transition-[border-color,opacity,transform] duration-300 ${radiusClass} ${borderClass} ${
+                    isDragging ? "z-20 cursor-grabbing scale-[1.03]" : "z-10 cursor-grab"
+                  } ${isDropTarget ? "border-l-[1.5px] border-uni-pink/50" : ""} ${
                     running ? "cursor-default" : ""
                   } ${!running && !done ? "opacity-80" : "opacity-100"}`}
                   style={{
@@ -474,7 +520,7 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
                       )}
                     </span>
                   </div>
-                  <div className="text-xs font-semibold leading-snug">{node.title}</div>
+                  <div className="font-serif text-xs leading-snug">{node.title}</div>
                   <div className="mt-0.5 text-[10px] leading-tight text-uni-muted">
                     {node.subtitle}
                   </div>
@@ -483,15 +529,18 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
                       isActive
                         ? "text-uni-ok"
                         : completed || done
-                          ? "text-white"
+                          ? "text-uni-pink"
                           : "text-uni-muted"
                     }`}
                   >
-                    {(
-                      demoCase.stepTimesSec[
-                        node.id as keyof typeof demoCase.stepTimesSec
-                      ] ?? 0
-                    ).toFixed(2)}
+                    {(() => {
+                      const target =
+                        demoCase.stepTimesSec[node.id as StepId] ?? 0;
+                      if (isActive && !done) {
+                        return Math.min(target, elapsedMs / 1000).toFixed(2);
+                      }
+                      return target.toFixed(2);
+                    })()}
                     s
                   </div>
                   {node.id === "decide" && (

@@ -48,58 +48,44 @@ export function OnChainAccumulator({ events, showTitle = true }: Props) {
     !last && events.some((e) => e.eventName === "WalletBlocked");
 
   return (
-    <div
-      className="rounded-2xl border border-[#7A1B5A]/45 px-7 py-7 shadow-[0_0_40px_rgba(252,114,255,0.1)] md:px-10 md:py-9"
-      style={{
-        background:
-          "linear-gradient(145deg, #2a0b21 0%, #1a0714 45%, #12040e 100%)",
-      }}
-    >
+    <div className="surface radius-g border-l hair px-7 py-8 md:translate-x-8 md:px-10 md:py-10">
       {showTitle ? (
-        <div className="mb-3 flex items-center gap-1.5 text-xs font-medium text-uni-pink">
-          <span aria-hidden>◈</span>
-          <span>afterSwap · SwapObserved</span>
+        <div className="label-kicker mb-6">
+          afterSwap · SwapObserved
         </div>
       ) : null}
 
       {last ? (
         <>
-          <div className="mb-2.5 text-[11px] text-[#F5A3FF]/70">
-            On-chain payload
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="label-kicker mb-5">On-chain payload</div>
+          <div className="grid gap-x-10 gap-y-5 sm:grid-cols-2">
             {afterSwapRows(last).map((row) => (
-              <div
-                key={row.label}
-                className="flex items-center justify-between gap-3 rounded-xl border border-uni-pink/20 bg-black/25 px-4 py-3 text-xs"
-              >
-                <span className="shrink-0 font-mono text-[#F5A3FF]/75">
+              <div key={row.label}>
+                <span className="font-mono text-[11px] tracking-wide text-uni-muted">
                   {row.label}
                 </span>
-                <span className="truncate text-right font-medium text-uni-pink">
+                <div className="mt-1.5 truncate font-serif text-[18px] text-uni-pink">
                   {row.value}
-                </span>
+                </div>
               </div>
             ))}
           </div>
 
-          <div className="mt-6">
-            <div className="mb-2.5 text-[11px] text-[#F5A3FF]/70">
-              Event log
-            </div>
-            <pre className="overflow-auto rounded-xl border border-uni-pink/20 bg-black/40 px-5 py-4 font-mono text-[11px] leading-relaxed text-[#F5A3FF]">
+          <div className="mt-8">
+            <div className="label-kicker mb-3">Event log</div>
+            <pre className="overflow-auto border-l hair bg-transparent py-3 pl-4 font-mono text-[11px] leading-relaxed text-uni-pink">
               {formatEventPayload(last)}
             </pre>
           </div>
         </>
       ) : blockedOnly ? (
-        <p className="mt-1 text-xs leading-relaxed text-[#F5A3FF]/75">
-          <span className="font-semibold text-uni-pink">REVERT</span> in{" "}
+        <p className="mt-1 text-xs leading-relaxed text-uni-muted">
+          <span className="font-medium text-uni-pink">REVERT</span> in{" "}
           <span className="text-uni-pink">beforeSwap</span> — afterSwap never
           runs, so nothing is written to the pool event log for this swap.
         </p>
       ) : (
-        <p className="mt-1 text-xs text-[#F5A3FF]/65">
+        <p className="mt-1 text-xs text-uni-muted">
           No afterSwap emit yet. Complete a swap that reaches afterSwap
           (ALLOW or FEE_OVERRIDE) to write the audit record.
         </p>

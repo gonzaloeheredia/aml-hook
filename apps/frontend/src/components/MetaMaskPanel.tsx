@@ -162,7 +162,7 @@ export function MetaMaskPanel({
           open ? "translate-x-0" : "translate-x-full"
         }`}
       >
-        <div className="flex h-full w-full flex-col overflow-hidden border-l border-white/10 bg-[#0B0B0C] shadow-[-24px_0_80px_rgba(0,0,0,0.55)] sm:m-3 sm:h-[calc(100%-1.5rem)] sm:max-w-[380px] sm:rounded-[28px] sm:border">
+        <div className="flex h-full w-full flex-col overflow-hidden border-l border-white/10 bg-[#0B0B0C] shadow-[-24px_0_80px_rgba(0,0,0,0.55)] sm:m-3 sm:h-[calc(100%-1.5rem)] sm:max-w-[380px] sm:border">
           {/* Header */}
           <div className="border-b border-white/10 px-4 py-3">
             <div className="flex items-center justify-between">
@@ -470,7 +470,7 @@ export function MetaMaskPanel({
                 <button
                   type="button"
                   onClick={() => onUseInUniswap(activeId)}
-                  className="w-full rounded-full bg-[#FC72FF] py-3.5 text-sm font-semibold text-black hover:brightness-110"
+                  className="w-full border border-[#E8E4D9]/45 bg-transparent py-3.5 text-sm font-medium text-[#E8E4D9] hover:bg-white/[0.04]"
                 >
                   Go to Uniswap
                 </button>

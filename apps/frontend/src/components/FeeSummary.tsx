@@ -36,7 +36,7 @@ function formatEth(amount: number) {
 }
 
 /**
- * Two equal cards under the simulator:
+ * Two columns under the simulator:
  * - Left: fee / gas / time metrics from the active demo case
  * - Right: live swap counter + USDC sold / ETH bought
  */
@@ -50,61 +50,65 @@ export function FeeSummary({
   const feeOverride = demoCase.decision === "fee_override";
 
   return (
-    <div className="mx-auto mt-6 grid w-full max-w-3xl grid-cols-1 gap-4 animate-fadeUp sm:grid-cols-2">
-      {/* Left — fee / gas / time */}
-      <div className="flex min-h-[168px] flex-col justify-center rounded-[20px] border border-uni-border/80 bg-uni-card/90 px-5 py-4 text-sm shadow-glow">
-        <div className="flex justify-between text-uni-muted">
-          <span>Pool base fee</span>
-          <span className="text-white">{feeLabel(demoCase.baseFeeBps)}</span>
-        </div>
-        <div className="mt-2 flex justify-between text-uni-muted">
-          <span>AML fee (hook)</span>
-          <span
-            className={
-              feeOverride
-                ? "font-semibold text-uni-warn"
-                : blocked
-                  ? "text-uni-bad"
-                  : "text-white"
-            }
-          >
-            {blocked
+    <div className="mx-auto mt-6 grid w-full max-w-3xl grid-cols-1 gap-10 sm:grid-cols-2 md:-translate-x-6">
+      <div className="surface radius-b min-h-[168px] border-l hair px-5 py-6">
+        <MetricRow label="Pool base fee" value={feeLabel(demoCase.baseFeeBps)} />
+        <MetricRow
+          label="AML fee (hook)"
+          value={
+            blocked
               ? "—"
               : feeOverride
                 ? `${feeLabel(demoCase.appliedFeeBps)} · override`
-                : feeLabel(demoCase.appliedFeeBps)}
-          </span>
-        </div>
-        <div className="mt-2 flex justify-between text-uni-muted">
-          <span>Gas used</span>
-          <span className="font-mono text-white">{formatGas(demoCase.gasUsed)}</span>
-        </div>
-        <div className="mt-2 flex justify-between text-uni-muted">
-          <span>Total time</span>
-          <span className="font-mono text-white">
-            {demoCase.totalTimeSec.toFixed(2)}s
-          </span>
-        </div>
+                : feeLabel(demoCase.appliedFeeBps)
+          }
+          tone={
+            feeOverride ? "text-uni-warn" : blocked ? "text-uni-bad" : undefined
+          }
+        />
+        <MetricRow label="Gas used" value={formatGas(demoCase.gasUsed)} mono />
+        <MetricRow
+          label="Total time"
+          value={`${demoCase.totalTimeSec.toFixed(2)}s`}
+          mono
+        />
       </div>
 
-      {/* Right — live swap counter + both legs of the swap */}
-      <div className="flex min-h-[168px] flex-col items-center justify-center rounded-[20px] border border-uni-border/80 bg-uni-card/90 px-5 py-4 text-sm shadow-glow">
-        <div className="text-uni-muted">Swaps settled</div>
-        <div className="mt-1 text-5xl font-bold tracking-tight text-white tabular-nums">
-          {swapCount}
+      <div className="flex min-h-[168px] flex-col justify-end px-1 py-2 sm:pl-4">
+        <div className="label-kicker">Swaps settled</div>
+        <div className="value-hero mt-2 text-uni-pink tabular-nums">{swapCount}</div>
+        <div className="mt-6 space-y-4">
+          <MetricRow
+            label="Sold (USDC)"
+            value={`${tradedUsd.toLocaleString("en-US")} USDC`}
+          />
+          <MetricRow label="Bought (ETH)" value={formatEth(tradedEth)} />
         </div>
-        <div className="mt-3 w-full space-y-2">
-          <div className="flex justify-between text-uni-muted">
-            <span>Sold (USDC)</span>
-            <span className="text-white">
-              {tradedUsd.toLocaleString("en-US")} USDC
-            </span>
-          </div>
-          <div className="flex justify-between text-uni-muted">
-            <span>Bought (ETH)</span>
-            <span className="text-white">{formatEth(tradedEth)}</span>
-          </div>
-        </div>
+      </div>
+    </div>
+  );
+}
+
+function MetricRow({
+  label,
+  value,
+  tone,
+  mono,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="py-2.5">
+      <div className="label-kicker">{label}</div>
+      <div
+        className={`mt-1 font-serif text-[22px] leading-none tracking-tight ${
+          tone ?? "text-uni-pink"
+        } ${mono ? "font-mono text-[18px]" : ""}`}
+      >
+        {value}
       </div>
     </div>
   );

@@ -17,7 +17,7 @@ export default function Error({
       <button
         type="button"
         onClick={reset}
-        className="rounded-full bg-[#FC72FF] px-5 py-2.5 text-sm font-semibold text-black"
+        className="border border-uni-pink/45 bg-transparent px-5 py-2.5 text-sm font-medium text-uni-pink"
       >
         Try again
       </button>

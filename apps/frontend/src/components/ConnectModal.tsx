@@ -41,13 +41,13 @@ export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="relative w-full max-w-md animate-fadeUp rounded-3xl border border-uni-border bg-uni-surface p-5 shadow-glow">
+      <div className="surface radius-b relative w-full max-w-md animate-fadeUp border-l hair p-6">
         <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Choose wallet</h2>
+          <h2 className="font-serif text-xl">Choose wallet</h2>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full px-3 py-1 text-uni-muted hover:bg-uni-card hover:text-white"
+            className="px-3 py-1 text-uni-muted hover:bg-uni-pink/5 hover:text-uni-pink"
           >
             ✕
           </button>
@@ -56,7 +56,7 @@ export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
         <p className="mb-3 text-sm text-uni-muted">
           Pick the use-case account to run through the AML Hook:
         </p>
-        <div className="space-y-2">
+        <div className="space-y-0">
           {CASE_ORDER.map((id) => {
             const c = DEMO_CASES[id];
             const wallet = wallets[id];
@@ -66,7 +66,7 @@ export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
                 key={id}
                 type="button"
                 onClick={() => onConnect(id)}
-                className={`flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition hover:brightness-110 ${tone.border} ${tone.bg} ${tone.text}`}
+                className={`flex w-full items-center gap-3 border-l px-4 py-3.5 text-left transition hover:bg-uni-pink/[0.03] ${tone.border} ${tone.text}`}
               >
                 <span
                   className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ${tone.badge}`}
@@ -74,7 +74,7 @@ export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
                   {id}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold text-white">
+                  <span className="block text-sm font-semibold text-uni-pink">
                     Wallet {id} · {tone.label}
                   </span>
                   <span className="block truncate font-mono text-xs opacity-80">

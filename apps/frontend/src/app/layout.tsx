@@ -1,16 +1,23 @@
 import type { Metadata } from "next";
 import Script from "next/script";
-import { Plus_Jakarta_Sans } from "next/font/google";
+import { Inter, Newsreader } from "next/font/google";
 import { IgnoreMetaMaskNoise } from "@/components/IgnoreMetaMaskNoise";
 import "./globals.css";
 
 /**
- * Primary UI font — distinctive sans used across the Uniswap-styled demo.
+ * Body / UI — geometric sans. Headings — editorial serif.
  */
-const jakarta = Plus_Jakarta_Sans({
-  variable: "--font-jakarta",
+const sans = Inter({
+  variable: "--font-sans",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
+  weight: ["400", "500", "600", "700"],
+});
+
+const serif = Newsreader({
+  variable: "--font-serif",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  style: ["normal", "italic"],
 });
 
 export const metadata: Metadata = {
@@ -28,8 +35,19 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={`${jakarta.variable} font-sans antialiased bg-uni-bg text-white`}>
+    <html lang="en" suppressHydrationWarning>
+      <body
+        className={`${sans.variable} ${serif.variable} bg-uni-bg font-sans text-uni-pink antialiased`}
+      >
+        <Script id="aml-theme" strategy="beforeInteractive">{`
+(function () {
+  try {
+    if (localStorage.getItem("aml-theme") === "light") {
+      document.documentElement.setAttribute("data-theme", "light");
+    }
+  } catch (e) {}
+})();
+        `}</Script>
         <Script id="ignore-metamask-noise" strategy="beforeInteractive">{`
 (function () {
   function isNoise(reason) {

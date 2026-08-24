@@ -18,7 +18,7 @@ type Props = {
 };
 
 /**
- * Uniswap-style swap card — USDC→ETH amounts stay in sync with MetaMask balances.
+ * Swap card — USDC→ETH amounts stay in sync with MetaMask balances.
  */
 export function SwapWidget({
   demoCase,
@@ -34,28 +34,24 @@ export function SwapWidget({
   const insufficient = connected && !blocked && walletUsdc < demoCase.activity.amountUsd;
 
   return (
-    <div className="mx-auto w-full max-w-[480px] animate-fadeUp">
-      <div className="rounded-[24px] border border-uni-border bg-uni-surface/90 p-2 shadow-glow backdrop-blur">
-        <div className="mb-1 px-3 pt-2">
-          <span className="text-base font-semibold">Swap</span>
-        </div>
-
-        <div className="rounded-[20px] bg-uni-card p-4">
-          <div className="mb-2 flex items-center justify-between text-sm text-uni-muted">
-            <span>Sell</span>
+    <div className="mx-auto w-full max-w-[480px] md:ml-[8%] md:mr-auto">
+      <div className="surface radius-a border-l border-t hair p-4 md:p-5">
+        <div className="border-b hair pb-4">
+          <div className="mb-2 flex items-baseline justify-between">
+            <span className="label-kicker">Sell</span>
             {connected && (
-              <span className="text-xs">
+              <span className="text-[11px] tracking-wide text-uni-muted">
                 Balance {walletUsdc.toLocaleString("en-US")} USDC
               </span>
             )}
           </div>
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-4xl font-semibold tracking-tight">
+          <div className="flex items-end justify-between gap-3">
+            <div className="value-hero text-uni-pink">
               {connected ? demoCase.swapSell : "0"}
             </div>
             <button
               type="button"
-              className="flex items-center gap-2 rounded-full bg-uni-surface px-3 py-2 text-sm font-semibold"
+              className="mb-1 flex items-center gap-2 border-b hair px-1 pb-1 text-sm font-medium"
             >
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#2775CA] text-[10px]">
                 $
@@ -64,14 +60,12 @@ export function SwapWidget({
               <span className="text-uni-muted">▾</span>
             </button>
           </div>
-          <div className="mt-2 flex justify-between text-sm text-uni-muted">
-            <span>
-              ${connected ? demoCase.activity.amountUsd.toLocaleString("en-US") : "0"}
-            </span>
-            <span>{demoCase.sellToken}</span>
+          <div className="mt-2 text-[12px] tracking-wide text-uni-muted">
+            ${connected ? demoCase.activity.amountUsd.toLocaleString("en-US") : "0"}
+            <span className="ml-2">{demoCase.sellToken}</span>
           </div>
           {connected && demoCase.amountPresets && onAmountChange && (
-            <div className="mt-3 space-y-2">
+            <div className="mt-4 space-y-2">
               <div className="flex flex-wrap gap-2">
                 {demoCase.amountPresets.map((preset) => {
                   const active = demoCase.activity.amountUsd === preset;
@@ -86,10 +80,10 @@ export function SwapWidget({
                       key={preset}
                       type="button"
                       onClick={() => onAmountChange(preset)}
-                      className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                      className={`px-2 py-1 text-xs font-medium transition ${
                         active
-                          ? "bg-uni-pink text-black"
-                          : "bg-uni-surface text-uni-muted hover:text-white"
+                          ? "radius-chip bg-uni-pink text-black"
+                          : "text-uni-muted hover:text-uni-pink"
                       }`}
                     >
                       ${preset.toLocaleString("en-US")}
@@ -109,28 +103,24 @@ export function SwapWidget({
           )}
         </div>
 
-        <div className="-my-2 flex justify-center">
-          <div className="z-10 flex h-9 w-9 items-center justify-center rounded-xl border-4 border-uni-surface bg-uni-card text-uni-muted">
-            ↓
-          </div>
-        </div>
+        <div className="py-2 pl-0.5 text-sm text-uni-muted">↓</div>
 
-        <div className="rounded-[20px] bg-uni-card p-4">
-          <div className="mb-2 flex items-center justify-between text-sm text-uni-muted">
-            <span>Buy</span>
+        <div className="pb-1">
+          <div className="mb-2 flex items-baseline justify-between">
+            <span className="label-kicker">Buy</span>
             {connected && (
-              <span className="text-xs">
+              <span className="text-[11px] tracking-wide text-uni-muted">
                 Balance {walletEth.toLocaleString("en-US", { maximumFractionDigits: 4 })} ETH
               </span>
             )}
           </div>
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-4xl font-semibold tracking-tight text-white/90">
+          <div className="flex items-end justify-between gap-3">
+            <div className="value-hero text-uni-pink/90">
               {connected ? demoCase.swapBuy : "0"}
             </div>
             <button
               type="button"
-              className="flex items-center gap-2 rounded-full bg-uni-pink px-3 py-2 text-sm font-semibold text-black"
+              className="mb-1 flex items-center gap-2 border-b hair px-1 pb-1 text-sm font-medium"
             >
               {demoCase.buyToken}
               <span>▾</span>
@@ -139,11 +129,11 @@ export function SwapWidget({
         </div>
 
         {connected && onAdvanceClock && (
-          <div className="mt-2 flex flex-wrap gap-2 px-1">
+          <div className="mt-4 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={onAdvanceClock}
-              className="rounded-full bg-uni-surface px-3 py-1 text-xs font-semibold text-uni-muted transition hover:text-white"
+              className="border-b hair px-0.5 pb-0.5 text-xs font-medium text-uni-muted transition hover:text-uni-pink"
             >
               Advance 5 min
             </button>
@@ -151,7 +141,7 @@ export function SwapWidget({
         )}
 
         {insufficient && (
-          <div className="mt-2 rounded-2xl border border-uni-warn/30 bg-uni-warn/10 px-4 py-3 text-sm text-uni-warn">
+          <div className="mt-4 border-l-[1.5px] border-uni-warn/50 bg-transparent py-2 pl-3 text-sm text-uni-warn">
             Insufficient USDC in MetaMask for this swap.
           </div>
         )}
@@ -160,7 +150,7 @@ export function SwapWidget({
           type="button"
           onClick={connected ? onSimulate : onConnectClick}
           disabled={connected && (insufficient || (blocked === false && demoCase.activity.amountUsd <= 0))}
-          className="mt-2 w-full rounded-[20px] bg-[#2A1240] py-4 text-center text-lg font-semibold text-uni-pink transition hover:brightness-125 disabled:cursor-not-allowed disabled:opacity-40"
+          className="radius-action edge mt-4 w-full bg-transparent py-3.5 text-center text-lg font-medium text-uni-pink transition hover:bg-uni-pink/5 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Get started
         </button>

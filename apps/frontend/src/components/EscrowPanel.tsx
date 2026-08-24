@@ -40,16 +40,16 @@ export function EscrowPanel({ apiOnline, tick }: Props) {
 
   if (!apiOnline) {
     return (
-      <div className="mx-auto mt-4 w-full max-w-3xl rounded-[20px] border border-uni-border/80 bg-uni-card/90 px-5 py-4 text-sm text-uni-muted">
+      <div className="surface radius-c mx-auto mt-8 w-full max-w-3xl border-t hair px-5 py-5 text-sm text-uni-muted md:-translate-x-6">
         FeeEscrow is on Anvil. Start the API after <code>npm run deploy:local</code>.
       </div>
     );
   }
 
   return (
-    <div className="mx-auto mt-4 w-full max-w-3xl rounded-[20px] border border-uni-border/80 bg-uni-card/90 px-5 py-4 text-sm shadow-glow">
+    <div className="surface radius-c mx-auto mt-8 w-full max-w-3xl border-t hair px-5 py-5 text-sm md:-translate-x-6">
       <div className="flex items-center justify-between">
-        <h3 className="text-white">FeeEscrow</h3>
+        <h3 className="font-serif text-lg text-uni-pink">FeeEscrow</h3>
         <button type="button" className="text-xs text-uni-muted underline" onClick={() => void reload()}>
           Refresh
         </button>
@@ -60,7 +60,7 @@ export function EscrowPanel({ apiOnline, tick }: Props) {
       <div className="mt-2 flex gap-2">
         <button
           type="button"
-          className="rounded-lg border border-white/10 px-2 py-1 text-xs text-uni-muted"
+          className="border-b hair px-0.5 pb-0.5 text-xs text-uni-muted"
           onClick={async () => {
             setBusy("warp48");
             try {
@@ -77,7 +77,7 @@ export function EscrowPanel({ apiOnline, tick }: Props) {
         </button>
         <button
           type="button"
-          className="rounded-lg border border-white/10 px-2 py-1 text-xs text-uni-muted"
+          className="border-b hair px-0.5 pb-0.5 text-xs text-uni-muted"
           onClick={async () => {
             setBusy("warp7d");
             try {
@@ -101,9 +101,9 @@ export function EscrowPanel({ apiOnline, tick }: Props) {
           {rows.map((row) => (
             <li
               key={row.id}
-              className="rounded-xl border border-white/10 bg-[#121214] px-3 py-2 font-mono text-xs"
+              className="border-l hair bg-transparent py-2 pl-3 font-mono text-xs"
             >
-              <div className="flex justify-between text-white">
+              <div className="flex justify-between text-uni-pink">
                 <span>
                   #{row.id} · {row.walletId ?? row.wallet.slice(0, 8)} · {row.amountUsdc} USDC
                 </span>
@@ -115,7 +115,7 @@ export function EscrowPanel({ apiOnline, tick }: Props) {
                   <button
                     type="button"
                     disabled={busy !== null}
-                    className="rounded-lg bg-uni-warn/20 px-2 py-1 text-uni-warn"
+                    className="radius-chip bg-uni-warn/20 px-2 py-1 text-uni-warn"
                     onClick={async () => {
                       setBusy(`c2-${row.id}`);
                       try {
@@ -135,7 +135,7 @@ export function EscrowPanel({ apiOnline, tick }: Props) {
                   <button
                     type="button"
                     disabled={busy !== null}
-                    className="rounded-lg bg-uni-bad/20 px-2 py-1 text-uni-bad"
+                    className="radius-chip bg-uni-bad/20 px-2 py-1 text-uni-bad"
                     onClick={async () => {
                       setBusy(`r-${row.id}`);
                       try {
