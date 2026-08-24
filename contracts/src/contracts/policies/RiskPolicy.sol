@@ -191,11 +191,20 @@ contract RiskPolicy is IRiskPolicy {
         // B uses swap+window `assessedUsd`. D uses inbound `inflowUsd` (not held funds).
         // `hasSignificantInflow` is not a fee trigger; the hook still emits it for audit.
         // A zero high threshold disables the 8% band; a zero fee threshold disables 3%.
+        //
+        // H-01 fix: stale ≠ confirmed clean regardless of window position. A wallet whose
+        // oracle score is stale always pays at least proportionalFeeBps, even on the first op
+        // of a new activity window (operationCount == 0 at window boundaries). When opCount > 0
+        // the full USD-band logic applies (existing Floor B behaviour).
         uint24 bFee = 0;
-        if (isStale && operationCount > 0) {
-            bFee = _publishedUsdBand(
-                assessedUsd, unscoredFeeThreshold, unscoredRevertThreshold, proportionalFeeBps, punitiveFeeBps
-            );
+        if (isStale) {
+            if (operationCount > 0) {
+                bFee = _publishedUsdBand(
+                    assessedUsd, unscoredFeeThreshold, unscoredRevertThreshold, proportionalFeeBps, punitiveFeeBps
+                );
+            } else {
+                bFee = proportionalFeeBps;
+            }
         }
         uint24 dFee = _publishedUsdBand(
             inflowUsd, unscoredFeeThreshold, unscoredRevertThreshold, proportionalFeeBps, punitiveFeeBps
