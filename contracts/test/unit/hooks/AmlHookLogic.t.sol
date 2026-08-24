@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {AccessManager} from "@openzeppelin/contracts/access/manager/AccessManager.sol";
 import {IAccessManaged} from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
 
+import {AmlHookGovernance} from "contracts/hooks/AmlHookGovernance.sol";
 import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
@@ -45,15 +46,15 @@ contract UnitAmlHookLogicTest is Helpers {
         _wireRole(accessManager, owner, address(complianceOracle), oracleSelectors, Roles._ORACLE_KEEPER, keeper);
 
         bytes4[] memory hookSelectors = new bytes4[](9);
-        hookSelectors[0] = AmlHookLogic.setStalenessThreshold.selector;
-        hookSelectors[1] = AmlHookLogic.setInflowThresholdBps.selector;
-        hookSelectors[2] = AmlHookLogic.setTrustedRouter.selector;
-        hookSelectors[3] = AmlHookLogic.setPriceFeed.selector;
-        hookSelectors[4] = AmlHookLogic.setPriceStalenessThreshold.selector;
-        hookSelectors[5] = AmlHookLogic.setActivityWindow.selector;
+        hookSelectors[0] = AmlHookGovernance.setStalenessThreshold.selector;
+        hookSelectors[1] = AmlHookGovernance.setInflowThresholdBps.selector;
+        hookSelectors[2] = AmlHookGovernance.setTrustedRouter.selector;
+        hookSelectors[3] = AmlHookGovernance.setPriceFeed.selector;
+        hookSelectors[4] = AmlHookGovernance.setPriceStalenessThreshold.selector;
+        hookSelectors[5] = AmlHookGovernance.setActivityWindow.selector;
         hookSelectors[6] = AmlHookLogic.observeSwap.selector;
         hookSelectors[7] = AmlHookLogic.syncBaseline.selector;
-        hookSelectors[8] = AmlHookLogic.setDailyWindow.selector;
+        hookSelectors[8] = AmlHookGovernance.setDailyWindow.selector;
         _wireRole(accessManager, owner, address(harness), hookSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
         _wireComplianceOfficer(address(harness), 0);
 
@@ -202,7 +203,7 @@ contract UnitAmlHookLogicTest is Helpers {
 
     function test_SetStalenessThreshold_RevertsAboveMax() external {
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookLogic.StalenessThresholdTooHigh.selector);
+        vm.expectRevert(AmlHookGovernance.StalenessThresholdTooHigh.selector);
         harness.setStalenessThreshold(24 hours + 1);
     }
 
@@ -226,15 +227,15 @@ contract UnitAmlHookLogicTest is Helpers {
         harness.setInflowThresholdBps(1000);
 
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookLogic.InflowThresholdOutOfRange.selector);
+        vm.expectRevert(AmlHookGovernance.InflowThresholdOutOfRange.selector);
         harness.setInflowThresholdBps(0);
 
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookLogic.InflowThresholdOutOfRange.selector);
+        vm.expectRevert(AmlHookGovernance.InflowThresholdOutOfRange.selector);
         harness.setInflowThresholdBps(99);
 
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookLogic.InflowThresholdOutOfRange.selector);
+        vm.expectRevert(AmlHookGovernance.InflowThresholdOutOfRange.selector);
         harness.setInflowThresholdBps(10_001);
     }
 
@@ -581,9 +582,9 @@ contract UnitAmlHookLogicTest is Helpers {
         harness.setDailyWindow(24 hours);
 
         vm.startPrank(hookGovernor);
-        vm.expectRevert(AmlHookLogic.DailyWindowInvalid.selector);
+        vm.expectRevert(AmlHookGovernance.DailyWindowInvalid.selector);
         harness.setDailyWindow(1 hours - 1);
-        vm.expectRevert(AmlHookLogic.DailyWindowInvalid.selector);
+        vm.expectRevert(AmlHookGovernance.DailyWindowInvalid.selector);
         harness.setDailyWindow(uint64(7 days) + 1);
         vm.stopPrank();
     }
@@ -610,16 +611,16 @@ contract UnitAmlHookLogicTest is Helpers {
 
     function test_SetActivityWindow_RevertsOutOfRange() external {
         vm.startPrank(hookGovernor);
-        vm.expectRevert(AmlHookLogic.ActivityWindowInvalid.selector);
+        vm.expectRevert(AmlHookGovernance.ActivityWindowInvalid.selector);
         harness.setActivityWindow(59, 3);
 
-        vm.expectRevert(AmlHookLogic.ActivityWindowInvalid.selector);
+        vm.expectRevert(AmlHookGovernance.ActivityWindowInvalid.selector);
         harness.setActivityWindow(uint64(7 days) + 1, 3);
 
-        vm.expectRevert(AmlHookLogic.MaxOpsInWindowInvalid.selector);
+        vm.expectRevert(AmlHookGovernance.MaxOpsInWindowInvalid.selector);
         harness.setActivityWindow(1 hours, 0);
 
-        vm.expectRevert(AmlHookLogic.MaxOpsInWindowInvalid.selector);
+        vm.expectRevert(AmlHookGovernance.MaxOpsInWindowInvalid.selector);
         harness.setActivityWindow(1 hours, 101);
         vm.stopPrank();
     }

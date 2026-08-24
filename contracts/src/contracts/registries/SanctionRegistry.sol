@@ -53,7 +53,7 @@ contract SanctionRegistry is AccessManaged, ISanctionRegistry {
         revealDelay = revealDelay_;
     }
 
-    /// @notice Paso 1: comprometer la intencion sin revelar la direccion.
+    /// @notice Step 1: commit to the intent without revealing the address.
     /// @param commitHash keccak256(abi.encode(account, sanctioned, salt))
     /// @dev Salt-reuse note: `revealSanction` deletes the commit entry, so the same
     ///      (account, sanctioned, salt) triple can be re-committed after a reveal.
@@ -65,7 +65,7 @@ contract SanctionRegistry is AccessManaged, ISanctionRegistry {
         emit SanctionCommitted(commitHash, block.number);
     }
 
-    /// @notice Paso 2: revelar y aplicar la sancion despues de `revealDelay` bloques.
+    /// @notice Step 2: reveal and apply the sanction after `revealDelay` blocks.
     /// @dev Submit this transaction via a private mempool in production (C-02). The
     ///      delay only reduces, it does not eliminate, public-mempool front-running.
     function revealSanction(address account, bool sanctioned, bytes32 salt) external restricted {

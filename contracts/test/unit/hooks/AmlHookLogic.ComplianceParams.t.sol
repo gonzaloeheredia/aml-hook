@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {AccessManager} from "@openzeppelin/contracts/access/manager/AccessManager.sol";
 import {IAccessManaged} from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
 
+import {AmlHookGovernance} from "contracts/hooks/AmlHookGovernance.sol";
 import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
@@ -42,9 +43,9 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
         _wireRole(accessManager, owner, address(complianceOracle), oracleSelectors, Roles._ORACLE_KEEPER, keeper);
 
         bytes4[] memory hookSelectors = new bytes4[](3);
-        hookSelectors[0] = AmlHookLogic.setPriceFeed.selector;
-        hookSelectors[1] = AmlHookLogic.setTrustedRouter.selector;
-        hookSelectors[2] = AmlHookLogic.setStalenessThreshold.selector;
+        hookSelectors[0] = AmlHookGovernance.setPriceFeed.selector;
+        hookSelectors[1] = AmlHookGovernance.setTrustedRouter.selector;
+        hookSelectors[2] = AmlHookGovernance.setStalenessThreshold.selector;
         _wireRole(accessManager, owner, address(harness), hookSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
         _wireComplianceOfficer(address(harness), uint32(48 hours));
 
@@ -100,7 +101,7 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
         vm.prank(complianceOfficer);
         harness.proposeUnscoredThresholds(2_000e8, 50_000e8);
 
-        bytes memory data = abi.encodeCall(AmlHookLogic.applyUnscoredThresholds, (2_000e8, 50_000e8));
+        bytes memory data = abi.encodeCall(AmlHookGovernance.applyUnscoredThresholds, (2_000e8, 50_000e8));
         vm.prank(complianceOfficer);
         accessManager.schedule(address(harness), data, 0);
 
@@ -115,7 +116,7 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
         vm.prank(complianceOfficer);
         harness.proposeUnscoredThresholds(2_000e8, 50_000e8);
 
-        bytes memory data = abi.encodeCall(AmlHookLogic.applyUnscoredThresholds, (2_000e8, 50_000e8));
+        bytes memory data = abi.encodeCall(AmlHookGovernance.applyUnscoredThresholds, (2_000e8, 50_000e8));
         vm.prank(complianceOfficer);
         accessManager.schedule(address(harness), data, 0);
         vm.warp(block.timestamp + 48 hours);
@@ -175,7 +176,7 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
         vm.prank(complianceOfficer);
         vm.expectRevert(
             abi.encodeWithSelector(
-                AmlHookLogic.UnscoredFeeThresholdBelowFatfMinimum.selector, 1_000e8 - 1, 1_000e8
+                AmlHookGovernance.UnscoredFeeThresholdBelowFatfMinimum.selector, 1_000e8 - 1, 1_000e8
             )
         );
         harness.proposeUnscoredThresholds(1_000e8 - 1, 15_000e8);
@@ -184,12 +185,12 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
     function test_UnscoredRevertMustExceedFee() external {
         vm.startPrank(complianceOfficer);
         vm.expectRevert(
-            abi.encodeWithSelector(AmlHookLogic.UnscoredRevertMustExceedFee.selector, 15_000e8, 15_000e8)
+            abi.encodeWithSelector(AmlHookGovernance.UnscoredRevertMustExceedFee.selector, 15_000e8, 15_000e8)
         );
         harness.proposeUnscoredThresholds(15_000e8, 15_000e8);
 
         vm.expectRevert(
-            abi.encodeWithSelector(AmlHookLogic.UnscoredRevertMustExceedFee.selector, 15_000e8, 14_999e8)
+            abi.encodeWithSelector(AmlHookGovernance.UnscoredRevertMustExceedFee.selector, 15_000e8, 14_999e8)
         );
         harness.proposeUnscoredThresholds(15_000e8, 14_999e8);
         vm.stopPrank();
@@ -197,7 +198,7 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
 
     function test_UnscoredRevertZeroIsRejected() external {
         vm.prank(complianceOfficer);
-        vm.expectRevert(abi.encodeWithSelector(AmlHookLogic.UnscoredRevertMustExceedFee.selector, 1_000e8, 0));
+        vm.expectRevert(abi.encodeWithSelector(AmlHookGovernance.UnscoredRevertMustExceedFee.selector, 1_000e8, 0));
         harness.proposeUnscoredThresholds(1_000e8, 0);
     }
 
@@ -208,7 +209,7 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
         harness.proposePoolImpactThresholdBps(type(uint256).max);
         vm.stopPrank();
 
-        _confirm(abi.encodeCall(AmlHookLogic.applyPoolImpactThresholdBps, (type(uint256).max)));
+        _confirm(abi.encodeCall(AmlHookGovernance.applyPoolImpactThresholdBps, (type(uint256).max)));
         assertEq(harness.poolImpactThresholdBps(), type(uint256).max);
     }
 
@@ -218,7 +219,7 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
         vm.prank(complianceOfficer);
         harness.proposePoolImpactThresholdBps(4_000);
 
-        bytes memory data = abi.encodeCall(AmlHookLogic.applyPoolImpactThresholdBps, (4_000));
+        bytes memory data = abi.encodeCall(AmlHookGovernance.applyPoolImpactThresholdBps, (4_000));
         vm.prank(complianceOfficer);
         accessManager.schedule(address(harness), data, 0);
         vm.warp(block.timestamp + 48 hours);
@@ -233,10 +234,10 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
 
     function test_FloorFeesRequirePunitiveGreaterThanProportional() external {
         vm.startPrank(complianceOfficer);
-        vm.expectRevert(abi.encodeWithSelector(AmlHookLogic.PunitiveFeeMustExceedProportional.selector, 300, 300));
+        vm.expectRevert(abi.encodeWithSelector(AmlHookGovernance.PunitiveFeeMustExceedProportional.selector, 300, 300));
         harness.proposeFloorFees(300, 300);
 
-        vm.expectRevert(abi.encodeWithSelector(AmlHookLogic.PunitiveFeeMustExceedProportional.selector, 800, 300));
+        vm.expectRevert(abi.encodeWithSelector(AmlHookGovernance.PunitiveFeeMustExceedProportional.selector, 800, 300));
         harness.proposeFloorFees(800, 300);
         vm.stopPrank();
     }
@@ -244,7 +245,7 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
     function test_PunitiveFeeMayExceedMaxOverride() external {
         vm.prank(complianceOfficer);
         harness.proposeFloorFees(300, 2_500);
-        _confirm(abi.encodeCall(AmlHookLogic.applyFloorFees, (uint24(300), uint24(2_500))));
+        _confirm(abi.encodeCall(AmlHookGovernance.applyFloorFees, (uint24(300), uint24(2_500))));
         assertEq(harness.proportionalFeeBps(), 300);
         assertEq(harness.punitiveFeeBps(), 2_500);
     }
@@ -252,7 +253,7 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
     function test_ProportionalFeeMayBeZero() external {
         vm.prank(complianceOfficer);
         harness.proposeFloorFees(0, 800);
-        _confirm(abi.encodeCall(AmlHookLogic.applyFloorFees, (uint24(0), uint24(800))));
+        _confirm(abi.encodeCall(AmlHookGovernance.applyFloorFees, (uint24(0), uint24(800))));
         assertEq(harness.proportionalFeeBps(), 0);
         assertEq(harness.punitiveFeeBps(), 800);
     }
@@ -260,7 +261,7 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
     function test_LiveFloorFeesFlowThroughDecide() external {
         vm.prank(complianceOfficer);
         harness.proposeFloorFees(111, 2_222);
-        _confirm(abi.encodeCall(AmlHookLogic.applyFloorFees, (uint24(111), uint24(2_222))));
+        _confirm(abi.encodeCall(AmlHookGovernance.applyFloorFees, (uint24(111), uint24(2_222))));
 
         token.mint(walletA, 500 ether);
         (HookDecision d, uint24 fee,) = harness.evaluate(walletA, address(token), 500 ether);
@@ -269,14 +270,14 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
     }
 
     function test_ApplyWithoutProposalReverts() external {
-        bytes memory data = abi.encodeCall(AmlHookLogic.applyFloorFees, (uint24(100), uint24(900)));
+        bytes memory data = abi.encodeCall(AmlHookGovernance.applyFloorFees, (uint24(100), uint24(900)));
         vm.prank(complianceOfficer);
         accessManager.schedule(address(harness), data, 0);
         vm.warp(block.timestamp + 48 hours);
         vm.startPrank(complianceOfficer);
         vm.expectRevert(
             abi.encodeWithSelector(
-                AmlHookLogic.NoPendingPolicyParam.selector, harness.PARAM_PROPORTIONAL_FEE_BPS()
+                AmlHookGovernance.NoPendingPolicyParam.selector, harness.PARAM_PROPORTIONAL_FEE_BPS()
             )
         );
         accessManager.execute(address(harness), data);
@@ -287,14 +288,14 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
         vm.prank(complianceOfficer);
         harness.proposeFloorFees(100, 900);
 
-        bytes memory data = abi.encodeCall(AmlHookLogic.applyFloorFees, (uint24(200), uint24(900)));
+        bytes memory data = abi.encodeCall(AmlHookGovernance.applyFloorFees, (uint24(200), uint24(900)));
         vm.prank(complianceOfficer);
         accessManager.schedule(address(harness), data, 0);
         vm.warp(block.timestamp + 48 hours);
         vm.startPrank(complianceOfficer);
         vm.expectRevert(
             abi.encodeWithSelector(
-                AmlHookLogic.PendingPolicyParamMismatch.selector, harness.PARAM_PROPORTIONAL_FEE_BPS()
+                AmlHookGovernance.PendingPolicyParamMismatch.selector, harness.PARAM_PROPORTIONAL_FEE_BPS()
             )
         );
         accessManager.execute(address(harness), data);
@@ -313,13 +314,13 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
     function test_FatfMinimumIsAllowed_AndHasNoCeiling() external {
         vm.prank(complianceOfficer);
         harness.proposeUnscoredThresholds(1_000e8, 1_000e8 + 1);
-        _confirm(abi.encodeCall(AmlHookLogic.applyUnscoredThresholds, (1_000e8, 1_000e8 + 1)));
+        _confirm(abi.encodeCall(AmlHookGovernance.applyUnscoredThresholds, (1_000e8, 1_000e8 + 1)));
         assertEq(harness.unscoredFeeThreshold(), 1_000e8);
         assertEq(harness.unscoredRevertThreshold(), 1_000e8 + 1);
 
         vm.prank(complianceOfficer);
         harness.proposeUnscoredThresholds(1_000_000e8, 2_000_000e8);
-        _confirm(abi.encodeCall(AmlHookLogic.applyUnscoredThresholds, (1_000_000e8, 2_000_000e8)));
+        _confirm(abi.encodeCall(AmlHookGovernance.applyUnscoredThresholds, (1_000_000e8, 2_000_000e8)));
         assertEq(harness.unscoredFeeThreshold(), 1_000_000e8);
         assertEq(harness.unscoredRevertThreshold(), 2_000_000e8);
     }
@@ -331,7 +332,7 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
 
         vm.prank(complianceOfficer);
         harness.proposeUnscoredThresholds(2_000e8, 50_000e8);
-        _confirm(abi.encodeCall(AmlHookLogic.applyUnscoredThresholds, (2_000e8, 50_000e8)));
+        _confirm(abi.encodeCall(AmlHookGovernance.applyUnscoredThresholds, (2_000e8, 50_000e8)));
 
         (HookDecision afterMid, uint24 afterFee,) = harness.evaluate(walletA, address(token), 1_500 ether);
         assertEq(uint8(afterMid), uint8(HookDecision.FEE_OVERRIDE));
@@ -350,7 +351,7 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
     function test_ConfirmedFloorFeesChangeUnscoredBands() external {
         vm.prank(complianceOfficer);
         harness.proposeFloorFees(50, 1_500);
-        _confirm(abi.encodeCall(AmlHookLogic.applyFloorFees, (uint24(50), uint24(1_500))));
+        _confirm(abi.encodeCall(AmlHookGovernance.applyFloorFees, (uint24(50), uint24(1_500))));
 
         (HookDecision dust, uint24 dustFee,) = harness.evaluate(walletA, address(token), 500 ether);
         assertEq(uint8(dust), uint8(HookDecision.FEE_OVERRIDE));
@@ -365,7 +366,7 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
     function test_ConfirmedPoolImpactZeroDisablesExtra() external {
         vm.prank(complianceOfficer);
         harness.proposePoolImpactThresholdBps(0);
-        _confirm(abi.encodeCall(AmlHookLogic.applyPoolImpactThresholdBps, (0)));
+        _confirm(abi.encodeCall(AmlHookGovernance.applyPoolImpactThresholdBps, (0)));
 
         (HookDecision d, uint24 fee,) = harness.evaluate(walletA, address(token), 500 ether, 9_000);
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
@@ -375,7 +376,7 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
     function test_ConfirmedPoolImpactAboveTenThousandStillArms() external {
         vm.prank(complianceOfficer);
         harness.proposePoolImpactThresholdBps(12_000);
-        _confirm(abi.encodeCall(AmlHookLogic.applyPoolImpactThresholdBps, (12_000)));
+        _confirm(abi.encodeCall(AmlHookGovernance.applyPoolImpactThresholdBps, (12_000)));
 
         (HookDecision below, uint24 belowFee,) = harness.evaluate(walletA, address(token), 500 ether, 12_000);
         assertEq(uint8(below), uint8(HookDecision.FEE_OVERRIDE));
@@ -391,7 +392,7 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
 
         vm.prank(complianceOfficer);
         harness.proposeUnscoredThresholds(1_000e8, 50_000e8);
-        _confirm(abi.encodeCall(AmlHookLogic.applyUnscoredThresholds, (1_000e8, 50_000e8)));
+        _confirm(abi.encodeCall(AmlHookGovernance.applyUnscoredThresholds, (1_000e8, 50_000e8)));
 
         (HookDecision d, uint24 fee,) = harness.evaluate(walletA, address(token), 1_000 ether);
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
@@ -404,7 +405,7 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
         harness.proposeUnscoredThresholds(3_000e8, 40_000e8);
         vm.stopPrank();
 
-        _confirm(abi.encodeCall(AmlHookLogic.applyUnscoredThresholds, (3_000e8, 40_000e8)));
+        _confirm(abi.encodeCall(AmlHookGovernance.applyUnscoredThresholds, (3_000e8, 40_000e8)));
         assertEq(harness.unscoredFeeThreshold(), 3_000e8);
         assertEq(harness.unscoredRevertThreshold(), 40_000e8);
     }

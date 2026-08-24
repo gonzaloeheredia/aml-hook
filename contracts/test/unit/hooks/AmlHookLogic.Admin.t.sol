@@ -5,6 +5,7 @@ import {AccessManager} from "@openzeppelin/contracts/access/manager/AccessManage
 import {IAccessManaged} from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
+import {AmlHookGovernance} from "contracts/hooks/AmlHookGovernance.sol";
 import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
@@ -38,17 +39,17 @@ contract UnitAmlHookLogicAdminTest is Helpers {
         _wireRole(accessManager, owner, address(complianceOracle), oracleSelectors, Roles._ORACLE_KEEPER, keeper);
 
         bytes4[] memory hookSelectors = new bytes4[](11);
-        hookSelectors[0] = AmlHookLogic.setMinBaselineInterval.selector;
-        hookSelectors[1] = AmlHookLogic.setPriceFeed.selector;
-        hookSelectors[2] = AmlHookLogic.setPriceStalenessThreshold.selector;
-        hookSelectors[3] = AmlHookLogic.pause.selector;
-        hookSelectors[4] = AmlHookLogic.unpause.selector;
-        hookSelectors[5] = AmlHookLogic.setTrustedRouter.selector;
-        hookSelectors[6] = AmlHookLogic.setStalenessThreshold.selector;
+        hookSelectors[0] = AmlHookGovernance.setMinBaselineInterval.selector;
+        hookSelectors[1] = AmlHookGovernance.setPriceFeed.selector;
+        hookSelectors[2] = AmlHookGovernance.setPriceStalenessThreshold.selector;
+        hookSelectors[3] = AmlHookGovernance.pause.selector;
+        hookSelectors[4] = AmlHookGovernance.unpause.selector;
+        hookSelectors[5] = AmlHookGovernance.setTrustedRouter.selector;
+        hookSelectors[6] = AmlHookGovernance.setStalenessThreshold.selector;
         hookSelectors[7] = AmlHookLogic.observeSwap.selector;
-        hookSelectors[8] = AmlHookLogic.setDailyWindow.selector;
-        hookSelectors[9] = AmlHookLogic.setTrustedMultisig.selector;
-        hookSelectors[10] = AmlHookLogic.setMultisigAggregation.selector;
+        hookSelectors[8] = AmlHookGovernance.setDailyWindow.selector;
+        hookSelectors[9] = AmlHookGovernance.setTrustedMultisig.selector;
+        hookSelectors[10] = AmlHookGovernance.setMultisigAggregation.selector;
         _wireRole(accessManager, owner, address(harness), hookSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
 
         feed = new MockAggregatorV3();
@@ -70,7 +71,7 @@ contract UnitAmlHookLogicAdminTest is Helpers {
         assertEq(harness.priceStalenessThreshold(), harness.DEFAULT_PRICE_STALENESS());
         assertEq(harness.inflowThresholdBps(), 5000);
         assertEq(harness.minBaselineInterval(), 1 hours);
-        assertEq(uint8(harness.multisigAggregation()), uint8(AmlHookLogic.MultisigAggregation.ALL_CLEAN));
+        assertEq(uint8(harness.multisigAggregation()), uint8(AmlHookGovernance.MultisigAggregation.ALL_CLEAN));
         assertEq(address(harness.sanctionRegistry()), address(sanctionRegistry));
         assertEq(address(harness.complianceOracle()), address(complianceOracle));
         assertEq(address(harness.riskPolicy()), address(riskPolicy));
@@ -78,7 +79,7 @@ contract UnitAmlHookLogicAdminTest is Helpers {
 
     function test_Constructor_RejectsStalenessAboveMax() external {
         uint256 tooHigh = harness.MAX_STALENESS() + 1;
-        vm.expectRevert(AmlHookLogic.StalenessThresholdTooHigh.selector);
+        vm.expectRevert(AmlHookGovernance.StalenessThresholdTooHigh.selector);
         new AmlHookHarness(
             address(accessManager),
             sanctionRegistry,
@@ -91,7 +92,7 @@ contract UnitAmlHookLogicAdminTest is Helpers {
     }
 
     function test_Constructor_RejectsInvalidActivityWindow() external {
-        vm.expectRevert(AmlHookLogic.ActivityWindowInvalid.selector);
+        vm.expectRevert(AmlHookGovernance.ActivityWindowInvalid.selector);
         new AmlHookHarness(address(accessManager), sanctionRegistry, complianceOracle, riskPolicy, 300, 1, 3);
     }
 
@@ -101,7 +102,7 @@ contract UnitAmlHookLogicAdminTest is Helpers {
         harness.setMinBaselineInterval(2 hours);
 
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookLogic.BaselineIntervalZero.selector);
+        vm.expectRevert(AmlHookGovernance.BaselineIntervalZero.selector);
         harness.setMinBaselineInterval(0);
 
         vm.prank(hookGovernor);
@@ -115,12 +116,12 @@ contract UnitAmlHookLogicAdminTest is Helpers {
         harness.setPriceStalenessThreshold(120);
 
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookLogic.PriceStalenessThresholdInvalid.selector);
+        vm.expectRevert(AmlHookGovernance.PriceStalenessThresholdInvalid.selector);
         harness.setPriceStalenessThreshold(0);
 
         uint256 tooHigh = harness.MAX_PRICE_STALENESS() + 1;
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookLogic.PriceStalenessThresholdInvalid.selector);
+        vm.expectRevert(AmlHookGovernance.PriceStalenessThresholdInvalid.selector);
         harness.setPriceStalenessThreshold(tooHigh);
 
         vm.prank(hookGovernor);
@@ -152,7 +153,7 @@ contract UnitAmlHookLogicAdminTest is Helpers {
     }
 
     function test_Constructor_RejectsInvalidMaxOps() external {
-        vm.expectRevert(AmlHookLogic.MaxOpsInWindowInvalid.selector);
+        vm.expectRevert(AmlHookGovernance.MaxOpsInWindowInvalid.selector);
         new AmlHookHarness(address(accessManager), sanctionRegistry, complianceOracle, riskPolicy, 300, 3600, 101);
     }
 
@@ -190,11 +191,11 @@ contract UnitAmlHookLogicAdminTest is Helpers {
         uint64 belowMin = harness.MIN_DAILY_WINDOW() - 1;
         uint64 aboveMax = harness.MAX_DAILY_WINDOW() + 1;
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookLogic.DailyWindowInvalid.selector);
+        vm.expectRevert(AmlHookGovernance.DailyWindowInvalid.selector);
         harness.setDailyWindow(belowMin);
 
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookLogic.DailyWindowInvalid.selector);
+        vm.expectRevert(AmlHookGovernance.DailyWindowInvalid.selector);
         harness.setDailyWindow(aboveMax);
 
         vm.prank(hookGovernor);
@@ -206,36 +207,36 @@ contract UnitAmlHookLogicAdminTest is Helpers {
         address safe = makeAddr("safe");
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
-        harness.setTrustedMultisig(safe, AmlHookLogic.MultisigType.GNOSIS_SAFE, true);
+        harness.setTrustedMultisig(safe, AmlHookGovernance.MultisigType.GNOSIS_SAFE, true);
 
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookLogic.MissingSwapSubject.selector);
-        harness.setTrustedMultisig(address(0), AmlHookLogic.MultisigType.GNOSIS_SAFE, true);
+        vm.expectRevert(AmlHookGovernance.MissingSwapSubject.selector);
+        harness.setTrustedMultisig(address(0), AmlHookGovernance.MultisigType.GNOSIS_SAFE, true);
 
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookLogic.MissingSwapSubject.selector);
-        harness.setTrustedMultisig(safe, AmlHookLogic.MultisigType.NONE, true);
+        vm.expectRevert(AmlHookGovernance.MissingSwapSubject.selector);
+        harness.setTrustedMultisig(safe, AmlHookGovernance.MultisigType.NONE, true);
 
         vm.prank(hookGovernor);
-        harness.setTrustedMultisig(safe, AmlHookLogic.MultisigType.GNOSIS_SAFE, true);
-        (bool trusted, AmlHookLogic.MultisigType kind) = harness.trustedMultisigs(safe);
+        harness.setTrustedMultisig(safe, AmlHookGovernance.MultisigType.GNOSIS_SAFE, true);
+        (bool trusted, AmlHookGovernance.MultisigType kind) = harness.trustedMultisigs(safe);
         assertTrue(trusted);
-        assertEq(uint8(kind), uint8(AmlHookLogic.MultisigType.GNOSIS_SAFE));
+        assertEq(uint8(kind), uint8(AmlHookGovernance.MultisigType.GNOSIS_SAFE));
 
         vm.prank(hookGovernor);
-        harness.setTrustedMultisig(safe, AmlHookLogic.MultisigType.GNOSIS_SAFE, false);
+        harness.setTrustedMultisig(safe, AmlHookGovernance.MultisigType.GNOSIS_SAFE, false);
         (trusted, kind) = harness.trustedMultisigs(safe);
         assertFalse(trusted);
-        assertEq(uint8(kind), uint8(AmlHookLogic.MultisigType.NONE));
+        assertEq(uint8(kind), uint8(AmlHookGovernance.MultisigType.NONE));
     }
 
     function test_SetMultisigAggregation_GovernorOnly() external {
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
-        harness.setMultisigAggregation(AmlHookLogic.MultisigAggregation.ANY_CLEAN);
+        harness.setMultisigAggregation(AmlHookGovernance.MultisigAggregation.ANY_CLEAN);
 
         vm.prank(hookGovernor);
-        harness.setMultisigAggregation(AmlHookLogic.MultisigAggregation.ANY_CLEAN);
-        assertEq(uint8(harness.multisigAggregation()), uint8(AmlHookLogic.MultisigAggregation.ANY_CLEAN));
+        harness.setMultisigAggregation(AmlHookGovernance.MultisigAggregation.ANY_CLEAN);
+        assertEq(uint8(harness.multisigAggregation()), uint8(AmlHookGovernance.MultisigAggregation.ANY_CLEAN));
     }
 }

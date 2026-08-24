@@ -173,16 +173,39 @@ function connectorPath(
 }
 
 /**
- * Small n8n-style loading spinner shown on the currently executing node.
+ * Progress wheel that fills over this node's `stepTimesSec`.
  */
-function Spinner({ className = "" }: { className?: string }) {
+function StepWheel({ progress }: { progress: number }) {
+  const p = Math.min(1, Math.max(0, progress));
+  const r = 5.5;
+  const c = 2 * Math.PI * r;
   return (
-    <span
-      className={`inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/25 border-t-uni-ok ${className}`}
-      aria-hidden
-    />
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden className="shrink-0">
+      <circle
+        cx="8"
+        cy="8"
+        r={r}
+        fill="none"
+        stroke="rgb(var(--ink) / 0.14)"
+        strokeWidth="2"
+      />
+      <circle
+        cx="8"
+        cy="8"
+        r={r}
+        fill="none"
+        stroke="#40B66B"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeDasharray={c}
+        strokeDashoffset={c * (1 - p)}
+        transform="rotate(-90 8 8)"
+      />
+    </svg>
   );
 }
+
+const AFTER_FLOW_HOLD_MS = 3000;
 
 type StepId = keyof DemoCase["stepTimesSec"];
 
@@ -196,7 +219,7 @@ function stepDurationMs(times: DemoCase["stepTimesSec"], id: string): number {
 
 type Props = {
   demoCase: DemoCase;
-  /** When true, advances through nodes with green borders + spinners */
+  /** When true, advances through nodes with filling wheels */
   running: boolean;
   /** Fired once the animated flow finishes */
   onComplete: () => void;
@@ -278,8 +301,8 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
 
   /**
    * Step-through animation: each node stays active for that layer's real
-   * execution time (`stepTimesSec`), then completes. Re-runs when `running`
-   * or the case changes — not when the user reorders nodes mid-layout.
+   * execution time (`stepTimesSec`) while its wheel fills, then the canvas
+   * holds 3s so the completed graph can be read before Fees.
    */
   useEffect(() => {
     if (!running) return;
@@ -313,7 +336,10 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
           setDone(true);
           setActiveIndex(total - 1);
           setElapsedMs(0);
-          onCompleteRef.current();
+          timeout = setTimeout(() => {
+            if (cancelled) return;
+            onCompleteRef.current();
+          }, AFTER_FLOW_HOLD_MS);
           return;
         }
         stepStarted = performance.now();
@@ -450,6 +476,10 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
               const pos = positions[node.id] ?? { x: 0, y: 0 };
               const isActive = running && index === activeIndex && !done;
               const completed = done || (running && activeIndex > index);
+              const targetSec =
+                demoCase.stepTimesSec[node.id as StepId] ?? 0;
+              const targetMs = Math.max(1, Math.round(targetSec * 1000));
+              const wheelProgress = isActive ? elapsedMs / targetMs : 0;
               const isDragging = draggingId === node.id;
               const isDropTarget = dropTargetId === node.id;
               const isResult = node.id === "out";
@@ -501,7 +531,7 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
                       {index + 1}. {node.kind}
                     </span>
                     <span className="flex items-center gap-1">
-                      {isActive && <Spinner />}
+                      {isActive && <StepWheel progress={wheelProgress} />}
                       {done && isResult && resultTone === "bad" ? (
                         <span className="flex h-3 w-3 items-center justify-center rounded-full bg-uni-bad text-[8px] font-bold text-white">
                           ✕
@@ -534,12 +564,10 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
                     }`}
                   >
                     {(() => {
-                      const target =
-                        demoCase.stepTimesSec[node.id as StepId] ?? 0;
                       if (isActive && !done) {
-                        return Math.min(target, elapsedMs / 1000).toFixed(2);
+                        return Math.min(targetSec, elapsedMs / 1000).toFixed(2);
                       }
-                      return target.toFixed(2);
+                      return targetSec.toFixed(2);
                     })()}
                     s
                   </div>

@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {AccessManager} from "@openzeppelin/contracts/access/manager/AccessManager.sol";
 
+import {AmlHookGovernance} from "contracts/hooks/AmlHookGovernance.sol";
 import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
@@ -45,7 +46,7 @@ contract IntegrationAmlStackTest is Helpers {
         _wireRole(accessManager, owner, address(sanctionRegistry), registrySelectors, Roles._REGISTRY_KEEPER, keeper);
 
         bytes4[] memory hookSelectors = new bytes4[](1);
-        hookSelectors[0] = AmlHookLogic.setPriceFeed.selector;
+        hookSelectors[0] = AmlHookGovernance.setPriceFeed.selector;
         _wireRole(accessManager, owner, address(harness), hookSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
         _wireComplianceOfficer(address(harness), 0);
 

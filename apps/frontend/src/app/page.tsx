@@ -74,8 +74,9 @@ const STAGE_ORDER: DemoStage[] = [
   "event",
 ];
 
-/** Hold on Fees after hook complete — no auto-advance to AML stats (ms). */
-const FEES_HOLD_MS = 2600;
+/** After landing on Fees, wait out the forward slide plus this hold, then Stats. */
+const FEES_TO_STATS_MS = 3000;
+const OPINION_TO_EVENT_MS = 15_000;
 
 /**
  * Returns the later of two stages in the guided sequence.
@@ -149,8 +150,10 @@ export default function HomePage() {
   const pointStage = useCallback((next: DemoStage) => {
     const cur = stageRef.current;
     if (next !== cur) {
-      setSlideDir(STAGE_ORDER.indexOf(next) >= STAGE_ORDER.indexOf(cur) ? 1 : -1);
-      setSlideSwift(visitedRef.current.has(next));
+      const goingBack =
+        STAGE_ORDER.indexOf(next) < STAGE_ORDER.indexOf(cur);
+      setSlideDir(goingBack ? -1 : 1);
+      setSlideSwift(goingBack);
       visitedRef.current.add(next);
     }
     setStage(next);
@@ -414,21 +417,6 @@ export default function HomePage() {
   };
 
   /**
-   * Lands on Fees after the hook run. Holds navigation briefly —
-   * AML stats is unlocked for click/wheel, but never auto-advanced.
-   */
-  const landOnFees = useCallback(() => {
-    pointStage("fees");
-    setUnlockedThrough((prev) => maxStage(prev, "stats"));
-    feesHoldRef.current = true;
-    wheelLockRef.current = true;
-    window.setTimeout(() => {
-      feesHoldRef.current = false;
-      wheelLockRef.current = false;
-    }, FEES_HOLD_MS);
-  }, [pointStage]);
-
-  /**
    * Opens AML stats and unlocks the Opinion module.
    */
   const enterStats = useCallback(() => {
@@ -439,14 +427,55 @@ export default function HomePage() {
   }, [pointStage]);
 
   /**
-   * Opens Opinion (legal opinion) and unlocks Event.
+   * Lands on Fees after the hook run. Holds 3s after the forward slide,
+   * then advances to Stats.
+   */
+  const landOnFees = useCallback(() => {
+    pointStage("fees");
+    setUnlockedThrough((prev) => maxStage(prev, "fees"));
+    feesHoldRef.current = true;
+    wheelLockRef.current = true;
+    const settleMs = 2000;
+    window.setTimeout(() => {
+      feesHoldRef.current = false;
+      wheelLockRef.current = false;
+      if (stageRef.current !== "fees") return;
+      enterStats();
+    }, settleMs + FEES_TO_STATS_MS);
+  }, [pointStage, enterStats]);
+
+  /**
+   * Opens Opinion. Event stays locked until the 15s scroll window elapses.
    */
   const enterOpinion = useCallback(() => {
     setAuditRevealKey((k) => k + 1);
     pointStage("opinion");
-    setUnlockedThrough((prev) => maxStage(prev, "event"));
+    setUnlockedThrough((prev) => maxStage(prev, "opinion"));
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [pointStage]);
+
+  /**
+   * First visit to Opinion: wait for the slide, then 15s to scroll the file,
+   * then unlock Event and advance. Revisit (Event already seen): just unlock.
+   */
+  useEffect(() => {
+    if (stage !== "opinion") return;
+
+    if (visitedRef.current.has("event")) {
+      setUnlockedThrough((prev) => maxStage(prev, "event"));
+      return;
+    }
+
+    const settleMs = slideSwift ? 420 : 6000;
+    const t = window.setTimeout(() => {
+      if (stageRef.current !== "opinion") return;
+      setUnlockedThrough((prev) => maxStage(prev, "event"));
+      pointStage("event");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }, settleMs + OPINION_TO_EVENT_MS);
+
+    return () => window.clearTimeout(t);
+  }, [stage, slideSwift, pointStage]);
 
   const handleFlowComplete = useCallback(async () => {
     setRunning(false);
@@ -565,7 +594,7 @@ export default function HomePage() {
       if (next === "opinion" && cur !== "opinion") {
         setAuditRevealKey((k) => k + 1);
         pointStage("opinion");
-        setUnlockedThrough((prev) => maxStage(prev, "event"));
+        setUnlockedThrough((prev) => maxStage(prev, "opinion"));
         window.scrollTo({ top: 0, behavior: "smooth" });
         return true;
       }
@@ -627,13 +656,13 @@ export default function HomePage() {
       const cur = stageRef.current;
       const idx = STAGE_ORDER.indexOf(cur);
       const next = STAGE_ORDER[idx + dir];
-      const firstVisit = Boolean(next) && !visitedRef.current.has(next);
       if (moveStageBy(dir)) {
-        const hold = !firstVisit
-          ? SWIFT_MS + 80
-          : next === "opinion"
-            ? OPINION_SLIDE_MS + 150
-            : SLIDE_MS + 150;
+        const hold =
+          dir < 0
+            ? SWIFT_MS + 80
+            : next === "opinion"
+              ? OPINION_SLIDE_MS + 150
+              : SLIDE_MS + 150;
         lockNav(hold);
         return true;
       }

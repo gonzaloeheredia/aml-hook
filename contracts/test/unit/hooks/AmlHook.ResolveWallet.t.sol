@@ -9,6 +9,7 @@ import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 
 import {AmlHook} from "contracts/hooks/AmlHook.sol";
+import {AmlHookGovernance} from "contracts/hooks/AmlHookGovernance.sol";
 import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
@@ -121,7 +122,7 @@ contract UnitAmlHookResolveWalletTest is Helpers {
     }
 
     function test_MissingSwapSubject_WithoutTrustedRouter() external {
-        vm.expectRevert(AmlHookLogic.MissingSwapSubject.selector);
+        vm.expectRevert(AmlHookGovernance.MissingSwapSubject.selector);
         manager.callBeforeSwap(IHooks(address(hook)), address(0xDEAD), key, params, "");
     }
 
@@ -156,7 +157,7 @@ contract UnitAmlHookResolveWalletTest is Helpers {
         vm.prank(keeper);
         complianceOracle.updateScore(walletC, 0, 0, address(0), 0, _scoreSig(walletC, 0, 0));
         bytes memory data = abi.encode(walletC);
-        vm.expectRevert(AmlHookLogic.MissingSwapSubject.selector);
+        vm.expectRevert(AmlHookGovernance.MissingSwapSubject.selector);
         manager.callBeforeSwap(IHooks(address(hook)), router, key, params, data);
     }
 
@@ -197,7 +198,7 @@ contract UnitAmlHookResolveWalletTest is Helpers {
         vm.prank(hookGovernor);
         hook.setTrustedRouter(address(trusted), true);
 
-        vm.expectRevert(AmlHookLogic.MissingSwapSubject.selector);
+        vm.expectRevert(AmlHookGovernance.MissingSwapSubject.selector);
         manager.callBeforeSwap(IHooks(address(hook)), address(trusted), key, params, "");
     }
 
@@ -208,7 +209,7 @@ contract UnitAmlHookResolveWalletTest is Helpers {
         MockGnosisSafe safe = new MockGnosisSafe(owners);
 
         vm.prank(hookGovernor);
-        hook.setTrustedMultisig(address(safe), AmlHookLogic.MultisigType.GNOSIS_SAFE, true);
+        hook.setTrustedMultisig(address(safe), AmlHookGovernance.MultisigType.GNOSIS_SAFE, true);
 
         vm.prank(keeper);
         complianceOracle.updateScore(address(safe), 0, 0, address(0), 0, _scoreSig(address(safe), 0, 0));
@@ -225,7 +226,7 @@ contract UnitAmlHookResolveWalletTest is Helpers {
         MockGnosisSafe safe = new MockGnosisSafe(owners);
 
         vm.prank(hookGovernor);
-        hook.setTrustedMultisig(address(safe), AmlHookLogic.MultisigType.GNOSIS_SAFE, true);
+        hook.setTrustedMultisig(address(safe), AmlHookGovernance.MultisigType.GNOSIS_SAFE, true);
 
         _sanction(sanctionRegistry, keeper, walletB);
 
@@ -241,9 +242,9 @@ contract UnitAmlHookResolveWalletTest is Helpers {
         MockGnosisSafe safe = new MockGnosisSafe(owners);
 
         vm.prank(hookGovernor);
-        hook.setTrustedMultisig(address(safe), AmlHookLogic.MultisigType.GNOSIS_SAFE, true);
+        hook.setTrustedMultisig(address(safe), AmlHookGovernance.MultisigType.GNOSIS_SAFE, true);
         vm.prank(hookGovernor);
-        hook.setMultisigAggregation(AmlHookLogic.MultisigAggregation.ANY_CLEAN);
+        hook.setMultisigAggregation(AmlHookGovernance.MultisigAggregation.ANY_CLEAN);
 
         vm.prank(keeper);
         complianceOracle.updateScore(walletA, 100, 0, walletA, 0, _scoreSig(walletA, 100, 0, walletA, 0));
@@ -266,7 +267,7 @@ contract UnitAmlHookResolveWalletTest is Helpers {
         MockGnosisSafe safe = new MockGnosisSafe(owners);
 
         vm.prank(hookGovernor);
-        hook.setTrustedMultisig(address(safe), AmlHookLogic.MultisigType.GNOSIS_SAFE, true);
+        hook.setTrustedMultisig(address(safe), AmlHookGovernance.MultisigType.GNOSIS_SAFE, true);
 
         vm.prank(keeper);
         complianceOracle.updateScore(walletA, 100, 0, walletA, 0, _scoreSig(walletA, 100, 0, walletA, 0));
@@ -292,7 +293,7 @@ contract UnitAmlHookResolveWalletTest is Helpers {
         MockGnosisSafe safe = new MockGnosisSafe(owners);
 
         vm.prank(hookGovernor);
-        hook.setTrustedMultisig(address(safe), AmlHookLogic.MultisigType.GNOSIS_SAFE, true);
+        hook.setTrustedMultisig(address(safe), AmlHookGovernance.MultisigType.GNOSIS_SAFE, true);
 
         vm.prank(keeper);
         complianceOracle.updateScore(walletA, 100, 0, walletA, 0, _scoreSig(walletA, 100, 0, walletA, 0));
@@ -317,9 +318,9 @@ contract UnitAmlHookResolveWalletTest is Helpers {
         MockGnosisSafe safe = new MockGnosisSafe(owners);
 
         vm.prank(hookGovernor);
-        hook.setTrustedMultisig(address(safe), AmlHookLogic.MultisigType.GNOSIS_SAFE, true);
+        hook.setTrustedMultisig(address(safe), AmlHookGovernance.MultisigType.GNOSIS_SAFE, true);
         vm.prank(hookGovernor);
-        hook.setMultisigAggregation(AmlHookLogic.MultisigAggregation.ANY_CLEAN);
+        hook.setMultisigAggregation(AmlHookGovernance.MultisigAggregation.ANY_CLEAN);
 
         _sanction(sanctionRegistry, keeper, walletA);
         _sanction(sanctionRegistry, keeper, walletB);

@@ -359,16 +359,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         if (rec.blockedAt == 0 || block.timestamp < uint256(rec.blockedAt) + ownerDelay) {
             revert BlockedRecoveryTooEarly();
         }
-
-        rec.status = EscrowStatus.Recovered;
-        uint256 amount = rec.amount;
-        address wallet = rec.wallet;
-        address token = rec.token;
-        bytes32 swapFingerprint = rec.swapFingerprint;
-        address to = complianceReserve;
-
-        _debitAndTransfer(rec, to, amount);
-        emit FeeRecovered(escrowId, wallet, to, token, amount, swapFingerprint);
+        _executeBlockedRecovery(escrowId, rec);
     }
 
     /// @inheritdoc IFeeEscrow
@@ -381,16 +372,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         if (rec.blockedAt == 0 || block.timestamp < uint256(rec.blockedAt) + uint256(blockedRecoveryDelay)) {
             revert BlockedRecoveryTooEarly();
         }
-
-        rec.status = EscrowStatus.Recovered;
-        uint256 amount = rec.amount;
-        address wallet = rec.wallet;
-        address token = rec.token;
-        bytes32 swapFingerprint = rec.swapFingerprint;
-        address to = complianceReserve;
-
-        _debitAndTransfer(rec, to, amount);
-        emit FeeRecovered(escrowId, wallet, to, token, amount, swapFingerprint);
+        _executeBlockedRecovery(escrowId, rec);
     }
 
     /// @notice Schedule adding a keeper (`allowed = true`) or revoke immediately (`allowed = false`).
@@ -534,39 +516,53 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     /// @dev At 48h: illicit stays here for the file; clean pays the LP compensation fund.
     function _resolveCheckpoint2(uint256 escrowId, bool illicitConfirmed) private {
         EscrowRecord storage rec = _requireActive(escrowId);
-        if (block.timestamp < uint256(rec.depositedAt) + uint256(ESCROW_WINDOW)) {
-            revert EscrowWindowOpen();
-        }
-
-        address wallet = rec.wallet;
-        uint256 amount = rec.amount;
+        _requireWindowElapsed(rec);
 
         if (illicitConfirmed) {
             rec.status = EscrowStatus.Blocked;
             rec.blockedAt = uint64(block.timestamp);
-            emit FeeBlocked(escrowId, wallet, amount);
+            emit FeeBlocked(escrowId, rec.wallet, rec.amount);
         } else {
-            rec.status = EscrowStatus.ReleasedDefault;
-            address to = lpCompensationFund;
-            _debitAndTransfer(rec, to, amount);
-            emit FeeReleasedDefault(escrowId, wallet, amount, to);
+            _releaseToLpFund(escrowId, rec);
         }
     }
 
     /// @dev Nobody resolved by 48h: same destination as a clean checkpoint.
     function _releaseDefault(uint256 escrowId) private {
         EscrowRecord storage rec = _requireActive(escrowId);
+        _requireWindowElapsed(rec);
+        _releaseToLpFund(escrowId, rec);
+    }
+
+    /// @dev Reverts if the 48-hour escrow window has not elapsed for this record.
+    function _requireWindowElapsed(EscrowRecord storage rec) private view {
         if (block.timestamp < uint256(rec.depositedAt) + uint256(ESCROW_WINDOW)) {
             revert EscrowWindowOpen();
         }
+    }
 
-        rec.status = EscrowStatus.ReleasedDefault;
-        address to = lpCompensationFund;
-        uint256 amount = rec.amount;
+    /// @dev Sets the record to ReleasedDefault, transfers to the LP compensation fund, and emits.
+    ///      Shared by `_releaseDefault` (no-action path) and the clean branch of `_resolveCheckpoint2`.
+    function _releaseToLpFund(uint256 escrowId, EscrowRecord storage rec) private {
         address wallet = rec.wallet;
-
+        uint256 amount = rec.amount;
+        address to = lpCompensationFund;
+        rec.status = EscrowStatus.ReleasedDefault;
         _debitAndTransfer(rec, to, amount);
         emit FeeReleasedDefault(escrowId, wallet, amount, to);
+    }
+
+    /// @dev Sets the record to Recovered, transfers to the compliance reserve, and emits.
+    ///      Shared by `recoverBlocked` (owner, min 7 days) and `recoverExpiredBlocked` (anyone, full delay).
+    function _executeBlockedRecovery(uint256 escrowId, EscrowRecord storage rec) private {
+        rec.status = EscrowStatus.Recovered;
+        uint256 amount = rec.amount;
+        address wallet = rec.wallet;
+        address token = rec.token;
+        bytes32 swapFingerprint = rec.swapFingerprint;
+        address to = complianceReserve;
+        _debitAndTransfer(rec, to, amount);
+        emit FeeRecovered(escrowId, wallet, to, token, amount, swapFingerprint);
     }
 
     /// @dev Load an Active row or revert (unknown id / already terminal).
