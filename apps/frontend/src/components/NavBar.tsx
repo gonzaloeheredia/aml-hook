@@ -46,8 +46,13 @@ export function NavBar({
           className="flex items-center gap-2 rounded-full border border-[#037DD6]/35 bg-[#037DD6]/15 px-3 py-2 text-sm font-semibold text-[#8BCAFF] transition hover:bg-[#037DD6]/25"
           title="Open MetaMask transfer simulator"
         >
-          <span className="text-base" aria-hidden>
-            🦊
+          <span
+            className="flex h-[22px] w-[22px] items-center justify-center rounded-[4px] border border-[#8BCAFF]/40"
+            aria-hidden
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+              <polygon points="5,0.6 9.4,5 5,9.4 0.6,5" />
+            </svg>
           </span>
           <span className="hidden sm:inline">MetaMask Simulator</span>
         </button>

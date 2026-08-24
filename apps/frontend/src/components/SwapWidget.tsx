@@ -1,12 +1,7 @@
 "use client";
 
 import type { DemoCase } from "@/data/cases";
-import {
-  bandLabelForUsd,
-  formatFeePct,
-  formatUsdFloor,
-  getPolicyKnobs,
-} from "@/lib/hopScoring";
+import { bandLabelForUsd, formatFeePct } from "@/lib/hopScoring";
 
 type Props = {
   demoCase: DemoCase;
@@ -19,9 +14,7 @@ type Props = {
   onSimulate: () => void;
   /** Size chips for Wallet E (and any case with amountPresets). */
   onAmountChange?: (amountUsd: number) => void;
-  priceFeedBound?: boolean;
   onAdvanceClock?: () => void;
-  onTogglePriceFeed?: () => void;
 };
 
 /**
@@ -35,9 +28,7 @@ export function SwapWidget({
   onConnectClick,
   onSimulate,
   onAmountChange,
-  priceFeedBound = true,
   onAdvanceClock,
-  onTogglePriceFeed,
 }: Props) {
   const blocked = demoCase.decision === "block";
   const insufficient = connected && !blocked && walletUsdc < demoCase.activity.amountUsd;
@@ -147,7 +138,7 @@ export function SwapWidget({
           </div>
         </div>
 
-        {connected && onAdvanceClock && onTogglePriceFeed && (
+        {connected && onAdvanceClock && (
           <div className="mt-2 flex flex-wrap gap-2 px-1">
             <button
               type="button"
@@ -156,31 +147,6 @@ export function SwapWidget({
             >
               Advance 5 min
             </button>
-            <button
-              type="button"
-              onClick={onTogglePriceFeed}
-              className="rounded-full bg-uni-surface px-3 py-1 text-xs font-semibold text-uni-muted transition hover:text-white"
-            >
-              {priceFeedBound ? "Unbind price feed" : "Bind price feed"}
-            </button>
-          </div>
-        )}
-
-        {connected && blocked && (
-          <div className="mt-2 rounded-2xl border border-uni-bad/30 bg-uni-bad/10 px-4 py-3 text-sm text-uni-bad">
-            {demoCase.revertReason === "SanctionHit"
-              ? "This wallet is on the demo OFAC list. beforeSwap reverts with SanctionHit — the score is not read."
-              : demoCase.revertReason === "WalletBlocked" && demoCase.exploitConfirmed
-                ? "Wallet A is not on OFAC. The officer wrote score 100 (confirmed exploit). beforeSwap reverts with WalletBlocked (SCORE_REVERT_BAND)."
-              : demoCase.latencyMitigation === "MAGNITUDE_QUOTE_FAILED"
-                ? "No usable USD price. The swap fail-closes (MagnitudeQuoteFailed)."
-                : demoCase.latencyMitigation === "DAILY_AGGREGATION" ||
-                    demoCase.latencyMitigation === "ACTIVITY_WINDOW_CAP"
-                  ? `24-hour USD crossed ${formatUsdFloor(getPolicyKnobs().unscoredRevertThresholdUsd)} (Floor C). The swap reverts.`
-                  : demoCase.id === "E" ||
-                      demoCase.latencyMitigation === "SCORE_NEVER_WRITTEN"
-                    ? `Unknown wallet: this swap is ${formatUsdFloor(getPolicyKnobs().unscoredRevertThresholdUsd)} or more, or Floor C just fired. The swap reverts.`
-                    : "Exploit cash-out / confirmed exposure. The swap reverts before settlement."}
           </div>
         )}
 
