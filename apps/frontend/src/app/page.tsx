@@ -74,8 +74,8 @@ const STAGE_ORDER: DemoStage[] = [
   "event",
 ];
 
-/** Hold on Fees after hook complete — no auto-advance to AML stats (ms). */
-const FEES_HOLD_MS = 2600;
+/** After landing on Fees, wait out the forward slide plus this hold, then Stats. */
+const FEES_TO_STATS_MS = 3000;
 const OPINION_TO_EVENT_MS = 15_000;
 
 /**
@@ -417,21 +417,6 @@ export default function HomePage() {
   };
 
   /**
-   * Lands on Fees after the hook run. Holds navigation briefly —
-   * AML stats is unlocked for click/wheel, but never auto-advanced.
-   */
-  const landOnFees = useCallback(() => {
-    pointStage("fees");
-    setUnlockedThrough((prev) => maxStage(prev, "stats"));
-    feesHoldRef.current = true;
-    wheelLockRef.current = true;
-    window.setTimeout(() => {
-      feesHoldRef.current = false;
-      wheelLockRef.current = false;
-    }, FEES_HOLD_MS);
-  }, [pointStage]);
-
-  /**
    * Opens AML stats and unlocks the Opinion module.
    */
   const enterStats = useCallback(() => {
@@ -440,6 +425,24 @@ export default function HomePage() {
     setUnlockedThrough((prev) => maxStage(prev, "opinion"));
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [pointStage]);
+
+  /**
+   * Lands on Fees after the hook run. Holds 3s after the forward slide,
+   * then advances to Stats.
+   */
+  const landOnFees = useCallback(() => {
+    pointStage("fees");
+    setUnlockedThrough((prev) => maxStage(prev, "fees"));
+    feesHoldRef.current = true;
+    wheelLockRef.current = true;
+    const settleMs = 2000;
+    window.setTimeout(() => {
+      feesHoldRef.current = false;
+      wheelLockRef.current = false;
+      if (stageRef.current !== "fees") return;
+      enterStats();
+    }, settleMs + FEES_TO_STATS_MS);
+  }, [pointStage, enterStats]);
 
   /**
    * Opens Opinion. Event stays locked until the 15s scroll window elapses.

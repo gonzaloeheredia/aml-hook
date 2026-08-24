@@ -21,7 +21,7 @@ On-screen titles (serif, same size on every stage): **Swap**, **Hook execution**
 
 **Navigation**
 
-- **Auto:** Swap → Hook on simulate. Hook wheels fill to each layer's `stepTimesSec`, then hold 3s and land on Fees (no auto jump to AML stats).
+- **Auto:** Swap → Hook on simulate. Hook wheels fill to each layer's `stepTimesSec`, then hold 3s and land on Fees. Fees holds 3s after its slide, then Stats. Opinion waits 15s (plus its slide) before Event.
 - **All stages:** left half of the screen = previous, right half = next (click). Wheel scrolls content first; stage change at scroll edges. Desktop also shows chevrons on the sides of the current module. The stage rail jumps to any unlocked step.
 - **Forward** (next module, enters from the right): slow slide (2s; Opinion 6s). **Back** (previous module): short (~0.4s).
 - **Opinion → Event (first visit):** Event stays locked for the Opinion slide plus **15s** so the file can be scrolled, then the demo advances. Wheel does not skip this wait. Revisit: Event is already unlocked.
