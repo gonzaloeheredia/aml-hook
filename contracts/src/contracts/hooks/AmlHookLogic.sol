@@ -37,7 +37,8 @@ import {UsdQuote} from "../../libraries/UsdQuote.sol";
 ///        L1 SanctionRegistry  — static OFAC-style list; hit = REVERT before score
 ///        L2 ComplianceOracle  — keeper-written score / hop / feeBps / updatedAt
 ///        L3 RiskPolicy        — pure mapping score(+floors) → decision + fee
-///        Hook-local           — Mitigations A & C (never-written, activity cap)
+///        Hook-local           — Mitigation A (never-written score → FEE_OVERRIDE)
+///                               Floor C (daily USD aggregation → hard REVERT, inside _evaluateCore)
 ///                               Mitigations B & D are floors inside RiskPolicy
 ///                               A: never-scored USD (proportional / punitive / REVERT).
 ///                               B/D: published USD bands (pass / proportional / punitive).
@@ -271,12 +272,8 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     /// @dev Index this selector on reverted txs — a log would be discarded by the revert
     ///      (same reason `WalletBlocked` / `SanctionHit` are errors, not events).
     error UnscoredMagnitudeBlocked(address wallet, uint256 assessedUsd, uint256 threshold);
-    /// @notice Reserved. Floor D no longer reverts; inbound USD is banded (pass / proportional / punitive).
-    error InflowMagnitudeBlocked(address wallet, uint256 inflowUsd, uint256 threshold);
     /// @notice Never-scored swap takes an anomalous share of the pool's active virtual reserve.
     error UnscoredPoolImpactBlocked(address wallet, uint256 poolImpactBps, uint256 threshold);
-    /// @notice Reserved. Floor B's pool-impact extra never reverts (ceiling is `punitiveFeeBps`).
-    error StalePoolImpactBlocked(address wallet, uint256 poolImpactBps, uint256 threshold);
     /// @notice Floor C: prior 24h USD plus this swap crosses `unscoredRevertThreshold`.
     error DailyAggregationBlocked(address wallet, uint256 assessedUsd, uint256 threshold);
     /// @notice Magnitude quote failed (no feed, stale feed, or invalid answer). Fail-closed.
@@ -371,8 +368,6 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
 
     bytes32 public constant REASON_SCORE_NEVER_WRITTEN = keccak256("SCORE_NEVER_WRITTEN");
     bytes32 public constant REASON_STALE_WITH_POOL_ACTIVITY = keccak256("STALE_WITH_POOL_ACTIVITY");
-    bytes32 public constant REASON_ACTIVITY_WINDOW_CAP = keccak256("ACTIVITY_WINDOW_CAP");
-    bytes32 public constant REASON_DAILY_AGGREGATION = keccak256("DAILY_AGGREGATION");
     bytes32 public constant REASON_POOL_IMPACT = keccak256("POOL_IMPACT");
     bytes32 public constant QUOTE_NO_FEED = keccak256("NO_FEED");
     bytes32 public constant QUOTE_STALE_FEED = keccak256("STALE_FEED");
@@ -815,14 +810,7 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     /// @dev Order is fixed here so AmlHook cannot evaluate a router as the subject or
     ///      skip mitigations. `token` is the swap input (address(0) skips Mitigation D).
     ///      `volumeToken` + `amount` are the specified-currency magnitude (native units).
-    function _beginSwap(address router, address token, address volumeToken, uint256 amount)
-        internal
-        returns (SwapEvaluation memory ev)
-    {
-        return _beginSwap(router, token, volumeToken, amount, 0);
-    }
-
-    /// @notice beforeSwap entry with Floors A/B pool-impact (bps of active virtual reserve).
+    ///      `poolImpactBps` is the specified amount vs the active-tick virtual reserve (Floors A/B).
     function _beginSwap(
         address router,
         address token,
@@ -915,7 +903,7 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     /// @return risk Snapshot from the oracle
     /// @dev PIPELINE (same order as whitepaper §3.5 / §3.9 Step 5):
     ///      L1 isSanctioned → L2 getRisk → derive isStale / ops / inflow / assessed volume →
-    ///      L3 RiskPolicy.decide → if still ALLOW, apply hook-local A & C.
+    ///      L3 RiskPolicy.decide → Floor C hard-revert (`_enforceDailyAggregation`) → if still ALLOW, Mitigation A.
     /// @dev TEST-ONLY: called with amount=0, which bypasses _inflowSignal magnitude computation.
     ///      Do not use from production code paths where amount-sensitive compliance is required.
     function _evaluate(address wallet, address token)
@@ -962,7 +950,7 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         EvalSignals memory sig;
         (decision, feeBps, risk, sig) = _evaluateCore(wallet, token, volumeToken, amount, poolImpactBps);
         if (decision == HookDecision.ALLOW) {
-            (decision, feeBps) = _applyHookLocalMitigations(wallet, risk, sig.operationCount);
+            (decision, feeBps) = _applyHookLocalMitigations(risk);
         }
     }
 
@@ -976,19 +964,6 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         uint256 assessedUsd;
         uint256 inflowDelta;
         uint256 inflowUsd;
-    }
-
-    function _evaluateCore(address wallet, address token, address volumeToken, uint256 amount)
-        private
-        view
-        returns (
-            HookDecision decision,
-            uint24 feeBps,
-            IComplianceOracle.WalletRisk memory risk,
-            EvalSignals memory sig
-        )
-    {
-        return _evaluateCore(wallet, token, volumeToken, amount, 0);
     }
 
     function _evaluateCore(
@@ -1123,11 +1098,11 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     ///      A: never-written score (unknown ≠ confirmed-clean). Safety net if decide was the 5-arg form.
     ///      C is a hard block (`DailyAggregationBlocked`) inside `_evaluateCore`, not a fee.
     ///      B (stale+ops) and D (inflow) already floored inside RiskPolicy.decide.
-    function _applyHookLocalMitigations(
-        address,
-        IComplianceOracle.WalletRisk memory risk,
-        uint32
-    ) internal view returns (HookDecision decision, uint24 feeBps) {
+    function _applyHookLocalMitigations(IComplianceOracle.WalletRisk memory risk)
+        internal
+        view
+        returns (HookDecision decision, uint24 feeBps)
+    {
         decision = HookDecision.ALLOW;
         feeBps = 0;
 
@@ -1224,7 +1199,7 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
             return (decision, feeBps, risk, inflowTriggered);
         }
 
-        (decision, feeBps) = _applyHookLocalMitigations(wallet, risk, sig.operationCount);
+        (decision, feeBps) = _applyHookLocalMitigations(risk);
         if (decision == HookDecision.ALLOW) {
             return (decision, 0, risk, inflowTriggered);
         }
@@ -1387,15 +1362,15 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         }
     }
 
-    /// @notice Record a successful pool swap for latency / activity mitigations (afterSwap; §3.9 Step 7).
-    /// @dev Why afterSwap (not beforeSwap): only count ops that actually settled. Resets the
-    ///      rolling window when it has elapsed so old bursts do not permanently elevate.
-    ///      `amount` is added to the same window (per specified token) for never-scored structuring.
     /// @notice Record one settled op with no volume (Mitigation C tests / zero-size path).
     function _recordActivity(address wallet) internal {
         _recordActivity(wallet, address(0), 0);
     }
 
+    /// @notice Record a successful pool swap for latency / activity mitigations (afterSwap; §3.9 Step 7).
+    /// @dev Why afterSwap (not beforeSwap): only count ops that actually settled. Resets the
+    ///      rolling window when it has elapsed so old bursts do not permanently elevate.
+    ///      `amount` is added to the same window (per specified token) for never-scored structuring.
     function _recordActivity(address wallet, address token, uint256 amount) internal {
         PoolActivity storage a = _activity[wallet];
         if (a.windowStart == 0 || block.timestamp >= uint256(a.windowStart) + uint256(activityWindow)) {

@@ -107,16 +107,10 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
             return 0;
         }
 
-        uint256 nonce = ++_fingerprintNonce;
-        bytes32 swapFingerprint = keccak256(
-            abi.encode(
-                wallet, token, feeAmount, block.number, block.timestamp, feeEscrow.nextEscrowId(), nonce
-            )
-        );
+        bytes32 swapFingerprint = _buildFingerprint(wallet, token, feeAmount);
 
         poolManager.take(feeCurrency, address(this), feeAmount);
-        if (!IERC20Approve(token).approve(address(feeEscrow), 0)) revert FeeApproveFailed();
-        if (!IERC20Approve(token).approve(address(feeEscrow), feeAmount)) revert FeeApproveFailed();
+        _approveEscrow(token, feeAmount);
 
         try feeEscrow.deposit(wallet, token, swapFingerprint, feeAmount) returns (uint256 escrowId) {
             emit RiskFeeEscrowed(wallet, token, feeAmount, escrowId, feeBps);
@@ -137,6 +131,21 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
         emit FailedDepositClaimed(msg.sender, token, amount);
     }
 
+    /// @dev Reset-then-set approve pattern for tokens that require allowance to go through 0 first.
+    function _approveEscrow(address token, uint256 amount) private {
+        if (!IERC20Approve(token).approve(address(feeEscrow), 0)) revert FeeApproveFailed();
+        if (!IERC20Approve(token).approve(address(feeEscrow), amount)) revert FeeApproveFailed();
+    }
+
+    /// @dev Builds a unique fingerprint for a fee deposit, mixing block context and an incrementing
+    ///      nonce (L-01) so two deposits for the same wallet/token/amount in the same block differ.
+    function _buildFingerprint(address wallet, address token, uint256 amount) private returns (bytes32) {
+        uint256 nonce = ++_fingerprintNonce;
+        return keccak256(
+            abi.encode(wallet, token, amount, block.number, block.timestamp, feeEscrow.nextEscrowId(), nonce)
+        );
+    }
+
     /// @notice Anyone may retry depositing a recorded failed amount once escrow accepts deposits again.
     function retryEscrowDeposit(address wallet, address token) external nonReentrant {
         if (address(feeEscrow) == address(0)) revert FeeEscrowNotConfigured();
@@ -148,13 +157,9 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
 
         failedDeposits[wallet][token] = 0;
 
-        uint256 nonce = ++_fingerprintNonce;
-        bytes32 swapFingerprint = keccak256(
-            abi.encode(wallet, token, amount, block.number, block.timestamp, feeEscrow.nextEscrowId(), nonce)
-        );
+        bytes32 swapFingerprint = _buildFingerprint(wallet, token, amount);
 
-        if (!IERC20Approve(token).approve(address(feeEscrow), 0)) revert FeeApproveFailed();
-        if (!IERC20Approve(token).approve(address(feeEscrow), amount)) revert FeeApproveFailed();
+        _approveEscrow(token, amount);
 
         try feeEscrow.deposit(wallet, token, swapFingerprint, amount) returns (uint256 escrowId) {
             emit RiskFeeEscrowed(wallet, token, amount, escrowId, 0);
