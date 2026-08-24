@@ -5,10 +5,13 @@ import {SanctionRegistry} from "contracts/registries/SanctionRegistry.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
 import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
+import {AmlHookGovernance} from "contracts/hooks/AmlHookGovernance.sol";
 import {HookDecision} from "libraries/HookDecision.sol";
 import {IComplianceOracle} from "interfaces/oracles/IComplianceOracle.sol";
 
 /// @dev Concrete harness to exercise AmlHookLogic without Uniswap v4 BaseHook.
+///      Constructor delegates to AmlHookGovernance — the root of the linear chain
+///      (AmlHookGovernance → AmlHookActivity → AmlHookLogic).
 contract AmlHookHarness is AmlHookLogic {
     constructor(
         address accessManager_,
@@ -19,7 +22,7 @@ contract AmlHookHarness is AmlHookLogic {
         uint64 activityWindow_,
         uint32 maxOpsInWindow_
     )
-        AmlHookLogic(
+        AmlHookGovernance(
             accessManager_, registry_, oracle_, policy_, stalenessThreshold_, activityWindow_, maxOpsInWindow_
         )
     {}
