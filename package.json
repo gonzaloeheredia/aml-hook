@@ -13,7 +13,7 @@
     "start:api": "npm run start -w aml-hook-api",
     "typecheck:api": "npm run typecheck -w aml-hook-api",
     "build:frontend": "npm run build -w aml-hook-frontend",
-    "test:contracts": "cd contracts && forge test",
+    "test:contracts": "cd contracts && forge test --threads 2",
     "test:api": "npm run test -w aml-hook-api",
     "deploy:local": "node scripts/deploy-local.mjs",
     "sync:deployment": "node scripts/sync-deployment.mjs"

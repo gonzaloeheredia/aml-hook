@@ -23,9 +23,9 @@ script/                         test/unit/script/
 | `unit/oracles/` | `ComplianceOracle` (fuzz + role isolation) |
 | `unit/policies/` | `RiskPolicy.decide` + latency floors + never-scored USD bands (3% / 8% / REVERT). `RiskPolicy.FloorFees` covers the 12-arg form: live proportional / punitive fees, score cuts 31 / 55 / 71 stay fixed, `MAX_OVERRIDE` caps only keeper `recommendedFeeBps`. |
 | `unit/registries/` | `SanctionRegistry` (fuzz + isolation) |
-| `unit/libraries/` | `Roles` + `HookDecision` ordinals + `ChainlinkFeeds` official proxies (live quote if `MAINNET_RPC_URL` is set) |
+| `unit/libraries/` | `Roles` + `HookDecision` ordinals + `FeeBps` / `UsdQuote` / `PoolImpact` / `SwapCache` (store-load-clear + fuzz) + `ChainlinkFeeds` / `UniversalRouters` (live quote if `MAINNET_RPC_URL` is set) |
 | `unit/script/` | `Deploy.sol` AccessManager wiring (four roles, officer 48h, Chainlink vs `MockUsdFeed`) |
-| `integration/` | Full stack evaluate path (A/B/C bands) plus compliance-officer retune of USD / floor fees |
+| `integration/` | Full stack evaluate path (A/B/C bands), compliance-officer retune, and `AmlStack.Relations` (L1→L2→L3→hook→FeeEscrow + role isolation + fuzz agreement) |
 | `utils/` | Shared fixtures (`Helpers`, `HookPoolManagerStub`) |
 | `mocks/` | Test-only ERC-20s + `MockAggregatorV3` (Chainlink stand-in) |
 
@@ -33,5 +33,5 @@ Interfaces under `src/interfaces/` are exercised via their implementers (no dedi
 
 ```bash
 cd contracts
-forge test
+forge test --threads 2
 ```
