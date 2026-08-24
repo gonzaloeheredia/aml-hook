@@ -28,7 +28,6 @@ import {
   postTransfer,
   postReset,
   postDemoElapse,
-  postDemoPriceFeed,
   walletsRecord,
   type ApiCompliancePack,
 } from "@/lib/api";
@@ -114,7 +113,6 @@ export default function HomePage() {
   const [swapAmountUsd, setSwapAmountUsd] = useState(
     DEMO_CASES.A.activity.amountUsd,
   );
-  const [priceFeedBound, setFeedBoundUi] = useState(true);
   const [demoTick, setDemoTick] = useState(0);
 
   const wheelLockRef = useRef(false);
@@ -305,7 +303,6 @@ export default function HomePage() {
     setStage("swap");
     setUnlockedThrough("swap");
     setAuditRevealKey((k) => k + 1);
-    setFeedBoundUi(true);
     setDemoTick((n) => n + 1);
     window.scrollTo({ top: 0, behavior: "smooth" });
 
@@ -333,7 +330,6 @@ export default function HomePage() {
 
     setApiError("Anvil is required. Run npm run deploy:local and start the API.");
     setCompliance(null);
-    setFeedBoundUi(true);
     setDemoTick((n) => n + 1);
   }, [apiStatus, caseId, connected, refreshCompliance]);
 
@@ -385,26 +381,6 @@ export default function HomePage() {
     }
     setDemoTick((n) => n + 1);
   }, [apiStatus, caseId, refreshCompliance]);
-
-  const handleTogglePriceFeed = useCallback(async () => {
-    const next = !priceFeedBound;
-    if (apiStatus === "online") {
-      try {
-        const res = await postDemoPriceFeed(next);
-        setPriceFeedBound(res.priceFeedBound);
-        setFeedBoundUi(res.priceFeedBound);
-        await refreshCompliance(caseId);
-        setApiError(null);
-      } catch (err) {
-        setApiError(
-          err instanceof ApiError ? err.message : "Failed to toggle price feed",
-        );
-      }
-    } else {
-      setApiError("Anvil is required. Run npm run deploy:local and start the API.");
-    }
-    setDemoTick((n) => n + 1);
-  }, [apiStatus, caseId, priceFeedBound, refreshCompliance]);
 
   const handleSimulate = () => {
     if (!connected || running) return;
@@ -797,11 +773,11 @@ export default function HomePage() {
           )}
 
           {stage === "opinion" && (
-            <div className="mb-4 text-center">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-uni-pink">
+            <div className="mb-[18px] text-center">
+              <p className="opinion-kicker text-[13px] font-semibold text-uni-pink">
                 Opinion
               </p>
-              <h2 className="mt-1.5 text-balance text-2xl font-extrabold tracking-tight md:text-3xl">
+              <h2 className="mt-[10px] text-balance text-[26px] font-extrabold tracking-tight md:text-[32px]">
                 AML Analysis
               </h2>
             </div>
@@ -839,12 +815,8 @@ export default function HomePage() {
                       onConnectClick={() => setModalOpen(true)}
                       onSimulate={handleSimulate}
                       onAmountChange={setSwapAmountUsd}
-                      priceFeedBound={priceFeedBound}
                       onAdvanceClock={() => {
                         void handleAdvanceClock();
-                      }}
-                      onTogglePriceFeed={() => {
-                        void handleTogglePriceFeed();
                       }}
                     />
                   </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import type { DemoCase } from "@/data/cases";
+import type { Decision, DemoCase } from "@/data/cases";
 
 type Props = {
   demoCase: DemoCase;
@@ -19,6 +19,33 @@ type Props = {
 function shorten(addr: string) {
   if (addr.length < 12) return addr;
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
+function opinionChrome(decision: Decision) {
+  const accent =
+    decision === "block"
+      ? "#FF5370"
+      : decision === "fee_override"
+        ? "#F0B90B"
+        : "#4DB6FF";
+
+  return {
+    accent,
+    verdictBg: "linear-gradient(145deg, #13263d 0%, #0a1522 45%, #050a12 100%)",
+    verdictBorder: `${accent}55`,
+    markBg: "#FC72FF",
+    markFg: "#000000",
+  };
+}
+
+/** Two-letter mark from the wallet label, used instead of a generic avatar. */
+function walletInitials(addr: string, fallback: string) {
+  const fromLabel = fallback.replace(/[^A-Za-z]/g, "").slice(0, 2);
+  if (fromLabel.length === 2) return fromLabel.toUpperCase();
+  if (addr.startsWith("0x") && addr.length >= 4) {
+    return addr.slice(2, 4).toUpperCase();
+  }
+  return "W";
 }
 
 /**
@@ -316,6 +343,7 @@ function verdictCopy(demoCase: DemoCase): {
  */
 export function LegalOpinion({ demoCase }: Pick<Props, "demoCase">) {
   const verdict = verdictCopy(demoCase);
+  const chrome = opinionChrome(demoCase.decision);
   const opinion = demoCase.agent.technicalOpinion;
   const record = demoCase.agent.decisionRecord;
   const annex = demoCase.agent.sarAnnex;
@@ -325,58 +353,89 @@ export function LegalOpinion({ demoCase }: Pick<Props, "demoCase">) {
       ? "No settlement"
       : `${(demoCase.appliedFeeBps / 100).toFixed(2)}%`;
 
+  const initials = walletInitials(demoCase.wallet, demoCase.walletLabel);
+
   return (
     <section className="relative mx-auto w-full max-w-[1000px] pb-2 pt-0">
-      <div
-        className="rounded-2xl border px-5 py-5 shadow-[0_0_40px_rgba(77,182,255,0.06)] sm:px-6 md:px-8 md:py-6"
-        style={{
-          borderColor: `${verdict.accent}55`,
-          background:
-            "linear-gradient(145deg, #13263d 0%, #0a1522 45%, #050a12 100%)",
-        }}
-      >
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <span
-              className="inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-wide"
-              style={{
-                color: verdict.accent,
-                background: `${verdict.accent}22`,
-              }}
-            >
-              {verdict.chip}
-            </span>
-            <h3 className="mt-2 text-balance text-xl font-bold tracking-tight text-white md:text-2xl">
-              {verdict.title}
-            </h3>
-            <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-white/70">
-              {verdict.subtitle}
-            </p>
-          </div>
+      <div className="grid items-start gap-[18px] md:grid-cols-[minmax(0,1.45fr)_minmax(0,0.82fr)]">
+        <div
+          className="rounded-[20px] border px-[22px] py-[18px] md:px-7 md:py-[22px]"
+          style={{
+            borderColor: chrome.verdictBorder,
+            background: chrome.verdictBg,
+            boxShadow:
+              "7px 16px 34px rgba(0, 0, 0, 0.22), -2px 3px 10px rgba(0, 0, 0, 0.15)",
+          }}
+        >
           <div
-            className="flex h-[4.5rem] w-[4.5rem] shrink-0 flex-col items-center justify-center rounded-full border sm:h-20 sm:w-20"
-            style={{ borderColor: `${verdict.accent}66` }}
+            className="pl-[10px] text-[13px] font-semibold"
+            style={{
+              borderLeft: `3px solid ${chrome.accent}`,
+              color: chrome.accent,
+            }}
           >
-            <span
-              className="text-2xl font-bold leading-none"
-              style={{ color: verdict.accent }}
-            >
-              {demoCase.score}
+            {verdict.chip}
+          </div>
+          <h3 className="mt-[10px] text-balance text-[26px] font-bold leading-tight tracking-tight text-white md:text-[28px]">
+            {verdict.title}
+          </h3>
+          <p className="mt-[10px] max-w-xl text-[15px] font-normal leading-relaxed text-white/70">
+            {verdict.subtitle}
+          </p>
+
+          <div className="mt-[18px] flex flex-wrap items-baseline gap-x-[10px] gap-y-1">
+            <span className="text-[13px] font-semibold text-white/55">Swap</span>
+            <span className="text-[17px] font-normal text-white">
+              {demoCase.swapSell} {demoCase.sellToken}
+              <span className="mx-1.5 text-white/35">→</span>
+              {demoCase.swapBuy} {demoCase.buyToken}
             </span>
-            <span className="mt-0.5 text-[9px] uppercase tracking-wider text-white/50">
-              / 100
-            </span>
+          </div>
+
+          <div className="mt-[28px]">
+            <p className="text-[13px] font-semibold text-white/55">
+              Score {demoCase.score}
+              <span className="ml-1 text-[11px] font-normal text-white/40">
+                / 100
+              </span>
+            </p>
+            <div className="mt-[10px] h-[3px] w-full bg-white/10">
+              <div
+                className="h-full"
+                style={{
+                  width: `${Math.min(100, Math.max(0, demoCase.score))}%`,
+                  background: chrome.accent,
+                }}
+              />
+            </div>
           </div>
         </div>
 
-        <div className="mt-5 grid gap-3 border-t border-white/10 pt-4 sm:grid-cols-3">
-          <MetaCell label="Wallet" value={demoCase.walletLabel} />
-          <MetaCell label="Fee this swap" value={feeLabel} />
-          <MetaCell label="Look again" value={record.nextReview} />
-        </div>
+        <aside
+          className="rounded-[8px] border border-uni-border bg-uni-card px-[18px] py-[18px]"
+          style={{
+            boxShadow: "3px 11px 24px rgba(0, 0, 0, 0.2)",
+          }}
+        >
+          <div className="mb-[18px] flex items-center gap-[10px]">
+            <span
+              className="flex h-[34px] w-[34px] items-center justify-center rounded-[4px] text-[13px] font-semibold"
+              style={{ background: chrome.markBg, color: chrome.markFg }}
+              aria-hidden
+            >
+              {initials}
+            </span>
+            <span className="text-[13px] font-semibold text-white">Subject</span>
+          </div>
+          <div className="flex flex-col gap-[18px]">
+            <MetaCell label="Wallet" value={demoCase.walletLabel} />
+            <MetaCell label="Fee this swap" value={feeLabel} />
+            <MetaCell label="Look again" value={record.nextReview} />
+          </div>
+        </aside>
       </div>
 
-      <div className="mt-3 grid gap-3 md:grid-cols-2">
+      <div className="mt-[18px] grid gap-[18px] md:grid-cols-2">
         <StoryCard
           question="Who is this wallet?"
           answer={softenNarrative(opinion.objectAndScope)}
@@ -396,16 +455,19 @@ export function LegalOpinion({ demoCase }: Pick<Props, "demoCase">) {
       </div>
 
       {annex ? (
-        <div className="mt-3 rounded-2xl border border-uni-border bg-uni-card/60 px-5 py-4 md:px-6">
+        <div
+          className="mt-[18px] rounded-[8px] border border-uni-border bg-uni-card px-[22px] py-[18px] md:px-6"
+          style={{ boxShadow: "4px 12px 26px rgba(0, 0, 0, 0.18)" }}
+        >
           <details className="group">
-            <summary className="cursor-pointer list-none text-sm font-semibold text-white [&::-webkit-details-marker]:hidden">
+            <summary className="cursor-pointer list-none text-[15px] font-semibold text-white [&::-webkit-details-marker]:hidden">
               Extra review file · drafted, not filed
-              <span className="ml-2 text-xs font-normal text-uni-muted group-open:hidden">
+              <span className="ml-[10px] text-[13px] font-normal text-uni-muted group-open:hidden">
                 — tap to read
               </span>
             </summary>
-            <div className="mt-3 space-y-3">
-              <div className="grid gap-2 sm:grid-cols-2">
+            <div className="mt-[18px] space-y-[18px]">
+              <div className="grid gap-[10px] sm:grid-cols-2">
                 <MetaCell label="Status" value={annex.status} />
                 <MetaCell label="Operation" value={annex.operationState} />
                 <MetaCell label="Period" value={annex.activityPeriod} />
@@ -428,15 +490,18 @@ export function LegalOpinion({ demoCase }: Pick<Props, "demoCase">) {
         </div>
       ) : null}
 
-      <details className="group mt-3 rounded-2xl border border-uni-border/70 bg-black/20 px-5 py-3 md:px-6">
-        <summary className="cursor-pointer list-none text-xs font-medium text-uni-muted [&::-webkit-details-marker]:hidden">
+      <details
+        className="group mt-[18px] rounded-[8px] border border-uni-border bg-[#131313] px-[22px] py-[18px] md:px-6"
+        style={{ boxShadow: "2px 8px 20px rgba(0, 0, 0, 0.16)" }}
+      >
+        <summary className="cursor-pointer list-none text-[13px] font-semibold text-uni-muted [&::-webkit-details-marker]:hidden">
           Technical details
           <span className="ml-1.5 font-normal group-open:hidden">
             · hash, timing, venue
           </span>
         </summary>
-        <div className="mt-3 space-y-3">
-          <div className="grid gap-2 sm:grid-cols-3">
+        <div className="mt-[18px] space-y-[18px]">
+          <div className="grid gap-[10px] sm:grid-cols-3">
             <MetaCell label="Recipient" value={demoCase.agent.recipient} />
             <MetaCell label="Audit hash" value={demoCase.agent.auditHash} mono />
             <MetaCell
@@ -445,7 +510,7 @@ export function LegalOpinion({ demoCase }: Pick<Props, "demoCase">) {
             />
           </div>
           {demoCase.agent.run ? (
-            <div className="grid gap-2 sm:grid-cols-3">
+            <div className="grid gap-[10px] sm:grid-cols-3">
               <MetaCell
                 label="COA run"
                 value={`${demoCase.agent.run.runId} · ${demoCase.agent.run.durationMs}ms`}
@@ -473,23 +538,29 @@ export function LegalOpinion({ demoCase }: Pick<Props, "demoCase">) {
         </div>
       </details>
 
-      <article className="mt-3 rounded-2xl border border-uni-border bg-uni-card/90 px-5 py-5 md:px-7 md:py-6">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-uni-muted">
+      <article
+        className="mt-[28px] rounded-[8px] border border-uni-border bg-uni-card px-[22px] py-[22px] md:px-7 md:py-[28px]"
+        style={{
+          boxShadow:
+            "8px 18px 36px rgba(0, 0, 0, 0.24), -1px 4px 12px rgba(0, 0, 0, 0.15)",
+        }}
+      >
+        <p className="text-[13px] font-semibold text-uni-muted">
           Issued to {demoCase.agent.recipient}
         </p>
-        <h4 className="mt-1.5 text-lg font-semibold tracking-tight text-white">
+        <h4 className="mt-[10px] text-[22px] font-semibold tracking-tight text-white">
           {legal.title}
         </h4>
-        <div className="mt-3 grid gap-2 border-y border-uni-border/80 py-3 sm:grid-cols-3">
+        <div className="mt-[18px] grid gap-[10px] border-y border-uni-border py-[18px] sm:grid-cols-3">
           <MetaCell label="Disposition" value={record.output} />
           <MetaCell label="Score" value={`${record.score} / 100`} />
           <MetaCell label="Record hash" value={demoCase.agent.auditHash} mono />
         </div>
-        <div className="mt-4 space-y-3 text-sm leading-relaxed text-white/85">
+        <div className="mt-[18px] space-y-[18px] text-[15px] font-normal leading-relaxed text-white/85">
           <p>{legal.finding}</p>
           <p>{legal.nature}</p>
         </div>
-        <div className="mt-4 space-y-3">
+        <div className="mt-[28px] space-y-[18px]">
           <OpinionRow label="Legal basis" value={legal.basis} />
           <OpinionRow label="Directions to the operator" value={legal.directions} />
           <OpinionRow label="Record and retention" value={legal.traceability} />
@@ -523,12 +594,10 @@ function MetaCell({
   mono?: boolean;
 }) {
   return (
-    <div className="px-1 py-1.5">
-      <div className="text-[10px] font-medium uppercase tracking-wider text-uni-muted">
-        {label}
-      </div>
+    <div>
+      <div className="text-[13px] font-semibold text-uni-muted">{label}</div>
       <div
-        className={`mt-1 text-xs font-semibold leading-snug text-white ${mono ? "font-mono text-[11px] font-medium" : ""}`}
+        className={`mt-1.5 text-[17px] font-normal leading-snug text-white ${mono ? "font-mono text-[13px]" : ""}`}
       >
         {value}
       </div>
@@ -544,18 +613,25 @@ function StoryCard({
   answer: string;
 }) {
   return (
-    <div className="rounded-2xl border border-uni-border bg-uni-card/80 px-4 py-4 md:px-5">
-      <h4 className="text-sm font-semibold text-white">{question}</h4>
-      <p className="mt-2 text-sm leading-relaxed text-white/75">{answer}</p>
+    <div
+      className="rounded-[8px] border border-uni-border bg-uni-card px-[18px] py-[18px] md:px-5"
+      style={{ boxShadow: "3px 10px 22px rgba(0, 0, 0, 0.18)" }}
+    >
+      <h4 className="text-[15px] font-semibold text-white">{question}</h4>
+      <p className="mt-[10px] text-[15px] font-normal leading-relaxed text-white/75">
+        {answer}
+      </p>
     </div>
   );
 }
 
 function OpinionRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border-b border-uni-border/70 pb-2.5 last:border-0 last:pb-0">
-      <div className="text-[11px] font-medium text-uni-muted">{label}</div>
-      <p className="mt-1 text-xs leading-relaxed text-white/90">{value}</p>
+    <div className="border-b border-uni-border/70 pb-[10px] last:border-0 last:pb-0">
+      <div className="text-[13px] font-semibold text-uni-muted">{label}</div>
+      <p className="mt-1.5 text-[15px] font-normal leading-relaxed text-white/90">
+        {value}
+      </p>
     </div>
   );
 }
