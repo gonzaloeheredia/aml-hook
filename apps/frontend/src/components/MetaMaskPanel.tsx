@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ETH_USD,
+  bandLabelForUsd,
   isSenderTainted,
   previewTransfer,
   type SimWallet,
@@ -91,13 +92,13 @@ export function MetaMaskPanel({
     [wallets, activeId],
   );
 
-  /** Prefer C→D (inflow) and A→B (hop) when the sender account changes. */
+  /** Prefer C→E when E is empty; C→D for inflow; A→B for hop. */
   useEffect(() => {
-    if (activeId === "C") setToId("D");
+    if (activeId === "C") setToId(wallets.E.usdc <= 0 ? "E" : "D");
     else if (activeId === "B" && !isSenderTainted(wallets.B)) setToId("D");
     else if (activeId === "A") setToId("B");
     else setToId((prev) => (prev === activeId ? "C" : prev));
-  }, [activeId, wallets.B]);
+  }, [activeId, wallets.B, wallets.E.usdc]);
 
   /** Clear flash when switching accounts */
   useEffect(() => {
@@ -313,7 +314,7 @@ export function MetaMaskPanel({
               />
               {toId === "D" && (
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {[10_000, 25_000].map((preset) => (
+                  {[10_000, 15_000].map((preset) => (
                     <button
                       key={preset}
                       type="button"
@@ -325,9 +326,31 @@ export function MetaMaskPanel({
                       }`}
                     >
                       ${preset.toLocaleString("en-US")}
-                      {preset >= 25_000 ? " · revert" : " · 8%"}
+                      {` · ${bandLabelForUsd(preset)}`}
                     </button>
                   ))}
+                </div>
+              )}
+              {toId === "E" && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {[500, 10_000, 15_000].map((preset) => {
+                    const nextBag = wallets.E.usdc + preset;
+                    return (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setAmount(String(preset))}
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                          parsedAmount === preset
+                            ? "bg-[#037DD6] text-white"
+                            : "bg-white/10 text-white/70 hover:text-white"
+                        }`}
+                      >
+                        ${preset.toLocaleString("en-US")}
+                        {` · ${bandLabelForUsd(500, nextBag)} next swap`}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
 

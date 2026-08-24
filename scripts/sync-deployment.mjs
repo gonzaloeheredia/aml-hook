@@ -37,6 +37,7 @@ ORACLE_RPC_URL=http://127.0.0.1:8545
 ORACLE_CHAIN_ID=${deployment.chainId ?? 31337}
 COMPLIANCE_ORACLE_ADDRESS=${deployment.ComplianceOracle}
 AML_HOOK_ADDRESS=${deployment.AmlHook ?? ""}
+SANCTION_REGISTRY_ADDRESS=${deployment.SanctionRegistry ?? ""}
 FEE_ESCROW_ADDRESS=${deployment.FeeEscrow ?? ""}
 FEE_TOKEN_ADDRESS=${deployment.feeToken ?? ""}
 USD_FEED_ADDRESS=${deployment.usdFeed ?? ""}

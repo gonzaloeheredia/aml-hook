@@ -119,6 +119,31 @@ function decodeRevert(err: unknown): {
           inflowUsd: 0,
         };
       }
+      if (decoded.errorName === "DailyAggregationBlocked") {
+        const assessed = Number(decoded.args[1]) / 1e8;
+        return {
+          revertReason: "DailyAggregationBlocked",
+          latencyMitigation: "DAILY_AGGREGATION",
+          assessedUsd: assessed,
+          inflowUsd: 0,
+        };
+      }
+      if (decoded.errorName === "StalePoolImpactBlocked") {
+        return {
+          revertReason: "StalePoolImpactBlocked",
+          latencyMitigation: "STALE_WITH_POOL_ACTIVITY",
+          assessedUsd: 0,
+          inflowUsd: 0,
+        };
+      }
+      if (decoded.errorName === "UnscoredPoolImpactBlocked") {
+        return {
+          revertReason: "UnscoredPoolImpactBlocked",
+          latencyMitigation: "SCORE_NEVER_WRITTEN",
+          assessedUsd: 0,
+          inflowUsd: 0,
+        };
+      }
     }
   } catch {
     /* fall through */
@@ -180,7 +205,7 @@ async function inferFloor(
 }> {
   const cfg = getChainConfig();
   const client = publicClient();
-  const [activity, lastKnown, now, staleness, maxOps, inflowBps, feed] =
+  const [activity, lastKnown, now, staleness, inflowBps, feed] =
     await Promise.all([
       client.readContract({
         address: cfg.hook,
@@ -199,11 +224,6 @@ async function inferFloor(
         address: cfg.hook,
         abi: hookAbi,
         functionName: "stalenessThreshold",
-      }),
-      client.readContract({
-        address: cfg.hook,
-        abi: hookAbi,
-        functionName: "maxOpsInWindow",
       }),
       client.readContract({
         address: cfg.hook,
@@ -239,8 +259,11 @@ async function inferFloor(
     }).catch(() => 18 as number),
   ]);
   const inflowWei = bal > lastKnown ? bal - lastKnown : 0n;
-  const inflowUsd = tokenAmountToUsd(inflowWei, tokenDecimals);
   const currentUsd = tokenAmountToUsd(bal, tokenDecimals);
+  // Never-written: hook _inflowSignal uses the whole current bag (Floor D on E).
+  const inflowUsd = neverScored
+    ? currentUsd
+    : tokenAmountToUsd(inflowWei, tokenDecimals);
   const deltaBps =
     currentUsd > 0 ? Math.floor((inflowUsd * 10_000) / currentUsd) : 0;
   const hasSignificantInflow = deltaBps > Number(inflowBps);
@@ -250,8 +273,6 @@ async function inferFloor(
     if (neverScored) latencyMitigation = "SCORE_NEVER_WRITTEN";
     else if (isStale && opsInWindow > 0) {
       latencyMitigation = "STALE_WITH_POOL_ACTIVITY";
-    } else if (opsInWindow >= Number(maxOps)) {
-      latencyMitigation = "ACTIVITY_WINDOW_CAP";
     } else if (hasSignificantInflow) {
       latencyMitigation = "INFLOW_HEURISTIC";
     }

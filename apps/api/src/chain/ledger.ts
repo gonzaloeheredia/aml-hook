@@ -6,7 +6,7 @@
 
 import { keccak256, toBytes, type Address, type Hex } from "viem";
 import { DEMO_WALLETS, POOL_SINK, WALLET_IDS } from "./accounts.js";
-import { erc20Abi, hookAbi } from "./abi.js";
+import { erc20Abi, hookAbi, registryAbi } from "./abi.js";
 import { anvilRpc, keeperWallet, publicClient, requireChain, walletClient } from "./clients.js";
 import { getChainConfig } from "./config.js";
 import { previewSwap, type PreviewResult } from "./evaluate.js";
@@ -45,7 +45,7 @@ export function resetEthCredits(): void {
 
 async function writeAsKeeper(
   address: Address,
-  abi: typeof hookAbi | typeof erc20Abi,
+  abi: typeof hookAbi | typeof erc20Abi | typeof registryAbi,
   functionName: string,
   args: readonly unknown[],
 ): Promise<Hex> {
@@ -93,9 +93,29 @@ export async function setTokenBalance(address: Address, usdc: number): Promise<v
   }
 }
 
+const ZERO = "0x0000000000000000000000000000000000000000";
+
+/** List Wallet A on the local OFAC registry (Anvil demo). Idempotent. */
+export async function seedWalletASanction(): Promise<void> {
+  const cfg = getChainConfig();
+  if (!cfg.sanctionRegistry || cfg.sanctionRegistry === ZERO) return;
+  const listed = await publicClient().readContract({
+    address: cfg.sanctionRegistry,
+    abi: registryAbi,
+    functionName: "isSanctioned",
+    args: [DEMO_WALLETS.A.address],
+  });
+  if (listed) return;
+  await writeAsKeeper(cfg.sanctionRegistry, registryAbi, "setSanctioned", [
+    DEMO_WALLETS.A.address,
+    true,
+  ]);
+}
+
 export async function seedBalances(): Promise<void> {
   await requireChain();
   resetEthCredits();
+  await seedWalletASanction();
   for (const id of WALLET_IDS) {
     await setTokenBalance(DEMO_WALLETS[id].address, DEMO_WALLETS[id].usdc);
   }

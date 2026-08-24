@@ -49,16 +49,21 @@ do not apply TypeScript floors on the COA cache. The keeper writes when the
 decision tier or fee band changes, or when the last write is at least as old
 as Floor B (5 minutes). The publisher is signed RPC or it fails.
 That freshness stamp stops a stable clean wallet from looking stale. Floor B
-still charges 8% if the keeper is late and the wallet already swapped in the hour.
+still bands swap USD (pass / 3% / 8%) if the keeper is late and the wallet already swapped in the hour.
 A wallet with `updatedAt == 0` is Mitigation A
-(unknown / Wallet E): the hook converts the specified amount (plus window USD)
-through Chainlink to USD-8.
+(unknown / Wallet E): the hook converts **this swap** through Chainlink to USD-8
+(official ETH/USD + USDC/USD on a live Deploy; `MockUsdFeed` on Anvil), then
+Floor D on the unpublished bag. The stricter fee wins. Demo E starts empty;
+clean C funds it (no hop). After C→E $500 a $500 swap is 3%. After C→E
+$15,000 a small swap is 8%.
+Floor C may still REVERT if prior 24h USD + this swap crosses $15,000.
 
 | Assessed USD-8 | Hook output |
 |---|---|
 | < `unscoredFeeThreshold` (default $1,000 / `1_000e8`) | `FEE_OVERRIDE` 3% |
-| $1,000 – $24,999 | `FEE_OVERRIDE` 8% |
-| ≥ `unscoredRevertThreshold` (default $25,000 / `25_000e8`) | `UnscoredMagnitudeBlocked` |
+| $1,000 – $14,999 | `FEE_OVERRIDE` 8% |
+| ≥ `unscoredRevertThreshold` (default $15,000 / `15_000e8`) this swap | `UnscoredMagnitudeBlocked` |
+| Prior 24h USD > 0 and prior + this swap ≥ $15,000 | `DailyAggregationBlocked` (Floor C) |
 | No feed / stale `latestRoundData.updatedAt` (> 3600s) / bad answer | `MagnitudeQuoteFailed` (fail-closed) |
 
 That path is not Wallet D. The COA should publish an explicit score 0 once E is

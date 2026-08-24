@@ -258,9 +258,17 @@ dates, on-chain events, and norms — never skill filenames (`ofac-screening`,
 
 Ternary outputs use English keys: `ALLOW` · `FEE_OVERRIDE` · `REVERT`.
 A missing oracle row (`updatedAt == 0`) is **not** ALLOW. On-chain Mitigation A
-quotes the swap to USD-8 (Chainlink): under $1,000 → 3%; $1,000–$24,999 → 8%;
-≥ $25,000 or structured window USD → `UnscoredMagnitudeBlocked`; no/stale feed →
-`MagnitudeQuoteFailed`. Do not describe that path as a published score 0.
+quotes this swap to USD-8 (Chainlink; official ETH/USD + USDC/USD on a live
+Deploy, `MockUsdFeed` on Anvil): under $1,000 → 3%; $1,000–$14,999 → 8%;
+≥ $15,000 this swap → `UnscoredMagnitudeBlocked`. Floor D also runs on that
+path: the unpublished bag is inbound (pass / 3% / 8%); the stricter of A and D
+wins. Demo Wallet E starts empty; clean C funds it. A $500 bag then a $500
+swap is 3%. A $15,000 bag then a small swap is 8%. Wallet A is OFAC-listed
+(`SanctionHit`). Prior 24h + this swap crossing $15,000 →
+`DailyAggregationBlocked`; no/stale feed → `MagnitudeQuoteFailed`.
+Those dollar cuts and floor fees are deploy defaults (`_COMPLIANCE_OFFICER`
+may retune after 48h).
+Do not describe that path as a published score 0.
 Score schema keys: `finalScore`, `riskLevel`, `hookOutput`, `scoreBreakdown`,
 `triggeringFacts`, `regulatoryFlags`, `validity`, `auditHash`, `skillsApplied`.
 

@@ -49,7 +49,7 @@ export const DEMO_WALLETS: Record<
   E: {
     address: "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
     key: "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba",
-    usdc: 40_000,
+    usdc: 0,
     eth: 1,
   },
 };

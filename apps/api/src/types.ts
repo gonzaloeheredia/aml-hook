@@ -14,6 +14,7 @@ export type LatencyMitigation =
   | "SCORE_NEVER_WRITTEN"
   | "STALE_WITH_POOL_ACTIVITY"
   | "ACTIVITY_WINDOW_CAP"
+  | "DAILY_AGGREGATION"
   | "MAGNITUDE_QUOTE_FAILED"
   | null;
 
@@ -23,6 +24,9 @@ export type RevertReason =
   | "UnscoredMagnitudeBlocked"
   | "InflowMagnitudeBlocked"
   | "MagnitudeQuoteFailed"
+  | "DailyAggregationBlocked"
+  | "StalePoolImpactBlocked"
+  | "UnscoredPoolImpactBlocked"
   | "SanctionHit"
   | null;
 

@@ -98,8 +98,9 @@ event detected
 
 **Demo N-hop backbone:** `derived_score = 100 × 0.65^hops` (closest hop wins).
 Canonical wallets: A (score 100 / REVERT), B/C hop-1 (~65 / FEE_OVERRIDE 8%),
-hop-2 (~42 / FEE_OVERRIDE 3%), D (published clean + inflow / 8% or $25k REVERT),
-E (never written: USD < $1,000 → 3%; $1,000–$24,999 → 8%; ≥ $25,000 → REVERT).
+hop-2 (~42 / FEE_OVERRIDE 3%), D (published clean + inflow / 8% at $15k),
+E (never written, starts empty, funded by C: Floor A is this swap; Floor D is the bag).
+Wallet A is OFAC-listed (`SanctionHit`).
 On FEE_OVERRIDE, intended friction is `recommendedFeeBps` when the keeper wrote
 one; never-scored bands are hook-local (Chainlink USD-8). Settlement = pool
 standard fee + differential in FeeEscrow.
@@ -284,15 +285,20 @@ The agent never:
 | 0–30 | `STANDARD` | `ALLOW` (pool standard fee, e.g. 0.30%) |
 | 31–70 | `ELEVATED` | `FEE_OVERRIDE` (risk differential → `FeeEscrow` 48h; pool keeps standard fee) |
 | 71–100 | `BLOCK` | `REVERT` |
-| Never written (`updatedAt == 0`), assessed USD < $1,000 | n/a (no row) | `FEE_OVERRIDE` 3% — hook-local Mitigation A; COA has not published |
-| Never written, $1,000–$24,999 | n/a | `FEE_OVERRIDE` 8% |
-| Never written, ≥ $25,000 (swap + window USD) | n/a | `REVERT` `UnscoredMagnitudeBlocked` |
+| Never written (`updatedAt == 0`), assessed USD < $1,000 | n/a (no row) | `FEE_OVERRIDE` 3% — Floor A dust, unless Floor D on the bag is stricter |
+| Never written, $1,000–$14,999 | n/a | `FEE_OVERRIDE` 8% |
+| Never written, unpublished bag ≥ $15,000 (swap may be smaller) | n/a | `FEE_OVERRIDE` 8% — Floor D on E; demo E starts empty, then C funds the bag |
+| Never written, this swap ≥ $15,000 | n/a | `REVERT` `UnscoredMagnitudeBlocked` |
+| Any wallet, prior 24h USD + this swap crosses $15,000 | n/a | `REVERT` `DailyAggregationBlocked` (Floor C) |
 | Never written, no / stale Chainlink feed | n/a | `REVERT` `MagnitudeQuoteFailed` (fail-closed) |
 
 Those last four rows are **not** a COA score. The hook quotes `amountSpecified` to
-USD-8 (`1_000e8` / `25_000e8`) via a governor-set Chainlink feed. Publish score 0
-with a non-zero `updatedAt` when the wallet is confirmed-clean so magnitude
-REVERT stops applying to already-held funds.
+USD-8 (`1_000e8` / `15_000e8`) via a Chainlink AggregatorV3 feed. Deploy binds
+official ETH/USD and USDC/USD on live chains; Anvil uses `MockUsdFeed`. Extra
+tokens go through the governor's `setPriceFeed`. The compliance officer retunes
+the USD floors after a 48h confirm. Publish score 0 with a non-zero `updatedAt`
+when the wallet is confirmed-clean so magnitude REVERT stops applying to
+already-held funds.
 
 **FEE_OVERRIDE settlement (on-chain).** `beforeSwap` does **not** set a punitive
 `lpFeeOverride`. The pool charges its standard LP fee. In `afterSwap`, the hook

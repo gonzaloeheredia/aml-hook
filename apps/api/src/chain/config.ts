@@ -15,6 +15,7 @@ export type ChainConfig = {
   chainId: number;
   hook: Address;
   oracle: Address;
+  sanctionRegistry: Address;
   escrow: Address;
   feeToken: Address;
   usdFeed: Address;
@@ -28,6 +29,7 @@ export type ChainConfig = {
 type DeploymentJson = {
   chainId?: number;
   AmlHook?: string;
+  SanctionRegistry?: string;
   ComplianceOracle?: string;
   FeeEscrow?: string;
   feeToken?: string;
@@ -88,6 +90,8 @@ export function getChainConfig(): ChainConfig {
     chainId: Number(process.env.ORACLE_CHAIN_ID ?? d?.chainId ?? 31337),
     hook,
     oracle,
+    sanctionRegistry: addr("SANCTION_REGISTRY_ADDRESS", d?.SanctionRegistry) ??
+      ("0x0000000000000000000000000000000000000000" as Address),
     escrow,
     feeToken,
     usdFeed: addr("USD_FEED_ADDRESS", d?.usdFeed) ??

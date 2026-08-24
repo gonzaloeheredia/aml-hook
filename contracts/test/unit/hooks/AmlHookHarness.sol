@@ -40,6 +40,14 @@ contract AmlHookHarness is AmlHookLogic {
         return _evaluate(wallet, token, token, amount);
     }
 
+    function evaluate(address wallet, address token, uint256 amount, uint256 poolImpactBps)
+        external
+        view
+        returns (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk)
+    {
+        return _evaluate(wallet, token, token, amount, poolImpactBps);
+    }
+
     function evaluateWithToken(address wallet, address token)
         external
         view
@@ -60,6 +68,13 @@ contract AmlHookHarness is AmlHookLogic {
         returns (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk)
     {
         (decision, feeBps, risk,) = _evaluateWithMitigationEvents(wallet, token);
+    }
+
+    function evaluateLive(address wallet, address token, uint256 amount)
+        external
+        returns (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk)
+    {
+        (decision, feeBps, risk,) = _evaluateWithMitigationEvents(wallet, token, token, amount);
     }
 
     function recordActivity(address wallet) external {

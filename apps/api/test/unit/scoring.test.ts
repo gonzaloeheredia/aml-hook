@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  applyNeverScoredFloors,
   applyUnscoredBands,
   decisionFromScore,
   ethOutFromSwap,
@@ -42,7 +43,15 @@ describe("unit: scoring", () => {
     assert.equal(feeBpsFromHop(100, 0), 0);
   });
 
-  it("applyUnscoredBands: $1k / $25k Wallet E policy", () => {
+  it("applyNeverScoredFloors: bag $500 → 3%; $15k bag → 8% on a small swap; $15k this swap → block", () => {
+    assert.equal(applyNeverScoredFloors(500, 500).feeBps, 300);
+    assert.equal(applyNeverScoredFloors(500, 10_000).feeBps, 300);
+    assert.equal(applyNeverScoredFloors(500, 15_000).feeBps, 800);
+    assert.equal(applyNeverScoredFloors(500, 40_000).feeBps, 800);
+    assert.equal(applyNeverScoredFloors(15_000, 15_000).decision, "block");
+  });
+
+  it("applyUnscoredBands: $1k / $15k Wallet E policy", () => {
     assert.deepEqual(applyUnscoredBands(0), {
       decision: "fee_override",
       feeBps: 300,
@@ -58,16 +67,31 @@ describe("unit: scoring", () => {
       feeBps: 800,
       latencyMitigation: "SCORE_NEVER_WRITTEN",
     });
-    assert.deepEqual(applyUnscoredBands(24_999), {
+    assert.deepEqual(applyUnscoredBands(14_999), {
       decision: "fee_override",
       feeBps: 800,
       latencyMitigation: "SCORE_NEVER_WRITTEN",
     });
-    assert.deepEqual(applyUnscoredBands(25_000), {
+    assert.deepEqual(applyUnscoredBands(15_000), {
       decision: "block",
       feeBps: 0,
       latencyMitigation: "SCORE_NEVER_WRITTEN",
     });
+  });
+
+  it("applyUnscoredBands / feeBpsFromHop follow live knobs", () => {
+    const knobs = {
+      unscoredFeeThresholdUsd: 2_000,
+      unscoredRevertThresholdUsd: 50_000,
+      proportionalFeeBps: 50,
+      punitiveFeeBps: 1_500,
+      poolImpactThresholdBps: 2_000,
+    };
+    assert.equal(applyUnscoredBands(1_500, knobs).feeBps, 50);
+    assert.equal(applyUnscoredBands(2_000, knobs).feeBps, 1_500);
+    assert.equal(applyUnscoredBands(50_000, knobs).decision, "block");
+    assert.equal(feeBpsFromHop(65, 1, knobs), 1_500);
+    assert.equal(feeBpsFromHop(42, 2, knobs), 50);
   });
 
   it("inflowDeltaBps: share of current bag", () => {

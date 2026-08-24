@@ -57,7 +57,7 @@ describe("relations: scoring × ledger × units × publisher", () => {
     assert.equal(hopScore(after.E), 0);
     assert.equal(applyUnscoredBands(500).feeBps, 300);
     assert.equal(applyUnscoredBands(1_000).feeBps, 800);
-    assert.equal(applyUnscoredBands(25_000).decision, "block");
+    assert.equal(applyUnscoredBands(15_000).decision, "block");
   });
 
   it("publisher cap cannot publish a fee the hook would reject", () => {

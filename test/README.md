@@ -2,7 +2,7 @@
 
 This folder is **not** the Foundry suite — Solidity tests live in [`contracts/test/`](../contracts/test/).
 
-Scripts here exercise the same API routes the frontend uses (`/swaps`, `/transfers`, `/compliance`, `/escrow`) **without opening a browser**. Those routes hit Anvil: quotes are `previewSwap`, P2P is ERC-20 `transfer`, FEE_OVERRIDE deposits into `FeeEscrow`. Need Anvil + API (`npm run deploy:local`, then `apps/api`).
+Scripts here exercise the same API routes the frontend uses (`/swaps`, `/transfers`, `/compliance`, `/escrow`) **without opening a browser**. Those routes hit Anvil: quotes are `previewSwap` (local `MockUsdFeed`: $1 USDC, $1,000 ETH), P2P is ERC-20 `transfer`, FEE_OVERRIDE deposits into `FeeEscrow`. Need Anvil + API (`npm run deploy:local`, then `apps/api`).
 
 Foundry Solidity tests (mirroring `contracts/src/`) live in [`contracts/test/`](../contracts/test/) — see that folder's README for the layout.
 
@@ -34,11 +34,11 @@ node test/flow-uniswap-metamask.mjs
 | MetaMask **B → C** (or C → B) after that | Hop **2** · score ~42 · fee **3%** |
 | Extra B ↔ A after hop 1 | B stays hop **1** (closer hop wins) |
 | Wallet D swap of already-held funds | Published score **0** · ALLOW · **0.30%** |
-| D 4th $1k in the hour | **ACTIVITY_WINDOW_CAP** · **8%** |
-| D after a swap + 301s | **STALE_WITH_POOL_ACTIVITY** · **8%** |
-| MetaMask **C → D** ~10k (C still clean) then D swap | Score **0** · no hop · inflow **FEE_OVERRIDE 8%** |
-| MetaMask **C → D** $25k (C still clean) | **InflowMagnitudeBlocked** |
-| Wallet E first swap (API or frontend) | USD < $1,000 → **3%**; $1,000–$24,999 → **8%**; ≥ $25,000 or window → **REVERT**; unbound feed → **MagnitudeQuoteFailed** |
+| E $10k then $5k in 24h | **DAILY_AGGREGATION** · **REVERT** |
+| D after a swap + 301s | **STALE_WITH_POOL_ACTIVITY** · **3%** on a $1,000 swap (**8%** at $15,000) |
+| MetaMask **C → D** ~10k (C still clean) then D swap | Score **0** · no hop · inflow **FEE_OVERRIDE 3%** |
+| MetaMask **C → D** $15k (C still clean) | inflow **FEE_OVERRIDE 8%** |
+| Wallet E first swap (API or frontend) | Fund from **C** first. Bag under $1,000 → **3%**; bag $1,000–$14,999 → **3%** on a mid swap / **8%** if bag ≥ $15k; this swap ≥ $15,000 → **REVERT**; 24h cross → **DailyAggregationBlocked**; unbound feed → **MagnitudeQuoteFailed** |
 
 Script steps: clean multi-swaps → A REVERT → A→B → B→A (still hop 1) → B→C (hop 2) → B @ 8% vs C @ 3%.  
 Wallet D inflow path: exercise via API (`POST /transfers` C→D while C is clean, `POST /swaps` D) or the frontend walkthrough — see [`apps/api/README.md`](../apps/api/README.md).

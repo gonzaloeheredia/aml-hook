@@ -47,6 +47,7 @@ contract IntegrationAmlStackTest is Helpers {
         bytes4[] memory hookSelectors = new bytes4[](1);
         hookSelectors[0] = AmlHookLogic.setPriceFeed.selector;
         _wireRole(accessManager, owner, address(harness), hookSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
+        _wireComplianceOfficer(address(harness), 0);
 
         MockAggregatorV3 feed = new MockAggregatorV3();
         feed.setRound(1e8, block.timestamp);
@@ -172,9 +173,36 @@ contract IntegrationAmlStackTest is Helpers {
         assertEq(midFee, 800);
 
         vm.expectRevert(
-            abi.encodeWithSelector(AmlHookLogic.UnscoredMagnitudeBlocked.selector, walletC, 25_000e8, 25_000e8)
+            abi.encodeWithSelector(AmlHookLogic.UnscoredMagnitudeBlocked.selector, walletC, 15_000e8, 15_000e8)
         );
-        harness.evaluate(walletC, address(token), 25_000 ether);
+        harness.evaluate(walletC, address(token), 15_000 ether);
+    }
+
+    function test_ComplianceOfficerRetune_ChangesUsdAndFeeBands() external {
+        MockERC20 token = new MockERC20();
+        MockAggregatorV3 feed = new MockAggregatorV3();
+        feed.setRound(1e8, block.timestamp);
+        vm.prank(hookGovernor);
+        harness.setPriceFeed(address(token), address(feed));
+
+        vm.startPrank(complianceOfficer);
+        harness.proposeUnscoredThresholds(2_000e8, 50_000e8);
+        harness.applyUnscoredThresholds(2_000e8, 50_000e8);
+        harness.proposeFloorFees(50, 1_500);
+        harness.applyFloorFees(50, 1_500);
+        vm.stopPrank();
+
+        (HookDecision dust, uint24 dustFee,) = harness.evaluate(walletC, address(token), 1_500 ether);
+        assertEq(uint8(dust), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(dustFee, 50);
+
+        (HookDecision mid, uint24 midFee,) = harness.evaluate(walletC, address(token), 2_000 ether);
+        assertEq(uint8(mid), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(midFee, 1_500);
+
+        (HookDecision high, uint24 highFee,) = harness.evaluate(walletC, address(token), 15_000 ether);
+        assertEq(uint8(high), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(highFee, 1_500);
     }
 
     function test_SixDecimalToken_SameUsdBandsAsEighteenDecimal() external {

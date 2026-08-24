@@ -23,6 +23,7 @@ export type ApiLatencyMitigation =
   | "SCORE_NEVER_WRITTEN"
   | "STALE_WITH_POOL_ACTIVITY"
   | "ACTIVITY_WINDOW_CAP"
+  | "DAILY_AGGREGATION"
   | "MAGNITUDE_QUOTE_FAILED"
   | null;
 
@@ -31,6 +32,9 @@ export type ApiRevertReason =
   | "UnscoredMagnitudeBlocked"
   | "InflowMagnitudeBlocked"
   | "MagnitudeQuoteFailed"
+  | "DailyAggregationBlocked"
+  | "StalePoolImpactBlocked"
+  | "UnscoredPoolImpactBlocked"
   | "SanctionHit"
   | null;
 
@@ -238,12 +242,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 /** GET /health */
+export type ApiPolicyKnobs = {
+  unscoredFeeThresholdUsd: number;
+  unscoredRevertThresholdUsd: number;
+  proportionalFeeBps: number;
+  punitiveFeeBps: number;
+  poolImpactThresholdBps: number;
+};
+
 export function fetchHealth() {
   return request<{
     ok: boolean;
     mode: string;
     chain?: { ok: boolean; hook: string | null; reason?: string };
+    policy?: ApiPolicyKnobs;
   }>(`/health`);
+}
+
+export function fetchPolicy() {
+  return request<{ policy: ApiPolicyKnobs }>(`/policy`);
 }
 
 export type ApiEscrowRow = {

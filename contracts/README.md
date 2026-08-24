@@ -15,11 +15,11 @@ contracts/
 │   │   ├── escrow/           FeeEscrow
 │   │   └── external/         (third-party adapters live under lib/; no local BaseHook)
 │   ├── interfaces/           Same role subfolders (hooks/oracles/… + external/)
-│   └── libraries/            HookDecision · Roles · FeeBps · UsdQuote
+│   └── libraries/            HookDecision · Roles · FeeBps · UsdQuote · ChainlinkFeeds
 ├── test/
 │   ├── unit/<role>/          Mirrors src/contracts (+ by function when needed)
 │   ├── unit/script/          Deploy.t.sol (AccessManager wiring)
-│   ├── unit/libraries/       Roles / HookDecision ordinals
+│   ├── unit/libraries/       Roles / HookDecision ordinals / ChainlinkFeeds
 │   ├── integration/          AmlStack
 │   ├── mocks/                MockERC20 · MockAggregatorV3 · BareBaseHook
 │   └── utils/                Helpers (AccessManager wiring + hook deploy)
@@ -42,12 +42,12 @@ User → Router → PoolManager → AmlHook          (Uniswap callbacks only)
 
 | Contract | Role |
 |---|---|
-| **AccessManager** | Shared OpenZeppelin authority (`Roles`: registry / oracle keepers, hook governor). Admin grants/revokes those roles. |
+| **AccessManager** | Shared OpenZeppelin authority (`Roles`: registry / oracle keepers, hook governor, compliance officer). Admin grants/revokes those roles. |
 | **SanctionRegistry** | Sanctions hit → REVERT before score. New hits: `commitSanction` + `revealSanction`. `setSanctioned` remains for emergencies. |
 | **ComplianceOracle** | Score / hop / origin / `feeBps` / `updatedAt`. `_ORACLE_KEEPER` submits `updateScore`; a distinct **attestor** ECDSA-signs `attestationHash` (wallet, score, hop, origin, feeBps, updatedAt, chainid). Missing hop/origin in the sig is rejected. |
-| **RiskPolicy** | Ternary bands + §8.4 floors (stale+activity, significant inflow) + never-scored USD bands (3% / 8% / REVERT at $1,000 / $25,000). Pure — no Chainlink call. |
+| **RiskPolicy** | Ternary bands + §8.4 floors (stale+activity, significant inflow) + never-scored USD bands (3% / 8% / REVERT at $1,000 / $15,000). Pure — no Chainlink call. |
 | **AmlHook** | Uniswap callbacks only. Must call `_beginSwap` then `_endSwap` in that order. |
-| **AmlHookLogic** | Subject resolve, L1→L3, mitigations A–D, Chainlink USD-8 quotes (`priceFeeds`). `_HOOK_GOVERNOR` retunes thresholds, feeds, and Mitigation C (`setActivityWindow`); cannot invent scores. |
+| **AmlHookLogic** | Subject resolve, L1→L3, mitigations A–D, Chainlink USD-8 quotes (`priceFeeds`). `_HOOK_GOVERNOR` retunes operational knobs, feeds, and Mitigation C (`setActivityWindow`). `_COMPLIANCE_OFFICER` proposes / confirms USD floors, floor fees, and the pool-impact cut (48h delay). Neither invents scores. |
 | **AmlHookSettlement** | Differential take + escrow deposit / `failedDeposits` / claim / retry. Does not decide risk. |
 | **FeeEscrow** | 48h hold of the FEE_OVERRIDE differential only. Own owner / keepers / depositors (not AccessManager). Owner is `ADMIN` / `FEE_ESCROW_OWNER` from genesis (Safe in prod), not the deploying EOA. Hook is wired as depositor via one-shot `bootstrapDepositor` (no 24h wait). Later depositor changes: 24h. Add keeper: 24h; revoke keeper: immediate. Clean / early / default → `lpCompensationFund`. Sanction confirmed → Blocked; owner `recoverBlocked` waits `min(blockedRecoveryDelay, 7 days)` and pays `complianceReserve` only. Never the LP fund. Never the pool. |
 
@@ -65,7 +65,7 @@ returns zero). Uniswap `hookData` is ignored. Untrusted initiators revert `Missi
 | 0–30 | ALLOW | Pool base (0.30%) |
 | 31–70 | FEE_OVERRIDE | Pool base + differential (`feeBps − 30`) → FeeEscrow; keeper `feeBps` or ~8% / ~3% hop fallbacks |
 | 71–100 | REVERT | — |
-| `updatedAt == 0` and assessed USD-8 ≥ `unscoredRevertThreshold` (default $25,000) | REVERT | Distinct error `UnscoredMagnitudeBlocked` (USD amount in the error). Missing/stale Chainlink feed → `MagnitudeQuoteFailed` |
+| `updatedAt == 0` and assessed USD-8 ≥ `unscoredRevertThreshold` (default $15,000) | REVERT | Distinct error `UnscoredMagnitudeBlocked` (USD amount in the error). Missing/stale Chainlink feed → `MagnitudeQuoteFailed` |
 
 ### Roles
 
@@ -79,9 +79,10 @@ Two casilleros. A keeper of scores cannot move escrow fees, and the reverse.
 | `_REGISTRY_KEEPER` | `REGISTRY_KEEPER` | Sanctions list (`commit` / `reveal` / emergency `setSanctioned`) | Publish scores, pause, touch fees |
 | `_ORACLE_KEEPER` | `ORACLE_KEEPER` | Submit `updateScore` **with** a valid attestor signature | Sign the payload, sanction, retune thresholds |
 | Attestor (not a manager role) | `ATTESTOR` (required; no default) | ECDSA-sign the score payload (hop + origin bound) | Submit the tx alone |
-| `_HOOK_GOVERNOR` | `HOOK_GOVERNOR` | Thresholds, Chainlink `setPriceFeed`, trusted routers/multisigs, pause, attestor rotation, `setUnscoredThresholds` | Write scores or sanctions |
+| `_HOOK_GOVERNOR` | `HOOK_GOVERNOR` | Operational thresholds, Chainlink `setPriceFeed`, trusted routers/multisigs, pause, attestor rotation | Write scores, sanctions, or policy knobs (USD floors / floor fees / pool-impact) |
+| `_COMPLIANCE_OFFICER` | `COMPLIANCE_OFFICER` (48h grant delay) | Propose then confirm USD floors, floor fees, and `poolImpactThresholdBps`. `$1,000` floor on `unscoredFeeThreshold` cannot be lowered. Related pairs must keep the upper value strictly above the lower. | Write scores, sanctions, trusted routers, or score cuts (31 / 55 / 71 stay fixed). `MAX_OVERRIDE` is not adjustable. |
 
-`ATTESTOR` must be distinct from governor, oracle keeper, and registry keeper. Deploy fails closed if it is missing or collides.
+`ATTESTOR` must be distinct from governor, oracle keeper, and registry keeper. Deploy fails closed if it is missing or collides. Keepers, governor, and compliance officer must not overlap.
 
 **FeeEscrow (own list)**
 
@@ -95,27 +96,27 @@ Two casilleros. A keeper of scores cannot move escrow fees, and the reverse.
 
 ### Oracle latency (whitepaper §8.4)
 
-Mitigations A–D elevate **ALLOW → FEE_OVERRIDE** (never soften an existing REVERT / FEE_OVERRIDE), except the never-scored **magnitude floor**, which may REVERT:
+Mitigations A–D elevate **ALLOW → FEE_OVERRIDE** (never soften an existing REVERT / FEE_OVERRIDE), except A's magnitude floor and Floor C, which may REVERT:
 
 | Code | Signal | Outcome |
 |---|---|---|
-| A | Score never written (`updatedAt == 0`), assessed USD < $1,000 | FEE_OVERRIDE **3%** |
-| A mid | Same, $1,000 ≤ assessed USD < $25,000 | FEE_OVERRIDE **8%** |
-| A + magnitude | Same, assessed USD ≥ $25,000 (this swap + window USD, including across tokens) | **REVERT** (`UnscoredMagnitudeBlocked`) |
+| A | Score never written (`updatedAt == 0`), this swap USD < $1,000 | FEE_OVERRIDE **3%**. If the swap is more than 20% of the pool's active liquidity → **8%** |
+| A mid | Same, $1,000 ≤ this swap USD < $15,000 | FEE_OVERRIDE **8%**. Same pool-drain extra → **REVERT** `UnscoredPoolImpactBlocked` |
+| A + magnitude | Same, this swap USD ≥ $15,000 | **REVERT** (`UnscoredMagnitudeBlocked`) |
 | A fail-closed | Never-scored and no Chainlink feed, stale feed, or bad answer | **REVERT** (`MagnitudeQuoteFailed`) |
-| B | Score older than `stalenessThreshold` (default 5 minutes) + ≥1 settled swap already in the activity window | FEE_OVERRIDE 8%. First swap of a new window does not arm this. A healthy keeper stamps `updatedAt` again when the window ages, even if the score did not move. |
-| C | Activity-window cap (`maxOpsInWindow`) | FEE_OVERRIDE |
-| D | Inbound vs `lastKnownBalance` while oracle predates baseline, quoted to USD-8 | Relative (inbound USD > 50% of current USD) → FEE_OVERRIDE differential. Absolute (inbound USD ≥ $25,000) → **REVERT** `InflowMagnitudeBlocked`. **Skipped** when `updatedAt == 0` or there is no baseline |
+| B | Score older than `stalenessThreshold` (default 5 minutes) + ≥1 settled swap already in the 1-hour window | Swap + hour USD: under $1,000 → ALLOW; $1,000–$14,999 → 3%; ≥ $15,000 → 8%. Pool-drain extra: pass → 3%, 3% → 8% (ceiling; never REVERT). First swap of a new hour does not arm this. |
+| C | Prior 24h USD > 0 and prior + this swap ≥ $15,000 (any wallet) | **REVERT** (`DailyAggregationBlocked`) |
+| D | Inbound vs `lastKnownBalance` while oracle predates baseline, quoted to USD-8 | Under $1,000 → ALLOW (or ignored on never-scored, where A already charges); $1,000–$14,999 → 3%; ≥ $15,000 → 8%. Does **not** revert. On never-scored wallets the bag is the inbound (baseline 0). **Skipped** only when a published score has no baseline yet |
 
-Defaults: `unscoredFeeThreshold = 1_000e8` ($1,000); `unscoredRevertThreshold = 25_000e8` ($25,000); `stalenessThreshold = 5 minutes` (`DEFAULT_STALENESS`; same as local `MAX_SCORE_AGE` unless set); `priceStalenessThreshold = 3600`; `activityWindow = 1 hour`; `maxOpsInWindow = 3`. Those USD floors are **8 decimals** (Chainlink). Governor binds `token => AggregatorV3Interface` via `setPriceFeed` (`address(0)` = ETH/USD), retunes Floor B via `setStalenessThreshold` (1s–24h), and retunes Mitigation C via `setActivityWindow` (60s–7d, 1–100 ops). Missing or stale feed is fail-closed. This adds an external-oracle surface (manipulation, heartbeat lag) that native-unit floors did not have. Revert threshold `0` disables the hard block.
+Defaults: `unscoredFeeThreshold = 1_000e8` ($1,000); `unscoredRevertThreshold = 15_000e8` ($15,000); `proportionalFeeBps = 300`; `punitiveFeeBps = 800`; `stalenessThreshold = 5 minutes`; `priceStalenessThreshold = 3600`; `activityWindow = 1 hour` (Floor B); `dailyWindow = 24 hours` (Floor C). Those USD floors are **8 decimals** (Chainlink). Deploy binds official ETH/USD (native + WETH) and USDC/USD on live chains; Anvil uses `MockUsdFeed`. `_HOOK_GOVERNOR` binds extra tokens via `setPriceFeed`, retunes Floor B via `setStalenessThreshold` / `setActivityWindow`, and retunes Floor C via `setDailyWindow`. `_COMPLIANCE_OFFICER` proposes then confirms (48h) the USD floors, floor fees, and `poolImpactThresholdBps`. The fee floor cannot go below $1,000; the revert floor must stay strictly above it. Missing or stale feed is fail-closed.
 
-Published score 0 (`updatedAt != 0`) is confirmed-clean: magnitude REVERT does **not** apply to swap size of already-held funds.
+Published score 0 (`updatedAt != 0`) is confirmed-clean: Floor A magnitude REVERT does **not** apply to a first $15,000 ticket of already-held funds. Floor C still blocks later swaps that make the 24-hour total cross $15,000.
 
-Window volume is accumulated in USD-8 inside Mitigation C's activity window so ETH and USDC are not added as raw units. Small swaps that sum over $25,000 still REVERT (structuring).
+24-hour volume is accumulated in USD-8 so ETH and USDC are not added as raw units. Small swaps that sum over $15,000 still REVERT (Floor C).
 
-Product paths: Wallet D (inflow, B, C, $25k) and Wallet E (USD bands, window, feed) in [`docs/Use_Case.md`](../docs/Use_Case.md).
+Product paths: Wallet D (inflow, B, C, $15k) and Wallet E (USD bands, window, feed) in [`docs/Use_Case.md`](../docs/Use_Case.md).
 
-REVERT does not emit a lasting log. Index custom errors on reverted txs: `SanctionHit`, `WalletBlocked` (score ≥ 71), `UnscoredMagnitudeBlocked`, `InflowMagnitudeBlocked`, `MagnitudeQuoteFailed`.
+REVERT does not emit a lasting log. Index custom errors on reverted txs: `SanctionHit`, `WalletBlocked` (score ≥ 71), `UnscoredMagnitudeBlocked`, `DailyAggregationBlocked`, `UnscoredPoolImpactBlocked`, `MagnitudeQuoteFailed`. `InflowMagnitudeBlocked` and `StalePoolImpactBlocked` are reserved and unused (D and B never revert).
 
 ## Setup
 
@@ -156,7 +157,7 @@ cd ..
 node scripts/sync-deployment.mjs
 ```
 
-Deployer = Anvil account #0 (local defaults for admin / registry keeper / oracle keeper / hook governor unless overridden). Production **must** set:
+Deployer = Anvil account #0 (local defaults for admin / registry keeper / oracle keeper / hook governor / compliance officer unless overridden). Production **must** set:
 
 | Env | Purpose |
 |---|---|
@@ -165,13 +166,14 @@ Deployer = Anvil account #0 (local defaults for admin / registry keeper / oracle
 | `LP_COMPENSATION_FUND` | Clean / early / default escrow destination. Defaults to the fee-escrow owner, not the deployer. |
 | `COMPLIANCE_RESERVE` | Recovered Blocked (confirmed-illicit) destination. Production MUST set the authority wallet. Local default is a labeled placeholder, never the LP fund. |
 | `MAX_SCORE_AGE` | Floor B `stalenessThreshold` at deploy. Script default is 5 minutes. If this is 0, the hook constructor falls back to `DEFAULT_STALENESS` (5 minutes). |
-| `REGISTRY_KEEPER` / `ORACLE_KEEPER` / `HOOK_GOVERNOR` | Split keys. Deploy verifies they do not overlap. |
+| `REGISTRY_KEEPER` / `ORACLE_KEEPER` / `HOOK_GOVERNOR` / `COMPLIANCE_OFFICER` | Split keys. Deploy verifies they do not overlap. Officer grant is 48h. |
+| `ETH_USD_FEED` / `TOKEN_USD_FEED` | Optional overrides for Chainlink AggregatorV3. Unset → official ETH/USD, USDC/USD, and WETH bindings for the chain. |
 
 `bootstrapDepositor` runs in the same deploy tx so the first FEE_OVERRIDE `deposit` does not wait 24h.
 
-On chainid 31337 the script binds `MockUsdFeed` ($1 USDC, $1000 ETH) and seeds wallets A–E as Anvil **#1–#5**. The demo API then calls `previewSwap` (same L1→L3 as `beforeSwap`), `observeSwap` (activity / baseline / `SwapObserved`), and `syncBaseline` on reset. That is still not a live `PoolManager` fill.
+On chainid 31337 the script binds `MockUsdFeed` ($1 fee token, $1000 ETH) and seeds wallets A–E as Anvil **#1–#5**. The demo API then calls `previewSwap` (same L1→L3 as `beforeSwap`), `observeSwap` (activity / baseline / `SwapObserved`), and `syncBaseline` on reset. That is still not a live `PoolManager` fill.
 
-On other chains, `_HOOK_GOVERNOR` **must** bind a Chainlink `AggregatorV3` per pool token (`setPriceFeed`; `address(0)` = ETH/USD). Never-scored magnitude and Mitigation D's absolute floor quote to USD-8 (`1_000e8` / `25_000e8`). A token with no feed, or a feed older than `priceStalenessThreshold` (default 3600s), fail-closes (`MagnitudeQuoteFailed`). This is an extra operational surface — see whitepaper §8.4.
+On other chains Deploy binds official Chainlink Data Feeds: ETH/USD on `address(0)` and canonical WETH, USDC/USD on native USDC. Extra pool tokens still need `_HOOK_GOVERNOR` `setPriceFeed`. Never-scored magnitude and Mitigation D quote to USD-8 from `latestRoundData`. A token with no feed, or a feed older than `priceStalenessThreshold` (default 3600s), fail-closes (`MagnitudeQuoteFailed`).
 
 Writes `contracts/deployments/31337.json` and copies to `packages/sdk/deployments/`.
 

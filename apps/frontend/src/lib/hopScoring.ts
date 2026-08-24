@@ -2,10 +2,10 @@
  * N-hop decay scoring for the AML Hook demo.
  *
  * Use case (`docs/Use_Case.md`):
- * - Wallet A = exploit attacker → REVERT on pool swaps.
+ * - Wallet A = OFAC listed + exploit → SanctionHit on pool swaps.
  * - Wallets B and C both start clean (ALLOW 0.30%, green). Swaps never add score.
  * - Wallet D = published score 0. Already-held funds ALLOW; clean C→D is inflow, not a hop.
- * - Wallet E = unknown (never written). Fee or revert by swap USD size.
+ * - Wallet E = unknown, starts empty. Clean C funds E (no hop). Floor A/D by bag and swap.
  * - Risk only via MetaMask P2P hops:
  *   - Receive from A → hop 1 → score ≈ 65 → FEE_OVERRIDE 8% (yellow)
  *   - Receive from a 1-hop peer (B↔C after A tainted one) → hop 2 → ≈ 42 → 3%
@@ -26,18 +26,92 @@ export const ETH_USD = 1_000;
 export const DEFAULT_SWAP_USDC = 1_000;
 /** Exploit / tainted source wallet in this demo */
 export const EXPLOIT_SOURCE: SimWalletId = "A";
-/** §3.8 latency / inflow floor (8%) when keeper fee is absent */
-export const LATENCY_FEE_BPS = 800;
+export type PolicyKnobs = {
+  unscoredFeeThresholdUsd: number;
+  unscoredRevertThresholdUsd: number;
+  proportionalFeeBps: number;
+  punitiveFeeBps: number;
+  poolImpactThresholdBps: number;
+};
+
+export const DEFAULT_POLICY_KNOBS: PolicyKnobs = {
+  unscoredFeeThresholdUsd: 1_000,
+  unscoredRevertThresholdUsd: 15_000,
+  proportionalFeeBps: 300,
+  punitiveFeeBps: 800,
+  poolImpactThresholdBps: 2_000,
+};
+
+let policyKnobs: PolicyKnobs = { ...DEFAULT_POLICY_KNOBS };
+
+export function getPolicyKnobs(): PolicyKnobs {
+  return policyKnobs;
+}
+
+export function setPolicyKnobs(next: Partial<PolicyKnobs>): PolicyKnobs {
+  policyKnobs = { ...policyKnobs, ...next };
+  return policyKnobs;
+}
+
+export function formatFeePct(bps: number): string {
+  if (bps % 100 === 0) return `${bps / 100}%`;
+  return `${(bps / 100).toFixed(2)}%`;
+}
+
+export function formatUsdFloor(usd: number): string {
+  return `$${usd.toLocaleString("en-US")}`;
+}
+
+/**
+ * Same mapping as RiskPolicy for a never-written wallet:
+ * Floor A = this swap (proportional / punitive / REVERT).
+ * Floor D = unpublished bag (pass / proportional / punitive).
+ * Stricter fee wins. A still reverts at the high floor on this swap.
+ */
+export function neverScoredQuote(
+  swapUsd: number,
+  bagUsd: number,
+): { feeBps: number; revert: boolean; aFee: number; dFee: number } {
+  const knobs = getPolicyKnobs();
+  const dFee = publishedUsdBandFee(bagUsd);
+  if (swapUsd >= knobs.unscoredRevertThresholdUsd) {
+    return { feeBps: 0, revert: true, aFee: 0, dFee };
+  }
+  const aFee =
+    swapUsd >= knobs.unscoredFeeThresholdUsd
+      ? knobs.punitiveFeeBps
+      : knobs.proportionalFeeBps;
+  return { feeBps: aFee > dFee ? aFee : dFee, revert: false, aFee, dFee };
+}
+
+/** Chip label for a never-scored size, including Floor D on the unpublished bag. */
+export function bandLabelForUsd(swapUsd: number, bagUsd = 0): string {
+  const quote = neverScoredQuote(swapUsd, bagUsd);
+  if (quote.revert) return "revert";
+  return formatFeePct(quote.feeBps);
+}
+
+/** Deploy-default latency / inflow floor. Live value: `punitiveFeeBps`. */
+export const LATENCY_FEE_BPS = DEFAULT_POLICY_KNOBS.punitiveFeeBps;
 /** Inbound USD share (bps of current USD bag) that flags a medium-risk increment */
 export const INFLOW_THRESHOLD_BPS = 5000;
-export const UNSCORED_FEE_THRESHOLD_USD = 1_000;
-export const UNSCORED_REVERT_THRESHOLD_USD = 25_000;
-export const UNSCORED_DUST_FEE_BPS = 300;
-export const UNSCORED_MID_FEE_BPS = 800;
+export const UNSCORED_FEE_THRESHOLD_USD = DEFAULT_POLICY_KNOBS.unscoredFeeThresholdUsd;
+export const UNSCORED_REVERT_THRESHOLD_USD = DEFAULT_POLICY_KNOBS.unscoredRevertThresholdUsd;
+export const UNSCORED_DUST_FEE_BPS = DEFAULT_POLICY_KNOBS.proportionalFeeBps;
+export const UNSCORED_MID_FEE_BPS = DEFAULT_POLICY_KNOBS.punitiveFeeBps;
+
+/** Floor B/D: dust pass, mid proportional, high punitive. */
+export function publishedUsdBandFee(usd: number): number {
+  const knobs = getPolicyKnobs();
+  if (usd >= knobs.unscoredRevertThresholdUsd) return knobs.punitiveFeeBps;
+  if (usd >= knobs.unscoredFeeThresholdUsd) return knobs.proportionalFeeBps;
+  return 0;
+}
 /** Floor B window — keep in lockstep with `apps/api` / `AmlHookLogic.DEFAULT_STALENESS`. */
 export const STALENESS_MS = 300_000;
 export const ACTIVITY_WINDOW_MS = 3_600_000;
-export const MAX_OPS_IN_WINDOW = 3;
+/** Floor C — BSA CTR-style 24-hour USD aggregation. */
+export const DAILY_WINDOW_MS = 86_400_000;
 
 let demoOffsetMs = 0;
 let priceFeedBound = true;
@@ -70,6 +144,7 @@ export type LatencyMitigation =
   | "SCORE_NEVER_WRITTEN"
   | "STALE_WITH_POOL_ACTIVITY"
   | "ACTIVITY_WINDOW_CAP"
+  | "DAILY_AGGREGATION"
   | "MAGNITUDE_QUOTE_FAILED"
   | null;
 
@@ -92,6 +167,8 @@ export type SimWallet = {
   opsInWindow?: number;
   windowUsd?: number;
   windowStart?: number;
+  dailyUsd?: number;
+  dailyStart?: number;
   lastScoreAt?: number;
   lastKnownAt?: number;
 };
@@ -133,11 +210,12 @@ export function decisionFromScore(score: number): "allow" | "fee_override" | "bl
  * Dynamic fee in bps: clean 0.30% · 1-hop 8% · 2-hop 3% · REVERT 0.
  */
 export function feeBpsFromHop(score: number, hopDistance: number | null): number {
+  const knobs = getPolicyKnobs();
   if (score >= 71) return 0;
   if (score <= 30) return 30;
-  if (hopDistance === 1) return 800;
-  if (hopDistance === 2) return 300;
-  return score >= 55 ? 800 : 300;
+  if (hopDistance === 1) return knobs.punitiveFeeBps;
+  if (hopDistance === 2) return knobs.proportionalFeeBps;
+  return score >= 55 ? knobs.punitiveFeeBps : knobs.proportionalFeeBps;
 }
 
 export function inflowDeltaBps(currentUsdc: number, lastKnownUsdc: number): number {
@@ -167,6 +245,12 @@ export function resolveDemoRisk(
     windowStart > 0 && now < windowStart + ACTIVITY_WINDOW_MS
       ? { ops: wallet.opsInWindow ?? 0, usd: wallet.windowUsd ?? 0 }
       : { ops: 0, usd: 0 };
+  const dailyStart = wallet.dailyStart ?? 0;
+  const priorDaily =
+    dailyStart > 0 && now < dailyStart + DAILY_WINDOW_MS ? (wallet.dailyUsd ?? 0) : 0;
+  const knobs = getPolicyKnobs();
+  const dailyBlocks =
+    priorDaily > 0 && priorDaily + usdcIn >= knobs.unscoredRevertThresholdUsd;
   const lastScoreAt = wallet.lastScoreAt ?? (wallet.neverScored ? 0 : now);
   const lastKnownAt = wallet.lastKnownAt ?? lastScoreAt;
   const isStale = wallet.neverScored || now > lastScoreAt + STALENESS_MS;
@@ -182,8 +266,8 @@ export function resolveDemoRisk(
         keeperPending: false,
       };
     }
-    const assessed = usdcIn + windowLive.usd;
-    if (assessed >= UNSCORED_REVERT_THRESHOLD_USD) {
+    const assessed = usdcIn;
+    if (assessed >= knobs.unscoredRevertThresholdUsd) {
       return {
         score: 0,
         decision: "block",
@@ -192,19 +276,20 @@ export function resolveDemoRisk(
         keeperPending: false,
       };
     }
-    if (assessed >= UNSCORED_FEE_THRESHOLD_USD) {
+    if (dailyBlocks) {
       return {
         score: 0,
-        decision: "fee_override",
-        feeBps: UNSCORED_MID_FEE_BPS,
-        latencyMitigation: "SCORE_NEVER_WRITTEN",
+        decision: "block",
+        feeBps: 0,
+        latencyMitigation: "DAILY_AGGREGATION",
         keeperPending: false,
       };
     }
+    const quote = neverScoredQuote(assessed, wallet.usdc);
     return {
       score: 0,
       decision: "fee_override",
-      feeBps: UNSCORED_DUST_FEE_BPS,
+      feeBps: quote.feeBps,
       latencyMitigation: "SCORE_NEVER_WRITTEN",
       keeperPending: false,
     };
@@ -222,7 +307,6 @@ export function resolveDemoRisk(
   const baseline = wallet.lastKnownUsdc ?? 0;
   const rawInflow = wallet.usdc > baseline ? wallet.usdc - baseline : 0;
   const inflowUsd = inflowLive ? rawInflow : 0;
-  const deltaBps = inflowLive ? inflowDeltaBps(wallet.usdc, baseline) : 0;
   const score = keeperPending ? 0 : hopScore(wallet);
 
   if (inflowUsd > 0 && !priceFeedBound) {
@@ -235,17 +319,16 @@ export function resolveDemoRisk(
     };
   }
 
-  if (inflowUsd >= UNSCORED_REVERT_THRESHOLD_USD) {
-    return {
-      score,
-      decision: "block",
-      feeBps: 0,
-      latencyMitigation: "INFLOW_MAGNITUDE",
-      keeperPending,
-    };
-  }
-
   if (score >= 31) {
+    if (dailyBlocks) {
+      return {
+        score,
+        decision: "block",
+        feeBps: 0,
+        latencyMitigation: "DAILY_AGGREGATION",
+        keeperPending,
+      };
+    }
     return {
       score,
       decision: "fee_override",
@@ -255,32 +338,36 @@ export function resolveDemoRisk(
     };
   }
 
-  if (deltaBps > INFLOW_THRESHOLD_BPS) {
+  if ((isStale && windowLive.ops > 0) && !priceFeedBound) {
     return {
       score,
-      decision: "fee_override",
-      feeBps: LATENCY_FEE_BPS,
-      latencyMitigation: "INFLOW_HEURISTIC",
+      decision: "block",
+      feeBps: 0,
+      latencyMitigation: "MAGNITUDE_QUOTE_FAILED",
       keeperPending,
     };
   }
 
-  if (isStale && windowLive.ops > 0) {
+  if (dailyBlocks) {
     return {
       score,
-      decision: "fee_override",
-      feeBps: LATENCY_FEE_BPS,
-      latencyMitigation: "STALE_WITH_POOL_ACTIVITY",
+      decision: "block",
+      feeBps: 0,
+      latencyMitigation: "DAILY_AGGREGATION",
       keeperPending,
     };
   }
 
-  if (windowLive.ops >= MAX_OPS_IN_WINDOW) {
+  const dFee = publishedUsdBandFee(inflowUsd);
+  const bFee =
+    isStale && windowLive.ops > 0 ? publishedUsdBandFee(usdcIn + windowLive.usd) : 0;
+  const floorFee = dFee > bFee ? dFee : bFee;
+  if (floorFee > 0) {
     return {
       score,
       decision: "fee_override",
-      feeBps: LATENCY_FEE_BPS,
-      latencyMitigation: "ACTIVITY_WINDOW_CAP",
+      feeBps: floorFee,
+      latencyMitigation: dFee >= bFee && dFee > 0 ? "INFLOW_HEURISTIC" : "STALE_WITH_POOL_ACTIVITY",
       keeperPending,
     };
   }
@@ -304,7 +391,7 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
     A: {
       id: "A",
       accountLabel: "Account A · Exploit",
-      role: "Exploit attacker — REVERT on pool; contaminates B, C, or D via P2P",
+      role: "OFAC listed + exploit — SanctionHit on pool; P2P can still contaminate B/C/D",
       address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
       usdc: 10_000_000,
       eth: 5,
@@ -317,6 +404,7 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
       lastKnownAt: t,
       opsInWindow: 0,
       windowUsd: 0,
+      dailyUsd: 0,
     },
     B: {
       id: "B",
@@ -338,7 +426,7 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
     C: {
       id: "C",
       accountLabel: "Account C · Clean",
-      role: "Clean wallet — A→C = 1-hop (~65); tainted B→C = 2-hop (~42)",
+      role: "Clean wallet — fund E (unknown) or D (inflow); A→C = 1-hop (~65)",
       address: "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
       usdc: 50_000,
       eth: 8,
@@ -355,7 +443,7 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
     D: {
       id: "D",
       accountLabel: "Account D · Score 0",
-      role: "Published score 0 — ALLOW on already-held funds; clean C→D → inflow 8% (no hop)",
+      role: "Published score 0 — ALLOW on already-held funds; clean C→D → inflow 3% / 8% by size (no hop)",
       address: "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
       usdc: 5_000,
       eth: 2,
@@ -373,15 +461,15 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
     E: {
       id: "E",
       accountLabel: "Account E · Unknown",
-      role: "Unknown wallet — no oracle row. Under $1,000 → 3%; $1,000–$24,999 → 8%; $25,000+ → REVERT",
+      role: "Unknown wallet — starts empty. Fund from clean C (no hop). Floor A/D by bag and swap size",
       address: "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
-      usdc: 40_000,
+      usdc: 0,
       eth: 1,
       hopDistance: null,
       originId: null,
       exploitConfirmed: false,
       neverScored: true,
-      lastKnownUsdc: 40_000,
+      lastKnownUsdc: 0,
       lastKnownAt: t,
       opsInWindow: 0,
       windowUsd: 0,
@@ -405,20 +493,27 @@ export function previewTransfer(
 ): { title: string; detail: string; tone: "ok" | "warn" | "bad" } {
   const amount = Math.round(amountUsd);
   if (recipient.neverScored) {
+    const nextBag = recipient.usdc + amount;
+    const quote = neverScoredQuote(DEFAULT_SWAP_USDC, nextBag);
     return {
       title: "No hop · unknown wallet",
-      detail: "E never takes a hop. Only the USD size bands change on the next swap.",
+      detail: quote.revert
+        ? "E never takes a hop. The next $15,000 swap still reverts (Floor A)."
+        : `E never takes a hop. Unpublished bag $${nextBag.toLocaleString("en-US")} — Floor D ${((quote.dFee || quote.feeBps) / 100).toFixed(0)}%. A $500 swap still pays the stricter of A and D.`,
       tone: "warn",
     };
   }
+  const knobs = getPolicyKnobs();
+  const midPct = formatFeePct(knobs.proportionalFeeBps);
+  const highPct = formatFeePct(knobs.punitiveFeeBps);
   if (isSenderTainted(sender)) {
     const hop = (sender.hopDistance ?? 0) + 1;
     return {
       title: `${hop}-hop contamination`,
       detail:
         hop === 1
-          ? `Recipient score ≈ 65 · FEE_OVERRIDE 8%. Do not use this path to demo D inflow.`
-          : `Recipient score ≈ 42 · FEE_OVERRIDE 3%.`,
+          ? `Recipient score ≈ 65 · FEE_OVERRIDE ${highPct}. Do not use this path to demo D inflow.`
+          : `Recipient score ≈ 42 · FEE_OVERRIDE ${midPct}.`,
       tone: hop === 1 && recipient.id === "D" ? "bad" : "warn",
     };
   }
@@ -426,24 +521,24 @@ export function previewTransfer(
     const nextUsdc = recipient.usdc + amount;
     const baseline = recipient.lastKnownUsdc ?? recipient.usdc;
     const inflow = nextUsdc > baseline ? nextUsdc - baseline : 0;
-    const share = nextUsdc > 0 ? Math.floor((inflow * 10_000) / nextUsdc) : 0;
-    if (inflow >= UNSCORED_REVERT_THRESHOLD_USD) {
+    const dFee = publishedUsdBandFee(inflow);
+    if (dFee === knobs.punitiveFeeBps) {
       return {
-        title: "No hop · inflow revert",
-        detail: `D stays score 0. Inbound $${inflow.toLocaleString("en-US")} ≥ $25,000 → InflowMagnitudeBlocked.`,
-        tone: "bad",
+        title: `No hop · inflow ${highPct}`,
+        detail: `D stays score 0. Inbound $${inflow.toLocaleString("en-US")} ≥ ${formatUsdFloor(knobs.unscoredRevertThresholdUsd)} → FEE_OVERRIDE ${highPct}.`,
+        tone: "warn",
       };
     }
-    if (share > INFLOW_THRESHOLD_BPS) {
+    if (dFee === knobs.proportionalFeeBps && knobs.proportionalFeeBps > 0) {
       return {
-        title: "No hop · medium-risk USD increment",
-        detail: `D stays score 0. +$${inflow.toLocaleString("en-US")} is ${share / 100}% of current USD → FEE_OVERRIDE 8% (differential).`,
+        title: `No hop · inflow ${midPct}`,
+        detail: `D stays score 0. +$${inflow.toLocaleString("en-US")} → FEE_OVERRIDE ${midPct}.`,
         tone: "warn",
       };
     }
     return {
       title: "No hop · small inbound",
-      detail: "D stays score 0. This size is below the 50% inflow floor.",
+      detail: `D stays score 0. Inbound under ${formatUsdFloor(knobs.unscoredFeeThresholdUsd)} — Floor D passes.`,
       tone: "ok",
     };
   }
@@ -545,7 +640,7 @@ export function applyTransfer(
     role: recipient.exploitConfirmed
       ? recipient.role
       : deferKeeper
-        ? "Latency path — keeper pending; swap under stale score 0 → inflow 8%"
+        ? `Latency path — keeper pending; next swap uses inflow ${formatFeePct(getPolicyKnobs().proportionalFeeBps)} / ${formatFeePct(getPolicyKnobs().punitiveFeeBps)} by inbound USD`
         : resolvedHop == null
           ? `Clean wallet — ALLOW until contaminated by A or a tainted peer`
           : `${resolvedHop}-hop from origin ${resolvedOrigin ?? EXPLOIT_SOURCE}`,
@@ -612,6 +707,9 @@ export function applyPoolSwap(
     (wallet.windowStart ?? 0) > 0 && now < (wallet.windowStart ?? 0) + ACTIVITY_WINDOW_MS;
   const nextOps = windowLive ? (wallet.opsInWindow ?? 0) + 1 : 1;
   const nextWindowUsd = windowLive ? (wallet.windowUsd ?? 0) + amount : amount;
+  const dailyLive =
+    (wallet.dailyStart ?? 0) > 0 && now < (wallet.dailyStart ?? 0) + DAILY_WINDOW_MS;
+  const nextDailyUsd = dailyLive ? (wallet.dailyUsd ?? 0) + amount : amount;
 
   return {
     ...wallets,
@@ -625,6 +723,8 @@ export function applyPoolSwap(
       opsInWindow: nextOps,
       windowUsd: nextWindowUsd,
       windowStart: windowLive ? wallet.windowStart : now,
+      dailyUsd: nextDailyUsd,
+      dailyStart: dailyLive ? wallet.dailyStart : now,
       // Offline catch-up: after latency swap, clear pending so hop score applies next.
       keeperPending: false,
       accountLabel:

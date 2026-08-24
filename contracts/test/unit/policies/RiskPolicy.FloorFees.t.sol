@@ -1,0 +1,124 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.26;
+
+import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
+import {HookDecision} from "libraries/HookDecision.sol";
+import {Helpers} from "test/utils/Helpers.t.sol";
+
+/// @notice 12-arg `decide`: live floor fees flow through A/B/D; MAX_OVERRIDE stays keeper-only.
+contract UnitRiskPolicyFloorFeesTest is Helpers {
+    uint256 internal constant FEE_THRESHOLD = 1_000e8;
+    uint256 internal constant REVERT_THRESHOLD = 15_000e8;
+    uint24 internal constant PROP = 111;
+    uint24 internal constant PUN = 2_222;
+
+    function setUp() public {
+        riskPolicy = new RiskPolicy();
+    }
+
+    function test_ScoreCutsStayHardcoded_EvenWithCustomFees() external view {
+        (HookDecision d30,) = riskPolicy.decide(
+            30, 0, false, 0, false, false, 0, 0, FEE_THRESHOLD, REVERT_THRESHOLD, PROP, PUN
+        );
+        assertEq(uint8(d30), uint8(HookDecision.ALLOW));
+
+        (HookDecision d31,) = riskPolicy.decide(
+            31, 0, false, 0, false, false, 0, 0, FEE_THRESHOLD, REVERT_THRESHOLD, PROP, PUN
+        );
+        assertEq(uint8(d31), uint8(HookDecision.FEE_OVERRIDE));
+
+        (HookDecision d70,) = riskPolicy.decide(
+            70, 0, false, 0, false, false, 0, 0, FEE_THRESHOLD, REVERT_THRESHOLD, PROP, PUN
+        );
+        assertEq(uint8(d70), uint8(HookDecision.FEE_OVERRIDE));
+
+        (HookDecision d71, uint24 f71) = riskPolicy.decide(
+            71, 0, false, 0, false, false, 0, 0, FEE_THRESHOLD, REVERT_THRESHOLD, PROP, PUN
+        );
+        assertEq(uint8(d71), uint8(HookDecision.REVERT));
+        assertEq(f71, 0);
+
+        (, uint24 at54) = riskPolicy.decide(
+            54, 0, false, 0, false, false, 0, 0, FEE_THRESHOLD, REVERT_THRESHOLD, PROP, PUN
+        );
+        assertEq(at54, PROP);
+        (, uint24 at55) = riskPolicy.decide(
+            55, 0, false, 0, false, false, 0, 0, FEE_THRESHOLD, REVERT_THRESHOLD, PROP, PUN
+        );
+        assertEq(at55, PUN);
+    }
+
+    function test_HopFallbackUsesLiveFloorFees_NotConstants() external view {
+        (, uint24 high) = riskPolicy.decide(
+            65, 0, false, 0, false, false, 0, 0, FEE_THRESHOLD, REVERT_THRESHOLD, PROP, PUN
+        );
+        assertEq(high, PUN);
+
+        (, uint24 low) = riskPolicy.decide(
+            42, 0, false, 0, false, false, 0, 0, FEE_THRESHOLD, REVERT_THRESHOLD, PROP, PUN
+        );
+        assertEq(low, PROP);
+    }
+
+    function test_MaxOverrideStillCapsKeeperRecommendedFeeOnly() external view {
+        (, uint24 accepted) = riskPolicy.decide(
+            50, 1_000, false, 0, false, false, 0, 0, FEE_THRESHOLD, REVERT_THRESHOLD, PROP, PUN
+        );
+        assertEq(accepted, 1_000);
+
+        (, uint24 rejected) = riskPolicy.decide(
+            65, 1_001, false, 0, false, false, 0, 0, FEE_THRESHOLD, REVERT_THRESHOLD, PROP, PUN
+        );
+        assertEq(rejected, PUN);
+    }
+
+    function test_MaxOverrideDoesNotCapLiveFloorFees() external view {
+        (HookDecision d, uint24 fee) = riskPolicy.decide(
+            0, 0, false, 0, false, true, FEE_THRESHOLD, 0, FEE_THRESHOLD, REVERT_THRESHOLD, PROP, PUN
+        );
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, PUN);
+        assertTrue(fee > riskPolicy.MAX_OVERRIDE_FEE_BPS());
+    }
+
+    function test_UnscoredDustUsesLiveProportional() external view {
+        (HookDecision d, uint24 fee) = riskPolicy.decide(
+            0, 0, false, 0, false, true, FEE_THRESHOLD - 1, 0, FEE_THRESHOLD, REVERT_THRESHOLD, PROP, PUN
+        );
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, PROP);
+    }
+
+    function test_StaleMidUsesLiveProportional() external view {
+        (HookDecision d, uint24 fee) = riskPolicy.decide(
+            10, 0, true, 1, false, false, FEE_THRESHOLD, 0, FEE_THRESHOLD, REVERT_THRESHOLD, PROP, PUN
+        );
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, PROP);
+    }
+
+    function test_StaleHighUsesLivePunitive() external view {
+        (HookDecision d, uint24 fee) = riskPolicy.decide(
+            10, 0, true, 1, false, false, REVERT_THRESHOLD, 0, FEE_THRESHOLD, REVERT_THRESHOLD, PROP, PUN
+        );
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, PUN);
+    }
+
+    function test_InflowHighUsesLivePunitive() external view {
+        (HookDecision d, uint24 fee) = riskPolicy.decide(
+            0, 0, false, 0, false, false, 1e8, REVERT_THRESHOLD, FEE_THRESHOLD, REVERT_THRESHOLD, PROP, PUN
+        );
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, PUN);
+    }
+
+    function test_TenArgOverloadStillUsesDefaultConstants() external view {
+        (, uint24 dust) =
+            riskPolicy.decide(0, 0, false, 0, false, true, FEE_THRESHOLD - 1, 0, FEE_THRESHOLD, REVERT_THRESHOLD);
+        assertEq(dust, 300);
+        (, uint24 mid) =
+            riskPolicy.decide(0, 0, false, 0, false, true, FEE_THRESHOLD, 0, FEE_THRESHOLD, REVERT_THRESHOLD);
+        assertEq(mid, 800);
+    }
+}

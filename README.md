@@ -13,7 +13,7 @@ The product thesis and the executable scenario live in `docs/`. Read those befor
 | Document | Contents |
 | --- | --- |
 | [`docs/Whitepaper.md`](docs/Whitepaper.md) | Problem, architecture, roles, FeeEscrow, latency floors, regulatory framing, and competitive map |
-| [`docs/Use_Case.md`](docs/Use_Case.md) | Five-wallet run of the whitepaper: exploit, N-hop, D floors (B/C/inflow/$25k), E bands + window + feed, Opinion |
+| [`docs/Use_Case.md`](docs/Use_Case.md) | Five-wallet run of the whitepaper: exploit, N-hop, D floors (B/C/inflow/$15k), E bands + window + feed, Opinion |
 
 Supporting notes:
 
@@ -32,16 +32,17 @@ Supporting notes:
 | Score 31–70 | FEE_OVERRIDE | Pool keeps 0.30%. Extra slice → FeeEscrow (48h). Clean exit → LP compensation fund. Confirmed illicit → compliance reserve |
 | Score 71–100 | REVERT | No swap |
 | Sanctions list | REVERT | No swap. Score is not read |
-| Published 0 + inbound USD > 50% of current USD, under $25,000 | FEE_OVERRIDE 8% | Medium-risk increment · differential |
-| Published + inbound USD ≥ $25,000, score still older than the baseline | REVERT | `InflowMagnitudeBlocked` |
-| Score older than `stalenessThreshold` (default 5 minutes) and at least one prior swap in the hour | FEE_OVERRIDE 8% | Floor B. Governor retunes. A healthy keeper stamps `updatedAt` again when the window ages. |
-| Fourth swap after three completed ops in the hour (default) | FEE_OVERRIDE 8% | Mitigation C — governor retunes window / cap |
+| Published 0 + inbound USD under $1,000 | ALLOW | Floor D dust |
+| Published 0 + inbound USD $1,000–$14,999 | FEE_OVERRIDE 3% | Floor D mid |
+| Published + inbound USD ≥ $15,000, score still older than the baseline | FEE_OVERRIDE 8% | Floor D large. Does not revert |
+| Score older than `stalenessThreshold` (default 5 minutes) and at least one prior swap in the hour | pass / 3% / 8% by swap+hour USD | Floor B. Never reverts. 20% pool extra hardens the band and stops at 8%. |
+| Prior 24h USD + this swap crosses $15,000 | REVERT | Floor C `DailyAggregationBlocked` |
 | Never written, assessed USD &lt; $1,000 | FEE_OVERRIDE 3% | Unknown wallet (use-case wallet E) |
-| Never written, $1,000–$24,999 | FEE_OVERRIDE 8% | Unknown wallet |
-| Never written, ≥ $25,000 (this swap or the 1-hour window) | REVERT | `UnscoredMagnitudeBlocked` |
+| Never written, $1,000–$14,999 | FEE_OVERRIDE 8% | Unknown wallet |
+| Never written, this swap ≥ $15,000 | REVERT | `UnscoredMagnitudeBlocked` |
 | Never written, no usable USD price | REVERT | `MagnitudeQuoteFailed` |
 
-A published score of 0 is confirmed clean. An address with no oracle row is unknown. Those are different paths. Full thresholds and who may retune them: whitepaper §8.4. The A–E walkthrough: use case. Fee escrow destinations: §8.3.
+A published score of 0 is confirmed clean. An address with no oracle row is unknown. Those are different paths. The 3% / 8% and $1,000 / $15,000 figures above are deploy defaults; `_COMPLIANCE_OFFICER` proposes then confirms retunes (48h). Score cuts 31 / 55 / 71 stay fixed. Full thresholds: whitepaper §8.4. The A–E walkthrough: use case. Fee escrow destinations: §8.3.
 
 N-hop score written by the keeper:
 
@@ -71,7 +72,7 @@ User → trusted router → PoolManager → AmlHook
 | `ComplianceOracle` | Stored score, hop, origin, fee, timestamp |
 | `RiskPolicy` | Score + floors → decision. No external calls |
 | `FeeEscrow` | 48h hold of the extra fee. Clean / early / default → LP compensation fund. Confirmed illicit → compliance reserve. Own access list |
-| `AccessManager` | Shared authority for registry, oracle, and hook governor |
+| `AccessManager` | Shared authority for registry, oracle, hook governor, and compliance officer |
 
 Subject resolution uses a trusted router (`IMsgSender.msgSender()`). Uniswap `hookData` is ignored. An untrusted initiator reverts before any layer runs.
 
@@ -83,11 +84,11 @@ The frontend talks to the API. The API reads and writes the use-case ledger on A
 
 | Wallet | Starting state | What to try |
 | --- | --- | --- |
-| A | Exploit, score 100 | Pool swap reverts. P2P can contaminate B, C, D |
+| A | OFAC listed + exploit, score 100 | Pool swap → `SanctionHit`. P2P can contaminate B, C, D. Do not fund E from A |
 | B | Clean, score 0 | Receive from A → ~65 / 8%. Receive from tainted C → ~42 / 3% |
-| C | Clean, score 0 | Receive from A → ~65 / 8%. Receive from tainted B → ~42 / 3% |
-| D | Published score 0, 5,000 USDC | Swap held funds → ALLOW. Clean C→D then swap → 8% inflow (no hop) |
-| E | Never written, 40,000 USDC | $500 → 3%. $1,000 → 8%. $25,000 → revert |
+| C | Clean, score 0, 50,000 USDC | Fund E (unknown) or D (inflow). Receive from A → ~65 / 8% |
+| D | Published score 0, 5,000 USDC | Held funds → ALLOW. Clean C→D $10k → 3%; $15k → 8% (no hop). Advance 5 min after a swap → Floor B |
+| E | Never written, empty | Fund from C. C→E $500 → 3%; $10k → 3%; $15k bag → 8% on a small swap; $15k this swap → revert |
 
 ## Quick start
 
@@ -127,6 +128,8 @@ curl http://127.0.0.1:4000/health
 | PoolManager | Local `MockPoolManager` unless `POOL_MANAGER` is set. Demo swap is `previewSwap` + `observeSwap` + FeeEscrow deposit — not a live Uniswap fill |
 | `updateScore` | Signed tx (keeper #0 + attestor #9) |
 | Demo balances, P2P, quotes, escrow rows | Anvil. P2P is ERC-20 `transfer` |
+| USD quotes | Anvil: `MockUsdFeed` ($1 fee token, $1000 ETH). Live chain: official Chainlink ETH/USD + USDC/USD. Extra tokens: governor `setPriceFeed` |
+| Policy knobs (USD floors, floor fees, pool-impact) | `_COMPLIANCE_OFFICER` propose → 48h confirm. Score cuts 31 / 55 / 71 stay fixed |
 | COA opinion | Deterministic stand-in. No live LLM or vendor feeds |
 
 ## Local deploy
@@ -136,8 +139,8 @@ npm run deploy:local
 ```
 
 1. Starts Anvil on `:8545`.
-2. Deploys AccessManager, L1/L2/L3, AmlHook (CREATE2), and FeeEscrow. Uses `MockPoolManager` unless `POOL_MANAGER` is set. Binds `MockUsdFeed` ($1 USDC, $1000 ETH) and seeds wallets A–E (Anvil #1–#5).
-3. Wires roles. Anvil account #0 is the default admin / keepers / governor. Anvil #9 is the local attestor. Production requires a distinct `ATTESTOR`, a Safe as `ADMIN` or `FEE_ESCROW_OWNER`, and a dedicated `COMPLIANCE_RESERVE` (never the LP fund). Floor B default is 5 minutes (`DEFAULT_STALENESS` / `MAX_SCORE_AGE`). Institutional pools may tighten to 120 seconds.
+2. Deploys AccessManager, L1/L2/L3, AmlHook (CREATE2), and FeeEscrow. Uses `MockPoolManager` unless `POOL_MANAGER` is set. On Anvil binds `MockUsdFeed` ($1 fee token, $1000 ETH). On a live chain binds official Chainlink ETH/USD, WETH, and USDC/USD. Seeds wallets A–E (Anvil #1–#5).
+3. Wires roles. Anvil account #0 is the default admin / keepers / governor / compliance officer. Anvil #9 is the local attestor. Production requires a distinct `ATTESTOR`, a Safe as `ADMIN` or `FEE_ESCROW_OWNER`, a dedicated `COMPLIANCE_OFFICER` (48h grant delay), and a dedicated `COMPLIANCE_RESERVE` (never the LP fund). Floor B default is 5 minutes (`DEFAULT_STALENESS` / `MAX_SCORE_AGE`). Institutional pools may tighten to 120 seconds.
 4. Writes `contracts/deployments/31337.json` (hook, escrow, fee token, feeds, wallets, attestor) and copies it into `packages/sdk/deployments/`.
 5. Writes `apps/api/.env.local`.
 

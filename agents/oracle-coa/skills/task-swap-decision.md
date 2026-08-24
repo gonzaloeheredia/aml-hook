@@ -63,14 +63,21 @@ friction, event trail, participant not excluded.
 pool keeps ~30 bps; escrow holds `recommendedFeeBps − 30` when above standard.
 
 **Never-scored wallets (`updatedAt == 0`) are not this table.** The hook does
-not treat a missing row as score 0. It quotes the swap (plus Mitigation C
-window USD) via Chainlink to USD-8 and applies Mitigation A:
+not treat a missing row as score 0. It quotes **this swap** via Chainlink to
+USD-8 and applies Mitigation A, then Floor D on the unpublished bag (baseline 0
+= the whole current bag). The stricter fee wins. Official ETH/USD + USDC/USD on
+a live Deploy; `MockUsdFeed` on Anvil. Dollar cuts and 3% / 8% floors below are
+deploy defaults; `_COMPLIANCE_OFFICER` may retune them after 48h. Floor C (24h
+USD) is a separate REVERT. Demo Wallet E starts empty and is funded by clean
+C. After C→E $500 a $500 swap is 3% (A dust). After C→E $15,000 a small swap
+is 8% (D bag). Do not fund E from A (OFAC listed).
 
 | Assessed USD | hookOutput | Fee |
 |---|---|---|
 | < $1,000 (`1_000e8`) | `FEE_OVERRIDE` | 3% (`FeeBps.PROPORTIONAL`) |
-| $1,000 – $24,999 | `FEE_OVERRIDE` | 8% (`FeeBps.LATENCY`) |
-| ≥ $25,000 (`25_000e8`), including structured window USD | `REVERT` `UnscoredMagnitudeBlocked` | — |
+| $1,000 – $14,999 | `FEE_OVERRIDE` | 8% (`FeeBps.LATENCY`) |
+| ≥ $15,000 (`15_000e8`) this swap | `REVERT` `UnscoredMagnitudeBlocked` | — |
+| Prior 24h + this swap ≥ $15,000 | `REVERT` `DailyAggregationBlocked` | Floor C |
 | No / stale / invalid price feed | `REVERT` `MagnitudeQuoteFailed` | fail-closed |
 
 Publish an explicit score 0 with a fresh `updatedAt` when the wallet is

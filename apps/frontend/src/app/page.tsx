@@ -35,6 +35,7 @@ import {
   caseIdForSimWallet,
   ethOutFromSwap,
   initialSimWallets,
+  setPolicyKnobs,
   setPriceFeedBound,
   type SimWallet,
   type SimWalletId,
@@ -180,6 +181,7 @@ export default function HomePage() {
       try {
         const health = await fetchHealth();
         if (cancelled) return;
+        if (health.policy) setPolicyKnobs(health.policy);
         if (!health.ok || health.chain?.ok === false) {
           throw new ApiError(
             health.chain?.reason ||
@@ -296,6 +298,8 @@ export default function HomePage() {
     if (apiStatus === "online") {
       try {
         const res = await postReset();
+        const health = await fetchHealth();
+        if (health.policy) setPolicyKnobs(health.policy);
         setSimWallets(walletsRecord(res.wallets));
         setTransfers(res.transfers);
         setChainEvents(

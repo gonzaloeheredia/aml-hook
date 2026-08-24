@@ -11,16 +11,16 @@ import type { HookEvent, TransferRecord, Wallet, WalletId } from "./types.js";
 
 /**
  * Builds the initial A–E wallet ledger from the use case:
- * A = exploit; B and C start clean (symmetric N-hop);
+ * A = OFAC + exploit; B and C start clean (symmetric N-hop);
  * D = published score 0 (already-held funds ALLOW; clean C→D is inflow, not a hop);
- * E = unknown (never written).
+ * E = unknown, starts empty (fund from C).
  */
 function seedWallets(): Record<WalletId, Wallet> {
   return {
     A: {
       id: "A",
       accountLabel: "Account A · Exploit",
-      role: "Exploit attacker — REVERT on pool; contaminates B, C, or D via P2P",
+      role: "OFAC listed + exploit — SanctionHit on pool; P2P can still contaminate B/C/D",
       address: DEMO_WALLETS.A.address,
       usdc: 10_000_000,
       eth: 5,
@@ -44,7 +44,7 @@ function seedWallets(): Record<WalletId, Wallet> {
     C: {
       id: "C",
       accountLabel: "Account C · Clean",
-      role: "Clean wallet — A→C = 1-hop (~65); tainted B→C = 2-hop (~42)",
+      role: "Clean wallet — fund E (unknown) or D (inflow); A→C = 1-hop (~65)",
       address: DEMO_WALLETS.C.address,
       usdc: 50_000,
       eth: 8,
@@ -56,7 +56,7 @@ function seedWallets(): Record<WalletId, Wallet> {
     D: {
       id: "D",
       accountLabel: "Account D · Score 0",
-      role: "Published score 0 — ALLOW on already-held funds; clean C→D → inflow 8% (no hop)",
+      role: "Published score 0 — ALLOW on already-held funds; clean C→D → inflow 3% / 8% by size (no hop)",
       address: DEMO_WALLETS.D.address,
       usdc: 5_000,
       eth: 2,
@@ -68,9 +68,9 @@ function seedWallets(): Record<WalletId, Wallet> {
     E: {
       id: "E",
       accountLabel: "Account E · Unknown",
-      role: "Unknown wallet — no oracle row. Under $1,000 → 3%; $1,000–$24,999 → 8%; $25,000+ → REVERT",
+      role: "Unknown wallet — starts empty. Fund from clean C (no hop). Floor A/D by bag and swap size",
       address: DEMO_WALLETS.E.address,
-      usdc: 40_000,
+      usdc: 0,
       eth: 1,
       hopDistance: null,
       originId: null,
@@ -93,8 +93,10 @@ type Store = {
   keeperPending: Set<WalletId>;
   /** Last keeper write time (ms), demo clock. Missing = never written. */
   lastScoreAt: Partial<Record<WalletId, number>>;
-  /** Rolling 1-hour pool activity (Mitigation C + E window USD). */
+  /** Rolling 1-hour pool activity (Floor B ops + hour USD). */
   activity: Record<WalletId, { windowStart: number; ops: number; windowUsd: number }>;
+  /** Rolling 24-hour USD (Floor C, BSA CTR-style aggregation). */
+  daily: Record<WalletId, { windowStart: number; usd: number }>;
   /** Shift applied to Date.now() so Mitigation B can be exercised without waiting. */
   demoOffsetMs: number;
   /** Governor-bound USDC/USD feed. False → MagnitudeQuoteFailed for unknown / D inflow USD. */
@@ -102,10 +104,14 @@ type Store = {
 };
 
 export type WalletActivity = { windowStart: number; ops: number; windowUsd: number };
+export type DailyActivity = { windowStart: number; usd: number };
 
 const EMPTY_ACTIVITY: WalletActivity = { windowStart: 0, ops: 0, windowUsd: 0 };
+const EMPTY_DAILY: DailyActivity = { windowStart: 0, usd: 0 };
 
 export const ACTIVITY_WINDOW_MS = 3_600_000;
+/** Floor C — BSA CTR-style 24-hour USD aggregation. */
+export const DAILY_WINDOW_MS = 86_400_000;
 /** Floor B: same window as `AmlHookLogic.DEFAULT_STALENESS` (5 minutes). */
 export const STALENESS_MS = 300_000;
 
@@ -129,6 +135,16 @@ function seedActivity(): Record<WalletId, WalletActivity> {
   };
 }
 
+function seedDaily(): Record<WalletId, DailyActivity> {
+  return {
+    A: { ...EMPTY_DAILY },
+    B: { ...EMPTY_DAILY },
+    C: { ...EMPTY_DAILY },
+    D: { ...EMPTY_DAILY },
+    E: { ...EMPTY_DAILY },
+  };
+}
+
 function seedLastScoreAt(): Partial<Record<WalletId, number>> {
   const t = Date.now();
   return { A: t, B: t, C: t, D: t };
@@ -149,6 +165,7 @@ let store: Store = {
   keeperPending: new Set(),
   lastScoreAt: seedLastScoreAt(),
   activity: seedActivity(),
+  daily: seedDaily(),
   demoOffsetMs: 0,
   priceFeedBound: true,
 };
@@ -175,6 +192,7 @@ export function resetStore(): Store {
     keeperPending: new Set(),
     lastScoreAt: seedLastScoreAt(),
     activity: seedActivity(),
+    daily: seedDaily(),
     demoOffsetMs: 0,
     priceFeedBound: true,
   };
@@ -218,7 +236,17 @@ export function getActivity(id: WalletId): WalletActivity {
   return raw;
 }
 
-/** afterSwap: increment ops and USD-8 window (USDC = $1 in the demo). */
+export function getDaily(id: WalletId): DailyActivity {
+  const raw = store.daily[id] ?? { ...EMPTY_DAILY };
+  if (raw.windowStart === 0) return raw;
+  if (demoNow() >= raw.windowStart + DAILY_WINDOW_MS) {
+    store.daily[id] = { ...EMPTY_DAILY };
+    return store.daily[id];
+  }
+  return raw;
+}
+
+/** afterSwap: increment 1-hour ops/USD and 24-hour Floor C USD (USDC = $1 in the demo). */
 export function recordAfterSwap(id: WalletId, usd: number): WalletActivity {
   const now = demoNow();
   const cur = getActivity(id);
@@ -231,7 +259,16 @@ export function recordAfterSwap(id: WalletId, usd: number): WalletActivity {
           windowUsd: cur.windowUsd + usd,
         };
   store.activity[id] = next;
+  const day = getDaily(id);
+  store.daily[id] =
+    day.windowStart === 0
+      ? { windowStart: now, usd }
+      : { windowStart: day.windowStart, usd: day.usd + usd };
   return next;
+}
+
+export function dailyUsd(id: WalletId): number {
+  return getDaily(id).usd;
 }
 
 export function opsInCurrentWindow(id: WalletId): number {

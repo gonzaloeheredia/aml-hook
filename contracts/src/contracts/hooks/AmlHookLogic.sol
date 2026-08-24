@@ -2,6 +2,8 @@
 pragma solidity ^0.8.26;
 
 import {AccessManaged} from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
+import {IAccessManaged} from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
+import {IAccessManager} from "@openzeppelin/contracts/access/manager/IAccessManager.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 import {ISanctionRegistry} from "../../interfaces/registries/ISanctionRegistry.sol";
@@ -13,6 +15,7 @@ import {IERC20Minimal} from "../../interfaces/external/IERC20Minimal.sol";
 import {IAggregatorV3} from "../../interfaces/external/IAggregatorV3.sol";
 import {FeeBps} from "../../libraries/FeeBps.sol";
 import {HookDecision} from "../../libraries/HookDecision.sol";
+import {Roles} from "../../libraries/Roles.sol";
 import {UsdQuote} from "../../libraries/UsdQuote.sol";
 
 /// @title Shared beforeSwap decision logic for AMLHook
@@ -36,8 +39,9 @@ import {UsdQuote} from "../../libraries/UsdQuote.sol";
 ///        L3 RiskPolicy        — pure mapping score(+floors) → decision + fee
 ///        Hook-local           — Mitigations A & C (never-written, activity cap)
 ///                               Mitigations B & D are floors inside RiskPolicy
-///                               Never-scored magnitude (3% / 8% / REVERT) is decided in
-///                               RiskPolicy from hook-quoted USD (Chainlink, 8 decimals)
+///                               A: never-scored USD (proportional / punitive / REVERT).
+///                               B/D: published USD bands (pass / proportional / punitive).
+///                               Quotes are Chainlink 8 decimals. Live fees sit on this hook.
 ///
 ///      Why pool-local state? If the keeper has not yet published after a P2P
 ///      transfer (use-case Wallet D), a stale score 0 would wrongly ALLOW.
@@ -45,8 +49,10 @@ import {UsdQuote} from "../../libraries/UsdQuote.sol";
 ///      without waiting for the oracle. Elevations never soften REVERT.
 ///
 ///      Governance: `AccessManaged` against the shared AccessManager.
-///      `_HOOK_GOVERNOR` may retune thresholds / trusted routers only — not the
-///      swap path itself (that is fixed in bytecode).
+///      `_HOOK_GOVERNOR` retunes operational knobs / trusted routers.
+///      `_COMPLIANCE_OFFICER` proposes then confirms USD floors, floor fees, and
+///      the pool-impact cut (48h grant delay in Deploy). Neither role can rewrite
+///      the swap path (fixed in bytecode). Score cuts 31 / 55 / 71 stay in RiskPolicy.
 ///
 ///      Uniswap-facing surface (AmlHook must use these, in this order):
 ///        `_beginSwap`  — resolve subject + L1/L2/L3 + mitigations A–D
@@ -100,32 +106,39 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     mapping(address => TrustedMultisig) public trustedMultisigs;
     MultisigAggregation public multisigAggregation = MultisigAggregation.ALL_CLEAN;
 
-    /// @notice Rolling window for per-wallet pool activity counters (seconds).
-    /// @dev Mitigation C (§3.8): catch burst swaps across consecutive blocks while
-    ///      the keeper has not yet moved the score tier. `_HOOK_GOVERNOR` retunes
-    ///      via `setActivityWindow` (default 1 hour; bounds `[MIN, MAX]`).
+    /// @notice Rolling 1-hour window for Floor B (ops + USD of this swap plus the hour).
+    /// @dev `_HOOK_GOVERNOR` retunes via `setActivityWindow` (default 1 hour; bounds `[MIN, MAX]`).
     uint64 public activityWindow;
 
-    /// @notice Ops inside the activity window that force FEE_OVERRIDE instead of ALLOW.
-    /// @dev Why a cap: without it, an attacker can spam ALLOW swaps under a lagging
-    ///      clean score. Default 3 matches the local deploy / whitepaper example.
-    ///      The next swap after this many completed ops pays 8%. Governor-retunable.
+    /// @notice Ops inside the 1-hour window. Used to arm Floor B (`operationCount > 0`).
+    /// @dev Kept on the governor setter for ABI compatibility. Floor C no longer uses an op cap.
     uint32 public maxOpsInWindow;
+
+    /// @notice Rolling 24-hour USD window for Floor C (BSA CTR-style daily aggregation).
+    /// @dev While prior 24h USD is 0 or the sum stays under `unscoredRevertThreshold`, C
+    ///      does not intervene. The later swap that crosses that live high floor REVERTs.
+    uint64 public dailyWindow;
 
     uint64 public constant DEFAULT_ACTIVITY_WINDOW = 1 hours;
     uint32 public constant DEFAULT_MAX_OPS_IN_WINDOW = 3;
+    uint64 public constant DEFAULT_DAILY_WINDOW = 24 hours;
     uint64 public constant MIN_ACTIVITY_WINDOW = 60;
     uint64 public constant MAX_ACTIVITY_WINDOW = 7 days;
+    uint64 public constant MIN_DAILY_WINDOW = 1 hours;
+    uint64 public constant MAX_DAILY_WINDOW = 7 days;
     uint32 public constant MIN_MAX_OPS_IN_WINDOW = 1;
     uint32 public constant MAX_MAX_OPS_IN_WINDOW = 100;
 
-    /// @notice USD-8 floor below which an unscored swap pays the reduced 3% latency fee.
-    /// @dev Chainlink 8 decimals (1_000e8 = $1,000). GAFI Rec. 10 / CDD-aligned dust band.
+    /// @notice USD-8 floor below which an unscored swap pays the live proportional fee.
+    /// @dev Chainlink 8 decimals (default 1_000e8 = $1,000). FATF 2021 VASP guidance VA
+    ///      threshold (note 37). `_COMPLIANCE_OFFICER` may raise it; cannot go below
+    ///      `MIN_UNSCORED_FEE_THRESHOLD`. Must stay strictly below `unscoredRevertThreshold`.
     uint256 public unscoredFeeThreshold;
 
-    /// @notice USD-8 floor at which an unscored wallet (or D inflow) is REVERTed.
-    /// @dev Default 25_000e8 = $25,000. Applies when oracle `updatedAt == 0` (this swap +
-    ///      window USD) or when Mitigation D inbound USD is at/above the floor.
+    /// @notice USD-8 high band: never-scored REVERT; published B/D charge the punitive fee.
+    /// @dev Default 15_000e8 = $15,000 (FATF Rec. 10 occasional-transaction CDD).
+    ///      A REVERTs on this swap alone. B/D charge `punitiveFeeBps` at/above it. C REVERTs
+    ///      when prior 24h USD plus this swap crosses it. Must stay strictly above the fee floor.
     uint256 public unscoredRevertThreshold;
 
     /// @notice Chainlink token/USD feed per specified-currency token (`address(0)` = native ETH).
@@ -137,24 +150,85 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     uint256 public priceStalenessThreshold;
 
     uint256 public constant DEFAULT_USD_FEE_THRESHOLD = 1_000e8;
-    uint256 public constant DEFAULT_USD_REVERT_THRESHOLD = 25_000e8;
+    uint256 public constant DEFAULT_USD_REVERT_THRESHOLD = 15_000e8;
+    /// @notice FATF 2021 VASP guidance note 37 VA threshold. The fee floor cannot go below this.
+    uint256 public constant MIN_UNSCORED_FEE_THRESHOLD = 1_000e8;
     uint256 public constant DEFAULT_PRICE_STALENESS = 3600;
     uint256 public constant MAX_PRICE_STALENESS = 24 hours;
 
+    /// @notice Share of the pool's active virtual reserve (bps) that hardens Floors A and B.
+    /// @dev Default 2000 = 20%. A: mid → punitive, punitive → REVERT. B: pass → proportional,
+    ///      proportional → punitive (ceiling; never REVERT). Compliance-officer retunable. 0 disables.
+    uint256 public poolImpactThresholdBps;
+    uint256 public constant DEFAULT_POOL_IMPACT_THRESHOLD_BPS = 2000;
+
+    /// @notice Live Floor A/B/D mid-band fee (default `FeeBps.PROPORTIONAL` = 3%).
+    /// @dev Must stay strictly below `punitiveFeeBps`. Not capped by `FeeBps.MAX_OVERRIDE`.
+    uint24 public proportionalFeeBps;
+
+    /// @notice Live Floor A/B/D high-band fee (default `FeeBps.PUNITIVE` = 8%).
+    /// @dev Must stay strictly above `proportionalFeeBps`. Not capped by `FeeBps.MAX_OVERRIDE`.
+    uint24 public punitiveFeeBps;
+
+    /// @notice Event `name` for the USD fee floor (same string on propose and confirm).
+    string public constant PARAM_UNSCORED_FEE_THRESHOLD = "unscoredFeeThreshold";
+    /// @notice Event `name` for the USD revert / high floor.
+    string public constant PARAM_UNSCORED_REVERT_THRESHOLD = "unscoredRevertThreshold";
+    /// @notice Event `name` for the A/B pool-impact cut.
+    string public constant PARAM_POOL_IMPACT_THRESHOLD_BPS = "poolImpactThresholdBps";
+    /// @notice Event `name` for the live proportional (mid-band) floor fee.
+    string public constant PARAM_PROPORTIONAL_FEE_BPS = "proportionalFeeBps";
+    /// @notice Event `name` for the live punitive / latency (high-band) floor fee.
+    string public constant PARAM_PUNITIVE_FEE_BPS = "punitiveFeeBps";
+
+    /// @notice Last proposed USD-floor pair awaiting `applyUnscoredThresholds`.
+    struct PendingUnscoredThresholds {
+        uint256 feeThreshold;
+        uint256 revertThreshold;
+        uint256 previousFeeThreshold;
+        uint256 previousRevertThreshold;
+        address proposer;
+        bool exists;
+    }
+
+    /// @notice Last proposed pool-impact cut awaiting `applyPoolImpactThresholdBps`.
+    struct PendingPoolImpact {
+        uint256 value;
+        uint256 previousValue;
+        address proposer;
+        bool exists;
+    }
+
+    /// @notice Last proposed floor-fee pair awaiting `applyFloorFees`.
+    struct PendingFloorFees {
+        uint24 proportionalFeeBps;
+        uint24 punitiveFeeBps;
+        uint24 previousProportionalFeeBps;
+        uint24 previousPunitiveFeeBps;
+        address proposer;
+        bool exists;
+    }
+
+    /// @notice Outstanding USD-floor proposal, if any.
+    PendingUnscoredThresholds public pendingUnscoredThresholds;
+    /// @notice Outstanding pool-impact proposal, if any.
+    PendingPoolImpact public pendingPoolImpact;
+    /// @notice Outstanding floor-fee proposal, if any.
+    PendingFloorFees public pendingFloorFees;
+
     /// @notice Inbound USD share (bps of current USD-8 bag) that flags a medium-risk increment.
     /// @dev Mitigation D (§3.8) / use-case Wallet D. Default 5000 = 50% of current USD.
-    ///      Medium increment → FEE_OVERRIDE (differential). Inbound USD ≥ revert floor → REVERT.
+    ///      Used for the inflow audit event only. D's fee is the inbound-USD band
+    ///      (pass / `proportionalFeeBps` / `punitiveFeeBps`).
     uint256 public inflowThresholdBps;
 
-    /// @dev Default punitive fee when elevating ALLOW due to hook-local latency mitigations.
-    ///      800 bps = 8% — designed product fee when keeper omitted `feeBps` (Wallet D path).
-    ///      Same constant as RiskPolicy (`FeeBps.LATENCY`) so A/C cannot drift from B/D.
+    /// @notice Default high-band fee constant (8%). Live value is `punitiveFeeBps`.
+    /// @dev Kept for ABI compatibility. `FeeBps.MAX_OVERRIDE` does not cap `punitiveFeeBps`.
     uint24 public constant LATENCY_FEE_BPS = FeeBps.LATENCY;
 
-    /// @dev Per-wallet pool activity for Mitigation C and unscored structuring volume.
-    ///      Independent of the oracle so the hook can still elevate / block while
-    ///      `updateScore` is pending. `epoch` bumps when the window resets so per-token
-    ///      volume from a previous window is ignored without a second accumulator.
+    /// @dev Per-wallet 1-hour pool activity for Floor B (ops + hour USD).
+    ///      Independent of the oracle so the hook can still elevate while `updateScore` is pending.
+    ///      `epoch` bumps when the hour resets so per-token volume from a previous hour is ignored.
     struct PoolActivity {
         uint64 windowStart;
         uint32 opCount;
@@ -165,6 +239,13 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         uint256 volumeUsd;
     }
 
+    /// @dev Per-wallet 24-hour USD for Floor C (BSA CTR-style daily aggregation).
+    struct DailyActivity {
+        uint64 windowStart;
+        /// @dev `type(uint256).max` is a fail-closed sentinel (quote failed while recording).
+        uint256 volumeUsd;
+    }
+
     /// @dev Volume of the specified swap currency inside the current activity window.
     struct TokenVolume {
         uint32 epoch;
@@ -172,6 +253,7 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     }
 
     mapping(address => PoolActivity) internal _activity;
+    mapping(address => DailyActivity) internal _daily;
     mapping(address => mapping(address => TokenVolume)) internal _windowVolume;
 
     /// @notice Last observed ERC-20 balance per wallet and token (inflow heuristic baseline).
@@ -185,18 +267,33 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
 
     error WalletBlocked(address wallet, uint8 score, string reason);
     error SanctionHit(address wallet);
-    /// @notice Never-scored wallet: assessed USD-8 (this swap + window) is at/above `unscoredRevertThreshold`.
+    /// @notice Never-scored wallet: this swap's USD-8 is at/above `unscoredRevertThreshold`.
     /// @dev Index this selector on reverted txs — a log would be discarded by the revert
     ///      (same reason `WalletBlocked` / `SanctionHit` are errors, not events).
     error UnscoredMagnitudeBlocked(address wallet, uint256 assessedUsd, uint256 threshold);
-    /// @notice Published score, but inbound USD-8 since baseline is at/above `unscoredRevertThreshold`
-    ///         and the oracle timestamp still predates that baseline (Mitigation D absolute floor).
+    /// @notice Reserved. Floor D no longer reverts; inbound USD is banded (pass / proportional / punitive).
     error InflowMagnitudeBlocked(address wallet, uint256 inflowUsd, uint256 threshold);
+    /// @notice Never-scored swap takes an anomalous share of the pool's active virtual reserve.
+    error UnscoredPoolImpactBlocked(address wallet, uint256 poolImpactBps, uint256 threshold);
+    /// @notice Reserved. Floor B's pool-impact extra never reverts (ceiling is `punitiveFeeBps`).
+    error StalePoolImpactBlocked(address wallet, uint256 poolImpactBps, uint256 threshold);
+    /// @notice Floor C: prior 24h USD plus this swap crosses `unscoredRevertThreshold`.
+    error DailyAggregationBlocked(address wallet, uint256 assessedUsd, uint256 threshold);
     /// @notice Magnitude quote failed (no feed, stale feed, or invalid answer). Fail-closed.
     error MagnitudeQuoteFailed(address token, bytes32 reason);
-    error UnscoredThresholdsInvalid();
+    /// @notice `unscoredFeeThreshold` cannot go below FATF VA $1,000 (`MIN_UNSCORED_FEE_THRESHOLD`).
+    error UnscoredFeeThresholdBelowFatfMinimum(uint256 feeThreshold, uint256 minimum);
+    /// @notice `unscoredRevertThreshold` must be strictly greater than `unscoredFeeThreshold`.
+    error UnscoredRevertMustExceedFee(uint256 feeThreshold, uint256 revertThreshold);
+    /// @notice `punitiveFeeBps` must be strictly greater than `proportionalFeeBps`.
+    error PunitiveFeeMustExceedProportional(uint24 proportionalFeeBps, uint24 punitiveFeeBps);
+    /// @notice `apply*` was called with no matching live proposal.
+    error NoPendingPolicyParam(string name);
+    /// @notice `apply*` calldata does not match the stored proposal (re-propose and re-schedule).
+    error PendingPolicyParamMismatch(string name);
     error PriceStalenessThresholdInvalid();
     error ActivityWindowInvalid();
+    error DailyWindowInvalid();
     error MaxOpsInWindowInvalid();
     /// @notice Caller is not a trusted router — no end-user can be resolved (fail-closed §3.5).
     error MissingSwapSubject();
@@ -213,6 +310,30 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
 
     event StalenessThresholdUpdated(uint256 previous, uint256 current);
     event InflowThresholdUpdated(uint256 previous, uint256 current);
+    /// @notice Compliance officer proposed a policy knob. Live state is unchanged until `apply*`.
+    /// @param name Canonical parameter id (`PARAM_*` constants).
+    /// @param previousValue Value currently in storage.
+    /// @param newValue Proposed value (not yet live).
+    /// @param actor Officer who proposed (`msg.sender`).
+    event PolicyParamProposed(string name, uint256 previousValue, uint256 newValue, address indexed actor);
+    /// @notice Schedule announcement for a proposal. AccessManager.schedule cannot carry param metadata.
+    /// @dev Fired from `propose*` (the hook-owned schedule moment) with
+    ///      `readyAt = block.timestamp + officer grant delay`. Confirm still emits
+    ///      `PolicyParamConfirmed` when `apply*` executes.
+    event PolicyParamScheduled(
+        string name,
+        uint256 previousValue,
+        uint256 newValue,
+        address indexed actor,
+        uint48 readyAt
+    );
+    /// @notice Compliance officer confirmed a matching proposal after the AccessManager delay.
+    /// @param name Canonical parameter id (`PARAM_*` constants).
+    /// @param previousValue Value before this confirmation.
+    /// @param newValue Value now stored.
+    /// @param actor Officer who proposed (not AccessManager, which is `msg.sender` on execute).
+    event PolicyParamConfirmed(string name, uint256 previousValue, uint256 newValue, address indexed actor);
+    event PoolImpactThresholdUpdated(uint256 previous, uint256 current);
     event UnscoredThresholdsUpdated(
         uint256 previousFeeThreshold,
         uint256 previousRevertThreshold,
@@ -224,6 +345,7 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     event ActivityWindowUpdated(
         uint64 previousWindow, uint32 previousMaxOps, uint64 activityWindow, uint32 maxOpsInWindow
     );
+    event DailyWindowUpdated(uint64 previousWindow, uint64 dailyWindow);
     event TrustedRouterUpdated(address indexed router, bool trusted);
 
     /// @notice afterSwap audit trail for off-chain scoring + reporting (§3.4 / §3.6 / §3.9 Step 7).
@@ -250,11 +372,23 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     bytes32 public constant REASON_SCORE_NEVER_WRITTEN = keccak256("SCORE_NEVER_WRITTEN");
     bytes32 public constant REASON_STALE_WITH_POOL_ACTIVITY = keccak256("STALE_WITH_POOL_ACTIVITY");
     bytes32 public constant REASON_ACTIVITY_WINDOW_CAP = keccak256("ACTIVITY_WINDOW_CAP");
+    bytes32 public constant REASON_DAILY_AGGREGATION = keccak256("DAILY_AGGREGATION");
+    bytes32 public constant REASON_POOL_IMPACT = keccak256("POOL_IMPACT");
     bytes32 public constant QUOTE_NO_FEED = keccak256("NO_FEED");
     bytes32 public constant QUOTE_STALE_FEED = keccak256("STALE_FEED");
     bytes32 public constant QUOTE_BAD_PRICE = keccak256("BAD_PRICE");
     bytes32 public constant QUOTE_WINDOW_FAILED = keccak256("WINDOW_FAILED");
 
+    /// @notice Wire L1/L2/L3 and seed operational + policy defaults.
+    /// @dev USD floors default to $1,000 / $15,000; floor fees to 3% / 8%; pool-impact to 20%.
+    ///      After deploy, `_COMPLIANCE_OFFICER` retunes those via propose / apply.
+    /// @param accessManager_ Shared AccessManager (governor + compliance officer).
+    /// @param sanctionRegistry_ Layer 1 list.
+    /// @param complianceOracle_ Layer 2 score store.
+    /// @param riskPolicy_ Layer 3 pure mapping.
+    /// @param stalenessThreshold_ Floor B freshness; 0 → `DEFAULT_STALENESS`.
+    /// @param activityWindow_ Floor B window; 0 → `DEFAULT_ACTIVITY_WINDOW`.
+    /// @param maxOpsInWindow_ Unused op-cap storage; 0 → `DEFAULT_MAX_OPS_IN_WINDOW`.
     constructor(
         address accessManager_,
         ISanctionRegistry sanctionRegistry_,
@@ -278,12 +412,18 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
             activityWindow_ == 0 ? DEFAULT_ACTIVITY_WINDOW : activityWindow_,
             maxOpsInWindow_ == 0 ? DEFAULT_MAX_OPS_IN_WINDOW : maxOpsInWindow_
         );
+        dailyWindow = DEFAULT_DAILY_WINDOW;
+        emit DailyWindowUpdated(0, dailyWindow);
         inflowThresholdBps = 5000; // 50% — Wallet D / Mitigation D default
-        // USD-8 floors (Chainlink decimals). Governor retunes via setUnscoredThresholds.
+        // USD-8 floors (Chainlink decimals). Compliance officer retunes via propose/apply.
         unscoredFeeThreshold = DEFAULT_USD_FEE_THRESHOLD;
         unscoredRevertThreshold = DEFAULT_USD_REVERT_THRESHOLD;
+        proportionalFeeBps = FeeBps.PROPORTIONAL;
+        punitiveFeeBps = FeeBps.PUNITIVE;
         priceStalenessThreshold = DEFAULT_PRICE_STALENESS;
+        poolImpactThresholdBps = DEFAULT_POOL_IMPACT_THRESHOLD_BPS;
         emit StalenessThresholdUpdated(0, stalenessThreshold);
+        emit PoolImpactThresholdUpdated(0, poolImpactThresholdBps);
         emit InflowThresholdUpdated(0, inflowThresholdBps);
         emit UnscoredThresholdsUpdated(0, 0, unscoredFeeThreshold, unscoredRevertThreshold);
         emit PriceStalenessThresholdUpdated(0, priceStalenessThreshold);
@@ -329,16 +469,173 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         inflowThresholdBps = inflowThresholdBps_;
     }
 
-    /// @notice Hook governor retunes never-scored fee / revert floors in USD-8 (Chainlink decimals).
-    /// @dev `revertThreshold == 0` disables the hard block. Otherwise `feeThreshold` must be
-    ///      strictly below `revertThreshold`. Restricted to `_HOOK_GOVERNOR`, not a contract owner.
-    function setUnscoredThresholds(uint256 feeThreshold, uint256 revertThreshold) external restricted {
-        if (revertThreshold != 0 && feeThreshold >= revertThreshold) revert UnscoredThresholdsInvalid();
+    /// @notice Propose Floors A/B pool-drain cut (bps of active virtual reserve).
+    /// @dev `_COMPLIANCE_OFFICER` only, immediate (not `restricted`). No numeric range.
+    ///      `0` disables the extra. Does not change live state. Emits `PolicyParamProposed`.
+    /// @param poolImpactThresholdBps_ Proposed cut. Confirmed later via `applyPoolImpactThresholdBps`.
+    function proposePoolImpactThresholdBps(uint256 poolImpactThresholdBps_) external {
+        _requireComplianceOfficer();
+        pendingPoolImpact = PendingPoolImpact({
+            value: poolImpactThresholdBps_,
+            previousValue: poolImpactThresholdBps,
+            proposer: msg.sender,
+            exists: true
+        });
+        emit PolicyParamProposed(
+            PARAM_POOL_IMPACT_THRESHOLD_BPS, poolImpactThresholdBps, poolImpactThresholdBps_, msg.sender
+        );
+        _emitPolicyScheduled(
+            PARAM_POOL_IMPACT_THRESHOLD_BPS, poolImpactThresholdBps, poolImpactThresholdBps_
+        );
+    }
+
+    /// @notice Confirm a matching pool-impact proposal after the AccessManager grant delay.
+    /// @dev `restricted` to `_COMPLIANCE_OFFICER` (48h delay in Deploy). Calldata must
+    ///      equal the stored proposal. Emits `PolicyParamConfirmed` with the proposer as actor.
+    /// @param poolImpactThresholdBps_ Must match `pendingPoolImpact.value`.
+    function applyPoolImpactThresholdBps(uint256 poolImpactThresholdBps_) external restricted {
+        PendingPoolImpact memory pending = pendingPoolImpact;
+        if (!pending.exists) revert NoPendingPolicyParam(PARAM_POOL_IMPACT_THRESHOLD_BPS);
+        if (pending.value != poolImpactThresholdBps_) {
+            revert PendingPolicyParamMismatch(PARAM_POOL_IMPACT_THRESHOLD_BPS);
+        }
+        emit PolicyParamConfirmed(
+            PARAM_POOL_IMPACT_THRESHOLD_BPS, pending.previousValue, poolImpactThresholdBps_, pending.proposer
+        );
+        emit PoolImpactThresholdUpdated(pending.previousValue, poolImpactThresholdBps_);
+        poolImpactThresholdBps = poolImpactThresholdBps_;
+        delete pendingPoolImpact;
+    }
+
+    /// @notice Propose never-scored fee / revert floors in USD-8 (Chainlink decimals).
+    /// @dev `_COMPLIANCE_OFFICER` only, immediate. `feeThreshold` ≥ FATF VA $1,000;
+    ///      `revertThreshold` must be strictly greater. No other min/max. Emits one
+    ///      `PolicyParamProposed` per parameter. Live state is unchanged until apply.
+    /// @param feeThreshold Proposed `unscoredFeeThreshold`.
+    /// @param revertThreshold Proposed `unscoredRevertThreshold`.
+    function proposeUnscoredThresholds(uint256 feeThreshold, uint256 revertThreshold) external {
+        _requireComplianceOfficer();
+        _validateUnscoredThresholds(feeThreshold, revertThreshold);
+        pendingUnscoredThresholds = PendingUnscoredThresholds({
+            feeThreshold: feeThreshold,
+            revertThreshold: revertThreshold,
+            previousFeeThreshold: unscoredFeeThreshold,
+            previousRevertThreshold: unscoredRevertThreshold,
+            proposer: msg.sender,
+            exists: true
+        });
+        emit PolicyParamProposed(PARAM_UNSCORED_FEE_THRESHOLD, unscoredFeeThreshold, feeThreshold, msg.sender);
+        emit PolicyParamProposed(
+            PARAM_UNSCORED_REVERT_THRESHOLD, unscoredRevertThreshold, revertThreshold, msg.sender
+        );
+        _emitPolicyScheduled(PARAM_UNSCORED_FEE_THRESHOLD, unscoredFeeThreshold, feeThreshold);
+        _emitPolicyScheduled(PARAM_UNSCORED_REVERT_THRESHOLD, unscoredRevertThreshold, revertThreshold);
+    }
+
+    /// @notice Confirm a matching USD-floor proposal after the AccessManager grant delay.
+    /// @dev `restricted` to `_COMPLIANCE_OFFICER`. Both args must match the stored pair.
+    ///      Re-validates the FATF floor and the pair-ordering rule. Emits `PolicyParamConfirmed`
+    ///      per parameter with the proposer as actor.
+    /// @param feeThreshold Must match `pendingUnscoredThresholds.feeThreshold`.
+    /// @param revertThreshold Must match `pendingUnscoredThresholds.revertThreshold`.
+    function applyUnscoredThresholds(uint256 feeThreshold, uint256 revertThreshold) external restricted {
+        PendingUnscoredThresholds memory pending = pendingUnscoredThresholds;
+        if (!pending.exists) revert NoPendingPolicyParam(PARAM_UNSCORED_FEE_THRESHOLD);
+        if (pending.feeThreshold != feeThreshold || pending.revertThreshold != revertThreshold) {
+            revert PendingPolicyParamMismatch(PARAM_UNSCORED_FEE_THRESHOLD);
+        }
+        _validateUnscoredThresholds(feeThreshold, revertThreshold);
+        emit PolicyParamConfirmed(
+            PARAM_UNSCORED_FEE_THRESHOLD, pending.previousFeeThreshold, feeThreshold, pending.proposer
+        );
+        emit PolicyParamConfirmed(
+            PARAM_UNSCORED_REVERT_THRESHOLD, pending.previousRevertThreshold, revertThreshold, pending.proposer
+        );
         emit UnscoredThresholdsUpdated(
-            unscoredFeeThreshold, unscoredRevertThreshold, feeThreshold, revertThreshold
+            pending.previousFeeThreshold, pending.previousRevertThreshold, feeThreshold, revertThreshold
         );
         unscoredFeeThreshold = feeThreshold;
         unscoredRevertThreshold = revertThreshold;
+        delete pendingUnscoredThresholds;
+    }
+
+    /// @notice Propose live Floor A/B/D mid / high fees (basis points).
+    /// @dev `_COMPLIANCE_OFFICER` only, immediate. Punitive must be strictly greater than
+    ///      proportional. No floor on proportional, no cap on punitive (`MAX_OVERRIDE` does
+    ///      not apply). Emits one `PolicyParamProposed` per fee.
+    /// @param proportionalFeeBps_ Proposed mid-band fee (may be 0).
+    /// @param punitiveFeeBps_ Proposed high-band / latency fee.
+    function proposeFloorFees(uint24 proportionalFeeBps_, uint24 punitiveFeeBps_) external {
+        _requireComplianceOfficer();
+        _validateFloorFees(proportionalFeeBps_, punitiveFeeBps_);
+        pendingFloorFees = PendingFloorFees({
+            proportionalFeeBps: proportionalFeeBps_,
+            punitiveFeeBps: punitiveFeeBps_,
+            previousProportionalFeeBps: proportionalFeeBps,
+            previousPunitiveFeeBps: punitiveFeeBps,
+            proposer: msg.sender,
+            exists: true
+        });
+        emit PolicyParamProposed(PARAM_PROPORTIONAL_FEE_BPS, proportionalFeeBps, proportionalFeeBps_, msg.sender);
+        emit PolicyParamProposed(PARAM_PUNITIVE_FEE_BPS, punitiveFeeBps, punitiveFeeBps_, msg.sender);
+        _emitPolicyScheduled(PARAM_PROPORTIONAL_FEE_BPS, proportionalFeeBps, proportionalFeeBps_);
+        _emitPolicyScheduled(PARAM_PUNITIVE_FEE_BPS, punitiveFeeBps, punitiveFeeBps_);
+    }
+
+    /// @notice Confirm a matching floor-fee proposal after the AccessManager grant delay.
+    /// @dev `restricted` to `_COMPLIANCE_OFFICER`. Both args must match the stored pair.
+    ///      Re-validates punitive > proportional. Emits `PolicyParamConfirmed` per fee.
+    /// @param proportionalFeeBps_ Must match `pendingFloorFees.proportionalFeeBps`.
+    /// @param punitiveFeeBps_ Must match `pendingFloorFees.punitiveFeeBps`.
+    function applyFloorFees(uint24 proportionalFeeBps_, uint24 punitiveFeeBps_) external restricted {
+        PendingFloorFees memory pending = pendingFloorFees;
+        if (!pending.exists) revert NoPendingPolicyParam(PARAM_PROPORTIONAL_FEE_BPS);
+        if (pending.proportionalFeeBps != proportionalFeeBps_ || pending.punitiveFeeBps != punitiveFeeBps_) {
+            revert PendingPolicyParamMismatch(PARAM_PROPORTIONAL_FEE_BPS);
+        }
+        _validateFloorFees(proportionalFeeBps_, punitiveFeeBps_);
+        emit PolicyParamConfirmed(
+            PARAM_PROPORTIONAL_FEE_BPS, pending.previousProportionalFeeBps, proportionalFeeBps_, pending.proposer
+        );
+        emit PolicyParamConfirmed(
+            PARAM_PUNITIVE_FEE_BPS, pending.previousPunitiveFeeBps, punitiveFeeBps_, pending.proposer
+        );
+        proportionalFeeBps = proportionalFeeBps_;
+        punitiveFeeBps = punitiveFeeBps_;
+        delete pendingFloorFees;
+    }
+
+    /// @dev Immediate membership check. Does not use `restricted`, so propose is not delayed.
+    function _requireComplianceOfficer() private view {
+        (bool isMember,) = IAccessManager(authority()).hasRole(Roles._COMPLIANCE_OFFICER, msg.sender);
+        if (!isMember) revert IAccessManaged.AccessManagedUnauthorized(msg.sender);
+    }
+
+    /// @dev `readyAt` is now + the officer's AccessManager execution delay (48h in Deploy).
+    function _policyReadyAt() private view returns (uint48 readyAt) {
+        (, uint32 delay) = IAccessManager(authority()).hasRole(Roles._COMPLIANCE_OFFICER, msg.sender);
+        readyAt = uint48(block.timestamp) + delay;
+    }
+
+    function _emitPolicyScheduled(string memory name, uint256 previousValue, uint256 newValue) private {
+        emit PolicyParamScheduled(name, previousValue, newValue, msg.sender, _policyReadyAt());
+    }
+
+    /// @dev Only numeric rules on the USD pair: FATF VA minimum on the fee floor, and revert > fee.
+    function _validateUnscoredThresholds(uint256 feeThreshold, uint256 revertThreshold) private pure {
+        if (feeThreshold < MIN_UNSCORED_FEE_THRESHOLD) {
+            revert UnscoredFeeThresholdBelowFatfMinimum(feeThreshold, MIN_UNSCORED_FEE_THRESHOLD);
+        }
+        if (revertThreshold <= feeThreshold) {
+            revert UnscoredRevertMustExceedFee(feeThreshold, revertThreshold);
+        }
+    }
+
+    /// @dev Only numeric rule on the fee pair: punitive must be strictly greater than proportional.
+    function _validateFloorFees(uint24 proportionalFeeBps_, uint24 punitiveFeeBps_) private pure {
+        if (punitiveFeeBps_ <= proportionalFeeBps_) {
+            revert PunitiveFeeMustExceedProportional(proportionalFeeBps_, punitiveFeeBps_);
+        }
     }
 
     /// @notice Hook governor binds a Chainlink token/USD feed (`token` = address(0) for native ETH).
@@ -349,12 +646,20 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         emit PriceFeedUpdated(token, previous, feed);
     }
 
-    /// @notice Hook governor retunes Mitigation C's activity window and op cap (§3.8).
-    /// @dev Window is seconds; `maxOpsInWindow_` completed ops force the next swap to 8%.
-    ///      Restricted to `_HOOK_GOVERNOR`. Changing the window does not rewrite past
-    ///      `windowStart` — the current bucket expires against the new duration.
+    /// @notice Hook governor retunes Floor B's 1-hour activity window (and unused op-cap storage).
+    /// @dev Window is seconds. Restricted to `_HOOK_GOVERNOR`. Changing the window does not
+    ///      rewrite past `windowStart` — the current bucket expires against the new duration.
     function setActivityWindow(uint64 activityWindow_, uint32 maxOpsInWindow_) external restricted {
         _applyActivityWindow(activityWindow_, maxOpsInWindow_);
+    }
+
+    /// @notice Hook governor retunes Floor C's 24-hour USD window (BSA CTR-style aggregation).
+    function setDailyWindow(uint64 dailyWindow_) external restricted {
+        if (dailyWindow_ < MIN_DAILY_WINDOW || dailyWindow_ > MAX_DAILY_WINDOW) {
+            revert DailyWindowInvalid();
+        }
+        emit DailyWindowUpdated(dailyWindow, dailyWindow_);
+        dailyWindow = dailyWindow_;
     }
 
     /// @dev Shared constructor / governor write. Rejects 0 and values outside the published bounds.
@@ -514,10 +819,21 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         internal
         returns (SwapEvaluation memory ev)
     {
+        return _beginSwap(router, token, volumeToken, amount, 0);
+    }
+
+    /// @notice beforeSwap entry with Floors A/B pool-impact (bps of active virtual reserve).
+    function _beginSwap(
+        address router,
+        address token,
+        address volumeToken,
+        uint256 amount,
+        uint256 poolImpactBps
+    ) internal returns (SwapEvaluation memory ev) {
         ev.wallet = _resolveWallet(router);
         ev.token = token;
         (ev.decision, ev.feeBps, ev.risk, ev.inflowTriggered) =
-            _evaluateWithMitigationEvents(ev.wallet, token, volumeToken, amount);
+            _evaluateWithMitigationEvents(ev.wallet, token, volumeToken, amount, poolImpactBps);
     }
 
     /// @notice afterSwap compliance exit: activity → baseline → SwapObserved, in that order.
@@ -550,6 +866,11 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         return _usdInCurrentWindow(wallet);
     }
 
+    /// @notice USD-8 already recorded in the current 24-hour Floor C window.
+    function dailyVolumeUsd(address wallet) external view returns (uint256) {
+        return _usdInDailyWindow(wallet);
+    }
+
     /// @notice Same L1→L3 path as beforeSwap, as a view. Reverts on REVERT / sanctions.
     /// @dev Quote / operator path. Does not record activity or move tokens. Not a Uniswap swap.
     function previewSwap(address wallet, address token, uint256 amount)
@@ -557,7 +878,7 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         view
         returns (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk)
     {
-        return _evaluate(wallet, token, token, amount);
+        return _evaluate(wallet, token, token, amount, 0);
     }
 
     /// @notice Apply afterSwap bookkeeping (activity, baseline, SwapObserved) without a PoolManager.
@@ -575,7 +896,7 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         ev.wallet = wallet;
         ev.token = token;
         (ev.decision, ev.feeBps, ev.risk, ev.inflowTriggered) =
-            _evaluateWithMitigationEvents(wallet, token, token, amount);
+            _evaluateWithMitigationEvents(wallet, token, token, amount, 0);
         _endSwap(ev, token, amount);
         return (ev.decision, ev.feeBps, ev.risk);
     }
@@ -606,7 +927,7 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
             IComplianceOracle.WalletRisk memory risk
         )
     {
-        return _evaluate(wallet, token, token, 0);
+        return _evaluate(wallet, token, token, 0, 0);
     }
 
     /// @notice View evaluate with specified-currency magnitude (`volumeToken` + `amount`).
@@ -619,9 +940,27 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
             IComplianceOracle.WalletRisk memory risk
         )
     {
+        return _evaluate(wallet, token, volumeToken, amount, 0);
+    }
+
+    function _evaluate(
+        address wallet,
+        address token,
+        address volumeToken,
+        uint256 amount,
+        uint256 poolImpactBps
+    )
+        internal
+        view
+        returns (
+            HookDecision decision,
+            uint24 feeBps,
+            IComplianceOracle.WalletRisk memory risk
+        )
+    {
         _requireNotPaused();
         EvalSignals memory sig;
-        (decision, feeBps, risk, sig) = _evaluateCore(wallet, token, volumeToken, amount);
+        (decision, feeBps, risk, sig) = _evaluateCore(wallet, token, volumeToken, amount, poolImpactBps);
         if (decision == HookDecision.ALLOW) {
             (decision, feeBps) = _applyHookLocalMitigations(wallet, risk, sig.operationCount);
         }
@@ -649,39 +988,58 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
             EvalSignals memory sig
         )
     {
+        return _evaluateCore(wallet, token, volumeToken, amount, 0);
+    }
+
+    function _evaluateCore(
+        address wallet,
+        address token,
+        address volumeToken,
+        uint256 amount,
+        uint256 poolImpactBps
+    )
+        private
+        view
+        returns (
+            HookDecision decision,
+            uint24 feeBps,
+            IComplianceOracle.WalletRisk memory risk,
+            EvalSignals memory sig
+        )
+    {
         // ── Layer 1 — static sanctions (§3.2 / §4.1) ─────────────────────────
-        // Fail closed: OFAC/SDN-style hit must not consult the behavioral score.
         _requireNotSanctioned(wallet);
 
         // ── Layer 2 — keeper-written score (§3.2 / §3.8) ─────────────────────
-        // Hook never computes N-hop decay here; it only reads what the keeper published.
         risk = complianceOracle.getRisk(wallet);
 
-        // Derive §3.8 signals the pure RiskPolicy cannot observe by itself
-        // (RiskPolicy must stay free of block.timestamp / external calls).
         sig.operationCount = _opsInCurrentWindow(wallet);
         sig.isStale = _isStale(risk.updatedAt);
         (sig.hasSignificantInflow, sig.deltaBps, sig.inflowDelta) = _inflowSignal(wallet, token, risk.updatedAt);
 
-        // USD-8 quotes for magnitude floors. Fail-closed: missing/stale/invalid feed is treated
-        // as exceeding the high threshold (same principle as SanctionRegistry).
         bool neverScored = risk.updatedAt == 0;
         if (neverScored) {
-            (sig.assessedUsd, ) = _requireUsdQuote(volumeToken, amount, _usdInCurrentWindow(wallet));
-        } else if (sig.inflowDelta > 0) {
-            // Both legs at the current feed: 50% is inbound USD / current USD, not native units.
-            (sig.inflowUsd, ) = _requireUsdQuote(token, sig.inflowDelta, 0);
-            uint256 currentBal = IERC20Minimal(token).balanceOf(wallet);
-            (uint256 currentUsd, ) = _requireUsdQuote(token, currentBal, 0);
-            if (currentUsd > 0) {
-                sig.deltaBps = (sig.inflowUsd * 10_000) / currentUsd;
-                sig.hasSignificantInflow = sig.deltaBps > inflowThresholdBps;
-            } else {
-                sig.hasSignificantInflow = false;
+            (sig.assessedUsd, ) = _requireUsdQuote(volumeToken, amount, 0);
+            if (sig.inflowDelta > 0) {
+                (sig.inflowUsd, ) = _requireUsdQuote(token, sig.inflowDelta, 0);
+            }
+        } else {
+            if (sig.inflowDelta > 0) {
+                (sig.inflowUsd, ) = _requireUsdQuote(token, sig.inflowDelta, 0);
+                uint256 currentBal = IERC20Minimal(token).balanceOf(wallet);
+                (uint256 currentUsd, ) = _requireUsdQuote(token, currentBal, 0);
+                if (currentUsd > 0) {
+                    sig.deltaBps = (sig.inflowUsd * 10_000) / currentUsd;
+                    sig.hasSignificantInflow = sig.deltaBps > inflowThresholdBps;
+                } else {
+                    sig.hasSignificantInflow = false;
+                }
+            }
+            if (sig.isStale && sig.operationCount > 0) {
+                (sig.assessedUsd, ) = _requireUsdQuote(volumeToken, amount, _usdInCurrentWindow(wallet));
             }
         }
 
-        // ── Layer 3 — ternary bands + floors B/D + USD magnitude ─────────────
         (decision, feeBps) = riskPolicy.decide(
             risk.score,
             risk.feeBps,
@@ -692,29 +1050,83 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
             sig.assessedUsd,
             sig.inflowUsd,
             unscoredFeeThreshold,
-            unscoredRevertThreshold
+            unscoredRevertThreshold,
+            proportionalFeeBps,
+            punitiveFeeBps
         );
 
-        // Distinct revert reasons: score band vs unknown size vs scored + large unreflected inflow.
+        // Floor A extra: unknown wallet draining an anomalous share of active liquidity.
+        if (
+            neverScored && poolImpactThresholdBps != 0 && poolImpactBps > poolImpactThresholdBps
+                && decision == HookDecision.FEE_OVERRIDE
+        ) {
+            if (feeBps >= punitiveFeeBps) {
+                revert UnscoredPoolImpactBlocked(wallet, poolImpactBps, poolImpactThresholdBps);
+            }
+            feeBps = punitiveFeeBps;
+        }
+
+        // Floor B extra: stale+activity swap draining an anomalous share of active liquidity.
+        // Hardens the band (pass → mid, mid → high) but never REVERTs. B's ceiling is the punitive fee.
+        if (
+            !neverScored && sig.isStale && sig.operationCount > 0 && poolImpactThresholdBps != 0
+                && poolImpactBps > poolImpactThresholdBps
+        ) {
+            if (decision == HookDecision.ALLOW) {
+                decision = HookDecision.FEE_OVERRIDE;
+                feeBps = proportionalFeeBps;
+            } else if (decision == HookDecision.FEE_OVERRIDE && feeBps < punitiveFeeBps) {
+                feeBps = punitiveFeeBps;
+            }
+        }
+
         if (decision == HookDecision.REVERT) {
             if (neverScored) {
                 revert UnscoredMagnitudeBlocked(wallet, sig.assessedUsd, unscoredRevertThreshold);
             }
-            if (sig.inflowUsd >= unscoredRevertThreshold && unscoredRevertThreshold != 0) {
-                revert InflowMagnitudeBlocked(wallet, sig.inflowUsd, unscoredRevertThreshold);
-            }
             revert WalletBlocked(wallet, risk.score, "SCORE_REVERT_BAND");
+        }
+
+        // Floor C: prior 24h USD + this swap crosses the live high floor (several ops).
+        // A single ticket at/above that floor is A/B/D, not C (`priorDaily == 0` on the first swap).
+        // Score-band and A-magnitude REVERTs above win first.
+        _enforceDailyAggregation(wallet, volumeToken, amount, neverScored, sig.assessedUsd);
+    }
+
+    /// @dev Floor C: the later swap that makes prior 24h USD + this swap cross
+    ///      `unscoredRevertThreshold` REVERTs. A first swap of the day (`priorDaily == 0`)
+    ///      is A/B/D only, even at the high floor. The `== 0` early-return is residual;
+    ///      the setter cannot store a revert floor that is not strictly above the fee floor.
+    function _enforceDailyAggregation(
+        address wallet,
+        address volumeToken,
+        uint256 amount,
+        bool neverScored,
+        uint256 swapUsdIfQuoted
+    ) private view {
+        if (unscoredRevertThreshold == 0) return;
+        uint256 priorDaily = _usdInDailyWindow(wallet);
+        if (priorDaily == 0) return;
+        if (priorDaily == type(uint256).max) {
+            revert MagnitudeQuoteFailed(volumeToken, QUOTE_WINDOW_FAILED);
+        }
+        uint256 swapUsd = swapUsdIfQuoted;
+        if (!neverScored && amount > 0) {
+            (swapUsd,) = _requireUsdQuote(volumeToken, amount, 0);
+        }
+        if (priorDaily + swapUsd >= unscoredRevertThreshold) {
+            revert DailyAggregationBlocked(wallet, priorDaily + swapUsd, unscoredRevertThreshold);
         }
     }
 
     /// @dev Elevates ALLOW → FEE_OVERRIDE for hook-local signals not passed into RiskPolicy.
-    ///      A: never-written score (unknown ≠ confirmed-clean).
-    ///      C: activity-window cap (burst while keeper lags).
+    ///      A: never-written score (unknown ≠ confirmed-clean). Safety net if decide was the 5-arg form.
+    ///      C is a hard block (`DailyAggregationBlocked`) inside `_evaluateCore`, not a fee.
     ///      B (stale+ops) and D (inflow) already floored inside RiskPolicy.decide.
     function _applyHookLocalMitigations(
-        address wallet,
+        address,
         IComplianceOracle.WalletRisk memory risk,
-        uint32 operationCount
+        uint32
     ) internal view returns (HookDecision decision, uint24 feeBps) {
         decision = HookDecision.ALLOW;
         feeBps = 0;
@@ -722,11 +1134,6 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         // Mitigation A: updatedAt == 0 means "never published", not "score 0 clean".
         // A legitimately clean wallet must be written explicitly with score 0 + non-zero updatedAt.
         if (risk.updatedAt == 0) {
-            return (HookDecision.FEE_OVERRIDE, _latencyFee(risk));
-        }
-
-        // Mitigation C: too many ops in the rolling window → economic friction, not hard block.
-        if (operationCount >= maxOpsInWindow) {
             return (HookDecision.FEE_OVERRIDE, _latencyFee(risk));
         }
     }
@@ -742,7 +1149,7 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
             bool inflowTriggered
         )
     {
-        return _evaluateWithMitigationEvents(wallet, token, token, 0);
+        return _evaluateWithMitigationEvents(wallet, token, token, 0, 0);
     }
 
     /// @notice Live evaluate: same as `_evaluate` plus mitigation / inflow events for the audit trail.
@@ -760,19 +1167,43 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
             bool inflowTriggered
         )
     {
+        return _evaluateWithMitigationEvents(wallet, token, volumeToken, amount, 0);
+    }
+
+    function _evaluateWithMitigationEvents(
+        address wallet,
+        address token,
+        address volumeToken,
+        uint256 amount,
+        uint256 poolImpactBps
+    )
+        internal
+        returns (
+            HookDecision decision,
+            uint24 feeBps,
+            IComplianceOracle.WalletRisk memory risk,
+            bool inflowTriggered
+        )
+    {
         _requireNotPaused();
         EvalSignals memory sig;
-        (decision, feeBps, risk, sig) = _evaluateCore(wallet, token, volumeToken, amount);
+        (decision, feeBps, risk, sig) = _evaluateCore(wallet, token, volumeToken, amount, poolImpactBps);
         inflowTriggered = sig.hasSignificantInflow;
 
-        // Mitigation D audit: generic "recent funds → swap" pattern (not origin attribution).
-        if (sig.hasSignificantInflow) {
+        // Mitigation D audit: inbound USD in the proportional / punitive band, or a >50% share (event only).
+        if (
+            sig.hasSignificantInflow
+                || (unscoredFeeThreshold != 0 && sig.inflowUsd >= unscoredFeeThreshold)
+        ) {
             emit InflowHeuristicTriggered(wallet, sig.deltaBps, block.timestamp);
         }
 
-        // Never-scored USD bands are decided in RiskPolicy (3% / 8%); emit the A reason here.
+        // Never-scored USD bands are decided in RiskPolicy (live floor fees); emit the A reason here.
         if (risk.updatedAt == 0 && decision == HookDecision.FEE_OVERRIDE) {
-            emit LatencyMitigationApplied(wallet, REASON_SCORE_NEVER_WRITTEN, feeBps, risk.score);
+            bytes32 reason = (poolImpactThresholdBps != 0 && poolImpactBps > poolImpactThresholdBps)
+                ? REASON_POOL_IMPACT
+                : REASON_SCORE_NEVER_WRITTEN;
+            emit LatencyMitigationApplied(wallet, reason, feeBps, risk.score);
         }
 
         // Audit when RiskPolicy floored ALLOW→FEE_OVERRIDE via Mitigation B (score still ≤ 30).
@@ -780,9 +1211,13 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
             risk.score <= 30 && sig.isStale && sig.operationCount > 0
                 && decision == HookDecision.FEE_OVERRIDE
         ) {
-            emit LatencyMitigationApplied(
-                wallet, REASON_STALE_WITH_POOL_ACTIVITY, feeBps, risk.score
-            );
+            bytes32 reason = (poolImpactThresholdBps != 0 && poolImpactBps > poolImpactThresholdBps)
+                ? REASON_POOL_IMPACT
+                : REASON_STALE_WITH_POOL_ACTIVITY;
+            if (reason == REASON_POOL_IMPACT || (unscoredFeeThreshold != 0 && sig.assessedUsd >= unscoredFeeThreshold))
+            {
+                emit LatencyMitigationApplied(wallet, reason, feeBps, risk.score);
+            }
         }
 
         if (decision != HookDecision.ALLOW) {
@@ -794,13 +1229,12 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
             return (decision, 0, risk, inflowTriggered);
         }
 
-        bytes32 reason = risk.updatedAt == 0 ? REASON_SCORE_NEVER_WRITTEN : REASON_ACTIVITY_WINDOW_CAP;
-        emit LatencyMitigationApplied(wallet, reason, feeBps, risk.score);
+        emit LatencyMitigationApplied(wallet, REASON_SCORE_NEVER_WRITTEN, feeBps, risk.score);
         return (decision, feeBps, risk, inflowTriggered);
     }
 
-    /// @dev Prefer keeper-written feeBps when in range; else 8% latency fee
-    ///      (Wallet D / §3.8 designed product behavior when keeper omitted fee).
+    /// @dev Prefer keeper-written `feeBps` when ≤ `MAX_OVERRIDE`; else the default
+    ///      latency constant. Live A/B/D bands use `proportionalFeeBps` / `punitiveFeeBps`.
     function _latencyFee(IComplianceOracle.WalletRisk memory risk) private pure returns (uint24) {
         return FeeBps.resolveLatencyFee(risk.feeBps);
     }
@@ -815,8 +1249,7 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
     /// @notice Balance-delta inflow heuristic — oracle-latency Mitigation D (§3.8 / Wallet D).
     /// @dev WHY: Mitigations A–C miss the path "wallet was published clean, then receives a large
     ///      P2P transfer, then swaps before keeper updateScore". Token delta is quoted to USD-8.
-    ///      Inbound USD / current USD > inflowThresholdBps (default 50%) → medium risk → FEE_OVERRIDE
-    ///      (differential). Inbound USD ≥ unscoredRevertThreshold → REVERT.
+    ///      Inbound USD is quoted for Floor D's pass / proportional / punitive bands. The 50% share is audit-only.
     ///      Extra gas for balanceOf is intentional. Skipped when `token` is address(0).
     function _inflowSignal(address wallet, address token, uint64 scoreUpdatedAt)
         private
@@ -837,10 +1270,12 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         // Provisional token-unit share; `_evaluateCore` overwrites with inbound USD / current USD.
         deltaBps = (delta * 10_000) / currentBalance;
 
-        // Mitigation A already covers never-written scores. Without a baseline there is no
-        // inflow to measure — a new wallet's first swap would otherwise look like a 100% delta.
         uint256 baselineTs = lastKnownBalanceTimestamp[wallet][token];
-        if (scoreUpdatedAt == 0 || baselineTs == 0) {
+        // Never-written: the whole current bag is inbound (Floor D on Wallet E).
+        if (scoreUpdatedAt == 0) {
+            return (false, deltaBps, currentBalance);
+        }
+        if (baselineTs == 0) {
             return (false, 0, 0);
         }
         // Oracle already newer than the baseline: inflow was incorporated; do not fee or block on it.
@@ -853,8 +1288,7 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         }
     }
 
-    /// @dev Ops counted inside the current Mitigation C window (0 if window elapsed / never started).
-    /// @dev Ops still inside `activityWindow`, or 0 if the window never started / already elapsed.
+    /// @dev Ops still inside the 1-hour Floor B window, or 0 if it never started / already elapsed.
     function _opsInCurrentWindow(address wallet) private view returns (uint32) {
         PoolActivity storage a = _activity[wallet];
         if (a.windowStart == 0) return 0;
@@ -862,7 +1296,7 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         return a.opCount;
     }
 
-    /// @dev Specified-currency volume still inside the Mitigation C / structuring window.
+    /// @dev Specified-currency volume still inside the 1-hour Floor B window.
     function _volumeInCurrentWindow(address wallet, address token) private view returns (uint256) {
         PoolActivity storage a = _activity[wallet];
         if (a.windowStart == 0) return 0;
@@ -872,12 +1306,20 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         return v.amount;
     }
 
-    /// @dev USD-8 already recorded in the current activity window (0 if elapsed / never started).
+    /// @dev USD-8 already recorded in the current 1-hour window (0 if elapsed / never started).
     function _usdInCurrentWindow(address wallet) private view returns (uint256) {
         PoolActivity storage a = _activity[wallet];
         if (a.windowStart == 0) return 0;
         if (block.timestamp >= uint256(a.windowStart) + uint256(activityWindow)) return 0;
         return a.volumeUsd;
+    }
+
+    /// @dev USD-8 already recorded in the current 24-hour Floor C window (0 if elapsed / never started).
+    function _usdInDailyWindow(address wallet) private view returns (uint256) {
+        DailyActivity storage d = _daily[wallet];
+        if (d.windowStart == 0) return 0;
+        if (block.timestamp >= uint256(d.windowStart) + uint256(dailyWindow)) return 0;
+        return d.volumeUsd;
     }
 
     /// @dev Quote `amount` of `token` to USD-8 and add `windowUsd`. Reverts fail-closed on any quote error.
@@ -973,8 +1415,24 @@ abstract contract AmlHookLogic is AccessManaged, Pausable {
         (uint256 usd, bytes32 reason) = _tryQuoteUsd(token, amount);
         if (reason != bytes32(0)) {
             a.volumeUsd = type(uint256).max;
+            _recordDailyUsd(wallet, type(uint256).max);
         } else if (a.volumeUsd != type(uint256).max) {
             a.volumeUsd += usd;
+            _recordDailyUsd(wallet, usd);
+        }
+    }
+
+    /// @dev Add `usd` to the 24-hour Floor C accumulator (reset when the day elapsed).
+    function _recordDailyUsd(address wallet, uint256 usd) private {
+        DailyActivity storage d = _daily[wallet];
+        if (d.windowStart == 0 || block.timestamp >= uint256(d.windowStart) + uint256(dailyWindow)) {
+            d.windowStart = uint64(block.timestamp);
+            d.volumeUsd = 0;
+        }
+        if (usd == type(uint256).max) {
+            d.volumeUsd = type(uint256).max;
+        } else if (d.volumeUsd != type(uint256).max) {
+            d.volumeUsd += usd;
         }
     }
 

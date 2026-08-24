@@ -65,7 +65,7 @@ Those four buys produce the typologies a list or a KYC certificate does not reac
 | Exploit cash-out race | Drain a protocol. Swap the proceeds to ETH or a stable in the next minutes, before freezes and lists update. | The exploit address is often still unlisted. A KYC gate was never in front of it. |
 | Fresh mule (1 hop) | Origin pays a new wallet. That wallet is the one that swaps. | The mule has no SDN match and no history. The door says allow. |
 | Peel chain (2+ hops) | Origin → mule → mule → pool. Each transfer peels value and breaks the obvious link. | Every address at the door is a new retail wallet. Contamination lives in the graph, not in the subject's list row. |
-| Structuring | Many swaps in one window, each under $1,000 or under $25,000, so no single ticket trips a size rule. | Each swap is small and "clean." The hour is what exceeds the institutional floor. |
+| Structuring | Many swaps in one window, each under $1,000 or under $15,000, so no single ticket trips a size rule. | Each swap is small and "clean." The hour is what exceeds the institutional floor. |
 | Clean-wallet overlay | A published-clean bag receives a large inbound, then swaps. The score row is still zero. | The credential and the last score are green. The inbound is the signal. |
 | Mixer-adjacent entry | Tornado, Railgun, or a similar pool → fresh wallet → swap. | The new address is empty. The origin cluster never stands at the door. |
 | Compromised key | An attacker uses an institutional wallet that still holds a valid pass. Size and counterparties change in one session. | The KYC certificate is still good. The list is still clear. |
@@ -176,7 +176,7 @@ Section 1.2 is the crime model. The hook maps those typologies onto three famili
 
 **Market conduct.** Wash trading and self-cycles; rug pulls and exit liquidity; layering — chained swaps that hide the route. Structuring is the same family when the aim is to dodge a reporting or policy threshold. Mitigation C and the unknown-wallet USD window are the on-chain form of that red flag.
 
-**Real-time threats.** Exploit cash-out before lists update — Wallet A in the use case. Clean-wallet overlay — Wallet D's 50% USD inflow and $25,000 floor. Compromised keys: an institutional wallet still has valid credentials, and the attacker uses them. The signal is a sudden change in size or counterparties.
+**Real-time threats.** Exploit cash-out before lists update — Wallet A in the use case. Clean-wallet overlay — Wallet D's inbound-USD bands (pass / 3% / 8%). Compromised keys: an institutional wallet still has valid credentials, and the attacker uses them. The signal is a sudden change in size or counterparties.
 
 A static list reaches only the named-address slice of the first family. Graph, conduct, and the race against the list need the cumulative model.
 
@@ -308,21 +308,22 @@ The hook is the Uniswap callback. On swaps it runs the three on-chain layers. On
 
 **Who may write what**
 
-Two authority boxes. Sanctions, the score store, and hook settings sit on a shared AccessManager. FeeEscrow has its own owner, keeper, depositor, and auditor. The risk policy is a pure mapping: no roles. The hook itself has no extra role; it only forwards Uniswap callbacks.
+Two authority boxes. Sanctions, the score store, and hook settings sit on a shared AccessManager (keepers, governor, compliance officer). FeeEscrow has its own owner, keeper, depositor, and auditor. The risk policy is a pure mapping: no roles. The hook itself has no extra role; it only forwards Uniswap callbacks.
 
 | Role | May | May not |
 | --- | --- | --- |
-| Admin | Grant and revoke the three operational roles | Write scores, sanctions, or escrow day to day |
+| Admin | Grant and revoke the four operational roles | Write scores, sanctions, or escrow day to day |
 | Registry keeper | Add sanctions (commit, then reveal after one block); delist immediately | Publish scores, pause the hook, touch escrow |
 | Oracle keeper | Submit a score update **with** a valid attestor signature | Sign the payload alone; write the sanctions list; move escrow |
 | Attestor | Sign the score payload (wallet, score, hop, origin, fee, time, chain) | Submit the transaction alone |
-| Hook governor | Thresholds, price feeds, trusted routers and multisigs, pause, attestor rotation, rate limit, reveal delay | Write scores or sanctions; deposit or release escrow |
+| Hook governor | Operational thresholds (staleness, activity, daily window, inflow share), price feeds, trusted routers and multisigs, pause, attestor rotation, rate limit, reveal delay | Write scores, sanctions, or policy knobs (USD floors / floor fees / pool-impact) |
+| Compliance officer | Propose then confirm USD floors, floor fees, and the pool-impact cut (48-hour delay). The $1,000 fee floor cannot be lowered. Related pairs keep the upper value strictly above the lower | Write scores, sanctions, trusted routers, or score cuts (31 / 55 / 71 stay fixed) |
 | Escrow owner | Appoint keepers, the LP fund, and the compliance reserve; recover blocked fees after 7 days, only to the compliance reserve | Deposit the swap differential |
 | Escrow depositor (the hook) | Deposit the extra fee | Release or block fees |
 | Escrow keeper | Release or block after off-chain review | Change owner or write scores |
 | Auditor | Read the full escrow row | Move tokens |
 
-Deploy requires admin, registry keeper, oracle keeper, hook governor, and attestor. The attestor cannot be zero and cannot collide with the governor or either keeper.
+Deploy requires admin, registry keeper, oracle keeper, hook governor, compliance officer, and attestor. The attestor cannot be zero and cannot collide with the governor or either keeper. The officer grant carries a 48-hour execution delay.
 
 A new sanction uses commit-reveal so the address is not visible in the mempool before the flag lands. Delisting is immediate.
 
@@ -354,7 +355,7 @@ The exact USD thresholds for each case (unknown wallet, published-clean wallet w
 
 **Write path after the swap.** Update activity and the USD window, refresh the last seen balance, emit the audit event. On fee-override, take the extra slice and try to deposit it. A failed deposit does not revert the swap; the amount is credited so the user can claim it or anyone can retry later.
 
-**Between swaps.** The keeper publishes scores. The hook never writes the oracle. Trusted routers, multisigs, USD floors, and price feeds are governor work, off the swap path.
+**Between swaps.** The keeper publishes scores. The hook never writes the oracle. Trusted routers, multisigs, and price feeds are governor work. USD floors, floor fees, and the pool-impact cut are compliance-officer work (propose, then confirm after 48 hours). Both sit off the swap path.
 
 **Fallback.** A last published row is used only when `updatedAt > 0`. A wallet the keeper has never written (`updatedAt == 0`) is unknown — Mitigation A — not a silent-oracle ALLOW. That fallback does not apply to the USD price feed. A bad price fail-closes. Do not confuse the score store with the token/USD feed.
 
@@ -419,34 +420,78 @@ A single table replaces every condition that determines a swap's outcome: the pu
 | Published score 31–54 (keeper omitted an explicit fee) | Score band | FEE_OVERRIDE | 3% (~2 hops) |
 | Published score 55–70 (keeper omitted an explicit fee) | Score band | FEE_OVERRIDE | 8% (~1 hop) |
 | Published score 71–100 | Score band | REVERT | `WalletBlocked` |
-| Wallet never written (unknown), assessed USD < $1,000 | Floor A | FEE_OVERRIDE | 3% |
-| Wallet never written, assessed USD $1,000–$24,999 | Floor A mid | FEE_OVERRIDE | 8% |
-| Wallet never written, assessed USD ≥ $25,000 (includes structured swaps within the hour) | Floor A large | REVERT | Blocked by magnitude |
-| Score older than `stalenessThreshold` (default 5 minutes) **and** ≥1 swap by the same wallet in this pool within the hour | Floor B | FEE_OVERRIDE | 8% |
-| Fourth swap after 3 completed operations in the hour (default; governor can retune window and cap) | Floor C | FEE_OVERRIDE | 8% |
-| Published-clean wallet, inbound USD > 50% of the current USD bag, under $25,000, score still older than the baseline | Floor D relative | FEE_OVERRIDE (differential) | Variable |
-| Published-clean wallet, inbound USD ≥ $25,000, score still older than the baseline | Floor D absolute | REVERT | Blocked by inflow magnitude |
+| Wallet never written (unknown), assessed USD < $1,000 | Floor A | FEE_OVERRIDE | 3% (8% if the swap is more than 20% of the pool's active liquidity) |
+| Wallet never written, assessed USD $1,000–$14,999 | Floor A mid | FEE_OVERRIDE | 8% (REVERT if the swap is more than 20% of the pool's active liquidity) |
+| Wallet never written, this swap ≥ $15,000 | Floor A large | REVERT | Blocked by magnitude |
+| Score older than `stalenessThreshold` (default 5 minutes) **and** ≥1 swap in the hour, assessed USD (this swap + hour) under $1,000 | Floor B dust | ALLOW | Pool standard, 0.30% (3% if the swap is more than 20% of the pool) |
+| Same Floor B trigger, assessed USD $1,000–$14,999 | Floor B mid | FEE_OVERRIDE | 3% (8% if the swap is more than 20% of the pool) |
+| Same Floor B trigger, assessed USD ≥ $15,000 | Floor B large | FEE_OVERRIDE | 8% (pool-impact extra does not raise this further) |
+| Prior 24h USD > 0 and prior + this swap ≥ $15,000 (any wallet) | Floor C | REVERT | `DailyAggregationBlocked` |
+| Published-clean wallet, inbound USD under $1,000, score still older than the baseline | Floor D dust | ALLOW | Pool standard, 0.30% |
+| Published-clean wallet, inbound USD $1,000–$14,999, score still older than the baseline | Floor D mid | FEE_OVERRIDE | 3% |
+| Published-clean wallet, inbound USD ≥ $15,000, score still older than the baseline | Floor D large | FEE_OVERRIDE | 8% |
 | Token has no bound price feed, feed is stale (>1h, max 24h), or the answer is invalid or non-positive | Price feed guard | REVERT | Fail-closed |
 
 Notes on reading the table:
 
-- A published score of 0 (Wallet D in the use case) and a wallet that was never written (Wallet E) are different rows. Floor A no longer applies once a score exists, even if that score is 0. Floor D does not apply to a never-written wallet: its first swap would look like a 100% inflow.
-- Floor B and Floor D relative do not escalate to a revert on their own. Only Floor A large and Floor D absolute revert by magnitude.
+- A published score of 0 (Wallet D in the use case) and a wallet that was never written (Wallet E) are different rows. Floor A no longer applies once a score exists, even if that score is 0. Floor D **does** apply to a never-written wallet: with no baseline the current input-token bag is inbound (pass / 3% / 8%). The stricter of A (swap size) and D (bag) wins. A may still revert on swap size or on a high pool-impact mid-band swap.
+- Floor B and Floor D never revert. Floor A large reverts on this swap. Floor C reverts when several swaps in 24 hours cross $15,000. B and D use the same USD cuts as A ($1,000 / $15,000) but map them to pass / 3% / 8%. B's 20% pool-impact extra hardens the fee band and stops at 8%. D has no pool-impact extra.
 - None of these floors soften a score-band revert, or a fee-override already set by the score.
-- A working price feed is not needed when the wallet is published-clean and has no new inflow to quantify.
+- A working price feed is not needed when the wallet is published-clean, has no new inflow to quantify, and Floor B is not armed.
 
-**How the USD thresholds are computed.** Figures use 8 decimals. The pool's base fee on an executing swap is always 0.30%. When the override is higher, escrow holds the difference. The governor can retune the parameters named in the "Who retunes what" table below; score cuts and fee constants are fixed in the policy.
+**How the USD thresholds are computed.** Figures use 8 decimals. The pool's base fee on an executing swap is always 0.30%. When the override is higher, escrow holds the difference. The compliance officer retunes the USD floors, floor fees, and pool-impact cut named in the "Who retunes what" table below (48-hour delay). Score cuts 31 / 55 / 71 and `MAX_OVERRIDE` stay fixed in the policy.
 
-The $1,000 and $25,000 floors follow the order of magnitude used in international AML standards for traditional banking: FATF Recommendation 10, customer due diligence at the lower band (occasional-transaction / CDD floor), and enhanced scrutiny at the upper band. These are the starting policy of this prototype. For institutional DeFi, the $25,000 revert floor must be reviewed together with the pool's KYC policy before production: a venue that already identifies counterparties may set a different magnitude; one that does not should treat $25,000 as a conservative ceiling until that review is complete.
+**Why each floor exists — operation and normative basis**
 
-**Why each floor exists**
+Citations sit in the body (this paper has no footnote apparatus). The compliance officer can retune the dollar cuts; the hook governor retunes the 24-hour window. The FATF sources below are why those defaults exist, not a claim that FATF published a Uniswap hook.
 
-- **A.** A raw unread score of 0 would look like allow. Unknown is a missing write. Size then decides 3%, 8%, or revert. Once the keeper publishes — including a clean 0 — this path turns off.
-- **B.** A stale low score plus recent pool activity is enough to charge 8%. The first swap in the hour does not arm this floor (`operationCount` is still 0). The second and later swaps in that hour do. The floor turns off when the hour resets or when a new `updateScore` moves `updatedAt`.
-- **C.** After three completed swaps in the hour (default cap), the next swap pays 8%. The same window stops an unknown wallet from structuring $25,000 as dust. The hook governor retunes the window and the cap.
-- **D.** A, B, and C miss this case: a wallet already published clean receives a P2P (peer-to-peer) transfer and swaps before `updateScore`. The hook compares the current input-token balance to the last baseline and quotes both legs to USD. Inbound USD above 50% of the current USD bag is medium risk → FEE_OVERRIDE (differential). Inbound USD $25,000 or more → revert. The first swap of a never-written wallet is A, not D.
+**A — Never-written wallet.** A raw unread score of 0 would look like allow. Unknown is a missing write. **This swap** then decides 3%, 8%, or revert. Structuring across the day is Floor C. If the same swap takes more than 20% of the pool's active liquidity (compliance-officer retunable, 48-hour delay), 3% becomes 8% and 8% becomes a revert. Once the keeper publishes — including a clean 0 — this path turns off.
 
-The inflow floor sees a pattern (new funds, then a swap). It does not name the sender. A legitimate large deposit plus an immediate swap pays the same temporary 8% until the keeper writes. That false positive is accepted and bounded to the catch-up window. N-hop decay is what attributes contamination once the write lands.
+The $1,000 cut is not an analogy to traditional banking. It is the FATF virtual-asset threshold. The Updated Guidance for a Risk-Based Approach to Virtual Assets and VASPs (2021), note 37, states that FATF agreed to lower the occasional-transaction threshold for virtual assets to USD/EUR 1,000 because of the higher ML/TF risk of their cross-border nature: "The FATF agreed to lower the threshold amount for VA-related transactions to USD/EUR 1,000." That cut is stricter than the general banking floor on purpose.
+
+The $15,000 cut is Recommendation 10's general occasional-transaction CDD floor for traditional financial institutions (USD/EUR 15,000).
+
+The 20% pool-impact extra is not a FATF figure. It follows the risk-based approach: institutions must consider all relevant risk factors, including product, service, transaction, and delivery-channel factors (Interpretive Note to Recommendation 10). Liquidity concentration in a pool is a DEX-specific factor with no direct banking equivalent, so it stays a compliance-officer parameter, not a fixed legal number.
+
+**B — Stale score, wallet already active.** A stale low score plus recent pool activity arms the floor. Size of this swap plus the hour window then decides: under $1,000 → pass; $1,000–$14,999 → 3%; $15,000 or more → 8%. If the same swap takes more than 20% of the pool, the band hardens (pass → 3%, 3% → 8%) and stops at 8%. B never reverts. The first swap in the hour does not arm this floor (`operationCount` is still 0). The floor turns off when the hour resets or when a new `updateScore` moves `updatedAt`.
+
+The arming condition — a score that exists but was not refreshed, and a wallet that came back to the pool — sits on Recommendation 10(d): institutions must conduct ongoing due diligence on the business relationship, including scrutiny of transactions throughout that relationship. Recommendation 10, paragraph 23, adds that CDD information must be kept up to date, particularly for higher-risk categories.
+
+The same $1,000 / $15,000 cuts apply, but the outcome never reaches a hard block. The wallet already has a favourable oracle write, even if stale. Blocking on that basis would be disproportionate friction against a relationship already assessed. The 20% extra accelerates the band the same way as in A; the ceiling of this floor remains 8% so B stays internally consistent.
+
+**C — 24-hour aggregation.** Any wallet. Dollars already recorded in the last 24 hours. While that prior total is zero or the sum stays under $15,000, C does not intervene — A, B, or D decide each swap. The later swap that makes prior-24h + this swap cross $15,000 reverts (`DailyAggregationBlocked`). A first $15,000 ticket of the day is A/B/D. The hook governor retunes the 24-hour window.
+
+Recommendation 10 says the occasional-transaction threshold applies to a single operation **or** to several operations that appear to be linked. FATF does not set a numeric window for that linkage; each institution chooses one under its own risk-based approach.
+
+The 24-hour window is a design choice, by analogy with Currency Transaction Report (CTR) aggregation under the United States Bank Secrecy Act (BSA), which adds transactions inside the same banking day to decide whether the reporting threshold was crossed. It is a documented reference, not a FATF figure, and remains governor-retunable.
+
+FinCEN's advisory on convertible virtual currency (CVC) kiosks describes the pattern this floor is built to catch: structuring deposits under the CTR threshold across multiple operations or accounts (smurfing).
+
+| 24-hour accumulated USD | Result |
+| --- | --- |
+| Under $15,000 | C does not intervene |
+| The swap that crosses $15,000 | REVERT |
+
+**D — Unevaluated inbound funds.** A, B, and C miss this case: a wallet already published clean receives a P2P (peer-to-peer) transfer and swaps before `updateScore`. The hook compares the current input-token balance to the last baseline and quotes the inbound amount to USD. Under $1,000 → pass; $1,000–$14,999 → 3%; $15,000 or more → 8%. D does not revert. On a never-written wallet the baseline is 0, so the whole current bag is inbound — a small first swap of a large new bag still pays D's band. The 50% bag share is an audit event only.
+
+The same Rec. 10(d) and paragraph 23 ongoing-CDD duty that arms B explains why inbound funds the score has not seen produce friction, not a hard block.
+
+There is a further FATF warning against over-reacting. The Updated VASP Guidance, in its discussion of listings and supervision, cautions against unnecessary de-risking: wholesale refusal of customers or operations to avoid any risk exposure, at the expense of already-identified, lower-risk counterparties. Automatically blocking a large inbound to a wallet already published clean is that kind of over-reaction. The general proportionality principle in the Interpretive Note to Recommendation 1 requires measures to match the identified risk, not a generic suspicion.
+
+The 20% pool-impact extra is **not** applied to D. Extending it to a revert would break the one rule that holds D together, and the case against blocking a legitimate inbound does not change with the size of the receiving pool.
+
+**Normative reference**
+
+| Floor | FATF source | Cite |
+| --- | --- | --- |
+| A, $1,000 cut | Virtual-asset-specific threshold | Updated VASP Guidance 2021, note 37 |
+| A, $15,000 cut | General occasional-transaction threshold | Recommendation 10 |
+| B and D, armed by a stale score | Ongoing CDD | Recommendation 10(d) and paragraph 23 |
+| C, aggregation of linked operations | Linkage principle, no fixed window | Recommendation 10 |
+| D, high band without a block | Risk of unnecessary de-risking | Updated VASP Guidance 2021, listings and supervision |
+| Proportionality of the whole design | Governing principle of the risk-based approach | Interpretive Note to Recommendation 1 |
+
+The inflow floor sees a pattern (new funds, then a swap). It does not name the sender. A legitimate large deposit plus an immediate swap pays the same temporary 3% or 8% until the keeper writes. That false positive is accepted and bounded to the catch-up window. N-hop decay is what attributes contamination once the write lands.
 
 The keeper writes when the new score would change the decision tier (ALLOW / FEE_OVERRIDE / REVERT) or the 3% / 8% fee band, **or** when the last write is at least as old as `stalenessThreshold`. A move from 12 to 15 is skipped if the row is still fresh. A move from 28 to 34 is written. A move from 42 to 65 is written (3% → 8%). A same-tier write after the window ages is a freshness stamp: same score, new `updatedAt`. That is the only way the clock moves. `updateScore` is still the only on-chain stamp. Floor B then fires only when the keeper is actually late, not because a stable clean wallet was skipped forever.
 
@@ -454,19 +499,44 @@ The keeper writes when the new score would change the decision tier (ALLOW / FEE
 
 | Parameter | Default | Who |
 | --- | --- | --- |
-| Score cuts 31 / 55 / 71 and 3% / 8% / 0.30% | Fixed | — |
-| Unknown-wallet USD floors | $1,000 / $25,000 | Hook governor |
+| Score cuts 31 / 55 / 71 | Fixed | — |
+| Fee percentages 3% / 8% | 300 / 800 bps | Compliance officer (48-hour delay). Proportional must stay strictly below punitive. No other numeric bound. `MAX_OVERRIDE` does not apply. |
+| Pool base fee 0.30% | 30 bps | Fixed |
+| Unknown-wallet USD floors | $1,000 / $15,000 | Compliance officer (48-hour delay). Fee floor cannot go below $1,000 (FATF VA). Revert floor must stay strictly above the fee floor. |
+| Pool-impact extra | 20% | Compliance officer (48-hour delay). No numeric range. |
 | Inflow share (of current USD) | 50% | Hook governor |
 | Score staleness | 5 minutes (contract and local-deploy default). Institutional pools may set 120 seconds. | Hook governor |
 | Price staleness | 1 hour | Hook governor |
-| Per-token price feed | None until bound (fail-closed) | Hook governor |
-| Activity window / max ops | 1 hour / 3 | Hook governor |
+| Per-token price feed | Official Chainlink ETH/USD (native + WETH) and USDC/USD at deploy on live chains. Anvil uses MockUsdFeed. Extra tokens unbound (fail-closed) | Hook governor |
+| Trusted routers / position managers | Seeded at deploy | Hook governor |
+| Floor B activity window | 1 hour | Hook governor |
+| Floor C daily window | 24 hours | Hook governor |
 
-The governor must bind a price feed for every pool currency after deploy.
+Deploy binds official Chainlink ETH/USD and USDC/USD on live chains. The governor binds any extra pool currency via `setPriceFeed`.
 
-**Residual risk — price oracle.** Unknown-wallet size and D's absolute floor now depend on the price feed. A halted or lagged feed over-blocks (fail-closed). The governor should bind audited feeds and keep the price-staleness window at or above the feed heartbeat.
+**Adjustability of policy parameters**
 
-**Residual risk — Floor B.** If the keeper is down or slower than `stalenessThreshold`, a published-clean wallet that already swapped in the hour pays 8% until a write lands. That is intended friction under a lagging clock, not a contamination finding. The freshness write (same score, new timestamp) is what stops a healthy keeper from looking late. The oracle allows 24 `updateScore`s per wallet per hour so a 5-minute stamp plus a few real tier changes fit.
+The score cuts stay fixed (31 / 55 / 71). The fee percentages, USD floors, and pool-impact cut sit in compliance-officer-adjustable state: propose is immediate, apply is `restricted` so the 48-hour AccessManager grant delay gates confirmation. That role is distinct from the hook governor, who still administers trusted routers, price feeds, and operational windows.
+
+The $1,000 cut is not an analogy drawn from traditional banking. It is FATF's own threshold for virtual assets. The Updated Guidance: A Risk-Based Approach to Virtual Assets and Virtual Asset Service Providers (FATF/OECD, 2021) states, in footnote 37, that FATF agreed to lower the occasional-transaction threshold for virtual-asset-related transactions to USD/EUR 1,000, given the ML/TF risks associated with, and the cross-border nature of, VA activity. This is a stricter threshold than the general banking floor, chosen deliberately for the sector's own risk profile.
+
+The $15,000 cut corresponds to the general occasional-transaction threshold under FATF Recommendation 10, applicable to traditional financial institutions.
+
+The pool-impact aggravating factor at 20% is not drawn from a fixed FATF figure. It rests on the risk-based approach's requirement that institutions consider all relevant risk factors, including product, service, transaction, and delivery-channel risk factors (Interpretive Note to Recommendation 10). Pool liquidity concentration is a risk factor specific to decentralized markets, without a direct traditional-banking equivalent, and is therefore kept as a compliance-officer-adjustable parameter rather than a fixed regulatory figure.
+
+The condition that arms Floor B and Floor D, an existing score that has not been updated, finds direct support in FATF Recommendation 10(d): institutions must conduct ongoing due diligence on the business relationship, with scrutiny of transactions throughout its course. Recommendation 10, paragraph 23, adds that information gathered during the due diligence process must be kept up to date, particularly for higher-risk categories of customer.
+
+Floor D's ceiling, which never reaches revert, is additionally supported by FATF's own guidance against unnecessary de-risking. The Updated Guidance for VASPs warns against the wholesale rejection of clients or transactions to avoid any risk exposure, to the detriment of counterparties already identified as lower risk. Automatically blocking a large inflow to a wallet already assessed as clean is precisely that kind of overreaction. The general proportionality principle of the risk-based approach, in the Interpretive Note to Recommendation 1, requires that measures be proportionate to identified risk, not to generic suspicion.
+
+Recommendation 10's aggregation principle, under which a single operation or several operations that appear to be linked are treated alike, does not set a numeric time window. Floor C's 24-hour window is drawn by analogy from the aggregation practice used for Currency Transaction Reports under the U.S. Bank Secrecy Act, which aggregates transactions within the same banking business day. This is a documented reference, not a FATF figure, and is kept as a governor-adjustable design choice rather than a regulatory mandate. FinCEN's Notice on Convertible Virtual Currency Kiosks confirms the pattern this floor is built to catch: structuring deposits below the CTR threshold across multiple transactions or accounts, the practice known as smurfing.
+
+Recommendation 1's description of the risk-based approach requires that policies, controls, and procedures be approved by senior management. This is the basis for separating operational scoring, which compliance performs continuously through the keeper, from policy-level changes to these thresholds and percentages, which require the compliance role, a 48-hour delay, and an on-chain event on both the proposal and the confirmation before taking effect. The only numeric validations are the FATF VA $1,000 floor on the fee threshold and the rule that, in each related pair, the upper value stays strictly above the lower.
+
+**Residual risk — price oracle.** Unknown-wallet size, Floor B once armed, and Floor D now depend on the price feed. A halted or lagged feed over-blocks (fail-closed). Deploy binds official Chainlink ETH/USD and USDC/USD. The governor binds extra tokens and keeps the price-staleness window at or above the feed heartbeat.
+
+**Residual risk — Floor B.** If the keeper is down or slower than `stalenessThreshold`, a published-clean wallet that already swapped in the hour is banded by swap+window USD (pass / 3% / 8%) until a write lands. That is intended friction under a lagging clock, not a contamination finding. B needs a working price feed once it is armed. The freshness write (same score, new timestamp) is what stops a healthy keeper from looking late. The oracle allows 24 `updateScore`s per wallet per hour so a 5-minute stamp plus a few real tier changes fit.
+
+**Residual risk — Floor C.** The 24-hour window is a BSA CTR analogy, not a FATF number. A venue that already identifies counterparties may widen it; one that does not should treat 24 hours as a conservative default until that review is complete. A first $15,000 ticket of the day is not C.
 
 ### 8.5 Walkthrough of one swap
 
@@ -476,7 +546,7 @@ Uniswap v4 puts every pool in one PoolManager. That single execution point is wh
 2. **Lock.** The router unlocks the PoolManager.
 3. **Swap call.** Inside the lock the router calls swap. Direction and size matter for later USD quotes. Hook data is ignored as identity.
 4. **Hook bits.** The pool key carries the hook address. AML Hook needs before-swap, after-swap, after-swap return-delta (so it can take the extra fee without rewriting the LP fee), and the two liquidity gates.
-5. **Before the swap.** Resolve the end-user from a trusted router. Sanction match → revert. Else read the score, derive latency signals, quote USD, decide. Unknown wallet: 3% / 8% / revert by size. Published clean with a $25,000 inbound → revert. High score → revert. Medium score or a latency floor → continue at the standard pool fee and remember the override. Low score, fresh write, no floor → continue at 0.30%.
+5. **Before the swap.** Resolve the end-user from a trusted router. Sanction match → revert. Else read the score, derive latency signals, quote USD, decide. Unknown wallet: 3% / 8% / revert by this swap. Published clean with inbound or a stale score plus prior activity: pass / 3% / 8% by USD (B and D do not revert). High score → revert. Floor C (24-hour sum crossing $15,000) → revert. Medium score → continue at the standard pool fee and remember the override. Low score, fresh write, no floor → continue at 0.30%.
 6. **Pool math.** Ticks, price, output. Tokens have not moved yet.
 7. **After the swap.** Update activity and the USD window, refresh the last balance, emit the audit event. On fee-override, take the extra slice into escrow. A failed deposit does not unwind the swap.
 8. **Settle.** The router pays and withdraws, or leaves a credit in the PoolManager.
