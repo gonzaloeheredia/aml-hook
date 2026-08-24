@@ -38,45 +38,63 @@ function isUnlocked(target: DemoStage, limit: DemoStage) {
 }
 
 /**
- * Demo stage stepper. Horizontal on small screens. On desktop it stays collapsed
- * to the step number and expands the labels on hover / keyboard focus.
+ * Demo stage stepper. Horizontal timeline: always-visible labels,
+ * progress-split connector, three node states (done / active / pending).
  */
 export function StageRail({ stage, unlockedThrough, onSelect }: Props) {
+  const activeIndex = ORDER.indexOf(stage);
+  const count = DEMO_STAGES.length;
+  const insetPct = 100 / (count * 2);
+  const cutPct =
+    count <= 1 || activeIndex <= 0 ? 0 : (activeIndex / (count - 1)) * 100;
+
   return (
-    <nav
-      aria-label="Demo stages"
-      className="group/rail w-full rounded-2xl border border-uni-border bg-uni-card/80 p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.22)] backdrop-blur-md transition-[width] duration-200 ease-out lg:w-14 lg:hover:w-44 lg:focus-within:w-44"
-    >
-      <ol className="flex flex-row gap-0.5 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] lg:flex-col lg:overflow-visible [&::-webkit-scrollbar]:hidden">
-        {DEMO_STAGES.map((s, i) => {
+    <nav aria-label="Demo stages" className="w-full md:-translate-x-4">
+      <ol className="relative mx-auto flex max-w-3xl flex-row items-start">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute h-px"
+          style={{
+            left: `${insetPct}%`,
+            right: `${insetPct}%`,
+            top: 19,
+            background: `linear-gradient(to right, rgb(var(--ink) / 0.25) ${cutPct}%, rgb(var(--ink) / 0.08) ${cutPct}%)`,
+          }}
+        />
+        {DEMO_STAGES.map((s) => {
           const active = s.id === stage;
           const unlocked = isUnlocked(s.id, unlockedThrough);
-          const step = String(i + 1).padStart(2, "0");
+          const completed =
+            unlocked && ORDER.indexOf(s.id) < ORDER.indexOf(stage);
 
           return (
-            <li key={s.id} className="min-w-[4.75rem] flex-1 lg:min-w-0 lg:flex-none">
+            <li key={s.id} className="relative min-w-0 flex-1">
               <button
                 type="button"
                 disabled={!unlocked}
                 onClick={() => unlocked && onSelect(s.id)}
                 aria-current={active ? "step" : undefined}
                 title={s.hint}
-                className={`flex min-h-11 w-full flex-row items-center justify-center gap-2 rounded-xl px-2 py-2 text-center transition ${
-                  active
-                    ? "bg-uni-pink/12 text-uni-pink"
-                    : unlocked
-                      ? "text-uni-muted hover:bg-white/[0.05] hover:text-white/85"
-                      : "cursor-not-allowed text-uni-muted/35"
+                className={`flex w-full flex-col items-center gap-1.5 px-1 py-1.5 text-center transition ${
+                  unlocked ? "" : "cursor-not-allowed"
                 }`}
               >
+                <span className="relative z-[1] flex h-[22px] w-[22px] shrink-0 items-center justify-center bg-uni-bg">
+                  {completed ? (
+                    <span className="block h-2 w-2 rounded-full bg-uni-pink" />
+                  ) : active ? (
+                    <span className="flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 border-uni-pink bg-transparent">
+                      <span className="block h-1.5 w-1.5 rounded-full bg-uni-pink" />
+                    </span>
+                  ) : (
+                    <span className="block h-[22px] w-[22px] rounded-full border border-uni-pink/[0.12] bg-transparent" />
+                  )}
+                </span>
                 <span
-                  className={`text-[11px] font-semibold tabular-nums tracking-wider ${
-                    active ? "text-uni-pink" : "text-white/40"
+                  className={`text-[11px] font-medium uppercase leading-none tracking-[0.08em] ${
+                    active ? "text-uni-pink" : "text-uni-pink/35"
                   }`}
                 >
-                  {step}
-                </span>
-                <span className="text-[11px] font-semibold uppercase tracking-[0.14em] lg:max-w-0 lg:overflow-hidden lg:opacity-0 lg:transition-[max-width,opacity] lg:duration-200 lg:group-hover/rail:max-w-[7rem] lg:group-hover/rail:opacity-100 lg:group-focus-within/rail:max-w-[7rem] lg:group-focus-within/rail:opacity-100">
                   {s.label}
                 </span>
               </button>

@@ -31,12 +31,12 @@ export default function GlobalError({
             type="button"
             onClick={reset}
             style={{
-              background: "#FC72FF",
-              color: "#000",
-              border: "none",
-              borderRadius: 999,
+              background: "transparent",
+              color: "#E8E4D9",
+              border: "1px solid rgba(232, 228, 217, 0.45)",
+              borderRadius: 0,
               padding: "10px 20px",
-              fontWeight: 600,
+              fontWeight: 500,
               cursor: "pointer",
             }}
           >

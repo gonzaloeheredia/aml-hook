@@ -10,8 +10,8 @@ import { MetaMaskPanel } from "@/components/MetaMaskPanel";
 import { NavBar } from "@/components/NavBar";
 import { OnChainAccumulator } from "@/components/OnChainAccumulator";
 import { StageMorph } from "@/components/StageMorph";
-import { StageNavCursor } from "@/components/StageNavCursor";
 import { StageRail, type DemoStage } from "@/components/StageRail";
+import { StageSideNav } from "@/components/StageSideNav";
 import { SwapWidget } from "@/components/SwapWidget";
 import { walletTone } from "@/components/WalletTag";
 import { DEMO_CASES, type DemoCaseId } from "@/data/cases";
@@ -49,7 +49,7 @@ import { applyLiveCaseCopy } from "@/lib/liveCaseCopy";
 import { withComplianceOverlay } from "@/lib/withComplianceOverlay";
 
 /**
- * Demo page — guided stages with morph transitions:
+ * Demo page — guided stages with horizontal slides:
  * Swap → Hook (auto), then Fees → AML stats → Opinion → Event (click / wheel).
  * Event has a Back to Swap control; ledger balances persist until Restart data.
  */
@@ -104,6 +104,8 @@ export default function HomePage() {
   const [auditRevealKey, setAuditRevealKey] = useState(0);
 
   const [stage, setStage] = useState<DemoStage>("swap");
+  const [slideDir, setSlideDir] = useState<1 | -1>(1);
+  const [slideSwift, setSlideSwift] = useState(false);
   const [unlockedThrough, setUnlockedThrough] =
     useState<DemoStage>("swap");
 
@@ -119,6 +121,7 @@ export default function HomePage() {
   const feesHoldRef = useRef(false);
   const stageRef = useRef(stage);
   const unlockedRef = useRef(unlockedThrough);
+  const visitedRef = useRef<Set<DemoStage>>(new Set<DemoStage>(["swap"]));
   stageRef.current = stage;
   unlockedRef.current = unlockedThrough;
 
@@ -141,12 +144,25 @@ export default function HomePage() {
   }, [baseCase, caseId, compliance, demoTick]);
 
   /**
+   * Sets the slide direction from the current stage, then changes stage.
+   */
+  const pointStage = useCallback((next: DemoStage) => {
+    const cur = stageRef.current;
+    if (next !== cur) {
+      setSlideDir(STAGE_ORDER.indexOf(next) >= STAGE_ORDER.indexOf(cur) ? 1 : -1);
+      setSlideSwift(visitedRef.current.has(next));
+      visitedRef.current.add(next);
+    }
+    setStage(next);
+  }, []);
+
+  /**
    * Advances the guided stage and expands the unlock frontier.
    */
   const goToStage = useCallback((next: DemoStage) => {
-    setStage(next);
+    pointStage(next);
     setUnlockedThrough((prev) => maxStage(prev, next));
-  }, []);
+  }, [pointStage]);
 
   /**
    * Loads wallets, transfers, and events from the backend.
@@ -300,7 +316,8 @@ export default function HomePage() {
     setSwapStats(EMPTY_STATS);
     setTransfers([]);
     setChainEvents([]);
-    setStage("swap");
+    visitedRef.current = new Set<DemoStage>(["swap"]);
+    pointStage("swap");
     setUnlockedThrough("swap");
     setAuditRevealKey((k) => k + 1);
     setDemoTick((n) => n + 1);
@@ -331,7 +348,7 @@ export default function HomePage() {
     setApiError("Anvil is required. Run npm run deploy:local and start the API.");
     setCompliance(null);
     setDemoTick((n) => n + 1);
-  }, [apiStatus, caseId, connected, refreshCompliance]);
+  }, [apiStatus, caseId, connected, pointStage, refreshCompliance]);
 
   /**
    * Event → Swap: jump to the first screen without reseeding.
@@ -397,11 +414,11 @@ export default function HomePage() {
   };
 
   /**
-   * Lands on Fees after the hook run. Holds the screen (slow morph) —
+   * Lands on Fees after the hook run. Holds navigation briefly —
    * AML stats is unlocked for click/wheel, but never auto-advanced.
    */
   const landOnFees = useCallback(() => {
-    setStage("fees");
+    pointStage("fees");
     setUnlockedThrough((prev) => maxStage(prev, "stats"));
     feesHoldRef.current = true;
     wheelLockRef.current = true;
@@ -409,27 +426,27 @@ export default function HomePage() {
       feesHoldRef.current = false;
       wheelLockRef.current = false;
     }, FEES_HOLD_MS);
-  }, []);
+  }, [pointStage]);
 
   /**
    * Opens AML stats and unlocks the Opinion module.
    */
   const enterStats = useCallback(() => {
     setAuditRevealKey((k) => k + 1);
-    setStage("stats");
+    pointStage("stats");
     setUnlockedThrough((prev) => maxStage(prev, "opinion"));
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
+  }, [pointStage]);
 
   /**
    * Opens Opinion (legal opinion) and unlocks Event.
    */
   const enterOpinion = useCallback(() => {
     setAuditRevealKey((k) => k + 1);
-    setStage("opinion");
+    pointStage("opinion");
     setUnlockedThrough((prev) => maxStage(prev, "event"));
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
+  }, [pointStage]);
 
   const handleFlowComplete = useCallback(async () => {
     setRunning(false);
@@ -504,7 +521,7 @@ export default function HomePage() {
     if (next === "opinion" && stage === "opinion") return;
     if (next === "event" && stage === "event") return;
     if (next === "hook" && !running && stage !== "hook") {
-      setStage(next);
+      pointStage(next);
       return;
     }
     if (next === "stats") {
@@ -515,7 +532,7 @@ export default function HomePage() {
       enterOpinion();
       return;
     }
-    setStage(next);
+    pointStage(next);
   };
 
   /**
@@ -539,7 +556,7 @@ export default function HomePage() {
 
       if (next === "stats" && cur !== "stats") {
         setAuditRevealKey((k) => k + 1);
-        setStage("stats");
+        pointStage("stats");
         setUnlockedThrough((prev) => maxStage(prev, "opinion"));
         window.scrollTo({ top: 0, behavior: "smooth" });
         return true;
@@ -547,33 +564,35 @@ export default function HomePage() {
 
       if (next === "opinion" && cur !== "opinion") {
         setAuditRevealKey((k) => k + 1);
-        setStage("opinion");
+        pointStage("opinion");
         setUnlockedThrough((prev) => maxStage(prev, "event"));
         window.scrollTo({ top: 0, behavior: "smooth" });
         return true;
       }
 
-      setStage(next);
+      pointStage(next);
       if (dir > 0) {
         setUnlockedThrough((prev) => maxStage(prev, next));
       }
       window.scrollTo({ top: 0, behavior: "smooth" });
       return true;
     },
-    [],
+    [pointStage],
   );
 
   /**
-   * All stages: click advances by half-screen (upper=prev, lower=next).
-   * Wheel scrolls first; stage change only at scroll edges.
-   * Opinion → Event: click only, lower half, after scrolling to the end of the module.
+   * All stages: click advances by half-screen (left=prev, right=next).
+   * Wheel still scrolls vertically first; stage change only at scroll edges.
+   * Opinion → Event: click only, right half, after scrolling to the end of the module.
    */
   useEffect(() => {
     if (modalOpen || metaMaskOpen) return;
 
     const TOP_EPS = 40;
     const DELTA_THRESHOLD = 48;
-    const COOLDOWN_MS = 900;
+    const SLIDE_MS = 2000;
+    const OPINION_SLIDE_MS = SLIDE_MS * 3;
+    const SWIFT_MS = 420;
     const MANUAL = new Set<DemoStage>([
       "swap",
       "hook",
@@ -584,11 +603,11 @@ export default function HomePage() {
     ]);
     let acc = 0;
 
-    const lockNav = () => {
+    const lockNav = (ms: number) => {
       wheelLockRef.current = true;
       window.setTimeout(() => {
         wheelLockRef.current = false;
-      }, COOLDOWN_MS);
+      }, ms);
     };
 
     const scrollEdges = () => {
@@ -605,8 +624,17 @@ export default function HomePage() {
 
     const tryMove = (dir: 1 | -1) => {
       if (wheelLockRef.current || feesHoldRef.current) return false;
+      const cur = stageRef.current;
+      const idx = STAGE_ORDER.indexOf(cur);
+      const next = STAGE_ORDER[idx + dir];
+      const firstVisit = Boolean(next) && !visitedRef.current.has(next);
       if (moveStageBy(dir)) {
-        lockNav();
+        const hold = !firstVisit
+          ? SWIFT_MS + 80
+          : next === "opinion"
+            ? OPINION_SLIDE_MS + 150
+            : SLIDE_MS + 150;
+        lockNav(hold);
         return true;
       }
       return false;
@@ -626,17 +654,17 @@ export default function HomePage() {
       if (!MANUAL.has(cur)) return;
       if (isInteractive(e.target)) return;
 
-      const upper = e.clientY < window.innerHeight / 2;
+      const goPrev = e.clientX < window.innerWidth / 2;
 
-      if (cur === "event" && !upper) return;
+      if (cur === "event" && !goPrev) return;
 
-      // Opinion → Event: only lower-half click at the end of the module
-      if (cur === "opinion" && !upper) {
+      // Opinion → Event: only right-half click at the end of the module
+      if (cur === "opinion" && !goPrev) {
         const { atBottom } = scrollEdges();
         if (!atBottom) return;
       }
 
-      tryMove(upper ? -1 : 1);
+      tryMove(goPrev ? -1 : 1);
     };
 
     const onWheel = (e: WheelEvent) => {
@@ -689,20 +717,17 @@ export default function HomePage() {
 
   return (
     <main className="relative min-h-dvh overflow-x-hidden">
-      <StageNavCursor
+      <StageSideNav
         stage={stage}
         unlockedThrough={unlockedThrough}
         disabled={modalOpen || metaMaskOpen}
+        onPrev={() => {
+          void moveStageBy(-1);
+        }}
+        onNext={() => {
+          void moveStageBy(1);
+        }}
       />
-      <div className="pointer-events-none fixed inset-0">
-        <div className="bokeh">
-          <span className="orb-1" />
-          <span className="orb-2" />
-          <span className="orb-3" />
-          <span className="orb-4" />
-        </div>
-      </div>
-
       <div className="relative z-10 mx-auto w-full px-5 sm:px-8 md:px-12 lg:px-16">
         <NavBar
           connected={connected}
@@ -717,10 +742,10 @@ export default function HomePage() {
 
         {apiStatus !== "online" && (
           <div
-            className={`mb-4 rounded-2xl border px-4 py-3 text-sm ${
+            className={`mb-2 border-l px-4 py-2 text-sm ${
               apiStatus === "connecting"
-                ? "border-uni-border bg-uni-card/60 text-uni-muted"
-                : "border-uni-bad/40 bg-uni-bad/10 text-uni-bad"
+                ? "hair text-uni-muted"
+                : "border-l-[1.5px] border-uni-bad/50 text-uni-bad"
             }`}
           >
             {apiStatus === "connecting"
@@ -730,83 +755,86 @@ export default function HomePage() {
           </div>
         )}
 
-        <section className="relative pb-6 pt-8 md:pt-12">
+        <section
+          className={`relative pb-6 ${
+            stage === "swap" ? "pt-4 md:pt-5" : "pt-8 md:pt-12"
+          }`}
+        >
+          <StageMorph
+            stageKey={`title-${stage}`}
+            direction={slideDir}
+            slow={!slideSwift && stage === "opinion"}
+            swift={slideSwift}
+          >
           {stage === "swap" && (
-            <div className="mb-8 text-center">
-              <h1 className="text-balance text-4xl font-extrabold tracking-tight md:text-5xl">
+            <div className="mb-3 text-center">
+              <h1 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 Swap
               </h1>
             </div>
           )}
 
           {stage === "hook" && (
-            <div className="mb-10 text-center">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-uni-pink">
-                Stage 2
-              </p>
-              <h2 className="mt-1.5 text-balance text-2xl font-extrabold tracking-tight md:text-3xl">
-                Hook simulator
+            <div className="mb-8 text-center">
+              <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
+                Hook execution
               </h2>
             </div>
           )}
 
           {stage === "fees" && (
-            <div className="mb-6 text-center">
-              <p className="text-sm font-semibold uppercase tracking-[0.22em] text-uni-pink">
-                Stage 3
-              </p>
-              <h2 className="mt-3 text-balance text-3xl font-extrabold tracking-tight md:text-4xl">
+            <div className="mb-8 text-center">
+              <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 Fee summary
               </h2>
             </div>
           )}
 
           {stage === "stats" && (
-            <div className="mb-4 text-center">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-uni-pink">
-                Detection
-              </p>
-              <h2 className="mt-1.5 text-balance text-2xl font-extrabold tracking-tight md:text-3xl">
+            <div className="mb-8 text-center">
+              <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 AML stats
               </h2>
             </div>
           )}
 
           {stage === "opinion" && (
-            <div className="mb-[18px] text-center">
-              <p className="opinion-kicker text-[13px] font-semibold text-uni-pink">
-                Opinion
-              </p>
-              <h2 className="mt-[10px] text-balance text-[26px] font-extrabold tracking-tight md:text-[32px]">
+            <div className="mb-8 text-center">
+              <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 AML Analysis
               </h2>
             </div>
           )}
 
           {stage === "event" && (
-            <div className="mb-4 text-center">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-uni-pink">
-                afterSwap · pool chain
-              </p>
-              <h2 className="mt-1.5 text-balance text-2xl font-extrabold tracking-tight md:text-3xl">
+            <div className="mb-8 text-center">
+              <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 Event
               </h2>
             </div>
           )}
+          </StageMorph>
 
-          <div className="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
-            <div className="relative z-20 w-full shrink-0 lg:w-14 lg:self-start">
-              <StageRail
-                stage={stage}
-                unlockedThrough={unlockedThrough}
-                onSelect={handleStageSelect}
-              />
-            </div>
+          <div
+            className={`relative z-20 w-full border-b hair ${
+              stage === "swap" ? "mb-14 pb-5 md:mb-16" : "mb-16 pb-6 md:mb-20"
+            }`}
+          >
+            <StageRail
+              stage={stage}
+              unlockedThrough={unlockedThrough}
+              onSelect={handleStageSelect}
+            />
+          </div>
 
-            <div className="min-w-0 flex-1">
+          <StageMorph
+            stageKey={stage}
+            direction={slideDir}
+            slow={!slideSwift && stage === "opinion"}
+            swift={slideSwift}
+          >
               {stage === "swap" && (
-                <StageMorph stageKey={`swap-${caseId}`}>
-                  <div className="mx-auto w-full max-w-[480px] pb-16">
+                  <div data-stage-module className="mx-auto w-full max-w-[480px] pb-8">
                     <SwapWidget
                       demoCase={demoCase}
                       connected={connected}
@@ -820,12 +848,10 @@ export default function HomePage() {
                       }}
                     />
                   </div>
-                </StageMorph>
               )}
 
               {stage === "hook" && (
-                <StageMorph stageKey={`hook-${caseId}-${auditRevealKey}`}>
-                  <div className="mx-auto w-full max-w-[1040px] px-2 pb-4 sm:px-3">
+                  <div data-stage-module className="mx-auto w-full max-w-[1040px] px-2 pb-4 sm:px-3">
                     <FlowSimulator
                       demoCase={demoCase}
                       running={running}
@@ -834,15 +860,10 @@ export default function HomePage() {
                       }}
                     />
                   </div>
-                </StageMorph>
               )}
 
               {stage === "fees" && (
-                <StageMorph
-                  stageKey={`fees-${caseId}-${liveStats.count}`}
-                  className="stage-morph-slow"
-                >
-                  <div className="relative mx-auto w-full max-w-[1100px] px-2 pb-24 sm:px-4">
+                  <div data-stage-module className="relative mx-auto w-full max-w-[1100px] px-2 pb-24 sm:px-4">
                     <FeeSummary
                       demoCase={demoCase}
                       swapCount={liveStats.count}
@@ -854,31 +875,25 @@ export default function HomePage() {
                       tick={demoTick + liveStats.count}
                     />
                   </div>
-                </StageMorph>
               )}
 
               {stage === "stats" && (
-                <StageMorph stageKey={`stats-${caseId}-${auditRevealKey}`}>
-                  <div className="relative px-2 pb-2 sm:px-3">
+                  <div data-stage-module className="relative px-2 pb-2 sm:px-3">
                     <AmlStats
                       demoCase={demoCase}
                       connectedAddress={address}
                     />
                   </div>
-                </StageMorph>
               )}
 
               {stage === "opinion" && (
-                <StageMorph stageKey={`opinion-${caseId}-${auditRevealKey}`}>
-                  <div className="relative px-2 pb-24 sm:px-3">
+                  <div data-stage-module className="relative px-2 pb-24 sm:px-3">
                     <LegalOpinion demoCase={demoCase} />
                   </div>
-                </StageMorph>
               )}
 
               {stage === "event" && (
-                <StageMorph stageKey={`event-${caseId}-${chainEvents.length}`}>
-                  <div className="relative mx-auto w-full max-w-[1000px] px-2 pb-24 sm:px-3">
+                  <div data-stage-module className="relative mx-auto w-full max-w-[1000px] px-2 pb-24 sm:px-3">
                     <OnChainAccumulator
                       events={chainEvents}
                       showTitle={false}
@@ -890,22 +905,15 @@ export default function HomePage() {
                         onClick={() => {
                           void handleBackToSwap();
                         }}
-                        className="inline-flex items-center gap-2 rounded-full border border-uni-pink/40 bg-[#2A1240] px-5 py-3 text-sm font-semibold text-uni-pink shadow-[0_8px_28px_rgba(0,0,0,0.35)] transition hover:brightness-125"
+                        className="radius-action edge inline-flex items-center gap-2 bg-transparent px-5 py-3 text-sm font-medium text-uni-pink transition hover:bg-uni-pink/5"
                       >
-                        <span
-                          className="flex h-7 w-7 items-center justify-center rounded-full border border-uni-pink/35 bg-uni-pink/15"
-                          aria-hidden
-                        >
-                          ↑
-                        </span>
+                        <span aria-hidden>←</span>
                         Back to Swap
                       </button>
                     </div>
                   </div>
-                </StageMorph>
               )}
-            </div>
-          </div>
+          </StageMorph>
         </section>
       </div>
 
@@ -917,12 +925,9 @@ export default function HomePage() {
         data-no-stage-nav
         title="Restart data"
         aria-label="Restart data"
-        className="fixed bottom-5 right-5 z-30 inline-flex items-center gap-2 rounded-full border border-white/20 bg-[#1a1a1e]/95 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_28px_rgba(0,0,0,0.45)] backdrop-blur-md transition hover:bg-[#25252b]"
+        className="radius-f surface fixed bottom-5 right-5 z-30 inline-flex items-center gap-2 border-l hair px-3 py-2 text-sm font-medium text-uni-pink transition hover:border-uni-pink/30"
       >
-        <span
-          className="flex h-7 w-7 items-center justify-center rounded-full border border-white/25 bg-[#2a2a2e]"
-          aria-hidden
-        >
+        <span aria-hidden>
           <svg
             width="14"
             height="14"

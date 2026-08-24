@@ -3,20 +3,39 @@
 import type { ReactNode } from "react";
 
 type Props = {
-  /** Remount key — changing this retriggers the enter morph */
+  /** Remount key — changing this retriggers the slide */
   stageKey: string;
+  /** 1 = next (enter from right); -1 = previous (enter from left) */
+  direction?: 1 | -1;
+  /** Triple-length slide — first visit to Opinion */
+  slow?: boolean;
+  /** Already-seen / going back — short slide */
+  swift?: boolean;
   children: ReactNode;
   className?: string;
 };
 
 /**
- * Stage panel with a single modern enter morph (fade + rise + slight deblur).
- * Respects prefers-reduced-motion via CSS.
+ * Stage panel: the next screen slides in from the right (page moves left);
+ * going back slides in from the left.
  */
-export function StageMorph({ stageKey, children, className = "" }: Props) {
+export function StageMorph({
+  stageKey,
+  direction = 1,
+  slow = false,
+  swift = false,
+  children,
+  className = "",
+}: Props) {
+  const slide =
+    direction > 0 ? "stage-slide-in-right" : "stage-slide-in-left";
+  const pace = swift ? " stage-slide-swift" : slow ? " stage-slide-slow" : "";
+
   return (
-    <div key={stageKey} className={`stage-morph ${className}`}>
-      {children}
+    <div className={`overflow-x-clip ${className}`}>
+      <div key={stageKey} className={`${slide}${pace}`}>
+        {children}
+      </div>
     </div>
   );
 }

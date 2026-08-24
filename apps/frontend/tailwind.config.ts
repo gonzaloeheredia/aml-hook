@@ -10,24 +10,25 @@ export default {
     extend: {
       colors: {
         uni: {
-          pink: "#FC72FF",
-          pinkDim: "#9B3A9E",
-          bg: "#000000",
-          surface: "#131313",
-          card: "#1B1B1B",
-          cardHover: "#222222",
-          border: "#2B2B2B",
-          muted: "#9B9B9B",
+          pink: "rgb(var(--ink) / <alpha-value>)",
+          pinkDim: "rgb(var(--muted) / <alpha-value>)",
+          bg: "rgb(var(--background) / <alpha-value>)",
+          surface: "rgb(var(--background) / <alpha-value>)",
+          card: "rgb(var(--card) / <alpha-value>)",
+          cardHover: "rgb(var(--card) / <alpha-value>)",
+          border: "rgb(var(--border) / <alpha-value>)",
+          muted: "rgb(var(--muted) / <alpha-value>)",
           ok: "#40B66B",
           warn: "#F0B90B",
           bad: "#FF5370",
         },
       },
       fontFamily: {
-        sans: ["var(--font-jakarta)", "system-ui", "sans-serif"],
+        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        serif: ["var(--font-serif)", "Georgia", "serif"],
       },
       boxShadow: {
-        glow: "0 0 80px rgba(252, 114, 255, 0.18)",
+        glow: "none",
       },
       keyframes: {
         fadeUp: {
@@ -47,8 +48,8 @@ export default {
           },
         },
         pulseNode: {
-          "0%, 100%": { boxShadow: "0 0 0 0 rgba(252, 114, 255, 0.45)" },
-          "50%": { boxShadow: "0 0 0 10px rgba(252, 114, 255, 0)" },
+          "0%, 100%": { boxShadow: "0 0 0 0 rgba(232, 228, 217, 0.35)" },
+          "50%": { boxShadow: "0 0 0 10px rgba(232, 228, 217, 0)" },
         },
         flowDash: {
           to: { strokeDashoffset: "-24" },

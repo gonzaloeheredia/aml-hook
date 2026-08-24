@@ -1,5 +1,7 @@
 "use client";
 
+import { ThemeSwitch } from "@/components/ThemeSwitch";
+
 type Props = {
   /** Whether a demo wallet is currently connected to Uniswap */
   connected: boolean;
@@ -16,46 +18,34 @@ type Props = {
 };
 
 /**
- * Top navigation: Uniswap left · MetaMask + Connect right (official layout).
+ * Top navigation: Uniswap left · text link + Connect pill right.
  */
 export function NavBar({
   connected,
   address,
-  walletId,
-  riskBorderClass,
   onConnectClick,
   onMetaMaskClick,
 }: Props) {
-  const connectedLabel =
-    connected && walletId ? `Wallet ${walletId}` : "Connect";
-
   return (
-    <header className="relative z-20 flex min-h-16 items-center gap-4 py-5 md:min-h-[4.5rem] md:py-6">
-      <div className="flex shrink-0 items-center">
+    <header className="relative z-20 flex min-h-14 items-center gap-4 border-b hair py-3 md:min-h-16 md:py-4">
+      <div className="flex min-w-0 items-center gap-8">
         <img
           src="/uniswap-logo.svg"
           alt="Uniswap"
-          className="h-7 w-auto md:h-8"
+          className="h-7 w-auto shrink-0 md:h-8"
         />
-      </div>
-
-      <div className="ml-auto flex items-center gap-2">
         <button
           type="button"
           onClick={onMetaMaskClick}
-          className="flex items-center gap-2 rounded-full border border-[#037DD6]/35 bg-[#037DD6]/15 px-3 py-2 text-sm font-semibold text-[#8BCAFF] transition hover:bg-[#037DD6]/25"
+          className="bg-transparent text-[15px] font-medium text-uni-muted transition hover:text-uni-pink"
           title="Open MetaMask transfer simulator"
         >
-          <span
-            className="flex h-[22px] w-[22px] items-center justify-center rounded-[4px] border border-[#8BCAFF]/40"
-            aria-hidden
-          >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-              <polygon points="5,0.6 9.4,5 5,9.4 0.6,5" />
-            </svg>
-          </span>
-          <span className="hidden sm:inline">MetaMask Simulator</span>
+          MetaMask Simulator
         </button>
+      </div>
+
+      <div className="ml-auto flex items-center gap-4">
+        <ThemeSwitch />
         <button
           type="button"
           onClick={onConnectClick}
@@ -66,13 +56,9 @@ export function NavBar({
                 : "Switch wallet"
               : "Connect wallet"
           }
-          className={`rounded-full px-4 py-2.5 text-sm font-semibold transition ${
-            connected
-              ? `border-2 bg-uni-card text-white hover:bg-uni-cardHover ${riskBorderClass ?? "border-uni-border"}`
-              : "bg-uni-pink text-black hover:brightness-110"
-          }`}
+          className="rounded-full bg-[#FC72FF] px-5 py-2 text-[15px] font-semibold text-black transition hover:brightness-110"
         >
-          {connectedLabel}
+          Connect
         </button>
       </div>
     </header>
