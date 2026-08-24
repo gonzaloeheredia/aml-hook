@@ -15,6 +15,7 @@ import {AmlHook} from "../src/contracts/hooks/AmlHook.sol";
 import {AmlHookLogic} from "../src/contracts/hooks/AmlHookLogic.sol";
 import {IFeeEscrow} from "../src/interfaces/escrow/IFeeEscrow.sol";
 import {Roles} from "../src/libraries/Roles.sol";
+import {ChainlinkFeeds} from "../src/libraries/ChainlinkFeeds.sol";
 import {UniversalRouters} from "../src/libraries/UniversalRouters.sol";
 import {MockPoolManager} from "./mocks/MockPoolManager.sol";
 import {MockTrustedRouter} from "./mocks/MockTrustedRouter.sol";
@@ -40,7 +41,9 @@ import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
 ///      - MOCK: MockTrustedRouter only when the chain has no canonical Universal Router
 ///        (Anvil). On Uniswap-supported chains, Deploy registers the app.uniswap.org
 ///        Universal Router (+ 2.1.1 when distinct) via setTrustedRouter.
-///      - MOCK: MockFeeToken if FEE_TOKEN unset (FeeEscrow custody asset).
+    ///      - MOCK: MockFeeToken if FEE_TOKEN unset (FeeEscrow custody asset).
+    ///      - REAL: Chainlink AggregatorV3 ETH/USD + USDC/USD + WETH on known chains.
+    ///        MOCK: MockUsdFeed only on Anvil (31337) or when no official feed exists.
     ///      Optional env:
     ///      - POOL_MANAGER: real PoolManager address (else MockPoolManager)
     ///      - FEE_TOKEN: FeeEscrow custody asset (else MockFeeToken)
@@ -50,10 +53,14 @@ import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
     ///        must set the authority wallet. Local Anvil uses a labeled placeholder, never the LP fund.
     ///      - FEE_ESCROW_OWNER: FeeEscrow `owner` from genesis (defaults to ADMIN). Production MUST
     ///        be a Gnosis Safe; the deployer is only a one-shot `bootstrapper` for the hook depositor.
+    ///      - ETH_USD_FEED / TOKEN_USD_FEED (alias USD_FEED): override Chainlink AggregatorV3
+    ///        proxies. Unset → official Data Feed for the chain (ETH/USD, USDC/USD, WETH).
+    ///        Anvil (31337) has no official feed and falls back to MockUsdFeed ($1 USDC, $1000 ETH).
     ///      - TRUSTED_ROUTER: extra router to trust in addition to the canonical Universal Router
     ///      - PRIVATE_KEY: broadcaster (defaults to Anvil account #0)
-    ///      - ADMIN / REGISTRY_KEEPER / ORACLE_KEEPER / HOOK_GOVERNOR: default to the deployer for a
-    ///        frictionless local run; a real deploy should set all four explicitly and to distinct keys.
+    ///      - ADMIN / REGISTRY_KEEPER / ORACLE_KEEPER / HOOK_GOVERNOR / COMPLIANCE_OFFICER: default
+    ///        to the deployer for a frictionless local run; a real deploy should set all five
+    ///        explicitly and to distinct keys. COMPLIANCE_OFFICER is granted with a 48-hour delay.
     ///      - ATTESTOR: ECDSA attestor for ComplianceOracle.updateScore. Required and must be
     ///        distinct from HOOK_GOVERNOR and ORACLE_KEEPER (C-01). No default — a missing value
     ///        fails closed rather than aliasing the governor.
@@ -106,6 +113,12 @@ contract Deploy is Script {
     /// @notice Thrown when the deploying key still holds FeeEscrow keeper / depositor / bootstrapper
     error Deploy_ConfigurerStillFeeEscrowPrivileged(address configurer);
 
+    /// @notice Thrown when COMPLIANCE_OFFICER was left unset
+    error Deploy_ComplianceOfficerRequired();
+
+    /// @notice Thrown when the compliance officer grant does not carry a 48-hour execution delay
+    error Deploy_WrongComplianceDelay(uint32 expected, uint32 actual);
+
     /// @notice The deployed access manager, the single authority over the registry, the oracle and
     ///         the hook's governable thresholds.
     AccessManager public accessManager;
@@ -131,10 +144,10 @@ contract Deploy is Script {
     /// @notice FeeEscrow custody token (MockFeeToken locally). Also the demo USDC.
     address public feeToken;
 
-    /// @notice Bound USD-8 feed for the fee token (demo USDC = $1).
+    /// @notice Bound USD feed for the fee token (Chainlink USDC/USD, env override, or Anvil mock).
     address public usdFeed;
 
-    /// @notice Bound ETH/USD feed (demo mark = $1,000). `setPriceFeed(address(0), …)`.
+    /// @notice Bound ETH/USD feed (Chainlink, env override, or Anvil mock). `setPriceFeed(address(0), …)`.
     address public ethUsdFeed;
 
     /// @notice Primary trusted router (canonical Universal Router, env override, or local mock)
@@ -145,6 +158,10 @@ contract Deploy is Script {
 
     /// @notice Intended FeeEscrow owner (ADMIN / FEE_ESCROW_OWNER). Not the deploying EOA when they differ.
     address public feeEscrowOwner;
+
+    /// @notice Key that proposes / confirms policy knobs (USD floors, floor fees, pool-impact).
+    /// @dev Granted `_COMPLIANCE_OFFICER` with a 48-hour execution delay.
+    address public complianceOfficer;
 
     /// @notice Local Anvil stand-in for the compliance reserve. Production sets COMPLIANCE_RESERVE to the authority wallet.
     address public constant LOCAL_COMPLIANCE_RESERVE =
@@ -161,6 +178,7 @@ contract Deploy is Script {
         address registryKeeper = vm.envOr("REGISTRY_KEEPER", deployer);
         address oracleKeeper = vm.envOr("ORACLE_KEEPER", deployer);
         address hookGovernor = vm.envOr("HOOK_GOVERNOR", deployer);
+        complianceOfficer = vm.envOr("COMPLIANCE_OFFICER", deployer);
         address attestor = vm.envOr("ATTESTOR", address(0));
         if (attestor == address(0) && block.chainid == 31337) {
             attestor = vm.addr(LOCAL_ATTESTOR_PK);
@@ -189,9 +207,13 @@ contract Deploy is Script {
             activityWindow,
             maxOpsInWindow
         );
+        // Anvil demo only: Wallet A is OFAC-listed so pool swaps hit SanctionHit.
+        if (block.chainid == 31337) {
+            sanctionRegistry.setSanctioned(DEMO_WALLET_A, true);
+        }
         vm.stopBroadcast();
 
-        _writeDeploymentJson(deployer, admin, registryKeeper, oracleKeeper, hookGovernor);
+        _writeDeploymentJson(deployer, admin, registryKeeper, oracleKeeper, hookGovernor, complianceOfficer);
     }
 
     /// @notice Deploys the stack, wires the roles, hands over the admin role and verifies the result
@@ -209,13 +231,13 @@ contract Deploy is Script {
     /// @param admin The address that will hold the manager's admin role afterwards
     /// @param registryKeeper The key the sanctions pipeline writes with
     /// @param oracleKeeper The key the scoring engine publishes with
-    /// @param hookGovernor The key that retunes the hook's thresholds and trusted-router list
+    /// @param hookGovernor The key that retunes operational hook thresholds and trusted routers
     /// @param attestor The ECDSA attestor for `updateScore` payloads (distinct from governor / keeper)
     /// @param poolManagerOverride A real `IPoolManager`, or zero to deploy `MockPoolManager`
     /// @param trustedRouterOverride Extra router to trust (in addition to the canonical Universal Router)
     /// @param stalenessThreshold Seconds before a published score counts as stale (Floor B; default 5 minutes)
-    /// @param activityWindow Initial Mitigation C window in seconds (governor retunes via `setActivityWindow`)
-    /// @param maxOpsInWindow Initial completed-ops cap in that window (governor retunes via `setActivityWindow`)
+    /// @param activityWindow Initial Floor B window in seconds (governor retunes via `setActivityWindow`)
+    /// @param maxOpsInWindow Unused op-cap storage seeded with the activity window (ABI compat)
     function _deploy(
         address configurer,
         address admin,
@@ -320,7 +342,8 @@ contract Deploy is Script {
         feeEscrow.bootstrapDepositor(address(hook));
     }
 
-    /// @dev Wire selectors to roles, grant keepers / governor, seed trusted routers, hand admin to `admin`.
+    /// @dev Wire selectors to roles, grant keepers / governor / compliance officer (48h),
+    ///      seed trusted routers, hand admin to `admin`.
     function _configureAccess(
         address configurer,
         address admin,
@@ -336,6 +359,7 @@ contract Deploy is Script {
             address(complianceOracle), _oracleSelectors(), Roles._ORACLE_KEEPER
         );
         accessManager.setTargetFunctionRole(address(hook), _hookSelectors(), Roles._HOOK_GOVERNOR);
+        accessManager.setTargetFunctionRole(address(hook), _complianceSelectors(), Roles._COMPLIANCE_OFFICER);
         accessManager.setTargetFunctionRole(
             address(complianceOracle), _oracleGovernorSelectors(), Roles._HOOK_GOVERNOR
         );
@@ -343,9 +367,12 @@ contract Deploy is Script {
             address(sanctionRegistry), _registryGovernorSelectors(), Roles._HOOK_GOVERNOR
         );
 
+        if (complianceOfficer == address(0)) revert Deploy_ComplianceOfficerRequired();
+
         accessManager.grantRole(Roles._REGISTRY_KEEPER, registryKeeper, 0);
         accessManager.grantRole(Roles._ORACLE_KEEPER, oracleKeeper, 0);
         accessManager.grantRole(Roles._HOOK_GOVERNOR, hookGovernor, 0);
+        accessManager.grantRole(Roles._COMPLIANCE_OFFICER, complianceOfficer, uint32(48 hours));
 
         // Configurer needs governor for the trusted-router seed, then gives it up.
         accessManager.grantRole(Roles._HOOK_GOVERNOR, configurer, 0);
@@ -361,10 +388,7 @@ contract Deploy is Script {
         }
         hook.setTrustedRouter(trustedRouter, true);
 
-        usdFeed = address(new MockUsdFeed(1e8));
-        ethUsdFeed = address(new MockUsdFeed(1_000e8));
-        hook.setPriceFeed(feeToken, usdFeed);
-        hook.setPriceFeed(address(0), ethUsdFeed);
+        _bindPriceFeeds(feeToken);
         if (canonical != address(0) && canonical != trustedRouter) {
             hook.setTrustedRouter(canonical, true);
             console2.log("UniversalRouter", canonical);
@@ -396,6 +420,7 @@ contract Deploy is Script {
         console2.log("ComplianceReserve", feeEscrow.complianceReserve());
         console2.log("AmlHook", address(hook));
         console2.log("Attestor", oracleAttestor);
+        console2.log("ComplianceOfficer", complianceOfficer);
         console2.log("TrustedRouter", trustedRouter);
         console2.log("PoolManager", poolManager);
     }
@@ -415,12 +440,18 @@ contract Deploy is Script {
         _requireFunctionRole(address(sanctionRegistry), _registrySelectors(), Roles._REGISTRY_KEEPER);
         _requireFunctionRole(address(complianceOracle), _oracleSelectors(), Roles._ORACLE_KEEPER);
         _requireFunctionRole(address(hook), _hookSelectors(), Roles._HOOK_GOVERNOR);
+        _requireFunctionRole(address(hook), _complianceSelectors(), Roles._COMPLIANCE_OFFICER);
         _requireFunctionRole(address(complianceOracle), _oracleGovernorSelectors(), Roles._HOOK_GOVERNOR);
         _requireFunctionRole(address(sanctionRegistry), _registryGovernorSelectors(), Roles._HOOK_GOVERNOR);
 
         _requireRole(registryKeeper, Roles._REGISTRY_KEEPER, true);
         _requireRole(oracleKeeper, Roles._ORACLE_KEEPER, true);
         _requireRole(hookGovernor, Roles._HOOK_GOVERNOR, true);
+        _requireRole(complianceOfficer, Roles._COMPLIANCE_OFFICER, true);
+        (, uint32 complianceDelay) = accessManager.hasRole(Roles._COMPLIANCE_OFFICER, complianceOfficer);
+        if (complianceDelay != uint32(48 hours)) {
+            revert Deploy_WrongComplianceDelay(uint32(48 hours), complianceDelay);
+        }
 
         _requireRole(registryKeeper, Roles._ORACLE_KEEPER, false);
         _requireRole(registryKeeper, Roles._HOOK_GOVERNOR, false);
@@ -428,6 +459,16 @@ contract Deploy is Script {
         _requireRole(oracleKeeper, Roles._HOOK_GOVERNOR, false);
         _requireRole(hookGovernor, Roles._REGISTRY_KEEPER, false);
         _requireRole(hookGovernor, Roles._ORACLE_KEEPER, false);
+        if (registryKeeper != complianceOfficer) {
+            _requireRole(registryKeeper, Roles._COMPLIANCE_OFFICER, false);
+        }
+        if (oracleKeeper != complianceOfficer) {
+            _requireRole(oracleKeeper, Roles._COMPLIANCE_OFFICER, false);
+        }
+        if (hookGovernor != complianceOfficer) {
+            _requireRole(hookGovernor, Roles._COMPLIANCE_OFFICER, false);
+            _requireRole(complianceOfficer, Roles._HOOK_GOVERNOR, false);
+        }
 
         if (configurer != hookGovernor) {
             _requireRole(configurer, Roles._HOOK_GOVERNOR, false);
@@ -523,12 +564,69 @@ contract Deploy is Script {
         selectors[5] = AmlHookLogic.setTrustedMultisig.selector;
         selectors[6] = AmlHookLogic.setMultisigAggregation.selector;
         selectors[7] = AmlHookLogic.setMinBaselineInterval.selector;
-        selectors[8] = AmlHookLogic.setUnscoredThresholds.selector;
-        selectors[9] = AmlHookLogic.setPriceFeed.selector;
-        selectors[10] = AmlHookLogic.setPriceStalenessThreshold.selector;
-        selectors[11] = AmlHookLogic.setActivityWindow.selector;
-        selectors[12] = AmlHookLogic.observeSwap.selector;
-        selectors[13] = AmlHookLogic.syncBaseline.selector;
+        selectors[8] = AmlHookLogic.setPriceFeed.selector;
+        selectors[9] = AmlHookLogic.setPriceStalenessThreshold.selector;
+        selectors[10] = AmlHookLogic.setActivityWindow.selector;
+        selectors[11] = AmlHookLogic.observeSwap.selector;
+        selectors[12] = AmlHookLogic.syncBaseline.selector;
+        selectors[13] = AmlHookLogic.setDailyWindow.selector;
+    }
+
+    /// @dev Bind Chainlink AggregatorV3 proxies so USD floors use live prices.
+    ///      Native ETH (`address(0)`) and canonical WETH share ETH/USD. Canonical USDC
+    ///      gets USDC/USD. The FeeEscrow custody token uses TOKEN_USD_FEED, or the
+    ///      matching official feed, or MockUsdFeed on Anvil only.
+    function _bindPriceFeeds(address feeTokenAddr) private {
+        address ethUsd = vm.envOr("ETH_USD_FEED", ChainlinkFeeds.ethUsd(block.chainid));
+        address tokenUsd = vm.envOr("TOKEN_USD_FEED", address(0));
+        if (tokenUsd == address(0)) tokenUsd = vm.envOr("USD_FEED", address(0));
+
+        if (ethUsd == address(0) && block.chainid == 31337) {
+            ethUsd = address(new MockUsdFeed(1_000e8));
+            console2.log("MockEthUsdFeed", ethUsd);
+        }
+        if (ethUsd != address(0)) {
+            hook.setPriceFeed(address(0), ethUsd);
+            address weth = ChainlinkFeeds.weth(block.chainid);
+            if (weth != address(0)) hook.setPriceFeed(weth, ethUsd);
+            ethUsdFeed = ethUsd;
+            console2.log("EthUsdFeed", ethUsd);
+        }
+
+        address usdc = ChainlinkFeeds.usdc(block.chainid);
+        address usdcUsd = ChainlinkFeeds.usdcUsd(block.chainid);
+        if (usdc != address(0) && usdcUsd != address(0)) {
+            hook.setPriceFeed(usdc, usdcUsd);
+            console2.log("UsdcUsdFeed", usdcUsd);
+        }
+
+        address feeFeed = tokenUsd;
+        if (feeFeed == address(0) && feeTokenAddr != address(0) && feeTokenAddr == usdc && usdcUsd != address(0)) {
+            feeFeed = usdcUsd;
+        }
+        if (
+            feeFeed == address(0) && feeTokenAddr != address(0)
+                && feeTokenAddr == ChainlinkFeeds.weth(block.chainid) && ethUsd != address(0)
+        ) {
+            feeFeed = ethUsd;
+        }
+        if (feeFeed == address(0) && block.chainid == 31337) {
+            feeFeed = address(new MockUsdFeed(1e8));
+            console2.log("MockUsdFeed", feeFeed);
+        }
+        if (feeFeed != address(0)) {
+            hook.setPriceFeed(feeTokenAddr, feeFeed);
+            usdFeed = feeFeed;
+            console2.log("FeeTokenUsdFeed", feeFeed);
+        }
+    }
+
+    /// @notice Policy-knob confirmations — `_COMPLIANCE_OFFICER` (48h grant delay), not the governor.
+    function _complianceSelectors() internal pure returns (bytes4[] memory selectors) {
+        selectors = new bytes4[](3);
+        selectors[0] = AmlHookLogic.applyUnscoredThresholds.selector;
+        selectors[1] = AmlHookLogic.applyPoolImpactThresholdBps.selector;
+        selectors[2] = AmlHookLogic.applyFloorFees.selector;
     }
 
     /// @dev Persist addresses and intended keys for the SDK / API sync.
@@ -537,7 +635,8 @@ contract Deploy is Script {
         address admin,
         address registryKeeper,
         address oracleKeeper,
-        address hookGovernor
+        address hookGovernor,
+        address complianceOfficer_
     ) internal {
         string memory json = string.concat(
             "{\n",
@@ -558,6 +657,9 @@ contract Deploy is Script {
             '",\n',
             '  "hookGovernor": "',
             vm.toString(hookGovernor),
+            '",\n',
+            '  "complianceOfficer": "',
+            vm.toString(complianceOfficer_),
             '",\n',
             '  "attestor": "',
             vm.toString(oracleAttestor),

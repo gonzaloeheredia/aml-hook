@@ -12,7 +12,7 @@ node scripts/deploy-local.mjs
 
 Writes:
 
-- `packages/sdk/deployments/31337.json` — AccessManager, L1/L2/L3, AmlHook, FeeEscrow, `feeToken`, `usdFeed` / `ethUsdFeed`, demo wallets A–E, attestor, role holders, poolManager
+- `packages/sdk/deployments/31337.json` — AccessManager, L1/L2/L3, AmlHook, FeeEscrow, `feeToken`, `usdFeed` / `ethUsdFeed`, demo wallets A–E, attestor, role holders (`hookGovernor`, `complianceOfficer`, keepers), poolManager
 - `apps/api/.env.local` — RPC, hook, oracle, escrow, token, feeds, keeper (Anvil #0), attestor (Anvil #9)
 
 ```ts
@@ -31,4 +31,4 @@ const d = getDeployment(31337);
 
 `ComplianceOracle.updateScore` is AccessManaged: the API's `KEEPER_PRIVATE_KEY` must be the granted oracle keeper (Anvil #0 by default on local Deploy). The attestor (Anvil #9 locally) signs `attestationHash`.
 
-Local deploy binds `MockUsdFeed` for the fee token ($1) and ETH ($1000). `_HOOK_GOVERNOR` can retune via `AmlHook.setPriceFeed(token, aggregator)` (`address(0)` = ETH/USD). Never-scored magnitude floors are USD-8 (`1_000e8` / `25_000e8`). No feed or a stale feed fail-closes.
+Local Anvil deploy binds `MockUsdFeed` for the fee token ($1) and ETH ($1000). On a live chain Deploy binds official Chainlink ETH/USD (native + WETH) and USDC/USD. `_HOOK_GOVERNOR` can retune extras via `AmlHook.setPriceFeed(token, aggregator)` (`address(0)` = ETH/USD). `_COMPLIANCE_OFFICER` proposes then confirms USD floors and floor fees (48h). Never-scored magnitude floors are USD-8 (`1_000e8` / `15_000e8`). No feed or a stale feed fail-closes.

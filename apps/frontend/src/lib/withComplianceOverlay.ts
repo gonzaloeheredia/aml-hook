@@ -68,8 +68,8 @@ export function withComplianceOverlay(
         ? "Inflow magnitude"
         : mitigation === "STALE_WITH_POOL_ACTIVITY"
           ? "Stale + activity"
-          : mitigation === "ACTIVITY_WINDOW_CAP"
-            ? "Activity window"
+          : mitigation === "ACTIVITY_WINDOW_CAP" || mitigation === "DAILY_AGGREGATION"
+            ? "24h aggregation"
             : unknown
               ? "Unknown wallet"
               : mitigation === "INFLOW_HEURISTIC"
@@ -101,16 +101,20 @@ export function withComplianceOverlay(
       amountUsd: usdcIn,
     },
     latencyMitigation: pack.latencyMitigation,
-    typology: pack.exploitConfirmed
-      ? "Exploit cash-out"
+    revertReason: pack.revertReason ?? null,
+    typology:
+      pack.revertReason === "SanctionHit"
+        ? "OFAC + exploit cash-out"
+        : pack.exploitConfirmed
+        ? "Exploit cash-out"
       : mitigation === "MAGNITUDE_QUOTE_FAILED"
         ? "Price feed fail-closed"
         : mitigation === "INFLOW_MAGNITUDE"
           ? "Inflow magnitude"
           : mitigation === "STALE_WITH_POOL_ACTIVITY"
             ? "Stale score · activity"
-            : mitigation === "ACTIVITY_WINDOW_CAP"
-              ? "Activity window"
+            : mitigation === "ACTIVITY_WINDOW_CAP" || mitigation === "DAILY_AGGREGATION"
+              ? "24h aggregation"
               : unknown
                 ? "Unknown wallet"
                 : mitigation === "INFLOW_HEURISTIC"
@@ -127,12 +131,22 @@ export function withComplianceOverlay(
     signals: [
       {
         label: "Exploit / sanctions",
-        value: pack.exploitConfirmed ? "Exploit cluster" : "Clear",
-        tone: pack.exploitConfirmed ? "bad" : "ok",
+        value:
+          pack.revertReason === "SanctionHit"
+            ? "OFAC SDN"
+            : pack.exploitConfirmed
+              ? "Exploit cluster"
+              : "Clear",
+        tone:
+          pack.revertReason === "SanctionHit" || pack.exploitConfirmed
+            ? "bad"
+            : "ok",
       },
       {
         label: "Keeper score",
-        value: `${score} / 100${pack.keeperPending ? " (stale)" : ""}`,
+        value: unknown
+          ? "— never written"
+          : `${score} / 100${pack.keeperPending ? " (stale)" : ""}`,
         tone:
           decision === "block"
             ? "bad"

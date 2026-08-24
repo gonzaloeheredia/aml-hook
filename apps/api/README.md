@@ -8,7 +8,7 @@ TypeScript API that talks to the local stack. It does not own the ledger. Balanc
 
 **FEE_OVERRIDE settlement:** the COA publishes `recommendedFeeBps` as total intended friction. A demo swap is `previewSwap` + `observeSwap` (activity / baseline / `SwapObserved`). On FEE_OVERRIDE the API mints the extra slice and calls `FeeEscrow.deposit`. That is not a live Uniswap `PoolManager` fill. A later clean exit goes to the LP compensation fund. A confirmed-illicit row is recovered to the compliance reserve only (whitepaper §8.3).
 
-The keeper writes when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band changes, **or** when the last write is at least as old as Floor B (`STALENESS_MS` = 5 minutes). That freshness stamp stops a stable clean wallet from looking stale. Floor B still charges 8% if the keeper is actually late and the wallet already swapped in the hour. `updateScore` is signed by Anvil **#9** (attestor) over `attestationHash`. An empty signature is rejected.
+The keeper writes when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band changes, **or** when the last write is at least as old as Floor B (`STALENESS_MS` = 5 minutes). That freshness stamp stops a stable clean wallet from looking stale. Floor B bands swap+window USD (pass / 3% / 8%) if the keeper is actually late and the wallet already swapped in the hour. `updateScore` is signed by Anvil **#9** (attestor) over `attestationHash`. An empty signature is rejected.
 
 ## What it replaces (conceptually)
 
@@ -115,14 +115,14 @@ curl -X POST http://localhost:4000/swaps ^
 
 ## Use-case baseline
 
-- **A** exploit → REVERT  
+- **A** OFAC listed + exploit → `SanctionHit` on pool; P2P still contaminates B/C/D. Do not fund E from A.  
 - **B** and **C** both start clean (ALLOW 0.30%)  
 - **D** starts with 5,000 USDC and a published score 0  
 - Receive from **A** → ~65 / 8% (1-hop)  
 - Receive from the other after it was tainted by A → ~42 / 3% (2-hop); closer hop wins  
-- Clean **C → D** (or B while clean) is **not** a hop: ~10k → **FEE_OVERRIDE 8%** (inflow); ≥ $25,000 → `InflowMagnitudeBlocked`  
-- **Wallet E** (no oracle row): on-chain Chainlink USD-8 bands — < $1,000 → 3%; $1,000–$24,999 → 8%; ≥ $25,000 → `UnscoredMagnitudeBlocked`; no/stale feed → `MagnitudeQuoteFailed`  
-- **1 ETH = 1,000 USDC** (`MockUsdFeed` at local deploy). On-chain floors are USD-8 (`1_000e8` / `25_000e8`), not native ether.
+- Clean **C → D** (or B while clean) is **not** a hop: ~10k → **FEE_OVERRIDE 3%** (inflow); ≥ $15,000 → **FEE_OVERRIDE 8%**  
+- **Wallet E** (no oracle row, starts empty): fund from **C** (no hop). Floor A is this swap; Floor D is the bag C sent. C→E $500 → 3%; $10k → 3%; $15k bag → 8% on a small swap; this swap ≥ $15,000 → `UnscoredMagnitudeBlocked`; 24h sum → `DailyAggregationBlocked`; no/stale feed → `MagnitudeQuoteFailed`  
+- **1 ETH = 1,000 USDC** on Anvil only (`MockUsdFeed` at local deploy). Live Deploy binds official Chainlink ETH/USD and USDC/USD. On-chain floors are USD-8 (`1_000e8` / `15_000e8`), not native ether. `_COMPLIANCE_OFFICER` can retune those floors after a 48h confirm.
 
 ## Anvil identities + keeper
 
@@ -137,7 +137,7 @@ npm run dev
 
 | Account | Role |
 |---|---|
-| Anvil #0 | Admin / registry keeper / oracle keeper / hook governor / FeeEscrow owner |
+| Anvil #0 | Admin / registry keeper / oracle keeper / hook governor / compliance officer / FeeEscrow owner |
 | Anvil #1–#5 | Demo wallets A–E. Keys stay on the API |
 | Anvil #9 | Distinct attestor. Signs `attestationHash` |
 
@@ -146,4 +146,4 @@ npm run dev
 Check: `GET /health` → `ok` / `mode: "anvil"` / `chain.ok`.  
 Trail: `GET /oracle/publishes` → `status: "submitted"` + `txHash`.
 
-See also [`contracts/README.md`](../../contracts/README.md) for `script/Deploy.sol` env overrides (`ORACLE_KEEPER`, `HOOK_GOVERNOR`, `ATTESTOR`, …).
+See also [`contracts/README.md`](../../contracts/README.md) for `script/Deploy.sol` env overrides (`ORACLE_KEEPER`, `HOOK_GOVERNOR`, `COMPLIANCE_OFFICER`, `ATTESTOR`, …).

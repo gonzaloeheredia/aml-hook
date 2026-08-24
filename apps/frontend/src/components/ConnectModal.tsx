@@ -2,7 +2,12 @@
 
 import { walletTone } from "@/components/WalletTag";
 import { CASE_ORDER, DEMO_CASES, type DemoCaseId } from "@/data/cases";
-import type { SimWallet } from "@/lib/hopScoring";
+import {
+  formatFeePct,
+  formatUsdFloor,
+  getPolicyKnobs,
+  type SimWallet,
+} from "@/lib/hopScoring";
 
 type Props = {
   open: boolean;
@@ -76,16 +81,20 @@ export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
                   </span>
                   <span className="mt-0.5 block text-[11px] opacity-80">
                     {wallet.neverScored
-                      ? "Unknown · $500 → 3% · $1,000 → 8% · $25,000 → revert"
+                      ? wallet.usdc <= 0
+                        ? "Unknown · empty — fund from clean C (no hop)"
+                        : `Unknown · bag $${wallet.usdc.toLocaleString("en-US")} · Floor A/D on next swap`
                       : wallet.keeperPending
-                        ? "Keeper pending · inflow 8% on next swap"
+                        ? `Keeper pending · next swap uses inflow ${formatFeePct(getPolicyKnobs().proportionalFeeBps)} / ${formatFeePct(getPolicyKnobs().punitiveFeeBps)} by inbound USD`
                         : wallet.hopDistance != null
                           ? `${wallet.hopDistance}-hop · fee override expected`
                           : id === "D"
-                            ? "Score 0 · fund via clean C (no hop) for inflow"
+                            ? `Score 0 · held funds 0.30% · clean C→D $10k=${formatFeePct(getPolicyKnobs().proportionalFeeBps)} / ${formatUsdFloor(getPolicyKnobs().unscoredRevertThresholdUsd)}=${formatFeePct(getPolicyKnobs().punitiveFeeBps)}`
                             : id === "C"
-                              ? "Clean · send to D for inflow, or receive from A for 1-hop"
-                              : c.label}
+                              ? "Clean · fund E (unknown) or D (inflow); A→C is 1-hop"
+                              : id === "A"
+                                ? "OFAC listed · pool SanctionHit · P2P still contaminates B/C"
+                                : c.label}
                   </span>
                 </span>
               </button>

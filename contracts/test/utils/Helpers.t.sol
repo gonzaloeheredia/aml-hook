@@ -26,6 +26,15 @@ import {MockAggregatorV3} from "test/mocks/MockAggregatorV3.sol";
 /// @notice Stand-in PoolManager so `AmlHook.onlyPoolManager` can be exercised in hook tests.
 /// @dev `take` forwards ERC-20 from this stub to `to` (mint tokens here before FEE_OVERRIDE afterSwap tests).
 contract HookPoolManagerStub {
+    /// @dev 1:1 sqrtPriceX96. Returned from every `extsload` so StateLibrary.getSlot0 /
+    ///      getLiquidity succeed. Liquidity slot then reads as 2^96 — impact ≈ 0 unless a
+    ///      test overrides via a richer stub.
+    uint256 internal constant STUB_SQRT_PRICE_X96 = 79228162514264337593543950336;
+
+    function extsload(bytes32) external pure returns (bytes32) {
+        return bytes32(STUB_SQRT_PRICE_X96);
+    }
+
     function take(Currency currency, address to, uint256 amount) external {
         address token = Currency.unwrap(currency);
         (bool ok, bytes memory data) =
@@ -98,6 +107,7 @@ contract Helpers is Test {
     address public registryKeeper = makeAddr("registryKeeper");
     address public oracleKeeper = makeAddr("oracleKeeper");
     address public hookGovernor = makeAddr("hookGovernor");
+    address public complianceOfficer = makeAddr("complianceOfficer");
     address public walletA = address(0xA11CE);
     address public walletB = address(0xB0B);
     address public walletC = address(0xC0FFEE);
@@ -155,13 +165,29 @@ contract Helpers is Test {
         hookSelectors[5] = AmlHookLogic.setTrustedMultisig.selector;
         hookSelectors[6] = AmlHookLogic.setMultisigAggregation.selector;
         hookSelectors[7] = AmlHookLogic.setMinBaselineInterval.selector;
-        hookSelectors[8] = AmlHookLogic.setUnscoredThresholds.selector;
-        hookSelectors[9] = AmlHookLogic.setPriceFeed.selector;
-        hookSelectors[10] = AmlHookLogic.setPriceStalenessThreshold.selector;
-        hookSelectors[11] = AmlHookLogic.setActivityWindow.selector;
-        hookSelectors[12] = AmlHookLogic.observeSwap.selector;
-        hookSelectors[13] = AmlHookLogic.syncBaseline.selector;
+        hookSelectors[8] = AmlHookLogic.setPriceFeed.selector;
+        hookSelectors[9] = AmlHookLogic.setPriceStalenessThreshold.selector;
+        hookSelectors[10] = AmlHookLogic.setActivityWindow.selector;
+        hookSelectors[11] = AmlHookLogic.observeSwap.selector;
+        hookSelectors[12] = AmlHookLogic.syncBaseline.selector;
+        hookSelectors[13] = AmlHookLogic.setDailyWindow.selector;
         _wireRole(accessManager, owner, address(hook), hookSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
+    }
+
+    /// @dev Wires `_COMPLIANCE_OFFICER` apply selectors. Delay 0 so most unit tests can confirm instantly.
+    function _wireComplianceOfficer() internal {
+        _wireComplianceOfficer(address(hook), 0);
+    }
+
+    function _wireComplianceOfficer(address target, uint32 executionDelay) internal {
+        bytes4[] memory selectors = new bytes4[](3);
+        selectors[0] = AmlHookLogic.applyUnscoredThresholds.selector;
+        selectors[1] = AmlHookLogic.applyPoolImpactThresholdBps.selector;
+        selectors[2] = AmlHookLogic.applyFloorFees.selector;
+        vm.startPrank(owner);
+        accessManager.setTargetFunctionRole(target, selectors, Roles._COMPLIANCE_OFFICER);
+        accessManager.grantRole(Roles._COMPLIANCE_OFFICER, complianceOfficer, executionDelay);
+        vm.stopPrank();
     }
 
     /// @dev Bind a $1 Chainlink stand-in for stub pool currencies (address(1)/address(2)) and native ETH.

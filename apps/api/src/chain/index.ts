@@ -2,6 +2,15 @@ export { DEMO_WALLETS, POOL_SINK, WALLET_IDS, idFromAddress } from "./accounts.j
 export { publishScore, signAttestation } from "./attestor.js";
 export { chainHealth, requireChain } from "./clients.js";
 export { getChainConfig, clearChainConfig } from "./config.js";
+export {
+  readPolicyKnobs,
+  getPolicyKnobsSync,
+  clearPolicyKnobsCache,
+  formatFeePct,
+  formatUsdFloor,
+  DEFAULT_POLICY_KNOBS,
+  type PolicyKnobs,
+} from "./policy.js";
 export { ChainUnavailableError, isChainUnavailable } from "./errors.js";
 export {
   previewSwap,

@@ -4,7 +4,13 @@
  * Includes §3.8 inflow elevation for Wallet D while the keeper is pending.
  */
 
-import { previewSwap, usdcToWei } from "./chain/index.js";
+import {
+  formatFeePct,
+  formatUsdFloor,
+  previewSwap,
+  readPolicyKnobs,
+  usdcToWei,
+} from "./chain/index.js";
 import { ensureOracleEvaluation } from "./oracle/index.js";
 import { ethOutFromSwap, swapUsdcAmount } from "./scoring.js";
 import { isKeeperPending } from "./store.js";
@@ -88,6 +94,11 @@ export async function buildCompliancePack(
 ): Promise<CompliancePack> {
   const oracle = await ensureOracleEvaluation(wallet.id);
   const resolved = await resolveSwapDecision(wallet, preferredUsdc);
+  const knobs = await readPolicyKnobs();
+  const midPct = formatFeePct(knobs.proportionalFeeBps);
+  const highPct = formatFeePct(knobs.punitiveFeeBps);
+  const feeFloor = formatUsdFloor(knobs.unscoredFeeThresholdUsd);
+  const revertFloor = formatUsdFloor(knobs.unscoredRevertThresholdUsd);
   const { score, feeBps: appliedFeeBps, decision, hookOutput, source } = resolved;
   const opinion = oracle.opinion;
   const auditHash = opinion.auditHash;
@@ -97,17 +108,20 @@ export async function buildCompliancePack(
     resolved.latencyMitigation === "MAGNITUDE_QUOTE_FAILED"
       ? "No price feed"
       : resolved.latencyMitigation === "INFLOW_MAGNITUDE"
-        ? "Inflow · Magnitude block"
+        ? "Inflow · Floor D"
         : resolved.latencyMitigation === "STALE_WITH_POOL_ACTIVITY"
           ? "Stale score · Activity"
-          : resolved.latencyMitigation === "ACTIVITY_WINDOW_CAP"
-            ? "Burst · Activity window"
+          : resolved.latencyMitigation === "ACTIVITY_WINDOW_CAP" ||
+              resolved.latencyMitigation === "DAILY_AGGREGATION"
+            ? "24h USD · Floor C"
             : wallet.neverScored
               ? decision === "block"
                 ? "Unknown · Magnitude block"
                 : "Unknown"
               : decision === "block"
-                ? "Blocked"
+                ? resolved.revertReason === "SanctionHit"
+                  ? "OFAC · SanctionHit"
+                  : "Blocked"
                 : resolved.latencyMitigation === "INFLOW_HEURISTIC"
                   ? "Inflow · Latency floor"
                   : decision === "fee_override"
@@ -135,15 +149,16 @@ export async function buildCompliancePack(
     resolved.latencyMitigation === "MAGNITUDE_QUOTE_FAILED"
       ? "No bound USD price feed — fail-closed (MagnitudeQuoteFailed)."
       : resolved.latencyMitigation === "INFLOW_MAGNITUDE"
-        ? `Inbound USD ${resolved.inflowUsd.toLocaleString("en-US")} ≥ $25,000 → REVERT (InflowMagnitudeBlocked).`
+        ? `Inbound USD ${resolved.inflowUsd.toLocaleString("en-US")} ≥ ${revertFloor} → FEE_OVERRIDE ${highPct} (Floor D).`
         : resolved.latencyMitigation === "STALE_WITH_POOL_ACTIVITY"
-          ? "Score older than 5 minutes and this wallet already swapped in the hour → FEE_OVERRIDE 8%."
-          : resolved.latencyMitigation === "ACTIVITY_WINDOW_CAP"
-            ? `Already ${resolved.opsInWindow} ops in the hour (cap 3) → FEE_OVERRIDE 8% on this swap.`
+          ? `Score older than 5 minutes and this wallet already swapped in the hour → Floor B (pass / ${midPct} / ${highPct} by swap USD).`
+          : resolved.latencyMitigation === "ACTIVITY_WINDOW_CAP" ||
+              resolved.latencyMitigation === "DAILY_AGGREGATION"
+            ? `This swap makes the 24-hour USD total cross ${revertFloor} — Floor C REVERT.`
             : resolved.latencyMitigation === "INFLOW_HEURISTIC"
               ? `Inflow heuristic: inbound USD ${resolved.inflowUsd.toLocaleString("en-US")} is ${resolved.deltaBps} bps of current USD → FEE_OVERRIDE ${(appliedFeeBps / 100).toFixed(2)}% (differential).`
               : resolved.latencyMitigation === "SCORE_NEVER_WRITTEN"
-                ? `Unknown wallet · assessed USD ${resolved.assessedUsd.toLocaleString("en-US")} (this swap + 1h window).`
+                ? `Unknown wallet · this swap USD ${resolved.assessedUsd.toLocaleString("en-US")}; unpublished bag $${wallet.usdc.toLocaleString("en-US")} (Floor D).`
                 : resolved.keeperPending
                   ? "Keeper updateScore pending for this wallet (latency window)."
                   : null;
@@ -174,9 +189,11 @@ export async function buildCompliancePack(
       `Score ${score}/100 · source=${source} · ${hookOutput} (${oracle.scoreResult.flow}).`,
       `COA ${run.runId}: ${run.skills.length} skills · ${run.sourcesConsulted.length} sources · ${run.durationMs}ms.`,
       wallet.neverScored
-        ? "Wallet E is unknown (no oracle row). Swap size decides 3%, 8%, or REVERT."
+        ? wallet.usdc <= 0
+          ? "Wallet E is unknown and empty. Fund it from clean C (no hop). Do not use A."
+          : `Wallet E is unknown. Floor A is this swap; Floor D is the bag C sent ($${wallet.usdc.toLocaleString("en-US")}). Stricter fee wins.`
         : wallet.exploitConfirmed
-          ? "Exploit source — REVERT on pool swaps. P2P outflows contaminate B, C, or D."
+          ? "OFAC listed — SanctionHit on pool swaps (score not read). P2P outflows contaminate B, C, or D. Do not fund E from A."
           : wallet.id === "D" && resolved.keeperPending
             ? "Wallet D: inbound P2P recorded; keeper has not published the decay score yet."
             : wallet.hopDistance
@@ -213,7 +230,7 @@ export async function buildCompliancePack(
               : opinion.decisionRecord.basis,
         mainFacts:
           resolved.latencyMitigation === "SCORE_NEVER_WRITTEN"
-            ? `Wallet E unknown; no oracle row; ${hookOutput} at ${(appliedFeeBps / 100).toFixed(2)}% (or revert at $25,000).`
+            ? `Wallet E unknown; bag $${wallet.usdc.toLocaleString("en-US")}; ${hookOutput} at ${(appliedFeeBps / 100).toFixed(2)}% (Floor A reverts this swap at ${revertFloor}).`
             : resolved.latencyMitigation === "INFLOW_HEURISTIC"
               ? `WHO ${wallet.accountLabel}; stale oracle score ${score}; inflow deltaBps=${resolved.deltaBps}; FEE_OVERRIDE ${(appliedFeeBps / 100).toFixed(2)}%.`
               : opinion.decisionRecord.mainFacts,

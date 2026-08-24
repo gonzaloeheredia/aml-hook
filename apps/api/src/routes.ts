@@ -8,10 +8,12 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import {
   chainHealth,
+  clearPolicyKnobsCache,
   hydrateWallets,
   isChainUnavailable,
   isPriceFeedBound,
   listEscrows,
+  readPolicyKnobs,
   recoverBlocked,
   requireChain,
   resolveCheckpoint2,
@@ -75,6 +77,7 @@ function sendChainError(reply: FastifyReply, err: unknown) {
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/health", async () => {
     const chain = await chainHealth();
+    const policy = await readPolicyKnobs(true);
     return {
       ok: chain.ok,
       mode: "anvil",
@@ -88,8 +91,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       scoreSource: "onchain",
       publisher: getPublisherStatus(),
       chain,
+      policy,
       wallets: ["A", "B", "C", "D", "E"],
     };
+  });
+
+  app.get("/policy", async (_req, reply) => {
+    try {
+      const policy = await readPolicyKnobs(true);
+      return { policy };
+    } catch (err) {
+      return sendChainError(reply, err);
+    }
   });
 
   app.get("/wallets", async (_req, reply) => {
@@ -455,6 +468,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.post("/reset", async (_req, reply) => {
     try {
       await requireChain();
+      clearPolicyKnobsCache();
       const store = resetStore();
       await seedBalances();
       await resetOracle();

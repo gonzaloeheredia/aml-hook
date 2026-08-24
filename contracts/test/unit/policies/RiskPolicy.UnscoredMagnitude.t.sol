@@ -8,7 +8,7 @@ import {Helpers} from "test/utils/Helpers.t.sol";
 /// @notice RiskPolicy.decide — never-scored USD magnitude bands (Mitigation A).
 contract UnitRiskPolicyUnscoredMagnitudeTest is Helpers {
     uint256 internal constant FEE_THRESHOLD = 1_000e8;
-    uint256 internal constant REVERT_THRESHOLD = 25_000e8;
+    uint256 internal constant REVERT_THRESHOLD = 15_000e8;
 
     function setUp() public {
         riskPolicy = new RiskPolicy();
@@ -56,6 +56,8 @@ contract UnitRiskPolicyUnscoredMagnitudeTest is Helpers {
         assertEq(fee, 0);
     }
 
+    /// @dev Residual policy math: a zero high threshold still disables A's hard block.
+    ///      The hook setter can no longer store this (`revert` must stay > fee).
     function test_ZeroRevertThreshold_DisablesHardBlock() external view {
         (HookDecision d, uint24 fee) = riskPolicy.decide(0, 0, false, 0, false, true, 10_000_000e8, 0, FEE_THRESHOLD, 0);
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
@@ -75,17 +77,24 @@ contract UnitRiskPolicyUnscoredMagnitudeTest is Helpers {
         assertEq(fee, 0);
     }
 
-    function test_PublishedScore_LargeInflowUsd_Reverts() external view {
+    function test_PublishedScore_LargeInflowUsd_Charges8Percent() external view {
         (HookDecision d, uint24 fee) =
             riskPolicy.decide(0, 0, false, 0, false, false, 1e8, REVERT_THRESHOLD, FEE_THRESHOLD, REVERT_THRESHOLD);
-        assertEq(uint8(d), uint8(HookDecision.REVERT));
-        assertEq(fee, 0);
-    }
-
-    function test_PublishedScore_RelativeInflowOnly_DoesNotRevert() external view {
-        (HookDecision d, uint24 fee) =
-            riskPolicy.decide(0, 0, false, 0, true, false, 1e8, 150e8, FEE_THRESHOLD, REVERT_THRESHOLD);
         assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
         assertEq(fee, 800);
+    }
+
+    function test_UnscoredDustSwap_LargeBag_Charges8Percent() external view {
+        (HookDecision d, uint24 fee) =
+            riskPolicy.decide(0, 0, false, 0, false, true, 500e8, 80_000e8, FEE_THRESHOLD, REVERT_THRESHOLD);
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, 800);
+    }
+
+    function test_PublishedScore_DustInflow_Allows() external view {
+        (HookDecision d, uint24 fee) =
+            riskPolicy.decide(0, 0, false, 0, true, false, 1e8, 150e8, FEE_THRESHOLD, REVERT_THRESHOLD);
+        assertEq(uint8(d), uint8(HookDecision.ALLOW));
+        assertEq(fee, 0);
     }
 }

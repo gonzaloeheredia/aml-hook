@@ -319,7 +319,7 @@ Keys **must** match `apps/api/src/oracle/types.ts`:
 | 31–70 | `ELEVATED` | `FEE_OVERRIDE` | Rec. 10 EDD — economic friction, not hard block (pool standard fee + differential → FeeEscrow) |
 | 71–99 | `BLOCK` | `REVERT` | Rec. 20 / BSA — reasonable suspicion |
 | 100 | `BLOCK` | `REVERT` + blocking protocol | Rec. 6 / IEEPA — unconditional designation path |
-| No published row (`updatedAt == 0`) | n/a | Hook-local USD bands (3% / 8% / REVERT at $1,000 / $25,000) — **not** a fact-scoring output. Missing/stale Chainlink feed fail-closes. | FATF Rec. 10 CDD / CTR-aligned floors on-chain |
+| No published row (`updatedAt == 0`) | n/a | Hook-local Floor A: this swap 3% / 8% / REVERT at $1,000 / $15,000 (defaults; `_COMPLIANCE_OFFICER` may retune after 48h). Floor C may still REVERT on a 24h sum. Missing/stale Chainlink feed fail-closes. Live Deploy binds official ETH/USD + USDC/USD. | FATF 2021 VASP guidance note 37 (USD/EUR 1,000 VA). Rec. 10 occasional CDD (USD/EUR 15,000). Rec. 10(d) / ¶23 ongoing CDD (B/D). Rec. 10 linked operations (C). VASP Guidance de-risking + INR.1 proportionality (D does not block). See whitepaper §8.4. |
 
 **71–99 vs 100.** Mid-block is operation rejection. Score 100 from sanctions
 is **blocking** (segregate/audit trail under OFAC), not a simple refund —

@@ -103,6 +103,41 @@ export const hookAbi = [
   },
   {
     type: "function",
+    name: "unscoredFeeThreshold",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "unscoredRevertThreshold",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "proportionalFeeBps",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint24" }],
+  },
+  {
+    type: "function",
+    name: "punitiveFeeBps",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint24" }],
+  },
+  {
+    type: "function",
+    name: "poolImpactThresholdBps",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
     name: "poolActivity",
     stateMutability: "view",
     inputs: [{ name: "wallet", type: "address" }],
@@ -182,6 +217,33 @@ export const hookAbi = [
     inputs: [
       { name: "token", type: "address" },
       { name: "reason", type: "bytes32" },
+    ],
+  },
+  {
+    type: "error",
+    name: "DailyAggregationBlocked",
+    inputs: [
+      { name: "wallet", type: "address" },
+      { name: "assessedUsd", type: "uint256" },
+      { name: "threshold", type: "uint256" },
+    ],
+  },
+  {
+    type: "error",
+    name: "StalePoolImpactBlocked",
+    inputs: [
+      { name: "wallet", type: "address" },
+      { name: "poolImpactBps", type: "uint256" },
+      { name: "threshold", type: "uint256" },
+    ],
+  },
+  {
+    type: "error",
+    name: "UnscoredPoolImpactBlocked",
+    inputs: [
+      { name: "wallet", type: "address" },
+      { name: "poolImpactBps", type: "uint256" },
+      { name: "threshold", type: "uint256" },
     ],
   },
 ] as const;
@@ -354,5 +416,25 @@ export const oracleAbi = [
         ],
       },
     ],
+  },
+] as const;
+
+export const registryAbi = [
+  {
+    type: "function",
+    name: "setSanctioned",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "account", type: "address" },
+      { name: "sanctioned", type: "bool" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "isSanctioned",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
   },
 ] as const;

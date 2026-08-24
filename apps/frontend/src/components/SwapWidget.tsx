@@ -1,6 +1,12 @@
 "use client";
 
 import type { DemoCase } from "@/data/cases";
+import {
+  bandLabelForUsd,
+  formatFeePct,
+  formatUsdFloor,
+  getPolicyKnobs,
+} from "@/lib/hopScoring";
 
 type Props = {
   demoCase: DemoCase;
@@ -74,29 +80,40 @@ export function SwapWidget({
             <span>{demoCase.sellToken}</span>
           </div>
           {connected && demoCase.amountPresets && onAmountChange && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {demoCase.amountPresets.map((preset) => {
-                const active = demoCase.activity.amountUsd === preset;
-                return (
-                  <button
-                    key={preset}
-                    type="button"
-                    onClick={() => onAmountChange(preset)}
-                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                      active
-                        ? "bg-uni-pink text-black"
-                        : "bg-uni-surface text-uni-muted hover:text-white"
-                    }`}
-                  >
-                    ${preset.toLocaleString("en-US")}
-                    {preset < 1000
-                      ? " · 3%"
-                      : preset < 25_000
-                        ? " · 8%"
-                        : " · revert"}
-                  </button>
-                );
-              })}
+            <div className="mt-3 space-y-2">
+              <div className="flex flex-wrap gap-2">
+                {demoCase.amountPresets.map((preset) => {
+                  const active = demoCase.activity.amountUsd === preset;
+                  const live =
+                    active &&
+                    (demoCase.decision === "block"
+                      ? "revert"
+                      : formatFeePct(demoCase.appliedFeeBps));
+                  const predicted = bandLabelForUsd(preset, walletUsdc);
+                  return (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => onAmountChange(preset)}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                        active
+                          ? "bg-uni-pink text-black"
+                          : "bg-uni-surface text-uni-muted hover:text-white"
+                      }`}
+                    >
+                      ${preset.toLocaleString("en-US")}
+                      {` · ${live ?? predicted}`}
+                    </button>
+                  );
+                })}
+              </div>
+              {demoCase.id === "E" && (
+                <p className="text-[11px] leading-snug text-uni-muted">
+                  {walletUsdc <= 0
+                    ? "E starts empty. In MetaMask, send USDC from clean C (no hop). Do not fund E from A."
+                    : "Quote from the hook. Floor A is this swap; Floor D is the bag C sent. The stricter fee wins."}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -151,14 +168,17 @@ export function SwapWidget({
 
         {connected && blocked && (
           <div className="mt-2 rounded-2xl border border-uni-bad/30 bg-uni-bad/10 px-4 py-3 text-sm text-uni-bad">
-            {demoCase.latencyMitigation === "MAGNITUDE_QUOTE_FAILED"
-              ? "No usable USD price. The swap fail-closes (MagnitudeQuoteFailed)."
-              : demoCase.latencyMitigation === "INFLOW_MAGNITUDE"
-                ? "Inbound USD since the last baseline is $25,000 or more. The swap reverts (InflowMagnitudeBlocked)."
-                : demoCase.id === "E" ||
-                    demoCase.latencyMitigation === "SCORE_NEVER_WRITTEN"
-                  ? "Unknown wallet: this swap plus the 1-hour window is $25,000 or more. The swap reverts."
-                  : "Exploit cash-out / confirmed exposure. The swap reverts before settlement."}
+            {demoCase.revertReason === "SanctionHit"
+              ? "Wallet A is on the demo OFAC list. beforeSwap reverts with SanctionHit — the score is not read."
+              : demoCase.latencyMitigation === "MAGNITUDE_QUOTE_FAILED"
+                ? "No usable USD price. The swap fail-closes (MagnitudeQuoteFailed)."
+                : demoCase.latencyMitigation === "DAILY_AGGREGATION" ||
+                    demoCase.latencyMitigation === "ACTIVITY_WINDOW_CAP"
+                  ? `24-hour USD crossed ${formatUsdFloor(getPolicyKnobs().unscoredRevertThresholdUsd)} (Floor C). The swap reverts.`
+                  : demoCase.id === "E" ||
+                      demoCase.latencyMitigation === "SCORE_NEVER_WRITTEN"
+                    ? `Unknown wallet: this swap is ${formatUsdFloor(getPolicyKnobs().unscoredRevertThresholdUsd)} or more, or Floor C just fired. The swap reverts.`
+                    : "Exploit cash-out / confirmed exposure. The swap reverts before settlement."}
           </div>
         )}
 

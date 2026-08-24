@@ -46,11 +46,11 @@ describe("integral: A–E demo policy", () => {
     assert.equal(applyHopContamination(wallets, "C", "D").D.hopDistance, null);
   });
 
-  it("Wallet E: dust 3%, mid 8%, $25k REVERT — hop contamination does not apply", () => {
+  it("Wallet E: dust 3%, mid 8%, $15k REVERT — hop contamination does not apply", () => {
     const wallets = applyHopContamination(seedDemoWallets(), "A", "E");
     assert.equal(wallets.E.neverScored, true);
     assert.equal(applyUnscoredBands(999).feeBps, 300);
     assert.equal(applyUnscoredBands(1_000).feeBps, 800);
-    assert.equal(toHookOutput(applyUnscoredBands(25_000).decision), "REVERT");
+    assert.equal(toHookOutput(applyUnscoredBands(15_000).decision), "REVERT");
   });
 });

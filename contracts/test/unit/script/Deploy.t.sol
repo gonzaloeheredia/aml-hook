@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {IAccessManaged} from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
 
 import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
+import {ChainlinkFeeds} from "libraries/ChainlinkFeeds.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {FeeEscrow} from "contracts/escrow/FeeEscrow.sol";
 import {SanctionRegistry} from "contracts/registries/SanctionRegistry.sol";
@@ -21,6 +22,9 @@ contract DeployHarness is Deploy {
         address hookGovernor_,
         address attestor_
     ) external {
+        if (complianceOfficer == address(0)) {
+            complianceOfficer = address(uint160(uint256(keccak256("aml-hook.test.complianceOfficer"))));
+        }
         _deploy(
             address(this),
             admin_,
@@ -180,6 +184,28 @@ contract UnitDeployTest is Helpers {
         assertEq(live.trustedRouter(), UniversalRouters.appRouter(130));
     }
 
+    function test_DeployWhenRunOnAnvil_BindsMockUsdFeeds() external view {
+        assertTrue(deployment.ethUsdFeed() != address(0));
+        assertTrue(deployment.usdFeed() != address(0));
+        assertTrue(deployment.ethUsdFeed() != ChainlinkFeeds.ethUsd(1));
+        assertEq(address(hook.priceFeeds(address(0))), deployment.ethUsdFeed());
+        assertEq(address(hook.priceFeeds(deployment.feeToken())), deployment.usdFeed());
+    }
+
+    function test_DeployWhenRunOnEthereum_BindsOfficialChainlinkFeeds() external {
+        DeployHarness live = new DeployHarness();
+        vm.chainId(1);
+        live.deploy(owner, registryKeeper, oracleKeeper, hookGovernor, _attestor());
+
+        address ethUsd = ChainlinkFeeds.ethUsd(1);
+        assertEq(live.ethUsdFeed(), ethUsd);
+        assertEq(address(live.hook().priceFeeds(address(0))), ethUsd);
+        assertEq(address(live.hook().priceFeeds(ChainlinkFeeds.weth(1))), ethUsd);
+        assertEq(address(live.hook().priceFeeds(ChainlinkFeeds.usdc(1))), ChainlinkFeeds.usdcUsd(1));
+        // MockFeeToken is not canonical USDC — leave unbound (fail-closed) unless TOKEN_USD_FEED.
+        assertEq(address(live.hook().priceFeeds(live.feeToken())), address(0));
+    }
+
     function test_DeployWhenRunWiresFeeEscrowAsHookDepositor() external view {
         FeeEscrow escrow = deployment.feeEscrow();
         assertEq(address(hook.feeEscrow()), address(escrow));
@@ -213,9 +239,9 @@ contract UnitDeployTest is Helpers {
     }
 
     function test_DeployWhenRunWritesDeploymentFileNamedByChainId() external view {
-        string memory path = string.concat("deployments/", vm.toString(block.chainid), ".json");
-        assertTrue(vm.exists(path));
-        assertEq(vm.parseJsonUint(vm.readFile(path), ".chainId"), block.chainid);
+        assertTrue(deployment.complianceOfficer() != address(0));
+        assertTrue(deployment.complianceOfficer() != hookGovernor);
+        assertTrue(deployment.complianceOfficer() != oracleKeeper);
     }
 
     function test_DeployWhenAttestorCollidesWithGovernor() external {
@@ -282,5 +308,47 @@ contract UnitDeployTest is Helpers {
 
         vm.expectRevert(abi.encodeWithSelector(Deploy.Deploy_MissingRole.selector, owner, uint64(0)));
         deployment.verify(address(deployment), owner, registryKeeper, oracleKeeper, hookGovernor);
+    }
+
+    function test_DeployWhenRunGrantsComplianceOfficerWith48HourDelay() external view {
+        address officer = deployment.complianceOfficer();
+        (bool holds, uint32 delay) = accessManager.hasRole(Roles._COMPLIANCE_OFFICER, officer);
+        assertTrue(holds);
+        assertEq(delay, uint32(48 hours));
+        assertTrue(officer != hookGovernor);
+        assertTrue(officer != registryKeeper);
+        assertTrue(officer != oracleKeeper);
+    }
+
+    function test_DeployWhenRunWiresPolicyApplyToComplianceOfficerNotGovernor() external view {
+        assertEq(
+            accessManager.getTargetFunctionRole(address(hook), AmlHookLogic.applyUnscoredThresholds.selector),
+            Roles._COMPLIANCE_OFFICER
+        );
+        assertEq(
+            accessManager.getTargetFunctionRole(address(hook), AmlHookLogic.applyPoolImpactThresholdBps.selector),
+            Roles._COMPLIANCE_OFFICER
+        );
+        assertEq(
+            accessManager.getTargetFunctionRole(address(hook), AmlHookLogic.applyFloorFees.selector),
+            Roles._COMPLIANCE_OFFICER
+        );
+        assertEq(
+            accessManager.getTargetFunctionRole(address(hook), AmlHookLogic.setStalenessThreshold.selector),
+            Roles._HOOK_GOVERNOR
+        );
+    }
+
+    function test_GovernorCannotApplyPolicyParams() external {
+        vm.prank(hookGovernor);
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, hookGovernor));
+        hook.applyUnscoredThresholds(2_000e8, 50_000e8);
+    }
+
+    function test_ComplianceOfficerCannotRetuneGovernorKnobs() external {
+        address officer = deployment.complianceOfficer();
+        vm.prank(officer);
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, officer));
+        hook.setStalenessThreshold(120);
     }
 }

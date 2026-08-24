@@ -2,6 +2,9 @@ import type { DemoCase } from "@/data/cases";
 import {
   ethOutFromSwap,
   feeBpsFromHop,
+  formatFeePct,
+  formatUsdFloor,
+  getPolicyKnobs,
   resolveDemoRisk,
   swapUsdcAmount,
   type SimWallet,
@@ -46,7 +49,9 @@ function buildLiveTechnicalOpinion(
 
   const who = [
     `Subject: ${wallet.accountLabel} (${wallet.address}).`,
-    wallet.exploitConfirmed || decision === "block"
+    wallet.exploitConfirmed
+      ? "Role: Layer-1 sanctioned address (OFAC) and contamination source."
+      : decision === "block"
       ? "Role: confirmed exploit / contamination origin or REVERT-band wallet."
       : hop != null
         ? `Role: intermediary wallet with ${hop}-hop exposure from origin ${origin}.`
@@ -55,7 +60,9 @@ function buildLiveTechnicalOpinion(
 
   const what = [
     "Instrument / mechanism: Uniswap v4 RWA pool swap (USDC→ETH) and/or off-pool ERC-20 P2P USDC transfers.",
-    wallet.exploitConfirmed || decision === "block"
+    wallet.exploitConfirmed
+      ? "Observed pattern: OFAC SDN + exploit cash-out. Hook: SanctionHit (no settlement)."
+      : decision === "block"
       ? "Observed pattern: exploit cash-out / REVERT-band exposure — fail-closed on-pool."
       : decision === "fee_override" && wallet.keeperPending
         ? "Observed pattern: oracle-latency inflow heuristic (stale score 0 + significant recent funds)."
@@ -66,7 +73,9 @@ function buildLiveTechnicalOpinion(
             : "Prior N-hop link noted; current score below FEE_OVERRIDE threshold.",
     `Hook instruments: ${
       decision === "block"
-        ? "WalletBlocked (no settlement)."
+        ? wallet.exploitConfirmed
+          ? "SanctionHit (no settlement)."
+          : "WalletBlocked (no settlement)."
         : decision === "fee_override"
           ? `FEE_OVERRIDE: pool standard fee + FeeEscrow differential (~${feePct}% total friction).`
           : "standard pool fee 0.30%."
@@ -85,16 +94,20 @@ function buildLiveTechnicalOpinion(
   ].join(" ");
 
   const why =
-    decision === "block" || wallet.exploitConfirmed
+    wallet.exploitConfirmed
+      ? `Why elevated: OFAC list hit · Layer 1. Keeper score is also ${score}/100 (REVERT band). Direct designated-person exposure is not commensurate with a clean retail profile.`
+      : decision === "block"
       ? `Why elevated: score ${score}/100 · REVERT band (71–100). Hop ${hopLabel} · origin ${origin}. Direct exploit cash-out or block-band score is not commensurate with a clean retail profile.`
       : decision === "fee_override" && wallet.keeperPending
-        ? `Why elevated: stale oracle score ${score}/100 with significant inflow while keeper updateScore is pending (§3.8 Mitigation D). Temporary FEE_OVERRIDE 8% — not guilt attribution.`
+        ? `Why elevated: stale oracle score ${score}/100 with significant inflow while keeper updateScore is pending (§3.8 Mitigation D). Temporary FEE_OVERRIDE ${formatFeePct(appliedFeeBps)} — not guilt attribution.`
         : decision === "fee_override"
           ? `Why elevated: score ${score}/100 · FEE_OVERRIDE band (31–70). ${hop}-hop decay from origin ${origin} warrants proportional EDD friction.`
           : `Why not treated as suspicious for enhanced action: score ${score}/100 sits in the ALLOW band (0–30). Layer-1 sanctions screen clear (simulated).`;
 
   const how =
-    decision === "block" || wallet.exploitConfirmed
+    wallet.exploitConfirmed
+      ? "How / control: beforeSwap SanctionHit; score and floors not consulted; afterSwap not reached. Subject may still move USDC off-pool via P2P. Do not fund E from A."
+      : decision === "block"
       ? "How / control: beforeSwap fail-closed REVERT; afterSwap not reached; WalletBlocked recorded. Subject may still move USDC off-pool via P2P."
       : decision === "fee_override"
         ? `How / control: swap allowed with economic friction (pool standard fee + FeeEscrow differential ~${feePct}% total). afterSwap SwapObserved emitted.`
@@ -109,13 +122,17 @@ function buildLiveTechnicalOpinion(
     riskAndScoring: why,
     decisionExecuted: how,
     legalBasis:
-      decision === "block" || wallet.exploitConfirmed
+      wallet.exploitConfirmed
+        ? "Fail-closed RWA pool policy on OFAC SDN / IEEPA blocking. Narrative organization follows FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How) as an internal model only."
+        : decision === "block"
         ? "Fail-closed RWA pool policy on confirmed exploit exposure. Narrative organization follows FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How) as an internal model only."
         : decision === "fee_override"
           ? "FATF Rec. 1 & 10 (EBR / EDD). Narrative organization follows FinCEN SAR Narrative Guidance as an internal support-draft model — not a FinCEN filing."
           : "FATF Rec. 1 & 10. Verification narrative follows FinCEN SAR Narrative Guidance structure for consistency of operator records.",
     recommendations:
-      decision === "block" || wallet.exploitConfirmed
+      wallet.exploitConfirmed
+        ? "Human review. Watch A→B P2P for 1-hop fee override; then B→C for 2-hop. Do not fund E from A. Do not tip off the subject."
+        : decision === "block"
         ? "Human review required. Watch outbound P2P for 1-hop fee overrides on recipients; then second-hop decay. Do not tip off the subject."
         : decision === "fee_override" && wallet.keeperPending
           ? "Await keeper catch-up — expect decay score ≈ 65 (1-hop from A). Friction is temporary."
@@ -124,7 +141,9 @@ function buildLiveTechnicalOpinion(
               ? "Treat as elevated EDD. If this wallet sends to the other clean peer (B↔C), expect 2-hop score ≈ 42 and 3% fee."
               : "Proportional friction applied. Continue monitoring further downstream hops; score decays toward ALLOW."
             : hop == null
-              ? "Monitor for inbound P2P from Wallet A (or contaminated B/D). If received, expect N-hop decay fees."
+              ? wallet.id === "C"
+                ? "Fund E (unknown, no hop) or D (inflow). Monitor inbound from A (1-hop ≈ 65 / 8%) or tainted B (2-hop ≈ 42 / 3%)."
+                : "Monitor for inbound P2P from Wallet A (or contaminated B/D). If received, expect N-hop decay fees."
               : "Keep ordinary monitoring. Re-open enhanced narrative if an inbound tainted transfer raises score into FEE_OVERRIDE or REVERT.",
     traceability: `auditHash ${auditHash} · retention 5 years (FATF Rec. 11 · BSA). Support draft — not submitted.`,
   };
@@ -215,8 +234,9 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
         ? "Inflow · Magnitude block"
         : latencyMitigation === "STALE_WITH_POOL_ACTIVITY"
           ? "Stale score · Activity"
-          : latencyMitigation === "ACTIVITY_WINDOW_CAP"
-            ? "Burst · Activity window"
+          : latencyMitigation === "ACTIVITY_WINDOW_CAP" ||
+              latencyMitigation === "DAILY_AGGREGATION"
+            ? "24h USD · Floor C"
             : latencyMitigation === "SCORE_NEVER_WRITTEN"
               ? decision === "block"
                 ? "Unknown · Magnitude block"
@@ -243,8 +263,9 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
         ? "Inflow magnitude"
         : latencyMitigation === "STALE_WITH_POOL_ACTIVITY"
           ? "Stale + activity"
-          : latencyMitigation === "ACTIVITY_WINDOW_CAP"
-            ? "Activity window"
+          : latencyMitigation === "ACTIVITY_WINDOW_CAP" ||
+              latencyMitigation === "DAILY_AGGREGATION"
+            ? "24h aggregation"
             : latencyMitigation === "SCORE_NEVER_WRITTEN"
               ? "Unknown wallet"
               : latencyMitigation === "INFLOW_HEURISTIC"
@@ -309,8 +330,9 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
           ? "Inflow magnitude"
           : latencyMitigation === "STALE_WITH_POOL_ACTIVITY"
             ? "Stale score · activity"
-            : latencyMitigation === "ACTIVITY_WINDOW_CAP"
-              ? "Activity window"
+            : latencyMitigation === "ACTIVITY_WINDOW_CAP" ||
+                latencyMitigation === "DAILY_AGGREGATION"
+              ? "24h aggregation"
               : latencyMitigation === "SCORE_NEVER_WRITTEN"
                 ? "Unknown wallet"
                 : latencyMitigation === "INFLOW_HEURISTIC"
@@ -325,9 +347,11 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
     swapBuy: formatEthBuy(ethOut),
     summary: [
       wallet.neverScored
-        ? `Wallet E is unknown. This size ($${usdcIn.toLocaleString("en-US")}) maps to ${hookOutput}.`
+        ? wallet.usdc <= 0
+          ? "Wallet E is unknown and empty. Fund it from clean C (no hop). Do not use A."
+          : `Wallet E is unknown. Floor A is this swap; Floor D is the bag C sent ($${wallet.usdc.toLocaleString("en-US")}). Stricter fee wins.`
         : wallet.exploitConfirmed
-          ? "Exploit source — REVERT on pool swaps. P2P outflows contaminate B, C, or D."
+          ? "OFAC listed — SanctionHit on pool swaps (score not read). P2P outflows contaminate B, C, or D. Do not fund E from A."
           : keeperPending
             ? "Wallet D: inbound P2P recorded; keeper has not published the decay score yet."
             : wallet.hopDistance
@@ -338,14 +362,15 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
       latencyMitigation === "MAGNITUDE_QUOTE_FAILED"
         ? "No bound USD price feed — fail-closed (MagnitudeQuoteFailed)."
         : latencyMitigation === "INFLOW_MAGNITUDE"
-          ? "Inbound USD ≥ $25,000 since baseline — REVERT (InflowMagnitudeBlocked)."
+          ? `Inbound USD ≥ ${formatUsdFloor(getPolicyKnobs().unscoredRevertThresholdUsd)} since baseline — FEE_OVERRIDE ${formatFeePct(getPolicyKnobs().punitiveFeeBps)} (Floor D).`
           : latencyMitigation === "STALE_WITH_POOL_ACTIVITY"
-            ? "Score older than 5 minutes and this wallet already swapped in the hour → FEE_OVERRIDE 8%."
-            : latencyMitigation === "ACTIVITY_WINDOW_CAP"
-              ? "Already 3 ops in the hour — this swap is FEE_OVERRIDE 8%."
+            ? `Score older than 5 minutes and this wallet already swapped in the hour → Floor B (pass / ${formatFeePct(getPolicyKnobs().proportionalFeeBps)} / ${formatFeePct(getPolicyKnobs().punitiveFeeBps)} by swap USD).`
+            : latencyMitigation === "ACTIVITY_WINDOW_CAP" ||
+                latencyMitigation === "DAILY_AGGREGATION"
+              ? `This swap makes the 24-hour USD total cross ${formatUsdFloor(getPolicyKnobs().unscoredRevertThresholdUsd)} — Floor C REVERT.`
               : latencyMitigation === "SCORE_NEVER_WRITTEN"
                 ? decision === "block"
-                  ? "Unknown wallet: this swap plus the 1-hour window is $25,000 or more — REVERT."
+                  ? `Unknown wallet: this swap is ${formatUsdFloor(getPolicyKnobs().unscoredRevertThresholdUsd)} or more — REVERT.`
                   : `Unknown-wallet band → FEE_OVERRIDE ${(appliedFeeBps / 100).toFixed(2)}%.`
                 : latencyMitigation === "INFLOW_HEURISTIC"
                   ? `Inflow floor → FEE_OVERRIDE ${(appliedFeeBps / 100).toFixed(2)}% under stale score ${score}.`

@@ -2,9 +2,11 @@
 pragma solidity ^0.8.26;
 
 /// @title Shared fee constants and latency-fee resolution
-/// @notice Single source for pool base, latency floor, and override cap (whitepaper §3.3 / §3.8).
-/// @dev RiskPolicy (mitigations B/D) and AmlHookLogic (A/C) must not drift. AmlHook uses
-///      `STANDARD` to compute the FeeEscrow differential as `max(0, feeBps - STANDARD)`.
+/// @notice Default fee constants and keeper-fee resolution (whitepaper §3.3 / §3.8).
+/// @dev `STANDARD` is fixed (pool base). `PROPORTIONAL` / `PUNITIVE` / `LATENCY` are
+///      deploy defaults; the hook stores live floor fees that may differ.
+///      `MAX_OVERRIDE` caps only keeper `recommendedFeeBps` on score 31–70, never
+///      the live floor fees. AmlHook uses `STANDARD` for the FeeEscrow differential.
 library FeeBps {
     /// @notice Pool base LP fee (0.30%). Not overridden in beforeSwap.
     uint24 internal constant STANDARD = 30;
@@ -18,7 +20,8 @@ library FeeBps {
     /// @notice Oracle-latency / inflow floor when the keeper omitted a usable fee (§3.8).
     uint24 internal constant LATENCY = 800;
 
-    /// @notice Hard cap on any keeper-written override (10%).
+    /// @notice Hard cap on keeper-written `recommendedFeeBps` in the 31–70 band (10%).
+    /// @dev Fixed constant. No role may retune it. Does not apply to floor USD or floor fees.
     uint24 internal constant MAX_OVERRIDE = 1000;
 
     /// @notice Floor for Mitigation D `inflowThresholdBps` (1%). Governor cannot set 0.
@@ -27,7 +30,7 @@ library FeeBps {
     /// @notice Ceiling for Mitigation D `inflowThresholdBps` (100% of current balance).
     uint256 internal constant MAX_INFLOW_THRESHOLD = 10_000;
 
-    /// @notice Prefer in-range keeper `recommendedFeeBps`; else the 8% latency floor.
+    /// @notice Prefer keeper `recommendedFeeBps` when 0 < fee ≤ `MAX_OVERRIDE`; else default latency.
     function resolveLatencyFee(uint24 recommendedFeeBps) internal pure returns (uint24) {
         if (recommendedFeeBps > 0 && recommendedFeeBps <= MAX_OVERRIDE) {
             return recommendedFeeBps;

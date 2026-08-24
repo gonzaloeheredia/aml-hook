@@ -8,6 +8,7 @@ import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol"
 import {IRiskPolicy} from "../../interfaces/policies/IRiskPolicy.sol";
 import {IFeeEscrow} from "../../interfaces/escrow/IFeeEscrow.sol";
 import {HookDecision} from "../../libraries/HookDecision.sol";
+import {PoolImpact} from "../../libraries/PoolImpact.sol";
 import {SwapCache} from "../../libraries/SwapCache.sol";
 
 import {BaseHook} from "v4-periphery/src/utils/BaseHook.sol";
@@ -15,6 +16,7 @@ import {Hooks} from "v4-core/src/libraries/Hooks.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
+import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/src/types/BeforeSwapDelta.sol";
 import {ModifyLiquidityParams, SwapParams} from "v4-core/src/types/PoolOperation.sol";
@@ -120,7 +122,11 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         bytes calldata
     ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
         SwapEvaluation memory ev = _beginSwap(
-            sender, _inputToken(key, params), _specifiedToken(key, params), _absAmount(params.amountSpecified)
+            sender,
+            _inputToken(key, params),
+            _specifiedToken(key, params),
+            _absAmount(params.amountSpecified),
+            _poolImpactBps(key, params)
         );
         SwapCache.store(key.toId(), ev.wallet, ev.token, ev.decision, ev.feeBps, ev.risk, ev.inflowTriggered);
 
@@ -178,6 +184,20 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
     /// @dev Absolute value of a Uniswap signed amount (`amountSpecified` or a balance delta).
     function _absAmount(int256 amount) private pure returns (uint256) {
         return amount < 0 ? uint256(-amount) : uint256(amount);
+    }
+
+    /// @dev Floors A/B extra: specified amount vs active-tick virtual reserve of that currency.
+    function _poolImpactBps(PoolKey calldata key, SwapParams calldata params)
+        private
+        view
+        returns (uint256)
+    {
+        uint128 liquidity = StateLibrary.getLiquidity(poolManager, key.toId());
+        (uint160 sqrtPriceX96,,,) = StateLibrary.getSlot0(poolManager, key.toId());
+        bool exactIn = params.amountSpecified < 0;
+        bool specifiedIsToken0 = exactIn ? params.zeroForOne : !params.zeroForOne;
+        uint256 reserve = PoolImpact.virtualReserve(liquidity, sqrtPriceX96, specifiedIsToken0);
+        return PoolImpact.impactBps(_absAmount(params.amountSpecified), reserve);
     }
 
     /// @dev Settled size of the specified currency after the swap (native units, no USD).
