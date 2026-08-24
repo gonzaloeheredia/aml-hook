@@ -169,7 +169,9 @@ export function SwapWidget({
         {connected && blocked && (
           <div className="mt-2 rounded-2xl border border-uni-bad/30 bg-uni-bad/10 px-4 py-3 text-sm text-uni-bad">
             {demoCase.revertReason === "SanctionHit"
-              ? "Wallet A is on the demo OFAC list. beforeSwap reverts with SanctionHit — the score is not read."
+              ? "This wallet is on the demo OFAC list. beforeSwap reverts with SanctionHit — the score is not read."
+              : demoCase.revertReason === "WalletBlocked" && demoCase.exploitConfirmed
+                ? "Wallet A is not on OFAC. The officer wrote score 100 (confirmed exploit). beforeSwap reverts with WalletBlocked (SCORE_REVERT_BAND)."
               : demoCase.latencyMitigation === "MAGNITUDE_QUOTE_FAILED"
                 ? "No usable USD price. The swap fail-closes (MagnitudeQuoteFailed)."
                 : demoCase.latencyMitigation === "DAILY_AGGREGATION" ||

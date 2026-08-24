@@ -2,13 +2,15 @@
  * Hardcoded demo scenarios for the AML Hook frontend.
  *
  * Use case (`docs/Use_Case.md`):
- * - A = OFAC listed + exploit → SanctionHit (still contaminates B/C/D via P2P)
+ * - A = confirmed exploit, score 100 → WalletBlocked (still contaminates B/C/D via P2P)
  * - B and C both start clean (ALLOW)
  * - A→B or A→C → 1-hop · ~65 · 8%; tainted peer → 2-hop · ~42 · 3%
  * - D = published score 0. Held funds ALLOW. Floor B (Advance 5 min).
  *   Clean C→D inflow 3% ($10k) / 8% ($15k). Floor C on a 24h $15k sum.
  * - E = unknown, starts empty. Clean C funds E (no hop). Then Floor A/D by bag.
  * Live decisions come from AmlHook.previewSwap via the API.
+ * Fee / USD figures below are deploy defaults (3% / 8% / $1k / $15k).
+ * The UI rewrites them from officer knobs (`GET /policy`).
  */
 
 export type Decision = "allow" | "fee_override" | "block";
@@ -158,10 +160,10 @@ const SHARED_POOL_REPORT = {
 export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
   A: {
     id: "A",
-    label: "OFAC listed — SanctionHit",
-    shortLabel: "Wallet A · OFAC",
+    label: "Exploit — WalletBlocked",
+    shortLabel: "Wallet A · Exploit",
     wallet: "0x8576aCC5C05D6Ce88f4e49bf65BdF0C62F91353C",
-    walletLabel: "Wallet A · OFAC + exploit",
+    walletLabel: "Wallet A · Exploit",
     score: 100,
     riskLabel: "Blocked",
     decision: "block",
@@ -178,25 +180,25 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
       amountUsd: 1000,
       txCount: 0,
     },
-    typology: "OFAC + exploit cash-out",
+    typology: "Exploit cash-out",
     summary: [
-      "Listed on the demo OFAC registry — Layer 1 SanctionHit before the score is read.",
-      "Keeper score is also 100. P2P outflows to B/C/D still start N-hop contamination.",
+      "Not on OFAC. The officer wrote score 100 from a confirmed exploit (external analysis).",
+      "Pool swaps revert WalletBlocked (SCORE_REVERT_BAND). P2P outflows to B/C/D still start N-hop contamination.",
       "Do not fund E from A. Origin score for decay: 100 × 0.65^hops.",
     ],
     signals: [
-      { label: "Exploit / sanctions", value: "OFAC SDN", tone: "bad" },
+      { label: "Exploit / sanctions", value: "Exploit cluster", tone: "bad" },
       { label: "Keeper score", value: "100 / 100", tone: "bad" },
       { label: "Hop distance", value: "0 (source)", tone: "bad" },
       { label: "Applied fee", value: "— (revert)", tone: "bad" },
     ],
     tags: [
-      { label: "OFAC listed", tone: "bad" },
+      { label: "Exploit origin", tone: "bad" },
       { label: "REVERT", tone: "bad" },
       { label: "Fail-closed", tone: "bad" },
     ],
     flowPath: "block",
-    revertReason: "SanctionHit",
+    revertReason: "WalletBlocked",
     swapSell: "1,000",
     swapBuy: "0",
     sellToken: "USDC",
@@ -224,20 +226,20 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
       technicalOpinion: {
         issued: true,
         objectAndScope:
-          "Subject: Wallet A (OFAC-listed exploit origin). Role: Layer-1 sanctioned address and contamination source. Known relationship: outbound P2P can contaminate B/C. Do not fund E from A.",
+          "Subject: Wallet A (confirmed exploit origin). Role: score-100 REVERT-band wallet and contamination source. Known relationship: outbound P2P can contaminate B/C. Do not fund E from A.",
         typologies:
-          "Instrument: Uniswap v4 RWA pool swap (USDC→ETH) and/or off-pool P2P USDC. Pattern: OFAC SDN + exploit cash-out. Hook: SanctionHit (no settlement).",
+          "Instrument: Uniswap v4 RWA pool swap (USDC→ETH) and/or off-pool P2P USDC. Pattern: confirmed exploit cash-out. Hook: WalletBlocked (SCORE_REVERT_BAND).",
         sanctionsCheck:
-          "Listed on the demo SanctionRegistry (OFAC SDN stand-in). Checked at beforeSwap; the score row is not read after a hit.",
+          "Clear on the demo SanctionRegistry. The officer wrote score 100 from external exploit analysis; L2 is what blocks.",
         sourcesConsulted: [
           "Venue: AML Hook demo RWA pool (Uniswap v4). Account under review: Wallet A. Fund path: origin hop 0; outbound P2P edges A→B / A→C.",
         ],
         riskAndScoring:
-          "Why elevated: OFAC list hit · Layer 1. Keeper score is also 100/100 (REVERT band). Direct designated-person exposure is not commensurate with a clean retail profile.",
+          "Why elevated: keeper score 100/100 (REVERT band 71–100). Confirmed exploit cash-out is not commensurate with a clean retail profile. L1 list is clear.",
         decisionExecuted:
-          "How / control: beforeSwap SanctionHit; score and floors not consulted; afterSwap not reached. Subject may still move USDC off-pool via P2P.",
+          "How / control: beforeSwap WalletBlocked (SCORE_REVERT_BAND); L1 clear; afterSwap not reached. Subject may still move USDC off-pool via P2P.",
         legalBasis:
-          "Fail-closed RWA pool policy on OFAC SDN / IEEPA blocking. Narrative organization follows FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How) as an internal model only.",
+          "Fail-closed RWA pool policy on confirmed exploit / REVERT-band score. Narrative organization follows FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How) as an internal model only.",
         recommendations:
           "Human review. Watch A→B P2P for 1-hop fee override; then B→C for 2-hop. Do not tip off the subject.",
         traceability: "auditHash 0xae01…xplt · retention 5 years. Support draft — not submitted.",
@@ -249,13 +251,13 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
         amountInvolved: "USD 10,000,000 (tainted ledger)",
         operationState: "REVERTED",
         narrativeDescription:
-          "WHO: Wallet A — OFAC-listed exploit origin. WHAT: pool cash-out attempt blocked at Layer 1; P2P may still move tainted USDC.",
+          "WHO: Wallet A — confirmed exploit origin, not OFAC-listed. WHAT: pool cash-out attempt blocked at score band; P2P may still move tainted USDC.",
         narrativeAnalysis:
           "WHEN: exploit window. WHERE: demo RWA pool + off-pool P2P graph from A.",
         narrativeEvidence:
-          "WHY: SanctionRegistry hit (OFAC SDN stand-in); keeper score 100 is corroborative only.",
+          "WHY: keeper score 100 from officer / external analysis (SCORE_REVERT_BAND); SanctionRegistry is clear.",
         narrativeConclusion:
-          "HOW: beforeSwap SanctionHit. Internal SAR-support pack only — not a FinCEN filing.",
+          "HOW: beforeSwap WalletBlocked. Internal SAR-support pack only — not a FinCEN filing.",
         warnings: [
           "Confidentiality — no tip-off",
           "Document status: support draft — not submitted",
@@ -265,8 +267,8 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
       decisionRecord: {
         score: "100",
         output: "REVERT",
-        mainFacts: "Wallet A OFAC-listed; pool SanctionHit; origin for B/C contamination via P2P. Do not fund E from A.",
-        basis: "OFAC_DIRECT_MATCH",
+        mainFacts: "Wallet A confirmed exploit; score 100; pool WalletBlocked; origin for B/C contamination via P2P. Do not fund E from A.",
+        basis: "EXPLOIT_PROTOCOL_FUNDS",
         nextReview: "Track outbound P2P hops to B and/or C",
       },
       poolReport: { ...SHARED_POOL_REPORT },
@@ -586,7 +588,7 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
     typology: "Unknown wallet",
     summary: [
       "No oracle row. Starts empty — fund from clean C in MetaMask (no hop). Do not use A.",
-      "After C→E $500 → next $500 swap is 3%. C→E $10k → 3%. C→E $15k → 8%. This swap $15k → REVERT.",
+      "After C→E $500 → next $500 swap is 3%. C→E $10k then $1k swap → 8% (A mid). C→E $15k + small swap → 8% (D). This swap $15k → REVERT.",
       "$10k then $5k in 24h is Floor C. Unbind the price feed → REVERT.",
     ],
     signals: [
@@ -643,7 +645,7 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
         legalBasis:
           "FATF 2021 VASP guidance note 37 (USD/EUR 1,000 VA) and Rec. 10 occasional CDD (USD/EUR 15,000). Floor C 24h aggregation is a BSA CTR design choice. See whitepaper §8.4.",
         recommendations:
-          "Fund E from C first. Then use the size chips: bag $500 → 3%; $10k → 3%; $15k → 8%; this swap $15k → revert.",
+          "Fund E from C first. Then use the size chips: bag $500 → 3%; $10k bag + $1k swap → 8% (A mid); $15k bag + small swap → 8% (D); this swap $15k → revert.",
         traceability: "Retention 5 years. Support draft — not submitted.",
       },
       sarAnnex: {

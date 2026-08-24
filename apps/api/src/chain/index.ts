@@ -8,6 +8,8 @@ export {
   clearPolicyKnobsCache,
   formatFeePct,
   formatUsdFloor,
+  dustExampleUsd,
+  midBandExampleUsd,
   DEFAULT_POLICY_KNOBS,
   type PolicyKnobs,
 } from "./policy.js";

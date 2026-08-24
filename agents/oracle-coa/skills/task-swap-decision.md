@@ -69,8 +69,9 @@ USD-8 and applies Mitigation A, then Floor D on the unpublished bag (baseline 0
 a live Deploy; `MockUsdFeed` on Anvil. Dollar cuts and 3% / 8% floors below are
 deploy defaults; `_COMPLIANCE_OFFICER` may retune them after 48h. Floor C (24h
 USD) is a separate REVERT. Demo Wallet E starts empty and is funded by clean
-C. After C→E $500 a $500 swap is 3% (A dust). After C→E $15,000 a small swap
-is 8% (D bag). Do not fund E from A (OFAC listed).
+C. After C→E $500 a $500 swap is 3% (A dust). After C→E $10,000 a $1,000 swap
+is 8% (A mid; D mid 3% loses). After C→E $15,000 a small swap is 8% (D bag).
+Do not fund E from A (exploit origin / score 100).
 
 | Assessed USD | hookOutput | Fee |
 |---|---|---|

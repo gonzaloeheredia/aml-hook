@@ -15,7 +15,7 @@
  * Scenario:
  * 1. C swaps twice · still score 0 / ALLOW 0.30%
  * 2. B swaps twice · still score 0 / ALLOW 0.30%
- * 3. A tries to swap → REVERT
+ * 3. A tries to swap → WalletBlocked (score 100, not OFAC-listed)
  * 4. MetaMask A → B (hop 1 on B), then B → C (hop 2 on C)
  * 5. B Uniswap swap → FEE_OVERRIDE 8%
  * 6. C Uniswap swap → FEE_OVERRIDE 3% (fees differentiated by hop)
@@ -128,13 +128,14 @@ async function main() {
   );
 
   // ── 3. A blocked ────────────────────────────────────────────────────
-  console.log("\n3) Wallet A · Uniswap swap (exploit → REVERT)");
+  console.log("\n3) Wallet A · Uniswap swap (score 100 → WalletBlocked)");
   const swapA = await postSwap("A", 1000);
   assert("A not settled", swapA.settled === false);
   assert(
-    "A REVERT",
-    swapA.quote?.hookOutput === "REVERT" && swapA.quote?.score === 100,
-    `out=${swapA.quote?.hookOutput} score=${swapA.quote?.score}`,
+    "A WalletBlocked",
+    swapA.quote?.hookOutput === "REVERT" &&
+      swapA.quote?.revertReason === "WalletBlocked",
+    `out=${swapA.quote?.hookOutput} reason=${swapA.quote?.revertReason} score=${swapA.quote?.score}`,
   );
 
   // ── 4. MetaMask hops: A→B (hop 1), B→C (hop 2) ─────────────────────

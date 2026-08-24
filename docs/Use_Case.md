@@ -13,7 +13,7 @@ Use this table as the map while running the demo. Each row points to the matchin
 | Step | Actor | Action | Score | Decision | Fee / error |
 | --- | --- | --- | --- | --- | --- |
 | 0 | D (or B / C) | Swap of already-held USDC | 0 | ALLOW | 0.30% |
-| 1 | A | Pool cash-out | 100 | REVERT | `SanctionHit` (OFAC) |
+| 1 | A | Pool cash-out | 100 | REVERT | `WalletBlocked` (`SCORE_REVERT_BAND`) |
 | 2 | A → B | P2P (peer-to-peer) | — | Keeper writes 65 | — |
 | 3 | B | Swap | 65 | FEE_OVERRIDE | 8% |
 | 4 | B → C | P2P | — | Keeper writes 42 | — |
@@ -23,7 +23,7 @@ Use this table as the map while running the demo. Each row points to the matchin
 | 8 | C → D ~10k (C clean), then D swap | P2P, no hop | 0 | FEE_OVERRIDE (D mid) | 3% |
 | 9 | C → D $15k (C clean) | P2P, then any D swap | 0 | FEE_OVERRIDE (D large) | 8% |
 | 10a | C → E $500, then E $500 swap | — | FEE_OVERRIDE (A dust) | 3% |
-| 10b | C → E $10k, then E $1,000 | — | FEE_OVERRIDE (D mid) | 3% |
+| 10b | C → E $10k, then E $1,000 | — | FEE_OVERRIDE (A mid) | 8% |
 | 10c | C → E $15k, then E $15,000 | — | REVERT | `UnscoredMagnitudeBlocked` |
 | 10d | E | Unbind price feed | — | REVERT | `MagnitudeQuoteFailed` |
 | 11 | — | Normative review of floors A–D (whitepaper §8.4) | — | Officer / governor | — |
@@ -36,7 +36,7 @@ How to run it: from the repo root, `npm run deploy:local`, then start the API an
 
 | Wallet | Role | Starting score |
 | --- | --- | --- |
-| **A** | OFAC-listed exploit source. Pool swaps hit `SanctionHit`. P2P can still contaminate B/C/D. Do not fund E from A. | 100 |
+| **A** | Confirmed exploit. Not on OFAC. Keeper score 100. Pool swaps hit `WalletBlocked`. P2P can still contaminate B/C/D. Do not fund E from A. | 100 |
 | **B** | Starts clean. | 0 (published) |
 | **C** | Starts clean. Funds E (unknown) and D (inflow). Same hop rules as B. | 0 (published) |
 | **D** | Published score 0. Starts with 5,000 USDC. | 0 (published) |
@@ -101,16 +101,16 @@ Connect Wallet D. Swap $1,000 USDC → ETH.
 
 D starts with 5,000 USDC and a published clean row. Size of already-held funds does not revert.
 
-### Step 1 — OFAC cash-out (A)
+### Step 1 — Exploit cash-out (A)
 
 Connect Wallet A. Swap any size.
 
 | Check | Result |
 | --- | --- |
-| Sanctions | OFAC SDN (demo `SanctionRegistry`) |
-| Score | 100 (not read after the hit) |
+| Sanctions | Clear (not written to `SanctionRegistry`) |
+| Score | 100 (officer / external exploit analysis) |
 | Decision | REVERT |
-| Error | `SanctionHit` |
+| Error | `WalletBlocked` · `"SCORE_REVERT_BAND"` |
 | Settlement | None. Funds stay in A. |
 
 A can still send USDC off-pool to B or C. Do not send A → E.
@@ -214,14 +214,14 @@ Already-held clean funds never count as inbound. This is not a revert — only u
 
 ### Step 10 — Unknown wallet E
 
-E starts **empty**. In MetaMask, switch to **C** and send USDC to **E**. That is the only funding path in this walkthrough. A is OFAC-listed — do not send A → E. E never takes a hop.
+E starts **empty**. In MetaMask, switch to **C** and send USDC to **E**. That is the only funding path in this walkthrough. A is the exploit origin — do not send A → E. E never takes a hop.
 
 Floor A looks at **this swap**. Floor D looks at the **unpublished bag** C just sent (baseline 0 → the whole bag is inbound). The stricter fee wins. Use the size chips after C has funded E. Crossing $15,000 across several swaps in 24 hours is Floor C (`DailyAggregationBlocked`), not A.
 
 | C → E then E swap | Decision | Fee / error |
 | --- | --- | --- |
 | C→E $500, E swaps $500 | FEE_OVERRIDE | 3% (A dust; bag under $1,000) |
-| C→E $10,000, E swaps $1,000 | FEE_OVERRIDE | 3% (D mid on the bag) |
+| C→E $10,000, E swaps $1,000 | FEE_OVERRIDE | 8% (A mid; D mid 3% loses) |
 | C→E $15,000, E swaps $500 | FEE_OVERRIDE | 8% (D large on the bag) |
 | C→E $15,000, E swaps $10,000 then $5,000 | REVERT | `DailyAggregationBlocked` |
 | C→E $15,000, E swaps $15,000 | REVERT | `UnscoredMagnitudeBlocked` |

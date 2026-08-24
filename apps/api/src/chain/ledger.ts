@@ -95,8 +95,8 @@ export async function setTokenBalance(address: Address, usdc: number): Promise<v
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 
-/** List Wallet A on the local OFAC registry (Anvil demo). Idempotent. */
-export async function seedWalletASanction(): Promise<void> {
+/** Demo Wallet A is score-100 exploit, not OFAC. Clear a leftover listing from older deploys. */
+async function clearWalletASanction(): Promise<void> {
   const cfg = getChainConfig();
   if (!cfg.sanctionRegistry || cfg.sanctionRegistry === ZERO) return;
   const listed = await publicClient().readContract({
@@ -105,17 +105,17 @@ export async function seedWalletASanction(): Promise<void> {
     functionName: "isSanctioned",
     args: [DEMO_WALLETS.A.address],
   });
-  if (listed) return;
+  if (!listed) return;
   await writeAsKeeper(cfg.sanctionRegistry, registryAbi, "setSanctioned", [
     DEMO_WALLETS.A.address,
-    true,
+    false,
   ]);
 }
 
 export async function seedBalances(): Promise<void> {
   await requireChain();
   resetEthCredits();
-  await seedWalletASanction();
+  await clearWalletASanction();
   for (const id of WALLET_IDS) {
     await setTokenBalance(DEMO_WALLETS[id].address, DEMO_WALLETS[id].usdc);
   }

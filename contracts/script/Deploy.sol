@@ -74,7 +74,8 @@ contract Deploy is Script {
         0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6;
 
     /// @dev Anvil accounts #1–#5. Demo wallets A–E. API holds the matching keys locally.
-    address constant DEMO_WALLET_A = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
+    ///      A is not listed: the keeper writes score 100 (`WalletBlocked`). E starts empty.
+    address public constant DEMO_WALLET_A = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
     address constant DEMO_WALLET_B = 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC;
     address constant DEMO_WALLET_C = 0x90F79bf6EB2c4f870365E785982E1f101E93b906;
     address constant DEMO_WALLET_D = 0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65;
@@ -207,10 +208,8 @@ contract Deploy is Script {
             activityWindow,
             maxOpsInWindow
         );
-        // Anvil demo only: Wallet A is OFAC-listed so pool swaps hit SanctionHit.
-        if (block.chainid == 31337) {
-            sanctionRegistry.setSanctioned(DEMO_WALLET_A, true);
-        }
+        // Wallet A stays off SanctionRegistry. The demo API publishes score 100
+        // (confirmed exploit) so pool swaps hit WalletBlocked / SCORE_REVERT_BAND.
         vm.stopBroadcast();
 
         _writeDeploymentJson(deployer, admin, registryKeeper, oracleKeeper, hookGovernor, complianceOfficer);
@@ -322,7 +321,8 @@ contract Deploy is Script {
         );
         // Broadcast scripts rewrite `new {salt}` through the deterministic CREATE2 factory; unit
         // tests that call `_deploy` from a harness use that harness as the CREATE2 origin.
-        address create2Origin = configurer == address(this) ? address(this) : CREATE2_DEPLOYER;
+        // Do not read `address(this)` here: recent Foundry reverts on ADDRESS in scripts.
+        address create2Origin = configurer.code.length > 0 ? configurer : CREATE2_DEPLOYER;
         (address hookAddr, bytes32 salt) =
             HookMiner.find(create2Origin, flags, type(AmlHook).creationCode, constructorArgs);
 

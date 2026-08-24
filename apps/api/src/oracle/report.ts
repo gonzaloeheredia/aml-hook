@@ -45,7 +45,7 @@ export function buildOpinionFromScore(
   const who = [
     `Subject: ${wallet.accountLabel} (${wallet.address}).`,
     wallet.exploitConfirmed
-      ? "Role: confirmed exploit / contamination origin in the demo ledger."
+      ? "Role: confirmed exploit origin (score 100). Not on SanctionRegistry. Contamination source. Do not fund E from A."
       : hop !== "none"
         ? `Role: intermediary wallet with ${hop}-hop exposure from origin ${origin}.`
         : "Role: pool participant with no inbound contamination from exploit origin A.",
@@ -63,7 +63,9 @@ export function buildOpinionFromScore(
         : "Elevated behavioral / hop-derived risk without a single dominant typology label.",
     `Hook instruments involved: score oracle read at beforeSwap; ${
       decision === "block"
-        ? "WalletBlocked (no settlement)."
+        ? wallet.exploitConfirmed
+          ? "WalletBlocked (score 100 · SCORE_REVERT_BAND; not a list hit)."
+          : "WalletBlocked (no settlement)."
         : decision === "fee_override"
           ? `FEE_OVERRIDE: pool standard fee retained; risk differential (~${feePct}% total intended friction) taken in afterSwap into FeeEscrow (48h COA path).`
           : "standard pool fee 0.30%."
@@ -124,13 +126,15 @@ export function buildOpinionFromScore(
 
   const how = [
     decision === "block"
-      ? "Method of operation / control response: beforeSwap fail-closed REVERT; afterSwap not reached; WalletBlocked recorded. Subject may still move USDC off-pool via P2P, which updates downstream oracle scores."
+      ? wallet.exploitConfirmed
+        ? "Method of operation / control response: beforeSwap WalletBlocked (SCORE_REVERT_BAND); L1 sanctions screen clear; afterSwap not reached. Subject may still move USDC off-pool via P2P, which updates downstream oracle scores."
+        : "Method of operation / control response: beforeSwap fail-closed REVERT; afterSwap not reached; WalletBlocked recorded. Subject may still move USDC off-pool via P2P, which updates downstream oracle scores."
       : decision === "fee_override"
         ? `Method of operation / control response: swap allowed with economic friction (recommendedFeeBps ${feeBps}; pool standard fee + FeeEscrow differential). afterSwap SwapObserved emitted; oracle reevaluated for the next beforeSwap.`
         : "Method of operation / control response: swap allowed at standard fee; afterSwap SwapObserved emitted; oracle score remains in ALLOW band for subsequent swaps.",
     `Modus summary: ${
       wallet.exploitConfirmed
-        ? "direct exploit cash-out attempt against the pool."
+        ? "Confirmed exploit cash-out; keeper wrote score 100; pool path is WalletBlocked."
         : hop !== "none"
           ? `${hop}-hop propagation of contaminated funds into a pool swap attempt.`
           : "ordinary USDC→ETH swap without contamination indicators."
@@ -156,7 +160,9 @@ export function buildOpinionFromScore(
     decisionExecuted: how,
     legalBasis:
       decision === "block"
-        ? "FATF Rec. 6 / fail-closed RWA pool policy on confirmed exploit exposure. Narrative organization follows FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How) as an internal model only."
+        ? wallet.exploitConfirmed
+          ? "Fail-closed RWA pool policy on confirmed exploit / REVERT-band score (71–100). Narrative organization follows FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How) as an internal model only."
+          : "FATF Rec. 6 / fail-closed RWA pool policy on confirmed exploit exposure. Narrative organization follows FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How) as an internal model only."
         : decision === "fee_override"
           ? "FATF Rec. 1 & 10 (EBR / EDD). Narrative organization follows FinCEN SAR Narrative Guidance as an internal support-draft model — not a FinCEN filing."
           : "FATF Rec. 1 & 10. Verification narrative follows FinCEN SAR Narrative Guidance structure for consistency of operator records.",
@@ -211,7 +217,9 @@ export function buildOpinionFromScore(
       mainFacts: `WHO ${wallet.accountLabel}; hop=${hop}; origin=${origin}; trigger=${score.validity.trigger}`,
       basis:
         decision === "block"
-          ? "ORACLE_COA_EXPLOIT_OR_BLOCK_BAND"
+          ? wallet.exploitConfirmed
+            ? "ORACLE_COA_EXPLOIT_SCORE_REVERT_BAND"
+            : "ORACLE_COA_EXPLOIT_OR_BLOCK_BAND"
           : decision === "fee_override"
             ? "ORACLE_COA_N_HOP_OR_BEHAVIORAL_FEE_OVERRIDE"
             : "ORACLE_COA_SCORE_BELOW_FEE_OVERRIDE",

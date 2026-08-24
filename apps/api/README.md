@@ -115,13 +115,13 @@ curl -X POST http://localhost:4000/swaps ^
 
 ## Use-case baseline
 
-- **A** OFAC listed + exploit → `SanctionHit` on pool; P2P still contaminates B/C/D. Do not fund E from A.  
-- **B** and **C** both start clean (ALLOW 0.30%)  
+- **A** confirmed exploit, score 100 (not OFAC-listed) → `WalletBlocked` on pool; P2P still contaminates B/C/D. Do not fund E from A.  
+- **B** and **C** both start clean (ALLOW 0.30%). **C** (50,000 USDC) funds E (unknown, no hop) or D (inflow).  
 - **D** starts with 5,000 USDC and a published score 0  
 - Receive from **A** → ~65 / 8% (1-hop)  
 - Receive from the other after it was tainted by A → ~42 / 3% (2-hop); closer hop wins  
 - Clean **C → D** (or B while clean) is **not** a hop: ~10k → **FEE_OVERRIDE 3%** (inflow); ≥ $15,000 → **FEE_OVERRIDE 8%**  
-- **Wallet E** (no oracle row, starts empty): fund from **C** (no hop). Floor A is this swap; Floor D is the bag C sent. C→E $500 → 3%; $10k → 3%; $15k bag → 8% on a small swap; this swap ≥ $15,000 → `UnscoredMagnitudeBlocked`; 24h sum → `DailyAggregationBlocked`; no/stale feed → `MagnitudeQuoteFailed`  
+- **Wallet E** (no oracle row, starts empty): fund from **C** (no hop). Floor A is this swap; Floor D is the bag C sent; stricter fee wins. C→E $500 → 3%; $10k then $1k swap → 8% (A mid); $15k bag → 8% on a small swap (D); this swap ≥ $15,000 → `UnscoredMagnitudeBlocked`; 24h sum → `DailyAggregationBlocked`; no/stale feed → `MagnitudeQuoteFailed`  
 - **1 ETH = 1,000 USDC** on Anvil only (`MockUsdFeed` at local deploy). Live Deploy binds official Chainlink ETH/USD and USDC/USD. On-chain floors are USD-8 (`1_000e8` / `15_000e8`), not native ether. `_COMPLIANCE_OFFICER` can retune those floors after a 48h confirm.
 
 ## Anvil identities + keeper

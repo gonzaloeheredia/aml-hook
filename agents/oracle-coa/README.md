@@ -100,7 +100,7 @@ event detected
 Canonical wallets: A (score 100 / REVERT), B/C hop-1 (~65 / FEE_OVERRIDE 8%),
 hop-2 (~42 / FEE_OVERRIDE 3%), D (published clean + inflow / 8% at $15k),
 E (never written, starts empty, funded by C: Floor A is this swap; Floor D is the bag).
-Wallet A is OFAC-listed (`SanctionHit`).
+Wallet A is a confirmed exploit (score 100 · `WalletBlocked`; not OFAC-listed).
 On FEE_OVERRIDE, intended friction is `recommendedFeeBps` when the keeper wrote
 one; never-scored bands are hook-local (Chainlink USD-8). Settlement = pool
 standard fee + differential in FeeEscrow.

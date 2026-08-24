@@ -11,7 +11,7 @@ import type { HookEvent, TransferRecord, Wallet, WalletId } from "./types.js";
 
 /**
  * Builds the initial A–E wallet ledger from the use case:
- * A = OFAC + exploit; B and C start clean (symmetric N-hop);
+ * A = exploit origin (score 100, not OFAC-listed); B and C start clean (symmetric N-hop);
  * D = published score 0 (already-held funds ALLOW; clean C→D is inflow, not a hop);
  * E = unknown, starts empty (fund from C).
  */
@@ -20,7 +20,7 @@ function seedWallets(): Record<WalletId, Wallet> {
     A: {
       id: "A",
       accountLabel: "Account A · Exploit",
-      role: "OFAC listed + exploit — SanctionHit on pool; P2P can still contaminate B/C/D",
+      role: "Confirmed exploit — score 100 · WalletBlocked on pool; P2P can still contaminate B/C/D",
       address: DEMO_WALLETS.A.address,
       usdc: 10_000_000,
       eth: 5,
@@ -56,7 +56,7 @@ function seedWallets(): Record<WalletId, Wallet> {
     D: {
       id: "D",
       accountLabel: "Account D · Score 0",
-      role: "Published score 0 — ALLOW on already-held funds; clean C→D → inflow 3% / 8% by size (no hop)",
+      role: "Published score 0 — ALLOW on already-held funds; clean C→D → inflow by size (no hop)",
       address: DEMO_WALLETS.D.address,
       usdc: 5_000,
       eth: 2,

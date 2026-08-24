@@ -84,11 +84,11 @@ The frontend talks to the API. The API reads and writes the use-case ledger on A
 
 | Wallet | Starting state | What to try |
 | --- | --- | --- |
-| A | OFAC listed + exploit, score 100 | Pool swap → `SanctionHit`. P2P can contaminate B, C, D. Do not fund E from A |
+| A | Confirmed exploit, score 100 (not OFAC-listed) | Pool swap → `WalletBlocked`. P2P can contaminate B, C, D. Do not fund E from A |
 | B | Clean, score 0 | Receive from A → ~65 / 8%. Receive from tainted C → ~42 / 3% |
 | C | Clean, score 0, 50,000 USDC | Fund E (unknown) or D (inflow). Receive from A → ~65 / 8% |
 | D | Published score 0, 5,000 USDC | Held funds → ALLOW. Clean C→D $10k → 3%; $15k → 8% (no hop). Advance 5 min after a swap → Floor B |
-| E | Never written, empty | Fund from C. C→E $500 → 3%; $10k → 3%; $15k bag → 8% on a small swap; $15k this swap → revert |
+| E | Never written, empty | Fund from C. C→E $500 → 3%; $10k then $1k swap → 8% (A mid); $15k bag + small swap → 8% (D); $15k this swap → revert |
 
 ## Quick start
 
