@@ -6,7 +6,7 @@
  *
  * Or manually:
  *   anvil
- *   cd contracts && FOUNDRY_PROFILE=deploy forge script script/Deploy.sol:Deploy --rpc-url http://127.0.0.1:8545 --broadcast
+ *   cd contracts && forge script script/Deploy.sol:Deploy --rpc-url http://127.0.0.1:8545 --broadcast
  *   node scripts/sync-deployment.mjs
  */
 
@@ -79,7 +79,7 @@ async function main() {
   console.log("Deploying AML stack …");
   execSync(
     `forge script script/Deploy.sol:Deploy --rpc-url ${rpc} --broadcast --private-key ${anvilKey}`,
-    { cwd: contracts, stdio: "inherit", shell: true, env: { ...process.env, FOUNDRY_PROFILE: "deploy" } },
+    { cwd: contracts, stdio: "inherit", shell: true },
   );
 
   if (!existsSync(join(contracts, "deployments/31337.json"))) {
