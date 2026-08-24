@@ -166,4 +166,28 @@ contract UnitSanctionRegistryTest is Helpers {
         sanctionRegistry.setRevealDelay(20);
         assertEq(sanctionRegistry.revealDelay(), 20);
     }
+
+    function testFuzz_SetSanctionedToggle(address account, bool listed) external {
+        vm.prank(keeper);
+        sanctionRegistry.setSanctioned(account, listed);
+        assertEq(sanctionRegistry.isSanctioned(account), listed);
+
+        vm.prank(keeper);
+        sanctionRegistry.setSanctioned(account, !listed);
+        assertEq(sanctionRegistry.isSanctioned(account), !listed);
+    }
+
+    function testFuzz_CommitRevealThenEmergencyDelist(address account, bytes32 salt) external {
+        bytes32 commitHash = keccak256(abi.encode(account, true, salt));
+        vm.prank(keeper);
+        sanctionRegistry.commitSanction(commitHash);
+        vm.roll(block.number + sanctionRegistry.revealDelay() + 1);
+        vm.prank(keeper);
+        sanctionRegistry.revealSanction(account, true, salt);
+        assertTrue(sanctionRegistry.isSanctioned(account));
+
+        vm.prank(keeper);
+        sanctionRegistry.setSanctioned(account, false);
+        assertFalse(sanctionRegistry.isSanctioned(account));
+    }
 }
