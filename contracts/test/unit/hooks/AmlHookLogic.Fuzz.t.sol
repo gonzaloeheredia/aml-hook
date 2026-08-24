@@ -163,7 +163,8 @@ contract UnitAmlHookLogicFuzzTest is Helpers {
         vm.prank(keeper);
         complianceOracle.updateScore(walletC, 0, 0, address(0), 0, _scoreSig(walletC, 0, 0));
 
-        harness.recordActivity(walletC, address(token), 1 ether);
+        // Ops-only: do not fill daily USD, or Floor C would REVERT large tickets.
+        harness.recordActivity(walletC);
         vm.warp(block.timestamp + harness.stalenessThreshold() + 1);
         feed.setRound(1e8, block.timestamp);
 
