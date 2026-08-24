@@ -6,6 +6,7 @@ import {
   formatFeePct,
   formatUsdFloor,
   getPolicyKnobs,
+  midBandExampleUsd,
   type SimWallet,
 } from "@/lib/hopScoring";
 
@@ -89,11 +90,11 @@ export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
                         : wallet.hopDistance != null
                           ? `${wallet.hopDistance}-hop · fee override expected`
                           : id === "D"
-                            ? `Score 0 · held funds 0.30% · clean C→D $10k=${formatFeePct(getPolicyKnobs().proportionalFeeBps)} / ${formatUsdFloor(getPolicyKnobs().unscoredRevertThresholdUsd)}=${formatFeePct(getPolicyKnobs().punitiveFeeBps)}`
+                            ? `Score 0 · held funds 0.30% · clean C→D ${formatUsdFloor(midBandExampleUsd())}=${formatFeePct(getPolicyKnobs().proportionalFeeBps)} / ${formatUsdFloor(getPolicyKnobs().unscoredRevertThresholdUsd)}=${formatFeePct(getPolicyKnobs().punitiveFeeBps)}`
                             : id === "C"
                               ? "Clean · fund E (unknown) or D (inflow); A→C is 1-hop"
                               : id === "A"
-                                ? "OFAC listed · pool SanctionHit · P2P still contaminates B/C"
+                                ? "Exploit · score 100 · pool WalletBlocked · P2P still contaminates B/C"
                                 : c.label}
                   </span>
                 </span>

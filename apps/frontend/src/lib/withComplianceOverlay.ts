@@ -5,7 +5,7 @@
 
 import type { DemoCase } from "@/data/cases";
 import type { ApiCompliancePack } from "@/lib/api";
-import { ETH_USD, ethOutFromSwap } from "@/lib/hopScoring";
+import { ETH_USD, ethOutFromSwap, neverScoredAmountPresets } from "@/lib/hopScoring";
 
 /**
  * Formats a whole USDC sell amount for the swap widget.
@@ -104,7 +104,7 @@ export function withComplianceOverlay(
     revertReason: pack.revertReason ?? null,
     typology:
       pack.revertReason === "SanctionHit"
-        ? "OFAC + exploit cash-out"
+        ? "OFAC list hit"
         : pack.exploitConfirmed
         ? "Exploit cash-out"
       : mitigation === "MAGNITUDE_QUOTE_FAILED"
@@ -122,6 +122,7 @@ export function withComplianceOverlay(
                   : hopDistance
                     ? "N-hop propagation"
                     : "None",
+    amountPresets: unknown ? neverScoredAmountPresets() : base.amountPresets,
     flowPath: decision,
     sellToken: "USDC",
     buyToken: "ETH",

@@ -16,6 +16,11 @@ Each weight derives from FATF recommendations / technical papers, applied
 under BSA / OFAC (U.S.) and MiCA / TFR (EU). The module does not invent
 arbitrary scores.
 
+Demo Wallet A emits `EXPLOIT_PROTOCOL_FUNDS` only (not `OFAC_DIRECT_MATCH`).
+The officer wrote score 100; the pool path is `WalletBlocked`. Demo Wallet E
+starts empty and is funded by clean C (no hop); never-written bands are
+hook-local, not a COA score.
+
 Outputs serve two functions:
 
 1. **On-chain / oracle.** `finalScore` is signed (live) and written to

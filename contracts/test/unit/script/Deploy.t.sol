@@ -184,6 +184,12 @@ contract UnitDeployTest is Helpers {
         assertEq(live.trustedRouter(), UniversalRouters.appRouter(130));
     }
 
+    /// @dev Demo Wallet A is an exploit origin (score 100), not an OFAC listing.
+    function test_DeployWhenRunOnAnvil_DoesNotListDemoWalletA() external view {
+        address demoA = deployment.DEMO_WALLET_A();
+        assertFalse(sanctionRegistry.isSanctioned(demoA));
+    }
+
     function test_DeployWhenRunOnAnvil_BindsMockUsdFeeds() external view {
         assertTrue(deployment.ethUsdFeed() != address(0));
         assertTrue(deployment.usdFeed() != address(0));

@@ -5,8 +5,10 @@
  */
 
 import {
+  dustExampleUsd,
   formatFeePct,
   formatUsdFloor,
+  midBandExampleUsd,
   previewSwap,
   readPolicyKnobs,
   usdcToWei,
@@ -121,7 +123,9 @@ export async function buildCompliancePack(
               : decision === "block"
                 ? resolved.revertReason === "SanctionHit"
                   ? "OFAC · SanctionHit"
-                  : "Blocked"
+                  : resolved.revertReason === "WalletBlocked"
+                    ? "Score · WalletBlocked"
+                    : "Blocked"
                 : resolved.latencyMitigation === "INFLOW_HEURISTIC"
                   ? "Inflow · Latency floor"
                   : decision === "fee_override"
@@ -132,12 +136,22 @@ export async function buildCompliancePack(
                         : "Medium Risk"
                     : "Low Risk";
 
+  const hopFee =
+    wallet.hopDistance === 1
+      ? highPct
+      : wallet.hopDistance === 2
+        ? midPct
+        : null;
   const hopTag =
     wallet.hopDistance == null
       ? "Clean path"
       : wallet.hopDistance === 0
         ? "Exploit source"
-        : `${wallet.hopDistance}-hop decay`;
+        : `${wallet.hopDistance}-hop decay${hopFee ? ` · ${hopFee}` : ""}`;
+  const dust = formatUsdFloor(dustExampleUsd(knobs.unscoredFeeThresholdUsd));
+  const midEx = formatUsdFloor(
+    midBandExampleUsd(knobs.unscoredFeeThresholdUsd, knobs.unscoredRevertThresholdUsd),
+  );
 
   const topFacts = oracle.scoreResult.triggeringFacts
     .filter((f) => f.dimension !== "MT")
@@ -193,15 +207,19 @@ export async function buildCompliancePack(
           ? "Wallet E is unknown and empty. Fund it from clean C (no hop). Do not use A."
           : `Wallet E is unknown. Floor A is this swap; Floor D is the bag C sent ($${wallet.usdc.toLocaleString("en-US")}). Stricter fee wins.`
         : wallet.exploitConfirmed
-          ? "OFAC listed — SanctionHit on pool swaps (score not read). P2P outflows contaminate B, C, or D. Do not fund E from A."
+          ? "Confirmed exploit — keeper score 100. Pool swaps WalletBlocked (SCORE_REVERT_BAND). Not on OFAC. P2P outflows contaminate B, C, or D. Do not fund E from A."
           : wallet.id === "D" && resolved.keeperPending
             ? "Wallet D: inbound P2P recorded; keeper has not published the decay score yet."
             : wallet.hopDistance
-              ? `Contamination at ${wallet.hopDistance} hop(s) from origin ${wallet.originId ?? "A"}.`
+              ? `Contamination at ${wallet.hopDistance} hop(s) from origin ${wallet.originId ?? "A"}${hopFee ? ` · ${hopFee}` : ""}.`
               : wallet.id === "D"
-                ? "Wallet D has a published score of 0. Already-held funds ALLOW at 0.30%."
-                : "Clean wallet. No contamination from A yet — ALLOW at standard fee.",
-      latencySummary ?? (topFacts ? `Top facts: ${topFacts}.` : hopTag),
+                ? `Wallet D has a published score of 0. Already-held funds ALLOW at 0.30%. Floor B at ${feeFloor} → ${midPct}; C→D ${midEx} → ${midPct}; inbound ${revertFloor} → ${highPct}.`
+                : wallet.id === "C"
+                  ? `Clean wallet. Fund E (${dust} / ${midEx} / ${revertFloor}) or D (inflow). A→C is 1-hop · ${highPct}.`
+                  : "Clean wallet. No contamination from A yet — ALLOW at standard fee.",
+      wallet.neverScored && wallet.usdc <= 0
+        ? `C→E ${dust} → ${midPct}; ${midEx} then ${feeFloor} swap → ${highPct} (A mid); ${revertFloor} bag → ${highPct} on a small swap; this swap ${revertFloor} → revert.`
+        : (latencySummary ?? (topFacts ? `Top facts: ${topFacts}.` : hopTag)),
     ].filter(Boolean) as string[],
     agent: {
       status:

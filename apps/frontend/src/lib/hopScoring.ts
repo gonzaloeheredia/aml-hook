@@ -2,7 +2,7 @@
  * N-hop decay scoring for the AML Hook demo.
  *
  * Use case (`docs/Use_Case.md`):
- * - Wallet A = OFAC listed + exploit → SanctionHit on pool swaps.
+ * - Wallet A = confirmed exploit, score 100 → WalletBlocked on pool swaps.
  * - Wallets B and C both start clean (ALLOW 0.30%, green). Swaps never add score.
  * - Wallet D = published score 0. Already-held funds ALLOW; clean C→D is inflow, not a hop.
  * - Wallet E = unknown, starts empty. Clean C funds E (no hop). Floor A/D by bag and swap.
@@ -60,6 +60,57 @@ export function formatFeePct(bps: number): string {
 
 export function formatUsdFloor(usd: number): string {
   return `$${usd.toLocaleString("en-US")}`;
+}
+
+/** Dust example that stays strictly under the officer fee floor. */
+export function dustExampleUsd(feeThresholdUsd = getPolicyKnobs().unscoredFeeThresholdUsd): number {
+  if (feeThresholdUsd > 500) return 500;
+  return Math.max(1, Math.floor(feeThresholdUsd / 2));
+}
+
+/** Mid-band example ($10k when that still sits between the live floors). */
+export function midBandExampleUsd(
+  feeThresholdUsd = getPolicyKnobs().unscoredFeeThresholdUsd,
+  revertThresholdUsd = getPolicyKnobs().unscoredRevertThresholdUsd,
+): number {
+  if (10_000 >= feeThresholdUsd && 10_000 < revertThresholdUsd) return 10_000;
+  const mid = Math.round((feeThresholdUsd + revertThresholdUsd) / 2);
+  return Math.min(Math.max(feeThresholdUsd, mid), Math.max(feeThresholdUsd, revertThresholdUsd - 1));
+}
+
+/** E size chips: dust · fee floor · mid bag · revert floor. */
+export function neverScoredAmountPresets(knobs: PolicyKnobs = getPolicyKnobs()): number[] {
+  const fee = knobs.unscoredFeeThresholdUsd;
+  const revert = knobs.unscoredRevertThresholdUsd;
+  return [...new Set([dustExampleUsd(fee), fee, midBandExampleUsd(fee, revert), revert])]
+    .filter((n) => n > 0)
+    .sort((a, b) => a - b);
+}
+
+/** C→D chips: mid inflow · high / revert-band inflow. */
+export function inflowAmountPresets(knobs: PolicyKnobs = getPolicyKnobs()): number[] {
+  const fee = knobs.unscoredFeeThresholdUsd;
+  const revert = knobs.unscoredRevertThresholdUsd;
+  return [...new Set([midBandExampleUsd(fee, revert), revert])].filter((n) => n > 0);
+}
+
+/** C→E fund chips: dust bag · mid bag · revert-band bag. */
+export function unknownFundPresets(knobs: PolicyKnobs = getPolicyKnobs()): number[] {
+  const fee = knobs.unscoredFeeThresholdUsd;
+  const revert = knobs.unscoredRevertThresholdUsd;
+  return [...new Set([dustExampleUsd(fee), midBandExampleUsd(fee, revert), revert])].filter(
+    (n) => n > 0,
+  );
+}
+
+/** Floor D/B label for an inbound or assessed USD amount. */
+export function inflowBandLabel(usd: number): string {
+  const feeBps = publishedUsdBandFee(usd);
+  return feeBps === 0 ? "pass" : formatFeePct(feeBps);
+}
+
+export function hopFeePct(hop: 1 | 2, knobs: PolicyKnobs = getPolicyKnobs()): string {
+  return formatFeePct(hop === 1 ? knobs.punitiveFeeBps : knobs.proportionalFeeBps);
 }
 
 /**
@@ -391,7 +442,7 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
     A: {
       id: "A",
       accountLabel: "Account A · Exploit",
-      role: "OFAC listed + exploit — SanctionHit on pool; P2P can still contaminate B/C/D",
+      role: "Confirmed exploit — score 100 · WalletBlocked on pool; P2P can still contaminate B/C/D",
       address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
       usdc: 10_000_000,
       eth: 5,
@@ -443,7 +494,7 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
     D: {
       id: "D",
       accountLabel: "Account D · Score 0",
-      role: "Published score 0 — ALLOW on already-held funds; clean C→D → inflow 3% / 8% by size (no hop)",
+      role: `Published score 0 — ALLOW on already-held funds; clean C→D → inflow ${formatFeePct(getPolicyKnobs().proportionalFeeBps)} / ${formatFeePct(getPolicyKnobs().punitiveFeeBps)} by size (no hop)`,
       address: "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
       usdc: 5_000,
       eth: 2,
@@ -493,13 +544,15 @@ export function previewTransfer(
 ): { title: string; detail: string; tone: "ok" | "warn" | "bad" } {
   const amount = Math.round(amountUsd);
   if (recipient.neverScored) {
+    const knobs = getPolicyKnobs();
     const nextBag = recipient.usdc + amount;
     const quote = neverScoredQuote(DEFAULT_SWAP_USDC, nextBag);
+    const dust = formatUsdFloor(dustExampleUsd(knobs.unscoredFeeThresholdUsd));
     return {
       title: "No hop · unknown wallet",
       detail: quote.revert
-        ? "E never takes a hop. The next $15,000 swap still reverts (Floor A)."
-        : `E never takes a hop. Unpublished bag $${nextBag.toLocaleString("en-US")} — Floor D ${((quote.dFee || quote.feeBps) / 100).toFixed(0)}%. A $500 swap still pays the stricter of A and D.`,
+        ? `E never takes a hop. The next ${formatUsdFloor(knobs.unscoredRevertThresholdUsd)} swap still reverts (Floor A).`
+        : `E never takes a hop. Unpublished bag $${nextBag.toLocaleString("en-US")} — Floor D ${formatFeePct(quote.dFee || quote.feeBps)}. A ${dust} swap still pays the stricter of A and D.`,
       tone: "warn",
     };
   }

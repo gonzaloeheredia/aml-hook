@@ -21,6 +21,7 @@ import {
   fetchCompliance,
   fetchEvents,
   fetchHealth,
+  fetchPolicy,
   fetchTransfers,
   fetchWallets,
   postSwap,
@@ -45,11 +46,13 @@ import {
   hookEventFromApi,
   type HookChainEvent,
 } from "@/lib/hookEvents";
+import { applyLiveCaseCopy } from "@/lib/liveCaseCopy";
 import { withComplianceOverlay } from "@/lib/withComplianceOverlay";
 
 /**
  * Demo page — guided stages with morph transitions:
  * Swap → Hook (auto), then Fees → AML stats → Opinion → Event (click / wheel).
+ * Event has a Back to Swap control; ledger balances persist until Restart data.
  */
 type SwapStats = { count: number; tradedUsd: number; tradedEth: number };
 
@@ -130,12 +133,13 @@ export default function HomePage() {
     };
   }, [caseId, swapAmountUsd]);
 
-  /** Decision comes from the API (hook previewSwap). No local policy fork. */
+  /** Decision comes from the API (hook previewSwap). Copy/chips follow officer knobs. */
   const demoCase = useMemo(() => {
-    if (compliance && compliance.walletId === caseId) {
-      return withComplianceOverlay(baseCase, compliance);
-    }
-    return baseCase;
+    const overlaid =
+      compliance && compliance.walletId === caseId
+        ? withComplianceOverlay(baseCase, compliance)
+        : baseCase;
+    return applyLiveCaseCopy(overlaid);
   }, [baseCase, caseId, compliance, demoTick]);
 
   /**
@@ -148,6 +152,7 @@ export default function HomePage() {
 
   /**
    * Loads wallets, transfers, and events from the backend.
+   * Returns the live A–E map so callers can cap the next swap to remaining USDC.
    */
   const refreshLedger = useCallback(async () => {
     const [walletsRes, transfersRes, eventsRes] = await Promise.all([
@@ -155,11 +160,13 @@ export default function HomePage() {
       fetchTransfers(),
       fetchEvents(),
     ]);
-    setSimWallets(walletsRecord(walletsRes.wallets));
+    const wallets = walletsRecord(walletsRes.wallets);
+    setSimWallets(wallets);
     setTransfers(transfersRes.transfers);
     setChainEvents(
       eventsRes.events.map((ev, i) => hookEventFromApi(ev, i + 1)),
     );
+    return wallets;
   }, []);
 
   /**
@@ -167,6 +174,13 @@ export default function HomePage() {
    */
   const refreshCompliance = useCallback(
     async (id: DemoCaseId, amountUsd?: number) => {
+      try {
+        const { policy } = await fetchPolicy();
+        setPolicyKnobs(policy);
+        setDemoTick((n) => n + 1);
+      } catch {
+        /* keep last knobs */
+      }
       const pack = await fetchCompliance(id, amountUsd ?? swapAmountUsd);
       setCompliance(pack);
       return pack;
@@ -322,6 +336,38 @@ export default function HomePage() {
     setFeedBoundUi(true);
     setDemoTick((n) => n + 1);
   }, [apiStatus, caseId, connected, refreshCompliance]);
+
+  /**
+   * Event → Swap: jump to the first screen without reseeding.
+   * Ledger (USDC/ETH after the last swap or P2P) stays until Restart data.
+   */
+  const handleBackToSwap = useCallback(async () => {
+    setRunning(false);
+    goToStage("swap");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+
+    if (apiStatus !== "online") return;
+
+    try {
+      const wallets = await refreshLedger();
+      const remaining = Math.max(0, Math.floor(wallets[caseId].usdc));
+      const nextAmount = remaining <= 0 ? 0 : Math.min(swapAmountUsd, remaining);
+      setSwapAmountUsd(nextAmount);
+      await refreshCompliance(caseId, nextAmount);
+      setApiError(null);
+    } catch (err) {
+      setApiError(
+        err instanceof ApiError ? err.message : "Failed to refresh balances",
+      );
+    }
+  }, [
+    apiStatus,
+    caseId,
+    goToStage,
+    refreshCompliance,
+    refreshLedger,
+    swapAmountUsd,
+  ]);
 
   const handleAdvanceClock = useCallback(async () => {
     if (apiStatus === "online") {
@@ -860,11 +906,29 @@ export default function HomePage() {
 
               {stage === "event" && (
                 <StageMorph stageKey={`event-${caseId}-${chainEvents.length}`}>
-                  <div className="relative mx-auto w-full max-w-[1000px] px-2 pb-2 sm:px-3">
+                  <div className="relative mx-auto w-full max-w-[1000px] px-2 pb-24 sm:px-3">
                     <OnChainAccumulator
                       events={chainEvents}
                       showTitle={false}
                     />
+                    <div className="mt-8 flex justify-center">
+                      <button
+                        type="button"
+                        data-no-stage-nav
+                        onClick={() => {
+                          void handleBackToSwap();
+                        }}
+                        className="inline-flex items-center gap-2 rounded-full border border-uni-pink/40 bg-[#2A1240] px-5 py-3 text-sm font-semibold text-uni-pink shadow-[0_8px_28px_rgba(0,0,0,0.35)] transition hover:brightness-125"
+                      >
+                        <span
+                          className="flex h-7 w-7 items-center justify-center rounded-full border border-uni-pink/35 bg-uni-pink/15"
+                          aria-hidden
+                        >
+                          ↑
+                        </span>
+                        Back to Swap
+                      </button>
+                    </div>
                   </div>
                 </StageMorph>
               )}

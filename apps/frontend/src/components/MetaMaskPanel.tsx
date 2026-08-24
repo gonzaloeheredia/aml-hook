@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ETH_USD,
   bandLabelForUsd,
+  dustExampleUsd,
+  inflowAmountPresets,
+  inflowBandLabel,
+  unknownFundPresets,
   isSenderTainted,
   previewTransfer,
   type SimWallet,
@@ -314,7 +318,7 @@ export function MetaMaskPanel({
               />
               {toId === "D" && (
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {[10_000, 15_000].map((preset) => (
+                  {inflowAmountPresets().map((preset) => (
                     <button
                       key={preset}
                       type="button"
@@ -326,14 +330,14 @@ export function MetaMaskPanel({
                       }`}
                     >
                       ${preset.toLocaleString("en-US")}
-                      {` · ${bandLabelForUsd(preset)}`}
+                      {` · ${inflowBandLabel(preset)}`}
                     </button>
                   ))}
                 </div>
               )}
               {toId === "E" && (
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {[500, 10_000, 15_000].map((preset) => {
+                  {unknownFundPresets().map((preset) => {
                     const nextBag = wallets.E.usdc + preset;
                     return (
                       <button
@@ -347,7 +351,7 @@ export function MetaMaskPanel({
                         }`}
                       >
                         ${preset.toLocaleString("en-US")}
-                        {` · ${bandLabelForUsd(500, nextBag)} next swap`}
+                        {` · ${bandLabelForUsd(dustExampleUsd(), nextBag)} next swap`}
                       </button>
                     );
                   })}

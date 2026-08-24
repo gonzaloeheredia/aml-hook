@@ -56,7 +56,7 @@ const SKILL_CATALOG: Record<
     ],
     finding: (w) =>
       w.exploitConfirmed
-        ? "No direct SDN string match; exploit-source designation applied from keeper threat feed."
+        ? "Clear on OFAC / UN / EU list screens. Designation has not been written to SanctionRegistry."
         : "Clear on OFAC / UN / EU list screens (live query path).",
   },
   "task-onchain-evidence": {
@@ -72,7 +72,7 @@ const SKILL_CATALOG: Record<
     sources: ["Chainalysis-compatible risk feed", "Internal wallet risk cache"],
     finding: (w) =>
       w.exploitConfirmed
-        ? "Wallet flagged as confirmed exploit cash-out source."
+        ? "Wallet flagged confirmed exploit cash-out source (external analysis). Officer writes score 100. Do not fund E from A."
         : w.hopDistance != null
           ? `Indirect exposure screen: ${w.hopDistance}-hop from contaminated origin.`
           : "No elevated counterparty cluster on wallet screen.",
@@ -86,7 +86,7 @@ const SKILL_CATALOG: Record<
     sources: ["FATF VA red-flag catalog", "Internal typology engine"],
     finding: (w) =>
       w.exploitConfirmed
-        ? "Typology: exploit cash-out / layering precursor."
+        ? "Typology: confirmed exploit cash-out. Hook: WalletBlocked (SCORE_REVERT_BAND)."
         : w.hopDistance === 1
           ? "Typology: high-risk counterparty / one-hop propagation."
           : w.hopDistance === 2
@@ -102,7 +102,7 @@ const SKILL_CATALOG: Record<
     sources: ["COA fact-scoring model v1", "N-hop decay policy"],
     finding: (w) =>
       w.exploitConfirmed
-        ? "Fact engine override → score 100 (exploit confirmed)."
+        ? "Fact engine override → score 100 (EXPLOIT_PROTOCOL_FUNDS). Pool path is WalletBlocked."
         : w.hopDistance != null
           ? `Fact engine applied N-hop decay at hop ${w.hopDistance}.`
           : "Fact engine baseline clean profile → ALLOW band.",
@@ -111,7 +111,7 @@ const SKILL_CATALOG: Record<
     sources: ["RiskPolicy band map", "Keeper fee schedule"],
     finding: (w) =>
       w.exploitConfirmed
-        ? "Decision draft: REVERT (fail-closed)."
+        ? "Decision draft: REVERT WalletBlocked (score 100 · SCORE_REVERT_BAND)."
         : w.hopDistance === 1
           ? "Decision draft: FEE_OVERRIDE (punitive differential → FeeEscrow)."
           : w.hopDistance === 2

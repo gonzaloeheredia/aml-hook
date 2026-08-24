@@ -45,8 +45,8 @@ export function buildFacts(
         "NW",
         100,
         "HIGH",
-        "FATF VA Red Flags Cat. 5 · OFAC VC Guidance 2021",
-        `${wallet.accountLabel} is the confirmed exploit cash-out source (Compliance Officer Agent · threat feed). Override to score 100.`,
+        "FATF VA Red Flags Cat. 5",
+        `${wallet.accountLabel} is a confirmed exploit cash-out source (officer / external analysis). Not on SanctionRegistry. Keeper score 100 → WalletBlocked. P2P outflows still contaminate B/C/D. Do not fund E from A.`,
       ),
     );
   }
@@ -163,7 +163,7 @@ export function scoreFromFacts(
 
   if (override && wallet.exploitConfirmed) {
     scorePresent = 100;
-    breakdown.sanctions = 100;
+    breakdown.defiTypologies = 100;
     for (const f of facts) {
       scoredFacts.push({ ...f, scoreContribution: f.baseWeight });
     }

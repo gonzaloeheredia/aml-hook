@@ -55,7 +55,7 @@ A wallet with `updatedAt == 0` is Mitigation A
 (official ETH/USD + USDC/USD on a live Deploy; `MockUsdFeed` on Anvil), then
 Floor D on the unpublished bag. The stricter fee wins. Demo E starts empty;
 clean C funds it (no hop). After C→E $500 a $500 swap is 3%. After C→E
-$15,000 a small swap is 8%.
+$10,000 a $1,000 swap is 8% (A mid). After C→E $15,000 a small swap is 8%.
 Floor C may still REVERT if prior 24h USD + this swap crosses $15,000.
 
 | Assessed USD-8 | Hook output |

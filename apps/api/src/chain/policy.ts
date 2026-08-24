@@ -45,6 +45,17 @@ export function formatUsdFloor(usd: number): string {
   return `$${usd.toLocaleString("en-US")}`;
 }
 
+export function dustExampleUsd(feeThresholdUsd: number): number {
+  if (feeThresholdUsd > 500) return 500;
+  return Math.max(1, Math.floor(feeThresholdUsd / 2));
+}
+
+export function midBandExampleUsd(feeThresholdUsd: number, revertThresholdUsd: number): number {
+  if (10_000 >= feeThresholdUsd && 10_000 < revertThresholdUsd) return 10_000;
+  const mid = Math.round((feeThresholdUsd + revertThresholdUsd) / 2);
+  return Math.min(Math.max(feeThresholdUsd, mid), Math.max(feeThresholdUsd, revertThresholdUsd - 1));
+}
+
 export async function readPolicyKnobs(force = false): Promise<PolicyKnobs> {
   if (!force && cache && Date.now() - cache.at < TTL_MS) {
     return cache.knobs;

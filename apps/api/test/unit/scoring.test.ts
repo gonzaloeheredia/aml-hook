@@ -17,6 +17,7 @@ import {
   walletScore,
 } from "../../src/scoring.js";
 import { demoWallet } from "../fixtures.js";
+import { dustExampleUsd, midBandExampleUsd } from "../../src/chain/policy.js";
 
 describe("unit: scoring", () => {
   it("hopScore: exploit, clean, 1-hop, 2-hop, never-scored", () => {
@@ -41,6 +42,13 @@ describe("unit: scoring", () => {
     assert.equal(feeBpsFromHop(65, 1), 800);
     assert.equal(feeBpsFromHop(42, 2), 300);
     assert.equal(feeBpsFromHop(100, 0), 0);
+  });
+
+  it("demo size examples follow live fee / revert floors", () => {
+    assert.equal(dustExampleUsd(1_000), 500);
+    assert.equal(dustExampleUsd(400), 200);
+    assert.equal(midBandExampleUsd(1_000, 15_000), 10_000);
+    assert.equal(midBandExampleUsd(2_000, 8_000), 5_000);
   });
 
   it("applyNeverScoredFloors: bag $500 → 3%; $15k bag → 8% on a small swap; $15k this swap → block", () => {

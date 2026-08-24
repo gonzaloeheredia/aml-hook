@@ -176,7 +176,7 @@ Section 1.2 is the crime model. The hook maps those typologies onto three famili
 
 **Market conduct.** Wash trading and self-cycles; rug pulls and exit liquidity; layering — chained swaps that hide the route. Structuring is the same family when the aim is to dodge a reporting or policy threshold. Mitigation C and the unknown-wallet USD window are the on-chain form of that red flag.
 
-**Real-time threats.** Exploit cash-out before lists update — Wallet A in the use case. Clean-wallet overlay — Wallet D's inbound-USD bands (pass / 3% / 8%). Compromised keys: an institutional wallet still has valid credentials, and the attacker uses them. The signal is a sudden change in size or counterparties.
+**Real-time threats.** Named-address OFAC — Layer 1 `SanctionHit` when the registry lists an address (score not read). The use-case Wallet A is **not** listed: the officer writes score 100 from an external exploit finding (`WalletBlocked` / `SCORE_REVERT_BAND`). P2P from A still contaminates B, C, and D. Exploit cash-out before a keeper write — Wallet E (never written, starts empty, funded only by clean C). Clean-wallet overlay — Wallet D's inbound-USD bands (pass / 3% / 8%). Compromised keys: an institutional wallet still has valid credentials, and the attacker uses them. The signal is a sudden change in size or counterparties.
 
 A static list reaches only the named-address slice of the first family. Graph, conduct, and the race against the list need the cumulative model.
 
@@ -434,7 +434,7 @@ A single table replaces every condition that determines a swap's outcome: the pu
 
 Notes on reading the table:
 
-- A published score of 0 (Wallet D in the use case) and a wallet that was never written (Wallet E) are different rows. Floor A no longer applies once a score exists, even if that score is 0. Floor D **does** apply to a never-written wallet: with no baseline the current input-token bag is inbound (pass / 3% / 8%). The stricter of A (swap size) and D (bag) wins. A may still revert on swap size or on a high pool-impact mid-band swap.
+- A published score of 0 (Wallet D in the use case) and a wallet that was never written (Wallet E) are different rows. Floor A no longer applies once a score exists, even if that score is 0. Floor D **does** apply to a never-written wallet: with no baseline the current input-token bag is inbound (pass / 3% / 8%). The stricter of A (swap size) and D (bag) wins. A may still revert on swap size or on a high pool-impact mid-band swap. Demo E starts empty; clean C funds it (no hop). Do not fund E from A (exploit origin / score 100).
 - Floor B and Floor D never revert. Floor A large reverts on this swap. Floor C reverts when several swaps in 24 hours cross $15,000. B and D use the same USD cuts as A ($1,000 / $15,000) but map them to pass / 3% / 8%. B's 20% pool-impact extra hardens the fee band and stops at 8%. D has no pool-impact extra.
 - None of these floors soften a score-band revert, or a fee-override already set by the score.
 - A working price feed is not needed when the wallet is published-clean, has no new inflow to quantify, and Floor B is not armed.

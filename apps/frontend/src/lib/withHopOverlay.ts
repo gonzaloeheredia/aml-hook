@@ -5,6 +5,7 @@ import {
   formatFeePct,
   formatUsdFloor,
   getPolicyKnobs,
+  hopFeePct,
   resolveDemoRisk,
   swapUsdcAmount,
   type SimWallet,
@@ -50,7 +51,7 @@ function buildLiveTechnicalOpinion(
   const who = [
     `Subject: ${wallet.accountLabel} (${wallet.address}).`,
     wallet.exploitConfirmed
-      ? "Role: Layer-1 sanctioned address (OFAC) and contamination source."
+      ? "Role: confirmed exploit origin (score 100). Not on SanctionRegistry. Contamination source."
       : decision === "block"
       ? "Role: confirmed exploit / contamination origin or REVERT-band wallet."
       : hop != null
@@ -61,7 +62,7 @@ function buildLiveTechnicalOpinion(
   const what = [
     "Instrument / mechanism: Uniswap v4 RWA pool swap (USDC→ETH) and/or off-pool ERC-20 P2P USDC transfers.",
     wallet.exploitConfirmed
-      ? "Observed pattern: OFAC SDN + exploit cash-out. Hook: SanctionHit (no settlement)."
+      ? "Observed pattern: confirmed exploit cash-out. Hook: WalletBlocked (SCORE_REVERT_BAND)."
       : decision === "block"
       ? "Observed pattern: exploit cash-out / REVERT-band exposure — fail-closed on-pool."
       : decision === "fee_override" && wallet.keeperPending
@@ -74,7 +75,7 @@ function buildLiveTechnicalOpinion(
     `Hook instruments: ${
       decision === "block"
         ? wallet.exploitConfirmed
-          ? "SanctionHit (no settlement)."
+          ? "WalletBlocked (score 100 · SCORE_REVERT_BAND)."
           : "WalletBlocked (no settlement)."
         : decision === "fee_override"
           ? `FEE_OVERRIDE: pool standard fee + FeeEscrow differential (~${feePct}% total friction).`
@@ -95,7 +96,7 @@ function buildLiveTechnicalOpinion(
 
   const why =
     wallet.exploitConfirmed
-      ? `Why elevated: OFAC list hit · Layer 1. Keeper score is also ${score}/100 (REVERT band). Direct designated-person exposure is not commensurate with a clean retail profile.`
+      ? `Why elevated: keeper score ${score}/100 (REVERT band 71–100) from confirmed exploit analysis. L1 sanctions screen clear. Direct exploit cash-out is not commensurate with a clean retail profile.`
       : decision === "block"
       ? `Why elevated: score ${score}/100 · REVERT band (71–100). Hop ${hopLabel} · origin ${origin}. Direct exploit cash-out or block-band score is not commensurate with a clean retail profile.`
       : decision === "fee_override" && wallet.keeperPending
@@ -106,7 +107,7 @@ function buildLiveTechnicalOpinion(
 
   const how =
     wallet.exploitConfirmed
-      ? "How / control: beforeSwap SanctionHit; score and floors not consulted; afterSwap not reached. Subject may still move USDC off-pool via P2P. Do not fund E from A."
+      ? "How / control: beforeSwap WalletBlocked (SCORE_REVERT_BAND); L1 clear; afterSwap not reached. Subject may still move USDC off-pool via P2P. Do not fund E from A."
       : decision === "block"
       ? "How / control: beforeSwap fail-closed REVERT; afterSwap not reached; WalletBlocked recorded. Subject may still move USDC off-pool via P2P."
       : decision === "fee_override"
@@ -123,7 +124,7 @@ function buildLiveTechnicalOpinion(
     decisionExecuted: how,
     legalBasis:
       wallet.exploitConfirmed
-        ? "Fail-closed RWA pool policy on OFAC SDN / IEEPA blocking. Narrative organization follows FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How) as an internal model only."
+        ? "Fail-closed RWA pool policy on confirmed exploit / REVERT-band score. Narrative organization follows FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How) as an internal model only."
         : decision === "block"
         ? "Fail-closed RWA pool policy on confirmed exploit exposure. Narrative organization follows FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How) as an internal model only."
         : decision === "fee_override"
@@ -138,11 +139,11 @@ function buildLiveTechnicalOpinion(
           ? "Await keeper catch-up — expect decay score ≈ 65 (1-hop from A). Friction is temporary."
           : decision === "fee_override"
             ? hop === 1
-              ? "Treat as elevated EDD. If this wallet sends to the other clean peer (B↔C), expect 2-hop score ≈ 42 and 3% fee."
+              ? `Treat as elevated EDD. If this wallet sends to the other clean peer (B↔C), expect 2-hop score ≈ 42 and ${hopFeePct(2)} fee.`
               : "Proportional friction applied. Continue monitoring further downstream hops; score decays toward ALLOW."
             : hop == null
               ? wallet.id === "C"
-                ? "Fund E (unknown, no hop) or D (inflow). Monitor inbound from A (1-hop ≈ 65 / 8%) or tainted B (2-hop ≈ 42 / 3%)."
+                ? `Fund E (unknown, no hop) or D (inflow). Monitor inbound from A (1-hop ≈ 65 / ${hopFeePct(1)}) or tainted B (2-hop ≈ 42 / ${hopFeePct(2)}).`
                 : "Monitor for inbound P2P from Wallet A (or contaminated B/D). If received, expect N-hop decay fees."
               : "Keep ordinary monitoring. Re-open enhanced narrative if an inbound tainted transfer raises score into FEE_OVERRIDE or REVERT.",
     traceability: `auditHash ${auditHash} · retention 5 years (FATF Rec. 11 · BSA). Support draft — not submitted.`,
@@ -351,7 +352,7 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
           ? "Wallet E is unknown and empty. Fund it from clean C (no hop). Do not use A."
           : `Wallet E is unknown. Floor A is this swap; Floor D is the bag C sent ($${wallet.usdc.toLocaleString("en-US")}). Stricter fee wins.`
         : wallet.exploitConfirmed
-          ? "OFAC listed — SanctionHit on pool swaps (score not read). P2P outflows contaminate B, C, or D. Do not fund E from A."
+          ? "Confirmed exploit — keeper score 100. Pool swaps WalletBlocked (SCORE_REVERT_BAND). Not on OFAC. P2P outflows contaminate B, C, or D. Do not fund E from A."
           : keeperPending
             ? "Wallet D: inbound P2P recorded; keeper has not published the decay score yet."
             : wallet.hopDistance

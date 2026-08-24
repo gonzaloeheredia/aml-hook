@@ -12,7 +12,7 @@ export type WalletTone = {
 
 /**
  * Icon / border accent from live ledger (NOT from swap count):
- * - OFAC / exploit (A) → red
+ * - Exploit / score 100 (A) → red
  * - Wallet E unknown → yellow · unknown
  * - B/C/D with no inbound hop → green / score 0
  * - Wallet D keeper pending → yellow · inflow
@@ -26,7 +26,7 @@ export function walletTone(wallet: SimWallet): WalletTone {
       bg: "bg-uni-bad/10",
       text: "text-uni-bad",
       badge: "bg-uni-bad text-black",
-      label: "OFAC",
+      label: "Exploit",
     };
   }
 
