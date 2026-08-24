@@ -77,13 +77,14 @@ contract UnitAmlHookLogicAdminTest is Helpers {
     }
 
     function test_Constructor_RejectsStalenessAboveMax() external {
+        uint256 tooHigh = harness.MAX_STALENESS() + 1;
         vm.expectRevert(AmlHookLogic.StalenessThresholdTooHigh.selector);
         new AmlHookHarness(
             address(accessManager),
             sanctionRegistry,
             complianceOracle,
             riskPolicy,
-            harness.MAX_STALENESS() + 1,
+            tooHigh,
             3600,
             3
         );
@@ -117,9 +118,10 @@ contract UnitAmlHookLogicAdminTest is Helpers {
         vm.expectRevert(AmlHookLogic.PriceStalenessThresholdInvalid.selector);
         harness.setPriceStalenessThreshold(0);
 
+        uint256 tooHigh = harness.MAX_PRICE_STALENESS() + 1;
         vm.prank(hookGovernor);
         vm.expectRevert(AmlHookLogic.PriceStalenessThresholdInvalid.selector);
-        harness.setPriceStalenessThreshold(harness.MAX_PRICE_STALENESS() + 1);
+        harness.setPriceStalenessThreshold(tooHigh);
 
         vm.prank(hookGovernor);
         harness.setPriceStalenessThreshold(120);
@@ -185,13 +187,15 @@ contract UnitAmlHookLogicAdminTest is Helpers {
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
         harness.setDailyWindow(12 hours);
 
+        uint64 belowMin = harness.MIN_DAILY_WINDOW() - 1;
+        uint64 aboveMax = harness.MAX_DAILY_WINDOW() + 1;
         vm.prank(hookGovernor);
         vm.expectRevert(AmlHookLogic.DailyWindowInvalid.selector);
-        harness.setDailyWindow(harness.MIN_DAILY_WINDOW() - 1);
+        harness.setDailyWindow(belowMin);
 
         vm.prank(hookGovernor);
         vm.expectRevert(AmlHookLogic.DailyWindowInvalid.selector);
-        harness.setDailyWindow(harness.MAX_DAILY_WINDOW() + 1);
+        harness.setDailyWindow(aboveMax);
 
         vm.prank(hookGovernor);
         harness.setDailyWindow(12 hours);

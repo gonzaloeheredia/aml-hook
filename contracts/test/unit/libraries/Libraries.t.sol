@@ -133,6 +133,8 @@ contract UnitLibrariesTest is Test {
     }
 
     function testFuzz_FeeBps_DifferentialNeverExceedsInput(uint24 feeBps, uint256 basisAmount) external pure {
+        // Production fees sit at or below MAX_OVERRIDE (10%). Above 100% the slice can exceed basis.
+        feeBps = uint24(bound(feeBps, 0, FeeBps.STANDARD + 10_000));
         basisAmount = bound(basisAmount, 0, type(uint128).max);
         uint256 slice = FeeBps.differentialAmount(basisAmount, feeBps);
         uint256 bps = FeeBps.differentialBps(feeBps);
