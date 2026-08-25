@@ -230,7 +230,7 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
 
   const riskLabel =
     latencyMitigation === "MAGNITUDE_QUOTE_FAILED"
-      ? "No price feed"
+      ? "No usable FX"
       : latencyMitigation === "INFLOW_MAGNITUDE"
         ? "Inflow · Magnitude block"
         : latencyMitigation === "STALE_WITH_POOL_ACTIVITY"
@@ -259,7 +259,7 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
 
   const hopTag =
     latencyMitigation === "MAGNITUDE_QUOTE_FAILED"
-      ? "No price feed"
+      ? "No usable FX"
       : latencyMitigation === "INFLOW_MAGNITUDE"
         ? "Inflow magnitude"
         : latencyMitigation === "STALE_WITH_POOL_ACTIVITY"
@@ -361,7 +361,7 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
                 ? "Wallet D has a published score of 0. Already-held funds ALLOW at 0.30%."
                 : "Clean wallet. No contamination from A yet — ALLOW at standard fee.",
       latencyMitigation === "MAGNITUDE_QUOTE_FAILED"
-        ? "No bound USD price feed — fail-closed (MagnitudeQuoteFailed)."
+        ? "No usable USD price (no lastFx within 24h) — fail-closed (MagnitudeQuoteFailed)."
         : latencyMitigation === "INFLOW_MAGNITUDE"
           ? `Inbound USD ≥ ${formatUsdFloor(getPolicyKnobs().unscoredRevertThresholdUsd)} since baseline — FEE_OVERRIDE ${formatFeePct(getPolicyKnobs().punitiveFeeBps)} (Floor D).`
           : latencyMitigation === "STALE_WITH_POOL_ACTIVITY"

@@ -39,7 +39,7 @@ node test/flow-uniswap-metamask.mjs
 | D after a swap + 301s | **STALE_WITH_POOL_ACTIVITY** · **3%** on a $1,000 swap (**8%** at $15,000) |
 | MetaMask **C → D** ~10k (C still clean) then D swap | Score **0** · no hop · inflow **FEE_OVERRIDE 3%** |
 | MetaMask **C → D** $15k (C still clean) | inflow **FEE_OVERRIDE 8%** |
-| Wallet E first swap (API or frontend) | Fund from **C** first. Bag under $1,000 → **3%**; bag $10k + $1k swap → **8%** (A mid); bag ≥ $15k + small swap → **8%** (D); this swap ≥ $15,000 → **REVERT**; 24h cross → **DailyAggregationBlocked**; unbound feed after a quote → last FX; never quoted or cache > 24h → **MagnitudeQuoteFailed** |
+| Wallet E first swap (API or frontend) | Fund from **C** first. Bag under $1,000 → **3%**; bag $10k + $1k swap → **8%** (A mid); bag ≥ $15k + small swap → **8%** (D); this swap ≥ $15,000 → **REVERT**; 24h cross → **DailyAggregationBlocked**; unbound feed after a quote → last FX (silent under 30 min); never quoted or cache > 24h → **MagnitudeQuoteFailed** |
 
 Script steps: clean multi-swaps → A `WalletBlocked` → A→B → B→A (still hop 1) → B→C (hop 2) → B @ 8% vs C @ 3%.  
 Wallet D inflow path: exercise via API (`POST /transfers` C→D while C is clean, `POST /swaps` D) or the frontend walkthrough — see [`apps/api/README.md`](../apps/api/README.md).

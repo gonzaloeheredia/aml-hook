@@ -51,8 +51,8 @@ as Floor B (5 minutes). The publisher is signed RPC or it fails.
 That freshness stamp stops a stable clean wallet from looking stale. Floor B
 still bands swap USD (pass / 3% / 8%) if the keeper is late and the wallet already swapped in the hour.
 A wallet with `updatedAt == 0` is Mitigation A
-(unknown / Wallet E): the hook converts **this swap** through Chainlink to USD-8
-(official ETH/USD + USDC/USD on a live Deploy; `MockUsdFeed` on Anvil), then
+(unknown / Wallet E): the hook converts **this swap** to USD-8 (`lastFx` if
+younger than 30 minutes, else Chainlink; official ETH/USD + USDC/USD on a live Deploy; `MockUsdFeed` on Anvil), then
 Floor D on the unpublished bag. The stricter fee wins. Demo E starts empty;
 clean C funds it (no hop). After C→E $500 a $500 swap is 3%. After C→E
 $10,000 a $1,000 swap is 8% (A mid). After C→E $15,000 a small swap is 8%.
@@ -65,6 +65,11 @@ Floor C may still REVERT if prior 24h USD + this swap crosses $15,000.
 | ≥ `unscoredRevertThreshold` (default $15,000 / `15_000e8`) this swap | `UnscoredMagnitudeBlocked` |
 | Prior 24h USD > 0 and prior + this swap ≥ $15,000 | `DailyAggregationBlocked` (Floor C) |
 | No live round and no `lastFx` within 24h | `MagnitudeQuoteFailed` (fail-closed) |
+
+USD quoting: `lastFx` younger than 30 minutes skips Chainlink; otherwise one
+round per token, then `lastFx` until 24 hours. `PriceFallbackUsed` is only the
+heartbeat-stale live path and the 24h cache-after-live-miss path, not the
+30-minute hot cache.
 
 That path is not Wallet D. The COA should publish an explicit score 0 once E is
 reviewed so a later large swap of already-held funds is ALLOW.

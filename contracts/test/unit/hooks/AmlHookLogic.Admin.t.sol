@@ -69,6 +69,7 @@ contract UnitAmlHookLogicAdminTest is Helpers {
         assertEq(harness.punitiveFeeBps(), FeeBps.PUNITIVE);
         assertEq(harness.poolImpactThresholdBps(), harness.DEFAULT_POOL_IMPACT_THRESHOLD_BPS());
         assertEq(harness.priceStalenessThreshold(), harness.DEFAULT_PRICE_STALENESS());
+        assertEq(harness.FX_HOT_TTL(), 30 minutes);
         assertEq(harness.inflowThresholdBps(), 5000);
         assertEq(harness.minBaselineInterval(), 1 hours);
         assertEq(uint8(harness.multisigAggregation()), uint8(MultisigAggregation.ALL_CLEAN));

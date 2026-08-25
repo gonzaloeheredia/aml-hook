@@ -25,7 +25,7 @@ Use this table as the map while running the demo. Each row points to the matchin
 | 10a | C → E $500, then E $500 swap | — | FEE_OVERRIDE (A dust) | 3% |
 | 10b | C → E $10k, then E $1,000 | — | FEE_OVERRIDE (A mid) | 8% |
 | 10c | C → E $15k, then E $15,000 | — | REVERT | `UnscoredMagnitudeBlocked` |
-| 10d | E | Unbind price feed (after a prior quote) | — | FEE_OVERRIDE (last FX) | Same 3%/8% as with a live feed. `PriceFallbackUsed`. `MagnitudeQuoteFailed` only if that token never quoted or `lastFx` > 24h |
+| 10d | E | Unbind price feed (after a prior quote) | — | FEE_OVERRIDE (last FX) | Same 3%/8% as with a live feed. Silent if `lastFx` &lt; 30 min; `PriceFallbackUsed` only after 30 min (cache until 24h). `MagnitudeQuoteFailed` if never quoted or `lastFx` &gt; 24h |
 | 11 | — | Normative review of floors A–D (whitepaper §8.4) | — | Officer / governor | — |
 | 12 | FEE_OVERRIDE paths | Escrow hold 24h / 48h | — | On-chain FeeEscrow | Differential |
 | 13 | Operator | Opinion stage | — | COA (Compliance Officer Agent) file | — |
@@ -86,7 +86,7 @@ A second inbound from a closer source replaces the farther hop. Clean-to-clean P
 
 ## 4. Walkthrough
 
-Reference for executing the demo step by step. Anvil must already be running (`npm run deploy:local`). Use the frontend (Connect + MetaMask panel) or the API. Amounts match the Anvil A–E wallets (#1–#5). On the swap card: **Advance 5 min** (Floor B) and **Unbind price feed** (uses `lastFx` after a prior quote; `MagnitudeQuoteFailed` only if that token was never quoted or the cache is older than 24h). Restart data reseeds A–E on-chain.
+Reference for executing the demo step by step. Anvil must already be running (`npm run deploy:local`). Use the frontend (Connect + MetaMask panel) or the API. Amounts match the Anvil A–E wallets (#1–#5). On the swap card: **Advance 5 min** (Floor B) and **Unbind price feed** (uses `lastFx` after a prior quote: silent under 30 minutes, `PriceFallbackUsed` until 24h after that; `MagnitudeQuoteFailed` only if that token was never quoted or the cache is older than 24h). Restart data reseeds A–E on-chain.
 
 ### Step 0 — Clean swap (D, or B / C)
 
@@ -231,7 +231,7 @@ Press **Unbind price feed** after E (or D) has already been quoted at least once
 | Check | Result |
 | --- | --- |
 | Decision | Same floor as with a live feed (A/D bands still in USD) |
-| Event | `PriceFallbackUsed` (`fromCache`) |
+| Event | None if `lastFx` is younger than 30 minutes (`FX_HOT_TTL`). After 30 minutes, a live miss uses the cache until 24 hours and emits `PriceFallbackUsed` (`fromCache`) |
 | Error | None, unless that token has no `lastFx` or the cache is older than 24 hours → `MagnitudeQuoteFailed` |
 
 Bind the feed again to refresh the live round. A published score of 0 (Wallet D) and an unknown wallet (Wallet E) are different rows. Restart between the C→E sizes so C's 50,000 USDC covers each act.
@@ -240,7 +240,7 @@ Bind the feed again to refresh the live round. A published score of 0 (Wallet D)
 
 The $1,000 cut is the FATF virtual-asset threshold (Updated Guidance for VASPs, 2021, note 37). The $15,000 cut is Recommendation 10's occasional-transaction CDD floor. Floor C's 24-hour window is a BSA CTR analogy, not a FATF figure. B and D never revert (ongoing CDD + proportionality / de-risking). The 20% pool extra applies to A (and hardens B up to 8% only); it is not applied to D. Full cites are in whitepaper §8.4.
 
-Who retunes: the compliance officer proposes then confirms USD floors, floor fees, and the pool-impact cut (48 hours). The hook governor retunes windows and binds extra price feeds. Local Anvil uses `MockUsdFeed` ($1 USDC, $1,000 ETH). Live Deploy binds official Chainlink ETH/USD and USDC/USD.
+Who retunes: the compliance officer proposes then confirms USD floors, floor fees, and the pool-impact cut (48 hours). The hook governor retunes windows and binds extra price feeds. USD quoting skips Chainlink when `lastFx` is younger than 30 minutes (`FX_HOT_TTL`); after that it uses one live round or the cache until 24 hours. Local Anvil uses `MockUsdFeed` ($1 USDC, $1,000 ETH). Live Deploy binds official Chainlink ETH/USD and USDC/USD.
 
 ### Step 12 — FeeEscrow (FEE_OVERRIDE only)
 

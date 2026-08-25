@@ -79,7 +79,7 @@ export function applyLiveCaseCopy(demoCase: DemoCase): DemoCase {
       summary = [
         "No oracle row. Starts empty — fund from clean C in MetaMask (no hop). Do not use A.",
         `After C→E ${dust} → next ${dust} swap is ${mid}. C→E ${midEx} then ${feeFloor} swap → ${high} (A mid). C→E ${revertFloor} + small swap → ${high} (D). This swap ${revertFloor} → REVERT.`,
-        `${midEx} then a remainder that crosses ${revertFloor} in 24h is Floor C. Unbind the price feed after a quote → last FX (same bands).`,
+        `${midEx} then a remainder that crosses ${revertFloor} in 24h is Floor C. Unbind the price feed after a quote → last FX (silent under 30 min; same bands).`,
       ];
     }
     recommendations = `Fund E from C first. Then use the size chips: bag ${dust} → ${mid}; ${midEx} bag + ${feeFloor} swap → ${high} (A mid); ${revertFloor} bag + small swap → ${high} (D); this swap ${revertFloor} → revert.`;

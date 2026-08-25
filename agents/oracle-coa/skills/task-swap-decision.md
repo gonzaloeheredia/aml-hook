@@ -63,8 +63,8 @@ friction, event trail, participant not excluded.
 pool keeps ~30 bps; escrow holds `recommendedFeeBps − 30` when above standard.
 
 **Never-scored wallets (`updatedAt == 0`) are not this table.** The hook does
-not treat a missing row as score 0. It quotes **this swap** via Chainlink to
-USD-8 and applies Mitigation A, then Floor D on the unpublished bag (baseline 0
+not treat a missing row as score 0. It quotes **this swap** to USD-8
+(`lastFx` if younger than 30 minutes, else Chainlink) and applies Mitigation A, then Floor D on the unpublished bag (baseline 0
 = the whole current bag). The stricter fee wins. Official ETH/USD + USDC/USD on
 a live Deploy; `MockUsdFeed` on Anvil. Dollar cuts and 3% / 8% floors below are
 deploy defaults; `_COMPLIANCE_OFFICER` may retune them after 48h. Floor C (24h
@@ -80,6 +80,9 @@ Do not fund E from A (exploit origin / score 100).
 | ≥ $15,000 (`15_000e8`) this swap | `REVERT` `UnscoredMagnitudeBlocked` | — |
 | Prior 24h + this swap ≥ $15,000 | `REVERT` `DailyAggregationBlocked` | Floor C |
 | No live round and no `lastFx` within 24h | `REVERT` `MagnitudeQuoteFailed` | fail-closed |
+
+USD is sized from `lastFx` if that round is younger than 30 minutes (no
+Chainlink call). Otherwise one live round per token, then `lastFx` until 24h.
 
 Publish an explicit score 0 with a fresh `updatedAt` when the wallet is
 confirmed-clean. Until then, do not describe a large first swap as ALLOW.

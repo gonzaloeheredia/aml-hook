@@ -274,7 +274,7 @@ abstract contract AmlHookLogic is AmlHookActivity {
     }
 
     function _emitPriceFallback(address token, OracleQuote.Fx memory fx) private {
-        if (fx.price == 0 || !(fx.fromCache || fx.stale)) return;
+        if (fx.price == 0 || !fx.stale) return;
         emit PriceFallbackUsed(token, fx.price, fx.quotedAt, fx.fromCache, fx.stale);
     }
 

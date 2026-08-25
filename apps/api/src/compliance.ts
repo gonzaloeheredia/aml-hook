@@ -108,7 +108,7 @@ export async function buildCompliancePack(
 
   const riskLabel =
     resolved.latencyMitigation === "MAGNITUDE_QUOTE_FAILED"
-      ? "No price feed"
+      ? "No usable FX"
       : resolved.latencyMitigation === "INFLOW_MAGNITUDE"
         ? "Inflow · Floor D"
         : resolved.latencyMitigation === "STALE_WITH_POOL_ACTIVITY"
@@ -161,7 +161,7 @@ export async function buildCompliancePack(
 
   const latencySummary =
     resolved.latencyMitigation === "MAGNITUDE_QUOTE_FAILED"
-      ? "No bound USD price feed — fail-closed (MagnitudeQuoteFailed)."
+      ? "No usable USD price (no lastFx within 24h) — fail-closed (MagnitudeQuoteFailed)."
       : resolved.latencyMitigation === "INFLOW_MAGNITUDE"
         ? `Inbound USD ${resolved.inflowUsd.toLocaleString("en-US")} ≥ ${revertFloor} → FEE_OVERRIDE ${highPct} (Floor D).`
         : resolved.latencyMitigation === "STALE_WITH_POOL_ACTIVITY"

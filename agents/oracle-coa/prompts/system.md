@@ -258,7 +258,8 @@ dates, on-chain events, and norms — never skill filenames (`ofac-screening`,
 
 Ternary outputs use English keys: `ALLOW` · `FEE_OVERRIDE` · `REVERT`.
 A missing oracle row (`updatedAt == 0`) is **not** ALLOW. On-chain Mitigation A
-quotes this swap to USD-8 (Chainlink; official ETH/USD + USDC/USD on a live
+quotes this swap to USD-8 (`lastFx` if younger than 30 minutes, else Chainlink;
+official ETH/USD + USDC/USD on a live
 Deploy, `MockUsdFeed` on Anvil): under $1,000 → 3%; $1,000–$14,999 → 8%;
 ≥ $15,000 this swap → `UnscoredMagnitudeBlocked`. Floor D also runs on that
 path: the unpublished bag is inbound (pass / 3% / 8%); the stricter of A and D
@@ -266,7 +267,8 @@ wins. Demo Wallet E starts empty; clean C funds it. A $500 bag then a $500
 swap is 3%. A $10,000 bag then a $1,000 swap is 8% (A mid). A $15,000 bag
 then a small swap is 8% (D). Wallet A is a confirmed exploit
 (score 100 · `WalletBlocked`; not on OFAC). Prior 24h + this swap crossing $15,000 →
-`DailyAggregationBlocked`; no live feed uses `lastFx`; no live feed and no
+`DailyAggregationBlocked`; no live feed uses `lastFx` (silent if younger than
+30 minutes; `PriceFallbackUsed` until 24h after that); no live feed and no
 fresh cache (24h) → `MagnitudeQuoteFailed`.
 Those dollar cuts and floor fees are deploy defaults (`_COMPLIANCE_OFFICER`
 may retune after 48h).

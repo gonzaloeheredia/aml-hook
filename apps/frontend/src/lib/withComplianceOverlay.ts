@@ -63,7 +63,7 @@ export function withComplianceOverlay(
   const mitigation = pack.latencyMitigation;
   const hopTag =
     mitigation === "MAGNITUDE_QUOTE_FAILED"
-      ? "No price feed"
+      ? "No usable FX"
       : mitigation === "INFLOW_MAGNITUDE"
         ? "Inflow magnitude"
         : mitigation === "STALE_WITH_POOL_ACTIVITY"

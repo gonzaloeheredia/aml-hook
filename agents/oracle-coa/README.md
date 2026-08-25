@@ -102,7 +102,7 @@ hop-2 (~42 / FEE_OVERRIDE 3%), D (published clean + inflow / 8% at $15k),
 E (never written, starts empty, funded by C: Floor A is this swap; Floor D is the bag).
 Wallet A is a confirmed exploit (score 100 · `WalletBlocked`; not OFAC-listed).
 On FEE_OVERRIDE, intended friction is `recommendedFeeBps` when the keeper wrote
-one; never-scored bands are hook-local (Chainlink USD-8). Settlement = pool
+one; never-scored bands are hook-local USD-8 (`lastFx` if younger than 30 minutes, else Chainlink). Settlement = pool
 standard fee + differential in FeeEscrow.
 ---
 
@@ -292,8 +292,9 @@ The agent never:
 | Any wallet, prior 24h USD + this swap crosses $15,000 | n/a | `REVERT` `DailyAggregationBlocked` (Floor C) |
 | Never written, no live feed and no `lastFx` within 24h | n/a | `REVERT` `MagnitudeQuoteFailed` (fail-closed) |
 
-Those last four rows are **not** a COA score. The hook reads each token's
-Chainlink feed **once per swap** and applies that price to every amount (ticket,
+Those last four rows are **not** a COA score. If `lastFx` is younger than 30
+minutes the hook does not call Chainlink. Otherwise it reads each token's
+feed **once per swap** and applies that price to every amount (ticket,
 inbound, bag, settled). A usable round is cached as `lastFx`. A missing live
 round uses that cache for up to 24 hours; only then does it fail-close.
 Deploy binds official ETH/USD and USDC/USD on live chains; Anvil uses

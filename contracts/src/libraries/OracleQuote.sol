@@ -6,13 +6,15 @@ import {IERC20Minimal} from "../interfaces/external/IERC20Minimal.sol";
 import {UsdQuote} from "./UsdQuote.sol";
 
 /// @title Chainlink USD-8 quotes for hook magnitude floors.
-/// @dev One `latestRoundData` per token per swap. A usable live round is cached; if the
-///      feed is missing or unusable the hook multiplies this swap's amounts by `lastFx`.
+/// @dev Skip the aggregator when `lastFx` is younger than `HOT_TTL` (30 minutes). Otherwise one
+///      `latestRoundData` per token; a usable live round is cached. If the live read fails, `lastFx`
+///      still sizes this swap until `maxPriceStaleness` (24h).
 library OracleQuote {
     bytes32 internal constant NO_FEED = keccak256("NO_FEED");
     bytes32 internal constant STALE_FEED = keccak256("STALE_FEED");
     bytes32 internal constant BAD_PRICE = keccak256("BAD_PRICE");
     bytes32 internal constant WINDOW_FAILED = keccak256("WINDOW_FAILED");
+    uint256 internal constant HOT_TTL = 30 minutes;
 
     struct CachedFx {
         uint256 price;
@@ -30,7 +32,7 @@ library OracleQuote {
         bool stale;
     }
 
-    /// @dev Live round if usable (including heartbeat-stale). Else `lastFx` within `maxPriceStaleness`.
+    /// @dev Hot `lastFx` (< 30m) skips Chainlink. Else live round, else cache until 24h.
     function resolve(
         mapping(address => IAggregatorV3) storage priceFeeds,
         mapping(address => CachedFx) storage lastFx,
@@ -38,9 +40,11 @@ library OracleQuote {
         uint256 maxPriceStaleness,
         address token
     ) internal view returns (Fx memory fx, bytes32 err) {
+        CachedFx storage cached = lastFx[token];
+        if (_isHot(cached)) return (_asHot(cached), bytes32(0));
         (Fx memory live, bytes32 liveErr) = _readLive(priceFeeds[token], token, priceStalenessThreshold);
         if (liveErr == bytes32(0)) return (live, bytes32(0));
-        return _fromCache(lastFx[token], maxPriceStaleness, liveErr);
+        return _fromCache(cached, maxPriceStaleness, liveErr);
     }
 
     /// @dev Persist a live round. Never writes a cache hit or a zero price.
@@ -86,6 +90,19 @@ library OracleQuote {
         fx.tokenDecimals = cached.tokenDecimals;
         fx.fromCache = true;
         fx.stale = true;
+    }
+
+    function _isHot(CachedFx storage cached) private view returns (bool) {
+        if (cached.price == 0 || cached.quotedAt == 0) return false;
+        return block.timestamp <= uint256(cached.quotedAt) + HOT_TTL;
+    }
+
+    function _asHot(CachedFx storage cached) private view returns (Fx memory fx) {
+        fx.price = cached.price;
+        fx.quotedAt = cached.quotedAt;
+        fx.feedDecimals = cached.feedDecimals;
+        fx.tokenDecimals = cached.tokenDecimals;
+        fx.fromCache = true;
     }
 
     function _readLive(IAggregatorV3 feed, address token, uint256 priceStalenessThreshold)

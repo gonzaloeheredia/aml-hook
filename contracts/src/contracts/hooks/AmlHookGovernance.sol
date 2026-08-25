@@ -24,6 +24,7 @@ abstract contract AmlHookGovernance is AccessManaged, Pausable {
     mapping(address => bool) public trustedRouters;
     mapping(address => TrustedMultisig) public trustedMultisigs;
     mapping(address => IAggregatorV3) public priceFeeds;
+    /// @notice Last good USD round. Hot cache under `FX_HOT_TTL` (30m); fallback until `MAX_PRICE_STALENESS` (24h).
     mapping(address => OracleQuote.CachedFx) public lastFx;
 
     MultisigAggregation public multisigAggregation = MultisigAggregation.ALL_CLEAN;
@@ -54,6 +55,7 @@ abstract contract AmlHookGovernance is AccessManaged, Pausable {
     uint256 public constant MIN_UNSCORED_FEE_THRESHOLD = 1_000e8;
     uint256 public constant DEFAULT_PRICE_STALENESS = 3600;
     uint256 public constant MAX_PRICE_STALENESS = 24 hours;
+    uint256 public constant FX_HOT_TTL = 30 minutes;
     uint256 public constant DEFAULT_POOL_IMPACT_THRESHOLD_BPS = 2000;
     uint24 public constant LATENCY_FEE_BPS = FeeBps.LATENCY;
 

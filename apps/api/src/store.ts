@@ -99,7 +99,7 @@ type Store = {
   daily: Record<WalletId, { windowStart: number; usd: number }>;
   /** Shift applied to Date.now() so Mitigation B can be exercised without waiting. */
   demoOffsetMs: number;
-  /** Governor-bound USDC/USD feed. False → lastFx if quoted in the last 24h, else MagnitudeQuoteFailed. */
+  /** Governor-bound USDC/USD feed. False → lastFx if quoted in the last 24h (silent under 30 min), else MagnitudeQuoteFailed. */
   priceFeedBound: boolean;
 };
 

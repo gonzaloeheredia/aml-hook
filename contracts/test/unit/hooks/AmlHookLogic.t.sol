@@ -470,6 +470,23 @@ contract UnitAmlHookLogicTest is Helpers {
         assertEq(price, USD_1);
     }
 
+    function test_HotFx_IgnoresLivePriceMoveWithinThirtyMinutes() external {
+        harness.evaluateLive(walletA, address(token), 20 ether);
+        feed.setRound(int256(100e8), block.timestamp);
+        (HookDecision d, uint24 fee,) = harness.evaluate(walletA, address(token), 20 ether);
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, 300);
+    }
+
+    function test_HotFx_RefreshesLiveAfterThirtyMinutes() external {
+        harness.evaluateLive(walletA, address(token), 20 ether);
+        vm.warp(block.timestamp + harness.FX_HOT_TTL() + 1);
+        feed.setRound(int256(100e8), block.timestamp);
+        (HookDecision d, uint24 fee,) = harness.evaluate(walletA, address(token), 20 ether);
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, 800);
+    }
+
     function test_PublishedScoreZero_LargeSwapStillAllows() external {
         vm.prank(keeper);
         complianceOracle.updateScore(walletA, 0, 0, address(0), 0, _scoreSig(walletA, 0, 0));
