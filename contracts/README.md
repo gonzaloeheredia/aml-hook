@@ -132,15 +132,15 @@ forge build
 forge test
 ```
 
-Coverage (Foundry 1.7 turns off `--via-ir --optimize`; `--ir-minimum` is the escape). Scope is `src/` minus `lib/` and `script/`. The Uniswap v4 callback wrapper (`AmlHook.sol`) is proven with `forge test` (IR) and is excluded from lcov — BaseHook / v4 types, not product logic. `AmlHookLogic` is covered via `AmlHookHarness`.
+Coverage (Foundry 1.7 turns off `--via-ir --optimize`; `--ir-minimum` is the escape). `FOUNDRY_PROFILE=coverage` remaps `v4-core/` to `test/coverage-stubs/` (PoolId + FullMath only) so Uniswap `Pool.sol` is never compiled. Hook callback tests and `SwapCache` (ir-minimum stack overflow of its own) are skipped. Product swaps stay on `forge test`. Logic/policy/oracle/escrow/registry are covered via `AmlHookHarness` and `HelpersCore`.
 
 ```bash
-forge coverage --ir-minimum --offline --exclude-tests \
+FOUNDRY_PROFILE=coverage forge coverage --ir-minimum --offline --exclude-tests \
   --no-match-coverage '(script/|lib/|src/contracts/hooks/AmlHook\.sol)' \
   --report summary --report lcov
 ```
 
-Production compile is unchanged: `via_ir = true`, `optimizer_runs = 200`.
+Production compile is unchanged: `via_ir = true`, `optimizer_runs = 200`. No profile needed for `forge test` / `forge build`.
 
 Focused latency / policy / deploy tests:
 

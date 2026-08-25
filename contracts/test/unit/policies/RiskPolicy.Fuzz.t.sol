@@ -4,9 +4,9 @@ pragma solidity ^0.8.26;
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
 import {IRiskPolicy} from "interfaces/policies/IRiskPolicy.sol";
 import {HookDecision} from "libraries/HookDecision.sol";
-import {Helpers} from "test/utils/Helpers.t.sol";
+import {HelpersCore} from "test/utils/HelpersCore.t.sol";
 
-contract UnitRiskPolicyFuzzTest is Helpers {
+contract UnitRiskPolicyFuzzTest is HelpersCore {
     uint256 internal constant FEE_FLOOR = 1_000e8;
     uint256 internal constant HIGH_FLOOR = 15_000e8;
 

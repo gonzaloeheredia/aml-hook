@@ -14,10 +14,10 @@ import {Roles} from "libraries/Roles.sol";
 import {AmlHookHarness} from "./AmlHookHarness.sol";
 import {MockAggregatorV3} from "test/mocks/MockAggregatorV3.sol";
 import {MockERC20} from "test/mocks/MockERC20.sol";
-import {Helpers} from "test/utils/Helpers.t.sol";
+import {HelpersCore} from "test/utils/HelpersCore.t.sol";
 
 /// @notice Fuzz: hook evaluate matches RiskPolicy for published scores and never-scored USD bands.
-contract UnitAmlHookLogicFuzzTest is Helpers {
+contract UnitAmlHookLogicFuzzTest is HelpersCore {
     AmlHookHarness harness;
     MockERC20 token;
     MockAggregatorV3 feed;

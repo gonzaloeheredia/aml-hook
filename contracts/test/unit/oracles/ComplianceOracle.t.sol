@@ -7,10 +7,10 @@ import {IAccessManaged} from "@openzeppelin/contracts/access/manager/IAccessMana
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {IComplianceOracle} from "interfaces/oracles/IComplianceOracle.sol";
 import {Roles} from "libraries/Roles.sol";
-import {Helpers} from "test/utils/Helpers.t.sol";
+import {HelpersCore} from "test/utils/HelpersCore.t.sol";
 
 /// @notice Unit coverage for `ComplianceOracle` (incl. portable assertions from aml-hook-dev suite).
-contract UnitComplianceOracleTest is Helpers {
+contract UnitComplianceOracleTest is HelpersCore {
     address origin = address(0x1111);
 
     function setUp() public {

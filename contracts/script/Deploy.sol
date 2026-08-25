@@ -301,16 +301,9 @@ contract Deploy is Script {
             Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
                 | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
         );
-        bytes memory constructorArgs = abi.encode(
-            IPoolManager(poolManagerAddr),
-            address(accessManager),
-            address(sanctionRegistry),
-            address(complianceOracle),
-            address(riskPolicy),
-            address(feeEscrow),
-            stalenessThreshold,
-            activityWindow
-        );
+        // Only poolManager + accessManager go into the initcode hash — the salt can be pre-mined
+        // per (network, accessManager) pair without knowing the downstream dependency addresses.
+        bytes memory constructorArgs = abi.encode(IPoolManager(poolManagerAddr), address(accessManager));
         // Broadcast scripts rewrite `new {salt}` through the deterministic CREATE2 factory; unit
         // tests that call `_deploy` from a harness use that harness as the CREATE2 origin.
         // Do not read `address(this)` here: recent Foundry reverts on ADDRESS in scripts.
@@ -318,17 +311,10 @@ contract Deploy is Script {
         (address hookAddr, bytes32 salt) =
             HookMiner.find(create2Origin, flags, type(AmlHook).creationCode, constructorArgs);
 
-        hook = new AmlHook{salt: salt}(
-            IPoolManager(poolManagerAddr),
-            address(accessManager),
-            sanctionRegistry,
-            complianceOracle,
-            riskPolicy,
-            IFeeEscrow(address(feeEscrow)),
-            stalenessThreshold,
-            activityWindow
-        );
+        hook = new AmlHook{salt: salt}(IPoolManager(poolManagerAddr), address(accessManager));
         require(address(hook) == hookAddr, "hook address mismatch");
+
+        hook.initialize(sanctionRegistry, complianceOracle, riskPolicy, IFeeEscrow(address(feeEscrow)), stalenessThreshold, activityWindow);
 
         feeEscrow.bootstrapDepositor(address(hook));
     }

@@ -27,29 +27,39 @@ import {ModifyLiquidityParams, SwapParams} from "v4-core/src/types/PoolOperation
 contract AmlHook is AmlHookSettlement, AmlHookLogic {
     using PoolIdLibrary for PoolKey;
 
-    /// @param poolManager_        Uniswap v4 PoolManager (passed to BaseHook).
-    /// @param accessManager_      OpenZeppelin AccessManager that governs role assignments.
+    /// @dev Guards initialize() so it can only be called once.
+    bool private _initialized;
+
+    /// @notice Thrown when initialize() is called more than once.
+    error AlreadyInitialized();
+
+    /// @param poolManager_   Uniswap v4 PoolManager (passed to BaseHook).
+    /// @param accessManager_ OpenZeppelin AccessManager that governs role assignments.
+    constructor(IPoolManager poolManager_, address accessManager_)
+        AmlHookSettlement(poolManager_)
+        AmlHookGovernance(accessManager_)
+    {}
+
+    /// @notice One-time wiring of compliance dependencies. Must be called immediately after CREATE2 deploy.
     /// @param sanctionRegistry_   Layer 1 sanctions list (fail-closed screen).
     /// @param complianceOracle_   Layer 2 behavioral-score store written by the Oracle Keeper.
     /// @param riskPolicy_         Layer 3 pure decision contract (preview / off-chain use).
     /// @param feeEscrow_          48-hour escrow for FEE_OVERRIDE differentials; `address(0)` disables.
     /// @param stalenessThreshold_ Seconds after which a score is considered stale; 0 → DEFAULT_STALENESS.
     /// @param activityWindow_     Rolling window for operation-count and USD accumulators; 0 → DEFAULT_ACTIVITY_WINDOW.
-    constructor(
-        IPoolManager poolManager_,
-        address accessManager_,
+    function initialize(
         ISanctionRegistry sanctionRegistry_,
         IComplianceOracle complianceOracle_,
         IRiskPolicy riskPolicy_,
         IFeeEscrow feeEscrow_,
         uint256 stalenessThreshold_,
         uint64 activityWindow_
-    )
-        AmlHookSettlement(poolManager_, feeEscrow_)
-        AmlHookGovernance(
-            accessManager_, sanctionRegistry_, complianceOracle_, riskPolicy_, stalenessThreshold_, activityWindow_
-        )
-    {}
+    ) external {
+        if (_initialized) revert AlreadyInitialized();
+        _initialized = true;
+        _initSettlement(feeEscrow_);
+        _initGovernance(sanctionRegistry_, complianceOracle_, riskPolicy_, stalenessThreshold_, activityWindow_);
+    }
 
     /// @notice Governor grants or revokes a subject's right to reclaim a failed-deposit balance for `token`.
     /// @dev Single-use approval consumed on `claimFailedDeposit` (M-02 fix).
@@ -111,8 +121,7 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         override
         returns (bytes4, BeforeSwapDelta, uint24)
     {
-        SwapEvaluation memory ev = _beginSwapFromKey(sender, key, params);
-        _cacheStore(key, ev);
+        _cacheStore(key, _beginSwapFromKey(sender, key, params));
         return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
@@ -125,10 +134,23 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         BalanceDelta delta,
         bytes calldata
     ) internal override nonReentrant returns (bytes4, int128) {
-        SwapEvaluation memory ev = _cacheLoad(key);
-        SwapCache.clear(key.toId());
+        return (this.afterSwap.selector, _completeSwap(key, params, delta));
+    }
+
+    /// @dev Cache-load, activity, then escrow. Isolated so `_afterSwap` does not keep
+    ///      `SwapEvaluation` + Uniswap types in the same callback frame.
+    function _completeSwap(PoolKey calldata key, SwapParams calldata params, BalanceDelta delta)
+        private
+        returns (int128 hookDelta)
+    {
+        SwapEvaluation memory ev = _takeEval(key);
         _finishSwap(ev, key, params, delta);
-        return (this.afterSwap.selector, _maybeEscrow(ev, key, params, delta));
+        hookDelta = _maybeEscrow(ev, key, params, delta);
+    }
+
+    function _takeEval(PoolKey calldata key) private returns (SwapEvaluation memory ev) {
+        ev = _cacheLoad(key);
+        SwapCache.clear(key.toId());
     }
 
     /// @dev Unwraps pool currencies and pool-impact bps before forwarding to `_beginSwap`.

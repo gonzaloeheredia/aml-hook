@@ -11,6 +11,60 @@ fs_permissions = [
   { access = "read-write", path = "./" },
   { access = "read-write", path = "./deployments" },
 ]
+# Kept here (not remappings.txt) so [profile.coverage] can point v4-core at stubs.
+remappings = [
+    "v4-core/=lib/v4-core/",
+    "@uniswap/v4-core/=lib/v4-core/",
+    "v4-periphery/=lib/v4-periphery/",
+    "@uniswap/v4-periphery/=lib/v4-periphery/",
+]
+
+# Coverage uses --ir-minimum (weak Yul optimizer). Importing anything from
+# `lib/v4-core` loads that nested Foundry package and compiles Pool.sol (Yul
+# stack-too-deep). Remap v4-core to stubs (PoolId + FullMath only). Skip the
+# hook/AMM callback graph and SwapCache (its own ir-minimum stack overflow).
+# `forge test` / `forge build` keep profile.default.
+[profile.coverage]
+out = "out-coverage"
+libs = ["lib/forge-std", "lib/openzeppelin-contracts"]
+auto_detect_remappings = false
+remappings = [
+    "v4-core/=test/coverage-stubs/v4-core/",
+    "@uniswap/v4-core/=test/coverage-stubs/v4-core/",
+    "test/=test/",
+]
+skip = [
+    "**/AmlHook.sol",
+    "**\\AmlHook.sol",
+    "**/AmlHookSettlement.sol",
+    "**\\AmlHookSettlement.sol",
+    "**/SwapCurrencies.sol",
+    "**\\SwapCurrencies.sol",
+    "**/SwapCache.sol",
+    "**\\SwapCache.sol",
+    "**/SwapCache.t.sol",
+    "**\\SwapCache.t.sol",
+    "**/Helpers.t.sol",
+    "**\\Helpers.t.sol",
+    "**/BareBaseHook.sol",
+    "**\\BareBaseHook.sol",
+    "**/AmlHook.t.sol",
+    "**\\AmlHook.t.sol",
+    "**/AmlHook.FeeEscrow*",
+    "**\\AmlHook.FeeEscrow*",
+    "**/AmlHook.Liquidity*",
+    "**\\AmlHook.Liquidity*",
+    "**/AmlHook.ResolveWallet*",
+    "**\\AmlHook.ResolveWallet*",
+    "**/AmlStack*",
+    "**\\AmlStack*",
+    "**/BaseHook.t.sol",
+    "**\\BaseHook.t.sol",
+    "**/Deploy.t.sol",
+    "**\\Deploy.t.sol",
+    "**/script/**",
+    "**\\script\\**",
+]
 
 [fmt]
 line_length = 100

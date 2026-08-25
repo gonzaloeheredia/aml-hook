@@ -3,7 +3,7 @@ pragma solidity ^0.8.26;
 
 import {FeeEscrow} from "contracts/escrow/FeeEscrow.sol";
 import {IFeeEscrow} from "interfaces/escrow/IFeeEscrow.sol";
-import {Helpers} from "test/utils/Helpers.t.sol";
+import {HelpersCore} from "test/utils/HelpersCore.t.sol";
 
 /// @dev Transferable mintable ERC-20 for FeeEscrow custody tests.
 contract FeeToken {
@@ -40,7 +40,7 @@ contract FeeToken {
     }
 }
 
-contract UnitFeeEscrowTest is Helpers {
+contract UnitFeeEscrowTest is HelpersCore {
     FeeEscrow escrow;
     FeeToken token;
 

@@ -21,11 +21,11 @@ import {MultisigAggregation, MultisigType, TrustedMultisig} from "../../librarie
 ///         compliance-officer proposal followed by a governor `apply*` call (two-actor, two-step).
 abstract contract AmlHookGovernance is AccessManaged, Pausable {
     /// @notice Layer 1 sanctions list. Checked before the score in every swap (fail-closed).
-    ISanctionRegistry public immutable sanctionRegistry;
+    ISanctionRegistry public sanctionRegistry;
     /// @notice Layer 2 behavioral-score store. Read at beforeSwap; never written by the hook.
-    IComplianceOracle public immutable complianceOracle;
-    /// @notice Layer 3 pure decision contract. Used only for off-chain preview via `RiskPolicy.decide`.
-    IRiskPolicy public immutable riskPolicy;
+    IComplianceOracle public complianceOracle;
+    /// @notice Layer 3 pure decision contract. Hot-path `decide` plus off-chain preview.
+    IRiskPolicy public riskPolicy;
 
     /// @notice True when the router is allowed to act as a subject intermediary.
     mapping(address => bool) public trustedRouters;
@@ -192,20 +192,17 @@ abstract contract AmlHookGovernance is AccessManaged, Pausable {
     /// @notice Emitted when a router's trusted status changes.
     event TrustedRouterUpdated(address indexed router, bool trusted);
 
-    /// @param accessManager_    OpenZeppelin AccessManager governing role assignments.
-    /// @param sanctionRegistry_ Layer 1 sanctions list.
-    /// @param complianceOracle_ Layer 2 behavioral-score store.
-    /// @param riskPolicy_       Layer 3 pure decision contract.
-    /// @param stalenessThreshold_ Oracle staleness window in seconds; 0 → `DEFAULT_STALENESS`.
-    /// @param activityWindow_   Rolling window for operation-count and USD accumulators; 0 → `DEFAULT_ACTIVITY_WINDOW`.
-    constructor(
-        address accessManager_,
+    /// @param accessManager_ OpenZeppelin AccessManager governing role assignments.
+    constructor(address accessManager_) AccessManaged(accessManager_) {}
+
+    /// @dev Called once by AmlHook.initialize. Sets compliance dependencies and default thresholds.
+    function _initGovernance(
         ISanctionRegistry sanctionRegistry_,
         IComplianceOracle complianceOracle_,
         IRiskPolicy riskPolicy_,
         uint256 stalenessThreshold_,
         uint64 activityWindow_
-    ) AccessManaged(accessManager_) {
+    ) internal {
         sanctionRegistry = sanctionRegistry_;
         complianceOracle = complianceOracle_;
         riskPolicy = riskPolicy_;

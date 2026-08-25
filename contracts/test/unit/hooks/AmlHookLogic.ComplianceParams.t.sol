@@ -14,10 +14,10 @@ import {Roles} from "libraries/Roles.sol";
 import {AmlHookHarness} from "./AmlHookHarness.sol";
 import {MockERC20} from "test/mocks/MockERC20.sol";
 import {MockAggregatorV3} from "test/mocks/MockAggregatorV3.sol";
-import {Helpers} from "test/utils/Helpers.t.sol";
+import {HelpersCore} from "test/utils/HelpersCore.t.sol";
 
 /// @notice COMPLIANCE_OFFICER propose / 48h confirm path for USD floors, pool-impact, and floor fees.
-contract UnitAmlHookLogicComplianceParamsTest is Helpers {
+contract UnitAmlHookLogicComplianceParamsTest is HelpersCore {
     AmlHookHarness harness;
     MockERC20 token;
     MockAggregatorV3 feed;
