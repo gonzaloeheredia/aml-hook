@@ -35,11 +35,28 @@ contract UnitRiskPolicyLatencyFloorTest is Helpers {
         assertEq(fee, 800);
     }
 
-    function test_StaleWithoutOps_StillAllows() external view {
+    // H-01 fix: stale score at window boundary (operationCount == 0) now charges proportional.
+    function test_StaleWithoutOps_ChargesProportional() external view {
         (HookDecision d, uint24 fee) =
             riskPolicy.decide(10, 0, true, 0, false, false, HIGH_THRESHOLD, 0, FEE_THRESHOLD, HIGH_THRESHOLD);
-        assertEq(uint8(d), uint8(HookDecision.ALLOW));
-        assertEq(fee, 0);
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, 300);
+    }
+
+    function test_StaleWithoutOps_DustBelowThreshold_ChargesProportional() external view {
+        (HookDecision d, uint24 fee) =
+            riskPolicy.decide(10, 0, true, 0, false, false, FEE_THRESHOLD - 1, 0, FEE_THRESHOLD, HIGH_THRESHOLD);
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, 300);
+    }
+
+    function test_StaleWithoutOps_UsesLiveProportionalFee() external view {
+        uint24 customProportional = 500;
+        (HookDecision d, uint24 fee) = riskPolicy.decide(
+            10, 0, true, 0, false, false, HIGH_THRESHOLD, 0, FEE_THRESHOLD, HIGH_THRESHOLD, customProportional, 800
+        );
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, customProportional);
     }
 
     function test_InflowDust_StillAllows() external view {

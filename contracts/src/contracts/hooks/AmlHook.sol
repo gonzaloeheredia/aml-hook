@@ -55,6 +55,14 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         )
     {}
 
+    /// @notice Governor approves (or revokes) a subject's ability to call `claimFailedDeposit`.
+    /// @dev M-02 fix: exposes `_setFailedDepositRefundApproval` (in AmlHookSettlement) via the
+    ///      AccessManaged `restricted` gate. The compliance officer verifies the deposit genuinely
+    ///      failed (not a self-induced failure) before calling this. Approval is single-use.
+    function approveFailedDepositRefund(address wallet, address token, bool approved) external restricted {
+        _setFailedDepositRefundApproval(wallet, token, approved);
+    }
+
     /// @inheritdoc BaseHook
     /// @notice beforeSwap + afterSwap + afterSwapReturnDelta (required to take the risk fee),
     ///         plus beforeAddLiquidity (pause + sanctions on LP entry) and beforeRemoveLiquidity

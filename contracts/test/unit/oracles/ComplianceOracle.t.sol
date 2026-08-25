@@ -137,7 +137,7 @@ contract UnitComplianceOracleTest is Helpers {
         vm.warp(block.timestamp + 1 days);
 
         vm.prank(keeper);
-        complianceOracle.updateScore(wallet, 42, 2, origin, 300, _scoreSig(wallet, 42, 2, origin, 300));
+        complianceOracle.updateScore(wallet, 42, 2, origin, 300, _scoreSigN(wallet, 42, 2, origin, 300, 1));
 
         IComplianceOracle.WalletRisk memory risk = complianceOracle.getRisk(wallet);
         assertEq(risk.score, 42);
@@ -196,25 +196,25 @@ contract UnitComplianceOracleTest is Helpers {
         uint256 cap = complianceOracle.maxUpdatesPerWindow();
         for (uint256 i; i < cap; ++i) {
             vm.prank(keeper);
-            complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSig(wallet, 1, 0, origin, 0));
+            complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSigN(wallet, 1, 0, origin, 0, i));
         }
 
         vm.prank(keeper);
         vm.expectRevert(abi.encodeWithSelector(ComplianceOracle.UpdateRateLimited.selector, wallet));
-        complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSig(wallet, 1, 0, origin, 0));
+        complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSigN(wallet, 1, 0, origin, 0, cap));
     }
 
     function test_UpdateScore_ResetsAfterWindow(address wallet) external {
         uint256 cap = complianceOracle.maxUpdatesPerWindow();
         for (uint256 i; i < cap; ++i) {
             vm.prank(keeper);
-            complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSig(wallet, 1, 0, origin, 0));
+            complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSigN(wallet, 1, 0, origin, 0, i));
         }
 
         vm.warp(block.timestamp + complianceOracle.updateWindow());
 
         vm.prank(keeper);
-        complianceOracle.updateScore(wallet, 2, 0, origin, 0, _scoreSig(wallet, 2, 0, origin, 0));
+        complianceOracle.updateScore(wallet, 2, 0, origin, 0, _scoreSigN(wallet, 2, 0, origin, 0, cap));
         assertEq(complianceOracle.getScore(wallet), 2);
     }
 
@@ -222,19 +222,19 @@ contract UnitComplianceOracleTest is Helpers {
         uint256 cap = complianceOracle.maxUpdatesPerWindow();
         for (uint256 i; i < cap; ++i) {
             vm.prank(keeper);
-            complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSig(wallet, 1, 0, origin, 0));
+            complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSigN(wallet, 1, 0, origin, 0, i));
         }
 
         vm.warp(block.timestamp + complianceOracle.updateWindow() / 2);
 
         vm.prank(keeper);
         vm.expectRevert(abi.encodeWithSelector(ComplianceOracle.UpdateRateLimited.selector, wallet));
-        complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSig(wallet, 1, 0, origin, 0));
+        complianceOracle.updateScore(wallet, 1, 0, origin, 0, _scoreSigN(wallet, 1, 0, origin, 0, cap));
 
         vm.warp(block.timestamp + complianceOracle.updateWindow() / 2);
 
         vm.prank(keeper);
-        complianceOracle.updateScore(wallet, 3, 0, origin, 0, _scoreSig(wallet, 3, 0, origin, 0));
+        complianceOracle.updateScore(wallet, 3, 0, origin, 0, _scoreSigN(wallet, 3, 0, origin, 0, cap));
         assertEq(complianceOracle.getScore(wallet), 3);
     }
 
@@ -269,6 +269,37 @@ contract UnitComplianceOracleTest is Helpers {
         vm.prank(keeper);
         vm.expectRevert(ComplianceOracle.InvalidAttestation.selector);
         complianceOracle.updateScore(walletA, 10, 0, address(0), 0, hex"00");
+    }
+
+    /// @dev M-03: a valid signature that was already consumed (nonce bumped) must not be replayed.
+    function test_UpdateScore_RevertsOnSignatureReplay() external {
+        // Sign and consume at nonce == 0.
+        bytes memory sig = _scoreSig(walletA, 30, 0, address(0), 0);
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletA, 30, 0, address(0), 0, sig);
+        assertEq(complianceOracle.updateNonce(walletA), 1);
+
+        // Attempt to replay the same signature — nonce is now 1, hash differs → InvalidAttestation.
+        vm.warp(block.timestamp + 1);
+        vm.prank(keeper);
+        vm.expectRevert(ComplianceOracle.InvalidAttestation.selector);
+        complianceOracle.updateScore(walletA, 30, 0, address(0), 0, sig);
+
+        // Score must still be the original value (replay had no effect).
+        assertEq(complianceOracle.getScore(walletA), 30);
+    }
+
+    /// @dev M-03: nonce increments on every successful update, making previous sigs stale.
+    function test_UpdateNonce_IncrementsOnEachSuccess() external {
+        assertEq(complianceOracle.updateNonce(walletA), 0);
+
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletA, 10, 0, address(0), 0, _scoreSig(walletA, 10, 0));
+        assertEq(complianceOracle.updateNonce(walletA), 1);
+
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletA, 20, 0, address(0), 0, _scoreSigN(walletA, 20, 0, address(0), 0, 1));
+        assertEq(complianceOracle.updateNonce(walletA), 2);
     }
 
     /// @dev hopDistance / origin are part of the attested snapshot. A valid score/fee signature
@@ -323,7 +354,7 @@ contract UnitComplianceOracleTest is Helpers {
             wallet, score, hopDistance, originAddr, feeBps, uint64(block.timestamp)
         );
         bytes32 expected = keccak256(
-            abi.encode(wallet, score, hopDistance, originAddr, feeBps, uint64(block.timestamp), block.chainid)
+            abi.encode(wallet, score, hopDistance, originAddr, feeBps, uint64(block.timestamp), block.chainid, uint256(0))
         );
         assertEq(hash, expected);
     }

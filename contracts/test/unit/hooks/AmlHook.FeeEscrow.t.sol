@@ -116,7 +116,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         manager.callAfterSwap(IHooks(address(hook)), sender, key, params, delta, "");
 
         vm.prank(keeper);
-        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 1, walletA, 800));
+        complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSigN(walletB, 65, 1, walletA, 800, 1));
 
         feeToken.mint(address(manager), expectedFee);
         manager.callBeforeSwap(IHooks(address(hook)), sender, key, params, "");
@@ -269,6 +269,10 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         _revokeHookDepositor();
         uint256 expectedFee = _feeOverrideSwapThatFailsDeposit();
 
+        // M-02: governor must approve before the subject can claim.
+        vm.prank(hookGovernor);
+        hook.approveFailedDepositRefund(walletB, address(feeToken), true);
+
         vm.expectEmit(true, true, false, true, address(hook));
         emit FailedDepositClaimed(walletB, address(feeToken), expectedFee);
 
@@ -278,9 +282,24 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         assertEq(hook.failedDeposits(walletB, address(feeToken)), 0);
         assertEq(feeToken.balanceOf(walletB), expectedFee);
         assertEq(feeToken.balanceOf(address(hook)), 0);
+        // Approval is consumed (single-use).
+        assertEq(hook.failedDepositRefundApproved(walletB, address(feeToken)), false);
+    }
+
+    function test_ClaimFailedDeposit_RevertsWithoutApproval() external {
+        _revokeHookDepositor();
+        _feeOverrideSwapThatFailsDeposit();
+
+        vm.prank(walletB);
+        vm.expectRevert(AmlHookSettlement.RefundNotApproved.selector);
+        hook.claimFailedDeposit(address(feeToken));
     }
 
     function test_ClaimFailedDeposit_RevertsWhenNone() external {
+        // Approval is granted but there is nothing to claim.
+        vm.prank(hookGovernor);
+        hook.approveFailedDepositRefund(walletB, address(feeToken), true);
+
         vm.prank(walletB);
         vm.expectRevert(AmlHookSettlement.NoFailedDeposit.selector);
         hook.claimFailedDeposit(address(feeToken));
@@ -294,6 +313,8 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         vm.expectEmit(true, true, false, true, address(hook));
         emit FailedDepositRetried(walletB, address(feeToken), expectedFee, 1);
 
+        // L-02: only the subject (walletB) may retry their own deposit.
+        vm.prank(walletB);
         hook.retryEscrowDeposit(walletB, address(feeToken));
 
         assertEq(hook.failedDeposits(walletB, address(feeToken)), 0);
@@ -301,6 +322,15 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         IFeeEscrow.EscrowRecord memory rec = escrow.getEscrow(1);
         assertEq(rec.wallet, walletB);
         assertEq(rec.amount, expectedFee);
+    }
+
+    function test_RetryEscrowDeposit_RevertsWhenCallerIsNotSubject() external {
+        _revokeHookDepositor();
+        _feeOverrideSwapThatFailsDeposit();
+        _grantHookDepositor();
+
+        vm.expectRevert(AmlHookSettlement.Unauthorized.selector);
+        hook.retryEscrowDeposit(walletB, address(feeToken)); // msg.sender is test contract, not walletB
     }
 
     function test_FeeOverrideDeposit_ThenBlockedRecoverGoesToReserve() external {
@@ -346,6 +376,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         _revokeHookDepositor();
         _feeOverrideSwapThatFailsDeposit();
 
+        vm.prank(walletB);
         vm.expectRevert(AmlHookSettlement.RetryEscrowFailed.selector);
         hook.retryEscrowDeposit(walletB, address(feeToken));
         assertTrue(hook.failedDeposits(walletB, address(feeToken)) > 0);

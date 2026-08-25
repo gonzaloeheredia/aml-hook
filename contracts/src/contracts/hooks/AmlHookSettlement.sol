@@ -50,9 +50,16 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
     error NoFailedDeposit();
     error RetryEscrowFailed();
     error FeeEscrowNotConfigured();
+    error RefundNotApproved();
+    error Unauthorized();
 
     /// @notice Taken-but-not-escrowed differential, keyed by compliance subject and token.
     mapping(address => mapping(address => uint256)) public failedDeposits;
+
+    /// @notice Compliance-officer approval for a subject to claim their failed deposit.
+    /// @dev M-02 fix: subjects cannot self-recover without an explicit per-(wallet, token) approval
+    ///      from the hook governor. Approval is consumed on claim (single-use).
+    mapping(address => mapping(address => bool)) public failedDepositRefundApproved;
 
     /// @dev Extra entropy mixed into `swapFingerprint` (L-01), on top of `nextEscrowId`.
     uint256 private _fingerprintNonce;
@@ -122,8 +129,20 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
         return int128(int256(feeAmount));
     }
 
+    /// @notice Grant or revoke a subject's right to reclaim their failed deposit for `token`.
+    /// @dev Restricted — call this from AmlHook (which has the `restricted` modifier from
+    ///      AccessManaged) via `approveFailedDepositRefund`. Internal so it is callable
+    ///      across the AmlHook diamond without a circular import.
+    function _setFailedDepositRefundApproval(address wallet, address token, bool approved) internal {
+        failedDepositRefundApproved[wallet][token] = approved;
+    }
+
     /// @notice Subject recovers tokens that were taken but never reached FeeEscrow.
+    /// @dev M-02 fix: requires prior governor approval via `approveFailedDepositRefund`.
+    ///      Approval is single-use and consumed on claim to prevent double-withdrawal.
     function claimFailedDeposit(address token) external nonReentrant {
+        if (!failedDepositRefundApproved[msg.sender][token]) revert RefundNotApproved();
+        failedDepositRefundApproved[msg.sender][token] = false;
         uint256 amount = failedDeposits[msg.sender][token];
         if (amount == 0) revert NoFailedDeposit();
         failedDeposits[msg.sender][token] = 0;
@@ -146,8 +165,11 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
         );
     }
 
-    /// @notice Anyone may retry depositing a recorded failed amount once escrow accepts deposits again.
+    /// @notice Subject (wallet) may retry depositing their recorded failed amount into FeeEscrow.
+    /// @dev L-02 fix: restricted to the subject themselves — third parties cannot trigger an
+    ///      `_approveEscrow` call on someone else's behalf, removing the approval-grief vector.
     function retryEscrowDeposit(address wallet, address token) external nonReentrant {
+        if (msg.sender != wallet) revert Unauthorized();
         if (address(feeEscrow) == address(0)) revert FeeEscrowNotConfigured();
         uint256 amount = failedDeposits[wallet][token];
         if (amount == 0) revert NoFailedDeposit();

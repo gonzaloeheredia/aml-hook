@@ -120,9 +120,10 @@ contract Helpers is Test {
     }
 
     /// @dev ECDSA payload the ComplianceOracle attestor must produce (C-01).
-    ///      3-arg form attests hopDistance = 0 and origin = address(0).
+    ///      3-arg / 5-arg forms default to nonce=0 (first update on a fresh wallet).
+    ///      Use _scoreSigN for subsequent updates on the same wallet (nonce > 0).
     function _scoreSig(address wallet, uint8 score, uint24 feeBps) internal view returns (bytes memory) {
-        return _scoreSig(wallet, score, 0, address(0), feeBps);
+        return _scoreSigN(wallet, score, 0, address(0), feeBps, 0);
     }
 
     function _scoreSig(address wallet, uint8 score, uint8 hopDistance, address origin, uint24 feeBps)
@@ -130,8 +131,16 @@ contract Helpers is Test {
         view
         returns (bytes memory)
     {
+        return _scoreSigN(wallet, score, hopDistance, origin, feeBps, 0);
+    }
+
+    function _scoreSigN(address wallet, uint8 score, uint8 hopDistance, address origin, uint24 feeBps, uint256 nonce)
+        internal
+        view
+        returns (bytes memory)
+    {
         bytes32 hash = keccak256(
-            abi.encode(wallet, score, hopDistance, origin, feeBps, uint64(block.timestamp), block.chainid)
+            abi.encode(wallet, score, hopDistance, origin, feeBps, uint64(block.timestamp), block.chainid, nonce)
         );
         bytes32 ethSigned = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", hash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ATTESTOR_PK, ethSigned);
@@ -157,7 +166,7 @@ contract Helpers is Test {
 
     /// @dev Wires `_HOOK_GOVERNOR` so tests can `setTrustedRouter`.
     function _wireHookGovernor() internal {
-        bytes4[] memory hookSelectors = new bytes4[](14);
+        bytes4[] memory hookSelectors = new bytes4[](15);
         hookSelectors[0] = AmlHookGovernance.setStalenessThreshold.selector;
         hookSelectors[1] = AmlHookGovernance.setInflowThresholdBps.selector;
         hookSelectors[2] = AmlHookGovernance.setTrustedRouter.selector;
@@ -172,6 +181,7 @@ contract Helpers is Test {
         hookSelectors[11] = AmlHookLogic.observeSwap.selector;
         hookSelectors[12] = AmlHookLogic.syncBaseline.selector;
         hookSelectors[13] = AmlHookGovernance.setDailyWindow.selector;
+        hookSelectors[14] = AmlHook.approveFailedDepositRefund.selector;
         _wireRole(accessManager, owner, address(hook), hookSelectors, Roles._HOOK_GOVERNOR, hookGovernor);
     }
 

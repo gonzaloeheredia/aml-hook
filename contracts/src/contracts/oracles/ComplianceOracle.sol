@@ -41,6 +41,11 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
     /// @dev Sliding window of recent `updateScore` timestamps per wallet (H-05).
     mapping(address => uint64[]) private _updateTimestamps;
 
+    /// @notice Per-wallet nonce incremented on every successful `updateScore` (M-03 replay protection).
+    /// @dev Included in `attestationHash` so each keeper submission commits to one nonce slot.
+    ///      Replayed signatures with an old nonce will produce a different hash and fail ECDSA recovery.
+    mapping(address => uint256) public updateNonce;
+
     /// @notice Deploys the oracle under an access manager.
     /// @param initialAuthority_ The access manager that decides who may publish scores.
     /// @param attestor_ Initial ECDSA attestor (non-zero).
@@ -64,6 +69,10 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
 
     /// @notice Digest the attestor must sign (Ethereum signed message of this hash).
     /// @dev Binds the full published snapshot: hop/origin cannot be swapped under a score-only signature.
+    ///      M-03 fix: `updateNonce[wallet]` is mixed in so each attestation commits to exactly one
+    ///      call slot. After `updateScore` increments the nonce, all previously-signed payloads
+    ///      for this wallet are invalidated — a keeper cannot replay a prior signature to
+    ///      restore an earlier (lower) score. Keepers must read the current nonce before signing.
     function attestationHash(
         address wallet,
         uint8 score,
@@ -72,7 +81,9 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
         uint24 feeBps,
         uint64 updatedAt
     ) public view returns (bytes32) {
-        return keccak256(abi.encode(wallet, score, hopDistance, origin, feeBps, updatedAt, block.chainid));
+        return keccak256(
+            abi.encode(wallet, score, hopDistance, origin, feeBps, updatedAt, block.chainid, updateNonce[wallet])
+        );
     }
 
     /// @inheritdoc IComplianceOracle
@@ -96,6 +107,11 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
     ) external restricted {
         uint64 ts = uint64(block.timestamp);
         _verifyAttestation(wallet, score, hopDistance, origin, feeBps, ts, signature);
+        // M-03: increment nonce AFTER signature verification so the consumed nonce matches
+        // exactly what the attestor signed, but BEFORE writing state so any re-entry would fail.
+        unchecked {
+            updateNonce[wallet] += 1;
+        }
         _enforceSlidingWindow(wallet);
 
         if (score > 100) revert ScoreOutOfRange();

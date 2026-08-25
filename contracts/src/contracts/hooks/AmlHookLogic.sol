@@ -76,6 +76,8 @@ abstract contract AmlHookLogic is AmlHookActivity {
     error MagnitudeQuoteFailed(address token, bytes32 reason);
     /// @notice Trusted router `msgSender()` reverted or returned zero — fail closed.
     error TrustedRouterSubjectFailed(address router);
+    /// @notice syncBaseline rejected: oracle hasn't processed the current inflow since the last baseline write.
+    error BaselineAheadOfOracle(address wallet, address token, uint64 oracleUpdatedAt, uint256 lastWriteTs);
 
     // ── Events ────────────────────────────────────────────────────────────────
 
@@ -181,6 +183,10 @@ abstract contract AmlHookLogic is AmlHookActivity {
     ///      governors must be able to inject observations even during an emergency pause to keep
     ///      the COA audit trail accurate. Off-chain monitors should account for events emitted
     ///      during a paused period and not treat them as evidence of permitted swap activity.
+    ///
+    ///      M-01 fix: amount=0 is passed to _endSwap so synthetic observations do not inflate
+    ///      daily USD accumulators used to gate real swaps (Floor C). Op-count increments so
+    ///      Floor B staleness detection still fires on the next real swap.
     function observeSwap(address wallet, address token, uint256 amount)
         external
         restricted
@@ -191,13 +197,30 @@ abstract contract AmlHookLogic is AmlHookActivity {
         eval.token = token;
         (eval.decision, eval.feeBps, eval.risk, eval.inflowTriggered) =
             _evaluateWithMitigationEvents(wallet, token, token, amount, 0);
-        _endSwap(eval, token, amount);
+        _endSwap(eval, token, 0);
         return (eval.decision, eval.feeBps, eval.risk);
     }
 
     /// @notice Write `lastKnownBalance` to the current ERC-20 balance (Mitigation D baseline).
     /// @dev Local reset / seed. Restricted to `_HOOK_GOVERNOR`. Honors `minBaselineInterval`.
+    ///
+    ///      H-04 fix: if the current balance exceeds the recorded baseline (an inflow has occurred)
+    ///      AND the oracle's `updatedAt` is still at or before the previous baseline timestamp,
+    ///      the oracle has not processed the inflow. Advancing the baseline in that state would
+    ///      silently hide the inflow from Mitigation D on the next swap.
     function syncBaseline(address wallet, address token) external restricted {
+        if (token != address(0) && token.code.length != 0) {
+            uint256 lastWriteTs = lastKnownBalanceTimestamp[wallet][token];
+            if (lastWriteTs != 0) {
+                uint256 currentBalance = IERC20Minimal(token).balanceOf(wallet);
+                if (currentBalance > lastKnownBalance[wallet][token]) {
+                    uint64 oracleUpdatedAt = complianceOracle.getRisk(wallet).updatedAt;
+                    if (uint256(oracleUpdatedAt) <= lastWriteTs) {
+                        revert BaselineAheadOfOracle(wallet, token, oracleUpdatedAt, lastWriteTs);
+                    }
+                }
+            }
+        }
         _updateKnownBalance(wallet, token, false);
     }
 
@@ -457,10 +480,12 @@ abstract contract AmlHookLogic is AmlHookActivity {
             feeBps = punitiveFeeBps;
         }
 
-        // ── Floor B extra — stale+active swap draining active liquidity ───────
+        // ── Floor B extra — stale wallet draining active liquidity ───────────
         // Hardens the band (pass → mid, mid → high) but never REVERTs. Ceiling is punitive fee.
+        // H-01 fix: operationCount > 0 gate removed — stale score ≠ confirmed clean regardless
+        // of window position; applies on the first op of a new window too.
         if (
-            !neverScored && signals.isStale && signals.operationCount > 0
+            !neverScored && signals.isStale
                 && poolImpactThresholdBps != 0 && poolImpactBps > poolImpactThresholdBps
         ) {
             if (decision == HookDecision.ALLOW) {
