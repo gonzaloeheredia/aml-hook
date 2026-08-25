@@ -18,7 +18,9 @@ contract AmlHookHarness is AmlHookLogic {
         RiskPolicy policy_,
         uint256 stalenessThreshold_,
         uint64 activityWindow_
-    ) AmlHookGovernance(accessManager_, registry_, oracle_, policy_, stalenessThreshold_, activityWindow_) {}
+    ) AmlHookGovernance(accessManager_) {
+        _initGovernance(registry_, oracle_, policy_, stalenessThreshold_, activityWindow_);
+    }
 
     function evaluate(address wallet)
         external

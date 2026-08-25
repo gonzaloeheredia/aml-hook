@@ -41,7 +41,6 @@ interface IRiskPolicy {
     }
 
     /// @notice Evaluate the full signal set and return the compliance decision.
-    /// @dev Off-chain preview only. The swap hot path calls `RiskPolicyLib.decide` directly
-    ///      (one memory pointer, no external CALL) to avoid the gas overhead.
+    /// @dev Off-chain preview and hook hot path. Both CALL this wrapper over `RiskPolicyLib`.
     function decide(DecisionInput calldata input) external pure returns (DecisionResult memory);
 }

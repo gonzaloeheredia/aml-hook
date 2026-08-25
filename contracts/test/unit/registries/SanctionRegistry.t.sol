@@ -7,10 +7,10 @@ import {IAccessManaged} from "@openzeppelin/contracts/access/manager/IAccessMana
 import {SanctionRegistry} from "contracts/registries/SanctionRegistry.sol";
 import {ISanctionRegistry} from "interfaces/registries/ISanctionRegistry.sol";
 import {Roles} from "libraries/Roles.sol";
-import {Helpers} from "test/utils/Helpers.t.sol";
+import {HelpersCore} from "test/utils/HelpersCore.t.sol";
 
 /// @notice Unit coverage for `SanctionRegistry` (incl. portable fuzz/isolation from aml-hook-dev).
-contract UnitSanctionRegistryTest is Helpers {
+contract UnitSanctionRegistryTest is HelpersCore {
     function setUp() public {
         accessManager = new AccessManager(owner);
         sanctionRegistry = new SanctionRegistry(address(accessManager));

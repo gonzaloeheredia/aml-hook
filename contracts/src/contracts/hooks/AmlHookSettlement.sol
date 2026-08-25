@@ -28,7 +28,7 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
     uint24 public constant STANDARD_FEE_BPS = FeeBps.STANDARD;
 
     /// @notice Escrow for FEE_OVERRIDE differential fees (§3.7). address(0) disables take/deposit.
-    IFeeEscrow public immutable feeEscrow;
+    IFeeEscrow public feeEscrow;
 
     /// @notice Emitted when the risk differential was taken and deposited into FeeEscrow.
     event RiskFeeEscrowed(
@@ -65,8 +65,10 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
     uint256 private _fingerprintNonce;
 
     /// @param poolManager_ Uniswap v4 PoolManager (BaseHook).
-    /// @param feeEscrow_ Differential escrow; `address(0)` disables take / deposit.
-    constructor(IPoolManager poolManager_, IFeeEscrow feeEscrow_) BaseHook(poolManager_) {
+    constructor(IPoolManager poolManager_) BaseHook(poolManager_) {}
+
+    /// @dev Called once by AmlHook.initialize. Sets the FeeEscrow address.
+    function _initSettlement(IFeeEscrow feeEscrow_) internal {
         feeEscrow = feeEscrow_;
     }
 
@@ -80,8 +82,15 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
         uint24 feeBps
     ) internal returns (int128 hookDelta) {
         if (FeeBps.differentialBps(feeBps) == 0) return 0;
-
         (Currency feeCurrency, int256 basisAmount) = _feeBasis(key, params, delta);
+        hookDelta = _takeAndDeposit(wallet, feeCurrency, basisAmount, feeBps);
+    }
+
+    /// @dev Resolves token + amount from the Uniswap basis, then deposits. No PoolKey/SwapParams.
+    function _takeAndDeposit(address wallet, Currency feeCurrency, int256 basisAmount, uint24 feeBps)
+        private
+        returns (int128)
+    {
         address token = Currency.unwrap(feeCurrency);
         if (basisAmount <= 0) {
             _emitRiskFeeSkipped(wallet, token, feeBps, "ZERO_BASIS");
@@ -92,23 +101,31 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
         if (feeAmount == 0) return 0;
         if (feeAmount > uint256(uint128(type(int128).max))) revert FeeTransferFailed();
 
-        // Effects complete. Interactions last (H-06): take → approve → deposit.
         if (!feeEscrow.allowedFeeTokens(token)) {
             _emitRiskFeeSkipped(wallet, token, feeBps, "FEE_TOKEN_NOT_ALLOWED");
             return 0;
         }
 
-        bytes32 swapFingerprint = _buildFingerprint(wallet, token, feeAmount);
+        _depositDifferential(wallet, token, feeCurrency, feeAmount, feeBps);
+        return int128(int256(feeAmount));
+    }
 
+    /// @dev Interactions last (H-06): take → approve → deposit. No Uniswap swap types in this frame.
+    function _depositDifferential(
+        address wallet,
+        address token,
+        Currency feeCurrency,
+        uint256 feeAmount,
+        uint24 feeBps
+    ) private {
+        bytes32 swapFingerprint = _buildFingerprint(wallet, token, feeAmount);
         poolManager.take(feeCurrency, address(this), feeAmount);
         _approveEscrow(token, feeAmount);
-
         try feeEscrow.deposit(wallet, token, swapFingerprint, feeAmount) returns (uint256 escrowId) {
             emit RiskFeeEscrowed(wallet, token, feeAmount, escrowId, feeBps);
         } catch {
             _recordFailedDeposit(wallet, token, feeAmount, feeBps);
         }
-        return int128(int256(feeAmount));
     }
 
     /// @dev Unspecified-currency basis for the differential take (exactIn output / exactOut input).

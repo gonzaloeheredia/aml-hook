@@ -17,10 +17,10 @@ import {Roles} from "libraries/Roles.sol";
 import {AmlHookHarness} from "./AmlHookHarness.sol";
 import {MockAggregatorV3} from "test/mocks/MockAggregatorV3.sol";
 import {MockERC20} from "test/mocks/MockERC20.sol";
-import {Helpers} from "test/utils/Helpers.t.sol";
+import {HelpersCore} from "test/utils/HelpersCore.t.sol";
 
 /// @notice Remaining AmlHookLogic governor / constructor / view surfaces.
-contract UnitAmlHookLogicAdminTest is Helpers {
+contract UnitAmlHookLogicAdminTest is HelpersCore {
     AmlHookHarness harness;
     MockERC20 token;
     MockAggregatorV3 feed;

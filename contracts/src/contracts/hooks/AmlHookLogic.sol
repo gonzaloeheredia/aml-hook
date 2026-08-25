@@ -9,11 +9,10 @@ import {IERC20Minimal} from "../../interfaces/external/IERC20Minimal.sol";
 import {HookDecision} from "../../libraries/HookDecision.sol";
 import {Inflow} from "../../libraries/Inflow.sol";
 import {OracleQuote} from "../../libraries/OracleQuote.sol";
-import {RiskPolicyLib} from "../../libraries/RiskPolicyLib.sol";
 import {WalletSubject} from "../../libraries/WalletSubject.sol";
 
 /// @title AmlHookLogic — beforeSwap / afterSwap compliance evaluation
-/// @notice Resolves the swap subject, gathers risk signals, and delegates to `RiskPolicyLib.decide`.
+/// @notice Resolves the swap subject, gathers risk signals, and delegates to `riskPolicy.decide`.
 ///         All state mutations (activity, baseline) happen in `_endSwap` after the decision.
 abstract contract AmlHookLogic is AmlHookActivity {
     /// @notice Wallet is in the REVERT score band (71–100) or exceeds the unscored magnitude floor.
@@ -90,7 +89,7 @@ abstract contract AmlHookLogic is AmlHookActivity {
         OracleQuote.Fx volumeFx;             // FX quote cached for `_endSwap` activity recording
     }
 
-    /// @dev Intermediate signals gathered before calling `RiskPolicyLib.decide`.
+    /// @dev Intermediate signals gathered before calling `riskPolicy.decide`.
     struct EvalSignals {
         bool isStale;               // score age exceeds `stalenessThreshold`
         uint32 operationCount;      // ops in the current activity window
@@ -211,18 +210,9 @@ abstract contract AmlHookLogic is AmlHookActivity {
         returns (SwapEvaluation memory eval)
     {
         EvalFrame memory frame = _evaluateCore(wallet, token, volumeToken, amount, poolImpactBps);
-        eval.wallet = wallet;
-        eval.token = token;
-        eval.decision = frame.decision;
-        eval.feeBps = frame.feeBps;
-        eval.risk = frame.risk;
-        eval.inflowTriggered = frame.signals.hasSignificantInflow;
-        eval.volumeFx = frame.q.volume;
-        OracleQuote.commit(lastFx, volumeToken, frame.q.volume);
-        if (token != volumeToken) OracleQuote.commit(lastFx, token, frame.q.input);
-        _emitPriceFallback(volumeToken, frame.q.volume);
-        if (token != volumeToken && frame.q.input.price != 0) _emitPriceFallback(token, frame.q.input);
-        _emitMitigations(wallet, frame.risk, frame.signals, poolImpactBps, frame.decision, frame.feeBps);
+        _hydrate(eval, frame, wallet, token);
+        _commitQuotes(token, volumeToken, frame.q);
+        _emitMitigations(frame, wallet, poolImpactBps);
     }
 
     function _evaluateCore(
@@ -235,33 +225,57 @@ abstract contract AmlHookLogic is AmlHookActivity {
         _requireNotPaused();
         _requireNotSanctioned(wallet);
         frame.risk = complianceOracle.getRisk(wallet);
-        (frame.signals, frame.q) = _gather(wallet, token, volumeToken, amount, frame.risk);
-        IRiskPolicy.DecisionResult memory result =
-            RiskPolicyLib.decide(_toInput(frame.risk, frame.signals, poolImpactBps));
-        _revertBlocked(wallet, frame.risk, frame.signals, poolImpactBps, result);
+        _gather(frame, wallet, token, volumeToken, amount);
+        IRiskPolicy.DecisionResult memory result = riskPolicy.decide(_toInput(frame, poolImpactBps));
+        _revertBlocked(frame, wallet, poolImpactBps, result);
         frame.decision = result.decision;
         frame.feeBps = result.feeBps;
     }
 
-    function _gather(
-        address wallet,
-        address token,
-        address volumeToken,
-        uint256 amount,
-        IComplianceOracle.WalletRisk memory risk
-    ) private view returns (EvalSignals memory signals, QuoteCtx memory q) {
+    function _hydrate(SwapEvaluation memory eval, EvalFrame memory frame, address wallet, address token)
+        private
+        pure
+    {
+        eval.wallet = wallet;
+        eval.token = token;
+        eval.decision = frame.decision;
+        eval.feeBps = frame.feeBps;
+        eval.risk = frame.risk;
+        eval.inflowTriggered = frame.signals.hasSignificantInflow;
+        eval.volumeFx = frame.q.volume;
+    }
+
+    function _commitQuotes(address token, address volumeToken, QuoteCtx memory q) private {
+        OracleQuote.commit(lastFx, volumeToken, q.volume);
+        if (token != volumeToken) OracleQuote.commit(lastFx, token, q.input);
+        _emitPriceFallback(volumeToken, q.volume);
+        if (token != volumeToken && q.input.price != 0) _emitPriceFallback(token, q.input);
+    }
+
+    function _gather(EvalFrame memory frame, address wallet, address token, address volumeToken, uint256 amount)
+        private
+        view
+    {
+        _gatherSignals(frame, wallet, token, volumeToken);
+        _resolveQuotes(token, volumeToken, amount, frame.signals, frame.q);
+        _fillUsd(wallet, token, volumeToken, amount, frame.signals, frame.q);
+    }
+
+    function _gatherSignals(EvalFrame memory frame, address wallet, address token, address volumeToken)
+        private
+        view
+    {
+        EvalSignals memory signals = frame.signals;
+        uint64 updatedAt = frame.risk.updatedAt;
         signals.operationCount = _opsInCurrentWindow(wallet);
-        signals.isStale = risk.updatedAt == 0 || block.timestamp > uint256(risk.updatedAt) + stalenessThreshold;
-        (signals.hasSignificantInflow, signals.inflowShareBps, signals.inflowTokenDelta) = Inflow.signal(
-            wallet, token, risk.updatedAt, lastKnownBalance, lastKnownBalanceTimestamp, inflowThresholdBps
-        );
-        signals.neverScored = risk.updatedAt == 0;
+        signals.isStale = updatedAt == 0 || block.timestamp > uint256(updatedAt) + stalenessThreshold;
+        (signals.hasSignificantInflow, signals.inflowShareBps, signals.inflowTokenDelta) =
+            Inflow.signal(wallet, token, updatedAt, lastKnownBalance, lastKnownBalanceTimestamp, inflowThresholdBps);
+        signals.neverScored = updatedAt == 0;
         signals.priorDailyUsd = _usdInDailyWindow(wallet);
         if (signals.priorDailyUsd == type(uint256).max) {
             revert MagnitudeQuoteFailed(volumeToken, QUOTE_WINDOW_FAILED);
         }
-        _resolveQuotes(token, volumeToken, amount, signals, q);
-        _fillUsd(wallet, token, volumeToken, amount, signals, q);
     }
 
     function _resolveQuotes(
@@ -298,37 +312,67 @@ abstract contract AmlHookLogic is AmlHookActivity {
         QuoteCtx memory q
     ) private view {
         if (signals.neverScored) {
-            _requireFx(volumeToken, q.volume, q.volumeErr);
-            signals.assessedUsd = OracleQuote.toUsd(q.volume, amount);
-            signals.swapUsd = signals.assessedUsd;
-            if (signals.inflowTokenDelta > 0) {
-                _requireFx(token, q.input, q.inputErr);
-                signals.inflowUsd = OracleQuote.toUsd(q.input, signals.inflowTokenDelta);
-            }
+            _fillNeverScored(token, volumeToken, amount, signals, q);
             return;
         }
+        if (signals.inflowTokenDelta > 0) _fillInflowShare(wallet, token, signals, q);
+        if (signals.isStale && signals.operationCount > 0) {
+            _fillStaleWindow(wallet, volumeToken, amount, signals, q);
+        }
+        if (signals.priorDailyUsd > 0 && amount > 0) _fillDailySwapUsd(volumeToken, amount, signals, q);
+    }
+
+    function _fillNeverScored(
+        address token,
+        address volumeToken,
+        uint256 amount,
+        EvalSignals memory signals,
+        QuoteCtx memory q
+    ) private pure {
+        _requireFx(volumeToken, q.volume, q.volumeErr);
+        signals.assessedUsd = OracleQuote.toUsd(q.volume, amount);
+        signals.swapUsd = signals.assessedUsd;
         if (signals.inflowTokenDelta > 0) {
             _requireFx(token, q.input, q.inputErr);
             signals.inflowUsd = OracleQuote.toUsd(q.input, signals.inflowTokenDelta);
-            uint256 currentBalance = IERC20Minimal(token).balanceOf(wallet);
-            uint256 currentBalanceUsd = OracleQuote.toUsd(q.input, currentBalance);
-            if (currentBalanceUsd > 0) {
-                signals.inflowShareBps = (signals.inflowUsd * 10_000) / currentBalanceUsd;
-                signals.hasSignificantInflow = signals.inflowShareBps > inflowThresholdBps;
-            } else {
-                signals.hasSignificantInflow = false;
-            }
         }
-        if (signals.isStale && signals.operationCount > 0) {
-            uint256 windowUsd = _usdInCurrentWindow(wallet);
-            if (windowUsd == type(uint256).max) revert MagnitudeQuoteFailed(volumeToken, QUOTE_WINDOW_FAILED);
-            _requireFx(volumeToken, q.volume, q.volumeErr);
-            signals.assessedUsd = windowUsd + OracleQuote.toUsd(q.volume, amount);
+    }
+
+    function _fillInflowShare(address wallet, address token, EvalSignals memory signals, QuoteCtx memory q)
+        private
+        view
+    {
+        _requireFx(token, q.input, q.inputErr);
+        signals.inflowUsd = OracleQuote.toUsd(q.input, signals.inflowTokenDelta);
+        uint256 currentBalance = IERC20Minimal(token).balanceOf(wallet);
+        uint256 currentBalanceUsd = OracleQuote.toUsd(q.input, currentBalance);
+        if (currentBalanceUsd > 0) {
+            signals.inflowShareBps = (signals.inflowUsd * 10_000) / currentBalanceUsd;
+            signals.hasSignificantInflow = signals.inflowShareBps > inflowThresholdBps;
+        } else {
+            signals.hasSignificantInflow = false;
         }
-        if (signals.priorDailyUsd > 0 && amount > 0) {
-            _requireFx(volumeToken, q.volume, q.volumeErr);
-            signals.swapUsd = OracleQuote.toUsd(q.volume, amount);
-        }
+    }
+
+    function _fillStaleWindow(
+        address wallet,
+        address volumeToken,
+        uint256 amount,
+        EvalSignals memory signals,
+        QuoteCtx memory q
+    ) private view {
+        uint256 windowUsd = _usdInCurrentWindow(wallet);
+        if (windowUsd == type(uint256).max) revert MagnitudeQuoteFailed(volumeToken, QUOTE_WINDOW_FAILED);
+        _requireFx(volumeToken, q.volume, q.volumeErr);
+        signals.assessedUsd = windowUsd + OracleQuote.toUsd(q.volume, amount);
+    }
+
+    function _fillDailySwapUsd(address volumeToken, uint256 amount, EvalSignals memory signals, QuoteCtx memory q)
+        private
+        pure
+    {
+        _requireFx(volumeToken, q.volume, q.volumeErr);
+        signals.swapUsd = OracleQuote.toUsd(q.volume, amount);
     }
 
     function _requireFx(address token, OracleQuote.Fx memory fx, bytes32 err) private pure {
@@ -342,80 +386,86 @@ abstract contract AmlHookLogic is AmlHookActivity {
         emit PriceFallbackUsed(token, fx.price, fx.quotedAt, fx.fromCache, fx.stale);
     }
 
-    function _toInput(IComplianceOracle.WalletRisk memory risk, EvalSignals memory signals, uint256 poolImpactBps)
+    function _toInput(EvalFrame memory frame, uint256 poolImpactBps)
         private
         view
         returns (IRiskPolicy.DecisionInput memory i)
     {
-        i.score = risk.score;
-        i.recommendedFeeBps = risk.feeBps;
-        i.isStale = signals.isStale;
-        i.operationCount = signals.operationCount;
-        i.neverScored = signals.neverScored;
-        i.assessedUsd = signals.assessedUsd;
-        i.inflowUsd = signals.inflowUsd;
+        _copyRiskSignals(i, frame);
+        _copyThresholds(i, poolImpactBps);
+    }
+
+    function _copyRiskSignals(IRiskPolicy.DecisionInput memory i, EvalFrame memory frame) private pure {
+        i.score = frame.risk.score;
+        i.recommendedFeeBps = frame.risk.feeBps;
+        i.isStale = frame.signals.isStale;
+        i.operationCount = frame.signals.operationCount;
+        i.neverScored = frame.signals.neverScored;
+        i.assessedUsd = frame.signals.assessedUsd;
+        i.inflowUsd = frame.signals.inflowUsd;
+        i.priorDailyUsd = frame.signals.priorDailyUsd;
+        i.swapUsd = frame.signals.swapUsd;
+    }
+
+    function _copyThresholds(IRiskPolicy.DecisionInput memory i, uint256 poolImpactBps) private view {
         i.unscoredFeeThreshold = unscoredFeeThreshold;
         i.unscoredRevertThreshold = unscoredRevertThreshold;
         i.proportionalFeeBps = proportionalFeeBps;
         i.punitiveFeeBps = punitiveFeeBps;
         i.poolImpactBps = poolImpactBps;
         i.poolImpactThresholdBps = poolImpactThresholdBps;
-        i.priorDailyUsd = signals.priorDailyUsd;
-        i.swapUsd = signals.swapUsd;
     }
 
     function _revertBlocked(
+        EvalFrame memory frame,
         address wallet,
-        IComplianceOracle.WalletRisk memory risk,
-        EvalSignals memory signals,
         uint256 poolImpactBps,
         IRiskPolicy.DecisionResult memory result
     ) private view {
         if (result.decision != HookDecision.REVERT) return;
         if (result.revertKind == IRiskPolicy.RevertKind.UnscoredMagnitude) {
-            revert UnscoredMagnitudeBlocked(wallet, signals.assessedUsd, unscoredRevertThreshold);
+            revert UnscoredMagnitudeBlocked(wallet, frame.signals.assessedUsd, unscoredRevertThreshold);
         }
         if (result.revertKind == IRiskPolicy.RevertKind.UnscoredPoolImpact) {
             revert UnscoredPoolImpactBlocked(wallet, poolImpactBps, poolImpactThresholdBps);
         }
         if (result.revertKind == IRiskPolicy.RevertKind.DailyAggregation) {
-            revert DailyAggregationBlocked(wallet, signals.priorDailyUsd + signals.swapUsd, unscoredRevertThreshold);
+            revert DailyAggregationBlocked(
+                wallet, frame.signals.priorDailyUsd + frame.signals.swapUsd, unscoredRevertThreshold
+            );
         }
-        _revertScoreBand(wallet, risk.score);
+        _revertScoreBand(wallet, frame.risk.score);
     }
 
     function _revertScoreBand(address wallet, uint8 score) private pure {
         revert WalletBlocked(wallet, score, "SCORE_REVERT_BAND");
     }
 
-    function _emitMitigations(
-        address wallet,
-        IComplianceOracle.WalletRisk memory risk,
-        EvalSignals memory signals,
-        uint256 poolImpactBps,
-        HookDecision decision,
-        uint24 feeBps
-    ) private {
+    function _emitMitigations(EvalFrame memory frame, address wallet, uint256 poolImpactBps) private {
+        EvalSignals memory signals = frame.signals;
         if (signals.hasSignificantInflow || (unscoredFeeThreshold != 0 && signals.inflowUsd >= unscoredFeeThreshold)) {
             emit InflowHeuristicTriggered(wallet, signals.inflowShareBps, block.timestamp);
         }
-        if (risk.updatedAt == 0 && decision == HookDecision.FEE_OVERRIDE) {
-            bytes32 reason = (poolImpactThresholdBps != 0 && poolImpactBps > poolImpactThresholdBps)
-                ? REASON_POOL_IMPACT
-                : REASON_SCORE_NEVER_WRITTEN;
-            emit LatencyMitigationApplied(wallet, reason, feeBps, risk.score);
+        if (frame.risk.updatedAt == 0 && frame.decision == HookDecision.FEE_OVERRIDE) {
+            emit LatencyMitigationApplied(
+                wallet, _poolImpactReason(poolImpactBps, REASON_SCORE_NEVER_WRITTEN), frame.feeBps, frame.risk.score
+            );
         }
         if (
-            risk.score <= 30 && signals.isStale && signals.operationCount > 0 && decision == HookDecision.FEE_OVERRIDE
+            frame.risk.score <= 30 && signals.isStale && signals.operationCount > 0
+                && frame.decision == HookDecision.FEE_OVERRIDE
         ) {
-            bytes32 reason = (poolImpactThresholdBps != 0 && poolImpactBps > poolImpactThresholdBps)
-                ? REASON_POOL_IMPACT
-                : REASON_STALE_WITH_POOL_ACTIVITY;
+            bytes32 reason = _poolImpactReason(poolImpactBps, REASON_STALE_WITH_POOL_ACTIVITY);
             if (reason == REASON_POOL_IMPACT || (unscoredFeeThreshold != 0 && signals.assessedUsd >= unscoredFeeThreshold))
             {
-                emit LatencyMitigationApplied(wallet, reason, feeBps, risk.score);
+                emit LatencyMitigationApplied(wallet, reason, frame.feeBps, frame.risk.score);
             }
         }
+    }
+
+    function _poolImpactReason(uint256 poolImpactBps, bytes32 fallbackReason) private view returns (bytes32) {
+        if (poolImpactThresholdBps != 0 && poolImpactBps > poolImpactThresholdBps) return REASON_POOL_IMPACT;
+        return fallbackReason;
     }
 
     function _emitSwapObserved(

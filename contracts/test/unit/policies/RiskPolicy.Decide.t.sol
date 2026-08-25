@@ -5,9 +5,9 @@ import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
 import {IRiskPolicy} from "interfaces/policies/IRiskPolicy.sol";
 import {HookDecision} from "libraries/HookDecision.sol";
 import {RiskPolicyLib} from "libraries/RiskPolicyLib.sol";
-import {Helpers} from "test/utils/Helpers.t.sol";
+import {HelpersCore} from "test/utils/HelpersCore.t.sol";
 
-contract UnitRiskPolicyDecideTest is Helpers {
+contract UnitRiskPolicyDecideTest is HelpersCore {
     function setUp() public {
         riskPolicy = new RiskPolicy();
     }
