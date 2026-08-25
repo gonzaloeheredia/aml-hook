@@ -19,7 +19,7 @@ pragma solidity ^0.8.26;
 ///
 ///      WHY FOUR ROLES (not one keeper):
 ///        _REGISTRY_KEEPER      — OFAC-style list writes (designation pipeline)
-///        _ORACLE_KEEPER        — behavioral updateScore (scoring / COA publish path)
+///        _ORACLE_KEEPER        — publishes COA scores (`ComplianceOracle.updateScore`)
 ///        _HOOK_GOVERNOR        — trusted routers + operational thresholds (rare, human)
 ///        _COMPLIANCE_OFFICER   — FATF/policy knobs (USD floors, floor fees, pool-impact)
 ///      Different jobs, different infrastructure. One shared key would let a
@@ -34,7 +34,8 @@ library Roles {
     /// @notice Writes the sanctions list: `SanctionRegistry.setSanctioned`
     uint64 internal constant _REGISTRY_KEEPER = 1;
 
-    /// @notice Publishes behavioral risk profiles: `ComplianceOracle.updateScore`
+    /// @notice Publishes COA-emitted risk profiles: `ComplianceOracle.updateScore`
+    /// @dev Does not compute the score. The agent emits; this role submits the attested tx.
     uint64 internal constant _ORACLE_KEEPER = 2;
 
     /// @notice Retunes operational hook thresholds and trusted-router list

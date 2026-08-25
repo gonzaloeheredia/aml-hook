@@ -29,6 +29,7 @@ import {
   catchUpKeeper,
   ensureOracleEvaluation,
   getPublisherStatus,
+  keeperTickMs,
   listOracleEvaluations,
   listScorePublishes,
   reevaluateAfterBlock,
@@ -37,6 +38,7 @@ import {
   resetOracle,
   walletKeeperPending,
 } from "./oracle/index.js";
+import { anthropicModel, isLiveCoaEnabled } from "./oracle/liveOpinion.js";
 import { isWalletId, walletScore } from "./scoring.js";
 import {
   appendEvent,
@@ -87,7 +89,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         role: "AI AML analyst · Oracle Keeper",
         sources: "connected",
         status: "online",
+        live: isLiveCoaEnabled(),
+        model: isLiveCoaEnabled() ? anthropicModel() : null,
+        score: isLiveCoaEnabled() ? "anthropic" : "skill",
+        opinion: isLiveCoaEnabled() ? "anthropic" : "template",
       },
+      keeperTickMs: keeperTickMs(),
       scoreSource: "onchain",
       publisher: getPublisherStatus(),
       chain,

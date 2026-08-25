@@ -14,6 +14,10 @@ The decision is ternary — the operational translation of FATF Rec. 1 (RBA).
 A binary system treats mid-risk like low risk, or mid-risk like high risk;
 neither satisfies Rec. 1.
 
+**Demo runtime:** `hookOutput` and `recommendedFeeBps` come from the agent's
+emitted score (Claude or interpreter). Floors A–D stay on-chain in
+`RiskPolicy.decide`. Consult `uhi10-use-case` before emitting A–E fees.
+
 ---
 
 ## Expected inputs

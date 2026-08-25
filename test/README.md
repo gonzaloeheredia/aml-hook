@@ -25,7 +25,7 @@ API default: `http://localhost:4000` (override with `API_BASE`). Without Anvil t
 node test/flow-uniswap-metamask.mjs
 ```
 
-**Risk is hop-based, not swap-count** (plus Wallet D/E latency, activity, and magnitude paths in the API/UI):
+**Risk is hop-based, not swap-count.** The agent applies skill `uhi10-use-case` (`score = 100 × 0.65^hops`); the keeper publishes. `POST /transfers` and `POST /swaps` wait for that write (plus Wallet D/E latency, activity, and magnitude paths in the API/UI):
 
 | Event | Effect |
 |---|---|

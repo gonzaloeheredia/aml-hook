@@ -2,6 +2,8 @@
 
 This walkthrough is the product demo of the whitepaper. Every decision below is the same mapping `RiskPolicy.decide` applies on-chain (score bands plus floors A–D, including Floor C). The frontend talks to the API; the API calls `AmlHook.previewSwap` on Anvil so quotes cannot drift from the hook.
 
+The Compliance Officer Agent emits `finalScore` and `recommendedFeeBps` (Claude when `ANTHROPIC_API_KEY` is set; skill interpreter otherwise). N-hop math lives in skill `uhi10-use-case`. The keeper publishes that row to `ComplianceOracle`. `POST /transfers` and `POST /swaps` wait until the agent has written. The 3-minute keeper tick only stamps the last score. `beforeSwap` never calls the agent.
+
 The pool is a Uniswap v4 RWA (Real World Asset) pool with AML Hook attached. Swaps go through `beforeSwap` and `afterSwap`. Peer-to-peer USDC transfers happen off-pool. Those transfers are what move risk. Pool swaps never raise a score.
 
 A wallet on the sanctions list that tries to add or remove liquidity is reverted at the liquidity boundary (`SanctionHit`). That path reads the list only — not the score. Wallet A (score 100, not OFAC-listed) can still add and remove. Pause still lets a **clean** LP withdraw; it does not lift a list hit. This walkthrough is swap-only.
@@ -14,9 +16,9 @@ Use this table as the map while running the demo. Each row points to the matchin
 | --- | --- | --- | --- | --- | --- |
 | 0 | D (or B / C) | Swap of already-held USDC | 0 | ALLOW | 0.30% |
 | 1 | A | Pool cash-out | 100 | REVERT | `WalletBlocked` (`SCORE_REVERT_BAND`) |
-| 2 | A → B | P2P (peer-to-peer) | — | Keeper writes 65 | — |
+| 2 | A → B | P2P (peer-to-peer) | — | Agent emits 65; keeper publishes | — |
 | 3 | B | Swap | 65 | FEE_OVERRIDE | 8% |
-| 4 | B → C | P2P | — | Keeper writes 42 | — |
+| 4 | B → C | P2P | — | Agent emits 42; keeper publishes | — |
 | 5 | C | Swap | 42 | FEE_OVERRIDE | 3% |
 | 6 | E (or D) | $10,000 then $5,000 in 24h | — / 0 | REVERT (C) | `DailyAggregationBlocked` |
 | 7 | D | Advance 5 min, $1,000 swap | 0 stale | FEE_OVERRIDE (B mid) | 3% |
@@ -36,13 +38,13 @@ How to run it: from the repo root, `npm run deploy:local`, then start the API an
 
 | Wallet | Role | Starting score |
 | --- | --- | --- |
-| **A** | Confirmed exploit. Not on OFAC. Keeper score 100. Pool swaps hit `WalletBlocked`. P2P can still contaminate B/C/D. Do not fund E from A. | 100 |
+| **A** | Confirmed exploit. Not on OFAC. Agent score 100. Pool swaps hit `WalletBlocked`. P2P can still contaminate B/C/D. Do not fund E from A. | 100 |
 | **B** | Starts clean. | 0 (published) |
 | **C** | Starts clean. Funds E (unknown) and D (inflow). Same hop rules as B. | 0 (published) |
 | **D** | Published score 0. Starts with 5,000 USDC. | 0 (published) |
 | **E** | Unknown. Starts empty. Clean C deposits USDC (no hop). | — (never written) |
 
-B and C are symmetric for hops. Any path A → B → C or A → C → B produces the same hop math. D is confirmed clean until new funds arrive or a latency floor fires. E is unknown until the keeper publishes a score. The step-by-step outcome for each wallet is in section 3.
+B and C are symmetric for hops. Any path A → B → C or A → C → B produces the same hop math. D is confirmed clean until new funds arrive or a latency floor fires. E is unknown until the agent publishes a score. The step-by-step outcome for each wallet is in section 3.
 
 ## 3. How the hook decides
 
@@ -72,7 +74,7 @@ Same order as the whitepaper (§3.3 / §8.4) and `RiskPolicy.decide`. Floor C (2
 | Never written, current bag ≥ $15,000 (swap may be smaller) | FEE_OVERRIDE (D on E) | 8% |
 | USD quote required, no live round, and no `lastFx` within 24h | REVERT | `MagnitudeQuoteFailed` |
 
-N-hop score:
+N-hop score (agent applies skill `uhi10-use-case`; keeper publishes):
 
 `score = 100 × 0.65^hops`
 
@@ -83,7 +85,7 @@ N-hop score:
 | B or C after a 1-hop peer | 2 | 42 | FEE_OVERRIDE 3% |
 | D after keeper catch-up from A | 1 | 65 | FEE_OVERRIDE 8% |
 
-A second inbound from a closer source replaces the farther hop. Clean-to-clean P2P does not contaminate. The keeper writes when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band changes, **or** when the last write is at least as old as `stalenessThreshold`. That freshness stamp stops a stable clean wallet from looking stale. Floor B still fires when the keeper is actually late (demo: **Advance 5 min** with no intervening write).
+A second inbound from a closer source replaces the farther hop. Clean-to-clean P2P does not contaminate. The agent emits a new score when the hop or facts change. The keeper writes that row when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band changes, **or** on a 3-minute heartbeat (same score, new `updatedAt`), **or** when the last write is at least as old as `stalenessThreshold`. That freshness stamp stops a stable clean wallet from looking stale. Floor B still fires when the keeper is actually late (demo: **Advance 5 min** with no intervening write).
 
 ## 4. Walkthrough
 
@@ -120,7 +122,7 @@ A can still send USDC off-pool to B or C. Do not send A → E.
 
 In MetaMask, send USDC from A → B.
 
-The keeper traces the transfer, writes score 65 on B (1 hop), and recommends 8%.
+The agent evaluates the transfer (`uhi10-use-case` → 1 hop ≈ 65 / 8%). The API waits, then the keeper publishes that row on `ComplianceOracle`.
 
 ### Step 3 — B swaps (1 hop)
 
@@ -136,7 +138,7 @@ Connect B. Swap.
 
 Send USDC from B → C.
 
-The keeper writes score 42 on C (2 hops) and recommends 3%.
+The agent evaluates the transfer (2 hops ≈ 42 / 3%). The API waits, then the keeper publishes that row.
 
 C can also receive directly from A. That path is 1 hop (65 / 8%), and it wins over a later 2-hop inbound.
 
@@ -259,4 +261,4 @@ Owner recovery waits at least 7 days and can go only to the compliance reserve. 
 
 ### Step 13 — Opinion / COA file
 
-After a FEE_OVERRIDE or REVERT, open **Opinion**. That screen is the Compliance Officer Agent file for this swap. In this repo it is a **deterministic mock** (no live LLM, no vendor feeds) — the product idea is whitepaper §7. It is still the suspicious-operation documentation the whitepaper describes. Successful swaps also emit `SwapObserved`. Reverts do not keep that log. Index the error on the failed transaction.
+After a FEE_OVERRIDE or REVERT, open **Opinion**. That screen is the Compliance Officer Agent file for this swap (whitepaper §7). With `ANTHROPIC_API_KEY` in `apps/api/.env`, Claude drafts it against the git corpus (`search_regulations`) after `consult_skill` (`uhi10-use-case`) and after it has already published the score and fee to `ComplianceOracle`. Without a key, the skill interpreter fills the same schema. There are still no live Chainalysis / OFAC HTTP feeds. Successful swaps also emit `SwapObserved`. Reverts do not keep that log. Index the error on the failed transaction.

@@ -1,12 +1,10 @@
 /**
  * Off-chain Compliance Officer / oracle agent runner.
  *
- * Runs the virtual AI AML analyst pipeline (skills + connected sources), then
- * scores deterministically for the A–E use case and publishes via the keeper.
- *
- * Wallet D: after inbound P2P, updateScore is deferred so the next swap can
- * demonstrate the inflow heuristic under a stale score of 0.
- * Wallet E: never seeded and never published (unknown).
+ * When live, Claude emits score, fee, Opinion, and skill findings. The keeper
+ * publishes finalScore + recommendedFeeBps to ComplianceOracle. The hook and
+ * FeeEscrow read that row — TypeScript does not precompute 65/42 or mock copy.
+ * Tick only stamps the last agent score (no Claude). Wallet E is never published.
  */
 
 import {
@@ -24,7 +22,7 @@ import {
 } from "../store.js";
 import { shouldPublishScore } from "../scoring.js";
 import type { WalletId } from "../types.js";
-import { buildFacts, scoreFromFacts } from "./factScoring.js";
+import { buildFacts, collectSanctionFacts, scoreFromFacts } from "./factScoring.js";
 import {
   clearScorePublishes,
   publishScoreToChain,
@@ -37,7 +35,12 @@ import {
   getOracleScore,
   setOracleEvaluation,
 } from "./store.js";
-import type { OracleEvaluation, OracleTrigger } from "./types.js";
+import type { OracleEvaluation, OracleOpinion, OracleTrigger, ScoreResult } from "./types.js";
+import { applyLiveOpinionIfNeeded, isLiveCoaEnabled } from "./liveOpinion.js";
+import {
+  evaluateWithLiveAgent,
+  type ScoringEvidence,
+} from "./liveScore.js";
 import { runVirtualAgentPipeline } from "./virtualAgent.js";
 
 const FULL_FLOW = [
@@ -49,16 +52,20 @@ const FULL_FLOW = [
   "swap-behavior-analysis",
   "typology-detection",
   "cross-pool-intelligence",
+  "uhi10-use-case",
   "fact-scoring",
   "task-swap-decision",
+  "search_regulations",
   "task-regulatory-report",
 ] as const;
 
 const INCREMENTAL_FLOW = [
   "task-swap-intake",
   "swap-behavior-analysis",
+  "uhi10-use-case",
   "fact-scoring",
   "task-swap-decision",
+  "search_regulations",
   "task-regulatory-report",
 ] as const;
 
@@ -75,6 +82,10 @@ export async function reevaluateWallet(
     throw new Error(`Oracle: wallet ${walletId} not found`);
   }
 
+  if (trigger === "tick") {
+    return republishTick(walletId);
+  }
+
   const prior = getOracleScore(walletId);
   const useIncremental =
     trigger === "afterSwap" &&
@@ -84,18 +95,57 @@ export async function reevaluateWallet(
 
   const skills = [...(useIncremental ? INCREMENTAL_FLOW : FULL_FLOW)];
   const flow = useIncremental ? "INCREMENTAL" : "FULL";
-  // Theater latency on interactive triggers only (keep seed/reset snappy).
-  const theater = trigger !== "seed";
+  const live = isLiveCoaEnabled() && !wallet.neverScored;
+
+  const transfers = listTransfers();
+  const events = listEvents();
+  const extraFacts = await collectSanctionFacts(wallet, transfers, events);
+  const evidence: ScoringEvidence = {
+    wallet,
+    priorScore: prior,
+    transfers,
+    events,
+    sanctions: {
+      subjectListed: extraFacts.some((f) => f.type === "OFAC_DIRECT_MATCH"),
+      listedCounterparties: extraFacts
+        .filter((f) => f.type === "SANCTIONED_COUNTERPARTY")
+        .map((f) => f.justification),
+      listedContractsTouched: extraFacts
+        .filter((f) => f.type === "SANCTIONED_CONTRACT_INTERACTION")
+        .map((f) => f.justification),
+    },
+  };
+
+  if (live) {
+    try {
+      const scored = await evaluateWithRetry(evidence, trigger, skills, flow);
+      return persistEvaluation({
+        wallet,
+        scoreResult: scored.scoreResult,
+        agentRun: scored.agentRun,
+        opinion: scored.opinion,
+        scoreSource: "anthropic",
+        opinionSource: "anthropic",
+        trigger,
+        prior,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("live COA failed; not substituting a TypeScript score:", message);
+      const cached = getOracleEvaluation(walletId);
+      if (cached) return cached;
+      throw err;
+    }
+  }
 
   const agentRun = await runVirtualAgentPipeline({
     wallet,
     trigger,
     skills,
     flow,
-    theater,
+    theater: trigger !== "seed",
   });
-
-  const facts = buildFacts(wallet, listTransfers(), listEvents());
+  const facts = buildFacts(wallet, transfers, events, extraFacts);
   const scoreResult = scoreFromFacts(
     wallet,
     facts,
@@ -104,23 +154,88 @@ export async function reevaluateWallet(
     skills,
     flow,
   );
-  const opinion = buildOpinionFromScore(wallet, scoreResult, agentRun);
-  const priorFee = prior == null ? null : getOracleFeeBps(walletId);
+  return persistEvaluation({
+    wallet,
+    scoreResult,
+    agentRun,
+    scoreSource: "skill",
+    opinionSource: "mock",
+    trigger,
+    prior,
+  });
+}
+
+async function evaluateWithRetry(
+  evidence: ScoringEvidence,
+  trigger: OracleTrigger,
+  skills: string[],
+  flow: ScoreResult["flow"],
+) {
+  let last: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await evaluateWithLiveAgent({
+        evidence,
+        trigger,
+        skills,
+        flow,
+      });
+    } catch (err) {
+      last = err;
+    }
+  }
+  throw last instanceof Error ? last : new Error("live COA failed");
+}
+
+async function republishTick(walletId: WalletId): Promise<OracleEvaluation> {
+  const wallet = getWallet(walletId);
+  if (!wallet) {
+    throw new Error(`Oracle: wallet ${walletId} not found`);
+  }
+  const cached = getOracleEvaluation(walletId);
+  if (!cached) {
+    return reevaluateWallet(walletId, "seed");
+  }
+  const onChainPublish = await publishScoreToChain(wallet, cached.scoreResult);
+  touchScoreAt(wallet.id);
+  const evaluation: OracleEvaluation = {
+    ...cached,
+    onChainPublish,
+  };
+  setOracleEvaluation(walletId, evaluation);
+  return evaluation;
+}
+
+async function persistEvaluation(input: {
+  wallet: NonNullable<ReturnType<typeof getWallet>>;
+  scoreResult: ScoreResult;
+  agentRun: OracleEvaluation["agentRun"];
+  opinion?: OracleOpinion;
+  scoreSource: "skill" | "anthropic";
+  opinionSource: "mock" | "anthropic";
+  trigger: OracleTrigger;
+  prior: number | null;
+}): Promise<OracleEvaluation> {
+  const { wallet, scoreResult, agentRun, scoreSource, prior } = input;
+  const opinion =
+    input.opinion ?? buildOpinionFromScore(wallet, scoreResult, agentRun);
+  const priorFee = prior == null ? null : getOracleFeeBps(wallet.id);
   const shouldWrite = shouldPublishScore({
     neverScored: wallet.neverScored,
     priorScore: prior,
     nextScore: scoreResult.finalScore,
     priorFeeBps: priorFee,
     nextFeeBps: scoreResult.recommendedFeeBps,
-    lastScoreAt: getLastScoreAt(walletId),
+    lastScoreAt: getLastScoreAt(wallet.id),
     now: demoNow(),
     stalenessMs: STALENESS_MS,
+    force: input.trigger === "tick",
   });
 
   const onChainPublish = shouldWrite
     ? await publishScoreToChain(wallet, scoreResult)
     : {
-        mode: "mock" as const,
+        mode: "rpc" as const,
         status: "skipped" as const,
         walletId: wallet.id,
         address: wallet.address,
@@ -137,8 +252,10 @@ export async function reevaluateWallet(
     opinion,
     agentRun,
     onChainPublish,
+    opinionSource: input.opinionSource,
+    scoreSource,
   };
-  setOracleEvaluation(walletId, evaluation);
+  setOracleEvaluation(wallet.id, evaluation);
   return evaluation;
 }
 
@@ -237,10 +354,22 @@ export async function reevaluateAfterBlock(
 }
 
 /**
- * Returns cached evaluation or runs a fresh seed evaluation.
+ * Cached evaluation, or a live COA run if nothing has been published yet.
  */
 export async function ensureOracleEvaluation(
   walletId: WalletId,
 ): Promise<OracleEvaluation> {
-  return getOracleEvaluation(walletId) ?? reevaluateWallet(walletId, "manual");
+  const wallet = getWallet(walletId);
+  let cached = getOracleEvaluation(walletId);
+  if (
+    isLiveCoaEnabled() &&
+    wallet &&
+    !wallet.neverScored &&
+    cached?.scoreSource !== "anthropic"
+  ) {
+    cached = await reevaluateWallet(walletId, "manual");
+  }
+  cached =
+    cached ?? (await reevaluateWallet(walletId, "manual"));
+  return applyLiveOpinionIfNeeded(cached);
 }

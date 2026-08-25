@@ -1,0 +1,1179 @@
+F I N C E N G U I D A N C E
+FIN-2019-G001
+Issued: May 9, 2019
+Subject: Application of FinCEN’s Regulations to Certain Business Models
+Involving Convertible Virtual Currencies
+The Financial Crimes Enforcement Network (FinCEN) is issuing this interpretive
+guidance to remind persons subject to the Bank Secrecy Act (BSA) how FinCEN
+regulations relating to money services businesses (MSBs) apply to certain business
+models1 involving money transmission denominated in value that substitutes for
+currency, specifically, convertible virtual currencies (CVCs).2
+This guidance does not establish any new regulatory expectations or requirements.
+Rather, it consolidates current FinCEN regulations, and related administrative rulings
+and guidance issued since 2011, and then applies these rules and interpretations to
+other common business models involving CVC engaging in the same underlying
+patterns of activity.
+This guidance is intended to help financial institutions comply with their existing
+obligations under the BSA as they relate to current and emerging business models
+involving CVC by describing FinCEN’s existing regulatory approach to the issues
+most frequently raised by industry, law enforcement, and other regulatory bodies
+within this evolving financial environment. In this regard, it covers only certain
+business models and necessarily does not address every potential combination of facts
+and circumstances. Thus, a person working with a business model not specifically
+included in this guidance may still have BSA obligations.
+The overall structure of this guidance is as follows:
+Section 1 defines certain key concepts within the context of the guidance.
+Although the titles or names assigned to these key concepts may coincide with
+terms customarily used by industry and share similar attributes, for purposes of the
+guidance their meaning is limited to the definition provided in the guidance.
+1. For a discussion of the concept of “business model” as used within this guidance, see infra, Section 1.1.
+2. For a discussion of the concepts of “value that substitutes for currency” and “convertible virtual
+currency” as used within this guidance, see infra, Sections 1.2. and 1.3.
+1
+
+F I N C E N G U I D A N C E
+Section 2 consolidates and explains current FinCEN regulations, previous
+administrative rulings, and guidance involving the regulation of money transmission
+under the BSA. By consolidating and summarizing rules and interpretation in a
+single Section, this guidance provides a resource to help financial institutions comply
+with their existing obligations under the BSA as they relate to current and emerging
+activities involving CVC.
+Section 3 summarizes the development and content of FinCEN’s 2013 guidance on the
+application of money transmission regulations to transactions denominated in CVC.3
+Sections 4 and 5 describe FinCEN’s existing regulatory approach to current and
+emerging business models using patterns of activity involving CVC. This approach
+illustrates how FinCEN fits existing interpretations about certain activities to other
+activities that at first may seem unrelated, but conform to the same combination of
+key facts and circumstances.
+Finally, Section 6 contains a list of resources to which interested parties may refer
+for further explanation about the content of the guidance, or to assist in evaluating
+facts and circumstances not expressly covered in this guidance.
+1. Key Concepts
+The following subsections describe how FinCEN frames certain key concepts for
+purposes of this guidance.
+1.1. Business Model
+Whether a person is a money transmitter under FinCEN’s regulations is a matter
+of facts and circumstances.4 Within the context of this guidance, “business model”
+refers to the subset of key facts and circumstances relevant to FinCEN’s determination
+of (a) whether the specific person meets the definition of a particular type of financial
+institution and (b) what regulatory obligations are associated with the specific
+activities performed within the business model.
+This guidance may refer to a pattern of activity as a business model using a title or
+name (“label”) that may coincide with a label used by industry to designate a general
+type of product or service. The label, however, will not determine the regulatory
+application. Rather, this guidance applies to any business model that fits the same key
+facts and circumstances described in the guidance, regardless of its label. Conversely, the
+regulatory interpretations in this guidance will not apply to a business model using the
+same label, but involving different key facts and circumstances.
+3. FIN-2013-G001, “Application of FinCEN’s Regulations to Persons Administering, Exchanging, or
+Using Virtual Currencies,” Mar. 18, 2013 (“2013 VC Guidance”).
+4. 31 CFR § 1010.100(ff)(5)(ii).
+2
+
+F I N C E N G U I D A N C E
+In addition, differences in similar business models may lead to different regulatory
+applications. The regulatory interpretations contained in this guidance may extend
+only to other business models consisting of the same key facts and circumstances as
+the business models described herein. Therefore, a particular regulatory interpretation
+may not apply to a person if their business model contains fewer, additional, or
+different features than those described in this guidance.
+Lastly, a person who is engaged in more than one type of business model at
+the same time may be subject to more than one type of regulatory obligation or
+exemption. For example, a developer or seller of either a software application or a
+new CVC platform may be exempt from BSA obligations associated with creating
+or selling the application or CVC platform, but may still have BSA obligations as
+a money transmitter if the seller or developer also uses the new application to
+engage as a business in accepting and transmitting currency, funds, or value that
+substitutes for currency, or uses the new platform to engage as a business in accepting
+and transmitting the new CVC. Likewise, an exemption may apply to a person
+performing a certain role in the development or sale of a software application, while a
+different person using the same application to accept and transmit currency, funds, or
+value that substitutes for currency would be still subject to BSA obligations.
+1.2. Value that Substitutes for Currency
+1.2.1. Definitions
+In 2011, FinCEN issued a final rule (“2011 MSB Final Rule”)5 defining a money
+services business as, “a person wherever located doing business, whether or not on a
+regular basis or as an organized or licensed business concern, wholly or in substantial
+part within the United States,” operating directly, or through an agent, agency,
+branch, or office, who functions as, among other things, a “money transmitter.”6
+FinCEN’s regulations define the term “money transmitter” to include a “person
+that provides money transmission services,” or “any other person engaged in the
+transfer of funds.”7 A “transmittor,” on the other hand, is “[t]he sender of the
+first transmittal order in a transmittal of funds. The term transmittor includes an
+originator, except where the transmittor’s financial institution is a financial institution
+or foreign financial agency other than a bank or foreign bank.”8 In other words, a
+transmittor initiates a transaction that the money transmitter actually executes.
+5. Bank Secrecy Act Regulations - Definitions and Other Regulations Relating to Money Services
+Businesses, 76 FR 43585 (July 21, 2011).
+6. 31 CFR § 1010.100(ff).
+7. 31 CFR § 1010.100(ff)(5).
+8. 31 CFR § 1010.100(fff).
+3
+
+F I N C E N G U I D A N C E
+The term “money transmission services” is defined to mean the acceptance of
+currency, funds, or other value that substitutes for currency from one person and
+the transmission of currency, funds, or other value that substitutes for currency to
+another location or person by any means.9 The term “other value that substitutes
+for currency” encompasses situations in which the transmission does not involve
+currency,10 or funds, but instead involves something that the parties to a transaction
+recognize has value that is equivalent to or can substitute for currency.
+FinCEN’s regulation does not limit or qualify the scope of the term “value that
+substitutes for currency.” It can be created either (a) specifically for the purpose of
+being used as a currency substitute or (b) originally for another purpose but then
+repurposed to be used as a currency substitute by an administrator (in centralized
+payment systems) or an unincorporated organization, such as a software agency (in
+decentralized payment systems).11 In either case, the persons involved in the creation
+and subsequent distribution of the value (either for the original purpose or for another
+purpose) may be subject to additional regulatory frameworks (other than the BSA)
+that govern licensing and chartering obligations, safety and soundness regulations,
+minimum capital and reserve requirements, general and financial consumer and
+investor protection, etc. When subject to these other regulatory frameworks, the
+person may be exempted from MSB status but be covered as a different type of
+financial institution under FinCEN regulations.
+1.2.2. Application of BSA regulations to persons exempt from MSB status
+engaged in transactions denominated in any type of value that
+substitutes for currency
+The term “money services business” does not include: (a) a bank or foreign bank;
+(b) a person registered with, and functionally regulated or examined by, the U.S.
+Securities and Exchange Commission (SEC) or the U.S. Commodity Futures Trading
+Commission (CFTC), or a foreign financial agency that engages in financial activities
+that, if conducted in the United States, would require the foreign financial agency to
+be registered with the SEC or CFTC; or, (c) a natural person who engages in certain
+identified MSB activity (i.e., dealing in foreign exchange, check cashing, issuing
+or selling traveler’s checks or money orders, providing prepaid access, or money
+9. 31 CFR § 1010.100(ff)(5)(i)(A) (emphasis added).
+10. 31 CFR § 1010.100(m) (defining currency as “[t]he coin and paper money of the United States or
+of any other country that is designated as legal tender and that circulates and is customarily used
+and accepted as a medium of exchange in the country of issuance. Currency includes U.S. silver
+certificates, U.S. notes and Federal Reserve notes. Currency also includes official foreign bank notes
+that are customarily used and accepted as a medium of exchange in a foreign country.”)
+11. See 2013 VC Guidance, at 4-5 (discussing centralized and decentralized payment systems).
+4
+
+F I N C E N G U I D A N C E
+transmission) but does so on an infrequent basis and not for gain or profit.12 Banks
+and persons registered with, and functionally regulated or examined by, the SEC
+or the CFTC, that engage in transactions denominated in value that substitutes for
+currency will be subject to BSA regulations according to the applicable section of 31
+CFR Chapter X.13
+1.2.3. Application of BSA regulations to persons not exempt from MSB
+status engaged in transactions denominated in any type of value
+that substitutes for currency
+A person not exempt from MSB status under 31 CFR § 1010.100(ff)(8) may be a
+money transmitter when the person engages in transactions covered by FinCEN’s
+definition of money transmission, regardless of the technology employed for the
+transmittal of value or the type of asset the person uses as value that substitutes
+for currency, or whether such asset is physical or virtual. In general, persons not
+covered by 1010.100(ff)(8)(ii) who issue securities and futures, or purchase and sell
+securities, commodities, and futures, are outside the scope of the BSA. However,
+such persons could be covered by BSA money transmission regulations under certain
+facts and circumstances, in accordance with (a) the regulatory definition of money
+transmitter, (b) any applicable exemption from the definition (see Section 2 below),
+and (c) regulatory interpretations such as those contained in FIN-2008-G008 and FIN-
+2015-R001:
+a) FIN-2008-G008, “Application of the Definition of Money Transmitter to Brokers
+and Dealers in Currency and other Commodities,” September 10, 2008, states
+that as long as a broker or dealer in real currency or other commodities accepts
+and transmits funds solely for the purpose of effecting a bona fide purchase or
+sale of the real currency or other commodities for or with a customer, such
+person is not acting as a money transmitter under the regulations. However,
+if the broker or dealer transfers funds between a customer and a third party
+that is not part of the currency or commodity transaction, such transmission of
+funds is no longer a fundamental element of the actual transaction necessary
+to execute the contract for the purchase or sale of the currency or the other
+12. 31 CFR § 1010.100(ff)(8). In the case of 1010.100(ff)(8)(ii), the exemption applies only if the person
+itself is registered with, and functionally regulated or examined by the SEC or CFTC; the exemption
+may not apply if it is, for example, the document instrumenting the offer or sale of an asset (and not
+the person offering or selling the asset) that which must be registered.
+13. The appropriate definitions and specific regulations may be found as follows: banks (31 CFR §§
+1010.100(d) and 1020, respectively); brokers or dealers in securities (31 CFR §§ 1010.100(h) and
+1023, respectively); futures commission merchants (31 CFR §§ 1010.100(x) and 1026, respectively);
+introducing brokers in commodities (31 CFR §§ 1010.100(bb) and 1026, respectively); and mutual
+funds (31 CFR §§ 1010.100(gg) and 1024, respectively).
+5
+
+F I N C E N G U I D A N C E
+commodity, and the broker or dealer becomes a money transmitter. This
+regulatory interpretation extends to persons intermediating in the purchase
+and sale of securities or futures.14
+b) FIN-2015-R001, “Application of FinCEN’s Regulations to Persons Issuing
+Physical or Digital Negotiable Certificates of Ownership of Precious Metals,”
+August 14, 2015, applies a similar interpretation to digital certificates
+evidencing the ownership of a certain amount of a commodity. This regulatory
+interpretation also extends to physical or digital certificates of ownership of
+securities or futures contracts.
+In the regulatory interpretations above, money transmission could involve either
+(a) the movement of currency of legal tender to or from accounts originally set up to
+buy or sell commodities (or securities, or futures); or (b) the issuance and subsequent
+acceptance and transmission of a digital token that evidenced ownership of a certain
+amount of a commodity, security, or futures contract. At the time of the rulings
+mentioned above, the commodity, security, or futures contract itself was not used to
+engage in money transmission primarily because such contracts were fractioned in
+relatively large individual amounts not suitable for money transmission. However, if
+assets that other regulatory frameworks define as commodities, securities, or futures
+contracts were to be specifically issued or later repurposed to serve as a currency
+substitute, then the asset itself could be a type of value that substitutes for currency,
+the transfer of which could constitute money transmission.
+Therefore, as explained above, money transmission may occur when a person (or
+an agent, or a mechanical or software agency owned or operated by such person) not
+exempt from MSB status:
+a) uses any representation of currency of legal tender (paper money, coins,
+Federal Reserve Bank notes, United States notes, funds credited to an account)
+associated with the purchase or sale of commodities, securities, or futures
+contracts to engage in money transmission;
+14. See also 2011 MSB Final Rule, 76 FR at 43594 (stating “[P]ersons that sell goods or provide services
+other than money transmission services, and only transmit funds as an integral part of that sale
+of goods or provision of services, are not money transmitters. For example, brokering the sale of
+securities, commodity contracts, or similar instruments is not money transmission notwithstanding
+the fact that the person brokering the sale may move funds back and forth between the buyer and
+seller to effect the transaction.”). The 2011 MSB Final Rule updated, streamlined, and clarified
+MSB regulations based on FinCEN’s large body of guidance and administrative rulings previously
+issued. 2011 MSB Final Rule, 76 FR at 43586. Such previous guidance or administrative rulings,
+which FinCEN has not withdrawn, remain instructive and are cited herein to assist in understanding
+FinCEN’s current interpretation of its MSB regulations.
+6
+
+F I N C E N G U I D A N C E
+b) issues physical or digital tokens evidencing ownership of commodities,
+securities, or futures contracts that serve as value that substitutes for currency
+in money transmission transactions; or
+c) issues or employs commodities, securities, or futures contracts by themselves
+as value that substitutes for currency in money transmission transactions.
+1.3. Convertible Virtual Currency (CVC)
+The term “virtual currency” refers to a medium of exchange that can operate like
+currency but does not have all the attributes of “real” currency, as defined in 31 CFR
+§ 1010.100(m), including legal tender status.15 CVC is a type of virtual currency that
+either has an equivalent value as currency, or acts as a substitute for currency, and is
+therefore a type of “value that substitutes for currency.”
+As mentioned above, the label applied to any particular type of CVC (such
+as “digital currency,” “cryptocurrency,” “cryptoasset,” “digital asset,” etc.) is
+not dispositive of its regulatory treatment under the BSA. Similarly, as money
+transmission involves the acceptance and transmission of value that substitutes for
+currency by any means, transactions denominated in CVC will be subject to FinCEN
+regulations regardless of whether the CVC is represented by a physical or digital
+token, whether the type of ledger used to record the transactions is centralized or
+distributed, or the type of technology utilized for the transmission of value.
+2. General Application of BSA Regulations to Money Transmission
+Under the BSA, the term “person” means “[a]n individual, a corporation, a
+partnership, a trust or estate, a joint stock company, an association, a syndicate, joint
+venture, or other unincorporated organization or group, an Indian Tribe (as that
+term is defined in the Indian Gaming Regulatory Act), and all entities cognizable as
+legal personalities.”16
+In general, whether a person qualifies as an MSB subject to BSA regulation depends
+on the person’s activities and not its formal business status. Thus, whether a person is
+an MSB will not depend on whether the person: (a) is a natural person or legal entity; (b)
+is licensed as a business by any state; (c) has employees or other natural persons acting
+as agents; (d) operates at a brick-and-mortar branch, or through mechanical or software
+agents or agencies; or (e) is a for profit or nonprofit service.17
+15. 2013 VC Guidance, at 1; see also, inpra, section 3.
+16. 31 CFR § 1010.100(mm).
+17. FinCEN clarified these points in the Preamble to the 2011 MSB Final Rule, 76 FR, at 43587.
+7
+
+F I N C E N G U I D A N C E
+At the same time, a person still qualifies as a money transmitter if that person’s
+activities include receiving one form of value (currency, funds, prepaid value, value that
+substitutes for currency – such as CVC, etc.) from one person and transmitting either
+the same or a different form of value to another person or location, by any means.18
+Similarly, a money transmitter may accept and transmit value in either order. That is,
+a person is still a money transmitter under FinCEN regulations if the person transmits
+value first, and only later accepts corresponding value for this transfer.19
+Likewise, a person may be a money transmitter when operating either on a
+transactional basis or on an account basis.20 A transactional basis includes one-
+off transactions where there is no expectation that the money transmitter will
+establish an ongoing relationship with the transactor, and the money transmitter
+retains the currency, funds, or other value that substitutes for currency, only for
+the time required to effect the transmission. By contrast, an account basis includes
+circumstances where the transactor is an established customer of the money
+transmitter, as defined in 31 CFR § 1010.100(p), and the money transmitter may
+maintain an account for the transactor to store funds or value that substitutes for
+currency, from which the transactor can instruct the money transmitter to transfer
+them in whole or in part.
+Finally, a person will qualify as a money transmitter if that person accepts value
+with the intent of transmitting it only under certain conditions. For example, if a
+person operates a platform that facilitates the conditional exchange of value between
+two parties—such as the exchange of CVC against currency only when an agreed
+upon exchange rate and amount is met—such person will be engaged in money
+transmission every time the conditions (such as the exchange rate and amount) are
+met and the person completes the reciprocal transfers.21
+18. 2011 MSB Final Rule, 76 FR, at 43592.
+19. Ibid.
+20. Amendment to the Bank Secrecy Act Regulations Relating to Recordkeeping for Funds Transfers
+and Transmittals of Funds by Financial Institutions, 60 FR 220, Jan. 3, 1995 (stating “An established
+customer is defined as a person with an account with a financial institution or a person with respect
+to which the financial institution has obtained and maintains on file the name and address, as well
+as the customer’s taxpayer identification number or, if none, alien identification number or passport
+number and country of issuance, and to which the financial institution provides financial services
+relying on that information…. Such relationships with nonbank financial institutions may include,
+but are not limited to, accounts with broker/dealers and ongoing contractual relationships between
+providers of money transmitting services and business customers.”)
+21. See FIN-2014-R011, “Request for Administrative Ruling on the Application of FinCEN’s Regulations
+to a Virtual Currency Trading Platform,” Oct. 27, 2014.
+8
+
+F I N C E N G U I D A N C E
+As discussed above, whether a person is a money transmitter depends on the facts
+and circumstances of a given case. FinCEN regulations, however, specify certain
+activities are excluded from the definition of “money transmitter.” Specifically, a
+person is not a money transmitter if that person only:
+a) provides the delivery, communication, or network access services used by a
+money transmitter to support money transmission services;
+b) acts as a payment processor to facilitate the purchase of, or payment of a bill
+for, a good or service through a clearance and settlement system by agreement
+with the creditor or seller;
+c) operates a clearance and settlement system or otherwise acts as an intermediary
+solely between BSA regulated institutions;
+d) physically transports currency, other monetary instruments, other commercial
+paper, or other value that substitutes for currency as a person primarily
+engaged in such business, such as an armored car, from one person to the
+same person at another location or to an account belonging to the same
+person at a financial institution, provided that the person engaged in physical
+transportation has no more than a custodial interest in the currency, other
+monetary instruments, other commercial paper, or other value at any time
+during the transportation;
+e) provides prepaid access, as defined in 31 CFR § 1010.100(ff)(4); or
+f) accepts and transmits funds only integral to the sale of goods or the provision
+of services, other than money transmission services, by the person who is
+accepting and transmitting the funds.22
+FinCEN interprets these exemptions strictly. Therefore, a person may not take
+advantage of a particular exemption if the activity it engages in does not conform
+fully to an exemption.23
+2.1. BSA Obligations of Money Transmitters
+The BSA regulatory framework begins with the expectation that financial institutions
+will operate under a culture of compliance supported by senior leadership, including
+owners, boards of directors, and senior executives. This culture of compliance will
+dictate the basic norms of behavior, knowledge, and transparency under which the
+management team, employees, and service providers will be held accountable.24
+22. 31 CFR § 1010.100(ff)(5)(ii)(A)-(F).
+23. See FIN-2014-R010, “Administrative Ruling on the Application of FinCEN Regulations to Currency
+Transporters, Including Armored Car Services, and Exceptive Relief,” Sept. 24, 2014.
+24. See FIN-2014-A007, “Advisory to U.S. Financial institutions on Promoting a Culture of Compliance,”
+Aug. 11, 2014.
+9
+
+F I N C E N G U I D A N C E
+The BSA and its implementing regulations require MSBs to develop, implement,
+and maintain an effective written anti-money laundering program (“AML program”)
+that is reasonably designed to prevent the MSB from being used to facilitate money
+laundering and the financing of terrorist activities. The AML program must, at a
+minimum: (a) incorporate policies, procedures and internal controls reasonably
+designed to assure ongoing compliance (including verifying customer identification,
+filing reports, creating and retaining records, and responding to law enforcement
+requests); (b) designate an individual responsible to assure day-to-day compliance
+with the program and BSA requirements; (c) provide training for appropriate
+personnel, including training in the detection of suspicious transactions; and, (d)
+provide for independent review to monitor and maintain an adequate program.25 The
+AML program must be approved by the owner of the financial institution, or by the
+owner’s representative (in the case of a corporation, such representative is the Board
+of Directors).
+To assure that an AML compliance program is reasonably designed to meet the
+requirements of the BSA, MSBs should structure their programs to be risk-based.
+MSBs should assess their individual exposure to the risk of money laundering,
+terrorism finance, and financial crime based on the composition of customer base,
+the geographies served, and the financial products and services offered. MSBs
+must properly manage customer relationships and effectively mitigate risks by
+implementing controls commensurate with those risks.26
+A well-developed risk assessment is part of sound risk management and assists
+MSBs in identifying and providing a comprehensive analysis of their individual risk
+profile. As part of its risk assessment, an MSB should determine both the identity and
+the profile of its customers and MSBs must know enough about their customers to be
+able to determine the risk level they represent to the institution.
+As an MSB, any non-exempt person engaged in money transmission must register
+with FinCEN within 180 days of starting to engage in money transmission.27 Money
+transmitters must also comply with the recordkeeping, reporting, and transaction
+monitoring obligations set forth in Parts 1010 and 1022 of 31 CFR Chapter X.28
+25. 31 U.S.C. § 5318(g)(1); 31 CFR. § 1022.320(a)(2).
+26. 31 CFR § 1022.210(b).
+27. 31 CFR § 1022.380.
+28. Examples of such requirements include the filing of Currency Transaction Reports (31 CFR
+§ 1022.310) and Suspicious Activity Reports (31 CFR § 1022.320), whenever applicable, general
+recordkeeping maintenance (31 CFR § 1010.410), and recordkeeping related to the sale of negotiable
+instruments (31 CFR § 1010.415).
+10
+
+F I N C E N G U I D A N C E
+To the extent that any of the money transmitter’s transactions constitute a
+“transmittal of funds”29 under FinCEN’s regulations, then the money transmitter
+must also comply with the “Funds Transfer Rule”30 and the “Funds Travel Rule.”31
+Additionally, as an MSB, the money transmitter must register with FinCEN within 180
+days of starting to engage in money transmission.32
+FinCEN regulations define a “transmittal of funds”33 as a series of transmittal
+orders, and define a “transmittal order”34 as an instruction to pay, among other things
+“a fixed or determinable amount of money….”35 FinCEN has stated that transmittal
+of funds are not limited to wire transfers or electronic transfers. Examples provided
+in guidance are credits and debits to correspondent accounts, and using a check as
+a transmittal order within a transmittal of funds, in which case the check and any
+accompanying instructions are the transmittal order effecting the transmittal of funds.36
+Because a transmittal order involving CVC is an instruction to pay “a determinable
+amount of money,” transactions involving CVC qualify as transmittals of funds,
+and thus may fall within the Funds Travel Rule.37 Under the Funds Travel Rule, a
+transmittal of funds of $3,000 or more (or its equivalent in CVC) may trigger certain
+requirements on a money transmitter acting as either the financial institution for the
+transmittor or recipient, or as an intermediary financial institution.
+The money transmitter must obtain or provide the required regulatory information
+either before or at the time of the transmittal of value, regardless of how a money
+transmitter sets up their system for clearing and settling transactions, including those
+involving CVC.38 In meeting this obligation, the parties to the transmittal of funds
+are not required to use the same system or protocol for both the actual transmission
+of value and the reception or transmission of the required regulatory information.
+As long as the obligated person provides the required regulatory information either
+29. 31 CFR § 1010.100(ddd).
+30. See 31 CFR § 1010.410(e).
+31. See 31 CFR § 1010.410(f).
+32. 31 CFR § 1022.380.
+33. 31 CFR § 1010.100(ddd).
+34. 31 CFR § 1010.100(eee).
+35. Ibid.
+36. See FIN-1997-A007, “FinCEN FAQs on Funds “Travel” Regulations,” January 1997; re-issued as
+FIN-2010-G004, “Funds “Travel” Regulations: Questions & Answers, Question 13,” Nov. 9, 2010.
+37. “Funds Travel Rule,” see 31 CFR § 1010.410(f).
+38. In general, a person that chooses to set up a transaction system that makes it difficult to comply with
+existing regulations may not invoke such difficulty as a justification for non-compliance or as a reason
+for preferential treatment.
+11
+
+F I N C E N G U I D A N C E
+before or at the time of the transmittal of value, if a given transmission protocol is
+unable to accommodate such information, the obligated person may provide such
+information in a message different from the transmittal order itself.39
+Persons interested in determining whether a certain new activity or variation on an
+existing activity may subject them to FinCEN’s regulatory requirements, or that find
+that FinCEN published regulation or guidance does not clearly reflect their business
+model, have several options for obtaining preliminary, general guidance, or definitive
+regulatory interpretation.40
+3. Application of BSA Regulations to Money Transmission
+Involving CVC
+The 2011 MSB Final Rule made clear that persons accepting and transmitting
+value that substitutes for currency, such as virtual currency, are money transmitters.
+Persons accepting and transmitting CVC are required (like any money transmitter)
+to register with FinCEN as an MSB and comply with AML program, recordkeeping,
+monitoring, and reporting requirements (including the filing of SARs and CTRs).
+These requirements apply equally to domestic and foreign-located CVC money
+transmitters doing business in whole or in substantial part within the United States,
+even if the foreign-located entity has no physical presence in the United States.
+After the issuance of the 2011 MSB Final Rule, FinCEN received questions from
+industry on whether the new rule applied to transactions denominated in all types
+of virtual currency, including, for example, virtual currency that could only be used
+inside video games. Some persons involved in transactions denominated in CVC
+sought to register with FinCEN as either currency exchangers or prepaid access
+providers or sellers, rather than as money transmitters. FinCEN also received
+questions from persons purchasing CVCs to pay for goods or services, or planning to
+accept CVCs in payment of goods and services sold, concerned about their potential
+BSA obligations.
+To address these and other issues, on March 18, 2013, FinCEN issued interpretive
+guidance on the application of FinCEN’s regulations to transactions involving the
+acceptance of currency or funds and the transmission of CVC (“2013 VC Guidance”).41
+The 2013 VC Guidance described what CVC is for purposes of FinCEN regulations,
+39. See 31 CFR § 1010.410(f).
+40. See infra, Section 6 – Available Resources; see also MSB Examination Materials, available at
+https://www.fincen.gov/msb-examination-materials
+41. See FIN-2013-G001, “Application of FinCEN’s Regulations to Persons Administering, Exchanging, or
+Using Virtual Currencies,” Mar. 18, 2013.
+12
+
+F I N C E N G U I D A N C E
+and reminded the public that persons not exempted from MSB status that accept
+and transmit either real currency or anything of value that substitutes for currency,
+including virtual currency, are covered by the definition of money transmitter.42
+The 2013 VC Guidance also identified the participants to generic CVC
+arrangements, including an “exchanger,” “administrator,” and “user,” and further
+clarified that exchangers and administrators generally qualify as money transmitters
+under the BSA, while users do not. An exchanger is a person engaged as a business in
+the exchange of virtual currency for real currency, funds, or other virtual currency,
+while an administrator is a person engaged as a business in issuing (putting into
+circulation) a virtual currency, and who has the authority to redeem (to withdraw
+from circulation) such virtual currency.43 A user is “a person that obtains virtual
+currency to purchase goods or services” on the user’s own behalf.44
+The 2013 VC Guidance explained that the method of obtaining virtual
+currency (e.g., “earning,” “harvesting,” ”mining,” “creating,” “auto-generating,”
+“manufacturing,” or “purchasing”) does not control whether a person qualifies as
+a “user,” an “administrator” or an “exchanger.”45 In addition, it confirmed that
+exchangers are subject to the same obligations under FinCEN regulations regardless
+of whether the exchangers are directly brokering the transactions between two or
+more persons, or whether the exchangers are parties to the transactions using their
+own reserves, in either CVC or real currency.46 The 2013 VC Guidance also discussed
+the appropriate regulatory treatment of administrators and exchangers under three
+common scenarios: brokers and dealers of e-currencies and e-precious metals;
+centralized CVCs; and decentralized CVCs.47
+The 2013 VC Guidance also clarified that FinCEN interprets the term “another
+location” broadly. The definition of money transmitter includes a person that accepts
+and transmits value that substitutes for currency from one person to another person
+or to “another location.” For example, transmission to another location occurs when
+an exchanger selling CVC accepts real currency or its equivalent from a person and
+42. See, supra, Section 1.3.
+43. See 2013 VC Guidance, at 2.
+44. Ibid.
+45. See also FIN-2014-R001, “Application of FinCEN’s Regulations to Virtual Currency Mining
+Operations,” Jan. 30, 2014 (clarifying that a user is a person that obtains virtual currency to purchase
+goods or services on the user’s own behalf).
+46. See FIN-2014-R012, “Request for Administrative Ruling on the Application of FinCEN’s Regulations
+to a Virtual Currency Payment System,” Oct. 27, 2014. See also, FIN-2014-R011, “Request for
+Administrative Ruling on the Application of FinCEN’s Regulations to a Virtual Currency Trading
+Platform,” Oct. 27, 2014.
+47. See 2013 VC Guidance, at 4-5 (discussing centralized and decentralized payment systems).
+13
+
+F I N C E N G U I D A N C E
+transmits the CVC equivalent of the real currency to the person’s CVC account with
+the exchanger. This circumstance constitutes transmission to another location because
+it involves a transmission from the person’s account at one location (e.g., a user’s real
+currency account at a bank) to the person’s CVC account with the exchanger.48
+4. Guidance on Application of BSA Regulations to Common
+Business Models Involving the Transmission of CVC
+This guidance sets forth examples of how FinCEN’s money transmission
+regulations apply to several common business models involving transactions in
+CVC.49 The description of each business model does not intend to reflect an industry
+standard or cover all varieties of products or services generally referred by the same
+label, but only highlight the key facts and circumstances of a specific product or
+service on which FinCEN based its regulatory interpretation.
+4.1. Natural Persons Providing CVC Money Transmission (P2P Exchangers)
+FinCEN’s definition of an MSB includes both natural and legal persons engaged as
+a business in covered activities, “whether or not on a regular basis or as an organized
+business concern.”50 Peer-to-Peer (P2P) exchangers are (typically) natural persons
+engaged in the business of buying and selling CVCs. P2P exchangers generally
+advertise and market their services through classified advertisements, specifically
+designed platform websites, online forums, other social media, and word of mouth.
+P2P exchangers facilitate transfers from one type of CVC to a different type of CVC,
+as well as exchanges between CVC and other types of value (such as monetary
+instruments or payment products denominated in real currency). P2P exchangers
+may provide their services online or may arrange to meet prospective customers in
+person to purchase or sell CVC. Generally, once there is confirmation that the buyer
+has delivered or deposited the requested currency or CVC, the P2P exchanger will
+electronically provide the buyer with the requested CVC or other value.
+48. See 2013 VC Guidance, at 4.
+49. Although when describing a business model this guidance may use a label by which the general type
+of product or service may be commonly known, the interpretation provided herein applies only to
+the business model the guidance describes, and may not apply to any other variety or combination of
+factors that falls under the same generic label. For example, when in Section 4.4, FinCEN discusses
+how its regulations apply to certain money transmission in CVC executed within the context of ICOs,
+this interpretation applies exclusively to those transactions described in the guidance and may not
+apply to any other transactions may also be referred to as ICOs but follow a different business model.
+50. 31 CFR § 1010.100(ff).
+14
+
+F I N C E N G U I D A N C E
+A natural person operating as a P2P exchanger that engages in money
+transmission services involving real currency or CVCs must comply with BSA
+regulations as a money transmitter acting as principal. This is so regardless of the
+regularity or formality of such transactions or the location from which the person is
+operating. However, a natural person engaging in such activity on an infrequent basis
+and not for profit or gain would be exempt from the scope of money transmission.51
+As a money transmitter, P2P exchangers are required to comply with the BSA
+obligations that apply to money transmitters, including registering with FinCEN as an
+MSB and complying with AML program, recordkeeping, and reporting requirements
+(including filing SARs and CTRs).52
+4.2. CVC Wallets
+CVC wallets are interfaces for storing and transferring CVCs. There are different
+wallet types that vary according to the technology employed, where and how the
+value is stored, and who controls access to the value. Current examples of different
+types of CVC wallets that vary by technology employed are mobile wallets, software
+wallets, and hardware wallets. Wallets may store value locally, or store a private
+key that will control access to value stored on an external server. Wallets may also
+use multiple private keys stored in multiple locations. Wallets where user funds are
+controlled by third parties are called “hosted wallets” whereas wallets where users
+control the funds are called “unhosted wallets.”
+The regulatory interpretation of the BSA obligations of persons that act as
+intermediaries between the owner of the value and the value itself is not technology-
+dependent. The regulatory treatment of such intermediaries depends on four criteria:
+(a) who owns the value; (b) where the value is stored; (c) whether the owner interacts
+directly with the payment system where the CVC runs; and, (d) whether the person
+acting as intermediary has total independent control over the value. The regulatory
+treatment of each type of CVC wallet based on these factors is described in the next
+subsection.
+4.2.1. Hosted and Unhosted Wallet Providers
+Hosted wallet providers are account-based money transmitters that receive, store,
+and transmit CVCs on behalf of their accountholders, generally interacting with
+them through websites or mobile applications. In this business model, the money
+transmitter is the host, the account is the wallet, and the accountholder is the wallet
+51. 31 CFR § 1010.100(ff)(8)(iii).
+52. For the regulatory treatment of those persons investing in CVCs, see FIN-2014-R002, “Application of
+FinCEN’s Regulations to Virtual Currency Software Development and Certain Investment Activity,”
+Jan. 30, 2014.
+15
+
+F I N C E N G U I D A N C E
+owner. In addition, (a) the value belongs to the owner; (b) the value may be stored in
+a wallet or represented as an entry in the accounts of the host; (c) the owner interacts
+directly with the host, and not with the payment system; and (d) the host has total
+independent control over the value (although it is contractually obligated to access the
+value only on instructions from the owner).
+The regulatory framework applicable to the host, including the due diligence or
+enhanced due diligence procedures the host must follow regarding the wallet owner,
+varies depending on: (a) whether the wallet owner is a non-financial institution (in
+this context, a user, according to the 2013 VC Guidance), agent, or foreign or domestic
+counterparty; and (b) the type of transactions channeled through the hosted wallet,
+and their U.S. dollar equivalent.
+When the wallet owner is a user, the host must follow the procedures for identifying,
+verifying and monitoring both the user’s identity and profile, consistent with the host’s
+AML program. When the wallet owner is an agent of the host, the host must comply
+with regulations and internal policies, procedures and controls governing a principal
+MSB’s obligation to monitor the activities of its agent.53 When the wallet owner is a
+financial institution other than an agent, the host must comply with the regulatory
+requirements applicable to correspondent accounts (or their MSB equivalents).54
+Similarly, the regulatory requirements that apply to the transactions that host
+channels from or for the wallet owner will depend on the nature of the transaction.
+For example, where the transactions fall under the definition of “transmittal of funds,”
+the host must comply with the Funds Travel Rule based on the host’s position in the
+transmission chain (either as a transmittor’s, intermediary, or recipient’s financial
+institution), regardless of whether the regulatory information may be included in the
+transmittal order itself or must be transmitted separately.55
+Unhosted wallets are software hosted on a person’s computer, phone, or other
+device that allow the person to store and conduct transactions in CVC. Unhosted
+wallets do not require an additional third party to conduct transactions. In the case
+of unhosted, single-signature wallets, (a) the value (by definition) is the property of
+the owner and is stored in a wallet, while (b) the owner interacts with the payment
+system directly and has total independent control over the value. In so far as the
+person conducting a transaction through the unhosted wallet is doing so to purchase
+goods or services on the user’s own behalf, they are not a money transmitter.
+53. See FIN-2016-G001, “Guidance on Existing AML Program Rule Compliance Obligations for MSB
+Principals with Respect to Agent Monitoring,” Mar. 11, 2016.
+54. See 31 CFR § 1010.610, “Due diligence programs for correspondent accounts for foreign financial
+institutions.” See also “Guidance - (Interpretive Release 2004-1) Anti-Money Laundering Program
+- Requirements for Money Services Businesses with Respect to Foreign Agents or Foreign
+Counterparties,” Dec. 14, 2004.
+55. See 31 CFR § 1010.410(f).
+16
+
+F I N C E N G U I D A N C E
+4.2.2. Multiple-signature wallet providers
+Multiple-signature wallet providers are entities that facilitate the creation of
+wallets specifically for CVC that, for enhanced security, require more than one private
+key for the wallet owner(s) to effect transactions. Typically, multiple-signature wallet
+providers maintain in their possession one key for additional validation, while the
+wallet owner maintains the other private key locally. When a wallet owner wishes to
+effect a transaction from the owner’s multiple-signature wallet, the wallet owner will
+generally submit to the provider a request signed with the wallet owner’s private key,
+and once the provider verifies this request, the provider validates and executes the
+transaction using the second key it houses. With respect to an un-hosted multiple-
+signature wallet, (a) the value belongs to the owner and is stored in the wallet; (b)
+the owner interacts with the wallet software and/or payment system to initiate a
+transaction, supplying part of the credentials required to access the value; and (c) the
+person participating in the transaction to provide additional validation at the request
+of the owner does not have total independent control over the value.
+If the multiple-signature wallet provider restricts its role to creating un-hosted
+wallets that require adding a second authorization key to the wallet owner’s private
+key in order to validate and complete transactions, the provider is not a money
+transmitter because it does not accept and transmit value.56 On the other hand, if the
+person combines the services of a multiple-signature wallet provider and a hosted
+wallet provider, that person will then qualify as a money transmitter. Likewise,
+if the value is represented as an entry in the accounts of the provider, the owner
+does not interact with the payment system directly, or the provider maintains
+total independent control of the value, the provider will also qualify as a money
+transmitter, regardless of the label the person applies to itself or its activities.
+4.3. CVC Money Transmission Services Provided Through Electronic
+Terminals (CVC Kiosks)
+CVC kiosks (commonly called “CVC automated teller machines (ATMs)” or
+“CVC vending machines”) are electronic terminals that act as mechanical agencies of
+the owner-operator, to enable the owner-operator to facilitate the exchange of CVC
+for currency or other CVC. These kiosks may connect directly to a separate CVC
+exchanger, which performs the actual CVC transmission, or they may draw upon the
+CVC in the possession of the owner-operator of the electronic terminal.
+An owner-operator of a CVC kiosk who uses an electronic terminal to accept
+currency from a customer and transmit the equivalent value in CVC (or vice versa)
+qualifies as a money transmitter both for transactions receiving and dispensing real
+56. 31 CFR § 1010.100(ff)(5)(ii)(A).
+17
+
+F I N C E N G U I D A N C E
+currency or CVC. FinCEN issued guidance clarifying that owners/operators of ATMs
+that link an accountholder with his or her account at a regulated depository institution
+solely to verify balances and dispense currency do not meet the definition of a money
+transmitter.57 The guidance addressing BSA coverage of private ATMs does not apply
+to the owner-operator of a CVC kiosk because CVC kiosks do not link accountholders
+to their respective accounts at a regulated depository institution. Accordingly, owners-
+operators of CVC kiosks that accept and transmit value must comply with FinCEN
+regulations governing money transmitters.
+4.4. CVC Money Transmission Services Provided Through Decentralized
+Applications (DApps)
+Decentralized (distributed) application (DApp) is a term that refers to software
+programs that operate on a P2P network of computers running a blockchain platform
+(a type of distributed public ledger that allows the development of secondary
+blockchains), designed such that they are not controlled by a single person or group of
+persons (that is, they do not have an identifiable administrator). An owner/operator
+of a DApp may deploy it to perform a wide variety of functions, including acting
+as an unincorporated organization, such as a software agency to provide financial
+services.58 Generally, a DApp user must pay a fee to the DApp (for the ultimate
+benefit of the owner/operator) in order to run the software. The fee is commonly paid
+in CVC.
+The same regulatory interpretation that applies to mechanical agencies such as
+CVC kiosks applies to DApps that accept and transmit value, regardless of whether
+they operate for profit. Accordingly, when DApps perform money transmission, the
+definition of money transmitter will apply to the DApp, the owners/operators of the
+DApp, or both.
+4.5. Anonymity-Enhanced CVC Transactions
+Anonymity-enhanced CVC transactions are transactions either (a) denominated
+in regular types of CVC, but structured to conceal information otherwise generally
+available through the CVC’s native distributed public ledger; or (b) denominated
+in types of CVC specifically engineered to prevent their tracing through distributed
+public ledgers (also called privacy coins).
+57. See FIN-2007-G006, “Application of the Definitions of Money Services Business to Certain Owner-
+Operators of Automated Teller Machines Offering Limited Services,” Dec. 3, 2007.
+58. For an example of a DApp, see SEC’s Release No. 81207 / July 25, 2017, “Report of Investigation
+Pursuant to Section 21(a) of the Securities Exchange Act of 1934: The DAO,”
+available at https://www.sec.gov/litigation/investreport/34-81207.pdf.
+18
+
+F I N C E N G U I D A N C E
+A money transmitter that operates in anonymity-enhanced CVCs for its own
+account or for the accounts of others (regardless of the frequency) is subject to
+the same regulatory obligations as when operating in currency, funds, or non-
+anonymized CVCs. In other words, a money transmitter cannot avoid its regulatory
+obligations because it chooses to provide money transmission services using
+anonymity-enhanced CVC. The regulatory framework that applies to a person
+participating in anonymity-enhanced CVC transactions depends on the specific role
+performed by the person, as set forth below in Section 4.5.1.
+4.5.1. Providers of anonymizing services for CVCs
+Providers of anonymizing services, commonly referred to as “mixers” or
+“tumblers,” are either persons that accept CVCs and retransmit them in a manner
+designed to prevent others from tracing the transmission back to its source
+(anonymizing services provider), or suppliers of software a transmittor would use for
+the same purpose (anonymizing software provider).
+4.5.1(a) Anonymizing services provider
+An anonymizing services provider is a money transmitter under FinCEN
+regulations. The added feature of concealing the source of the transaction does not
+change that person’s status under the BSA.
+FinCEN previously issued a regulatory interpretation that concluded that persons
+who accept and transmit value in a way ostensibly designed to protect the privacy of
+the transmittor are providers of secure money transmission services and are not eligible
+for the integral exemption.59 In order to be exempt from status as a money transmitter
+under the integral exemption, the person’s business must be different from money
+transmission itself, and the money transmission activity must be necessary for the
+business to operate. The subject of this previous regulatory interpretation accepted
+and transmitted funds in a way designed to protect a consumer’s personal and financial
+information from a merchant, when the consumer purchased goods or services through
+the Internet. FinCEN determined that the added feature of protecting consumers’
+information did not constitute an activity separate from the funds transmission itself,
+because the need to protect the consumers’ personal and financial information only
+arose in connection with the transmission of funds. FinCEN concluded that the
+company was engaged in the business of offering secure money transmission, rather
+than security for which money transmission is integrally required. Accordingly, the
+company qualified as a money transmitter subject to BSA obligations.
+59. See FIN-2008-R007, “Whether a Certain Operation Protecting On-line Personal Financial Information
+is a Money Transmitter,” Jun. 11, 2008. For a different business model, see FIN-2014-R006, “Whether
+a Company that Provides Online Real-Time Deposit, Settlement, and Payment Services for Banks,
+Businesses and Consumers is a Money Transmitter,” Apr. 29, 2014.
+19
+
+F I N C E N G U I D A N C E
+The same analysis applies to anonymizing services providers: their business consists
+exclusively of providing secured money transmission. Therefore, a person (acting by
+itself, through employees or agents, or by using mechanical or software agencies) who
+provides anonymizing services by accepting value from a customer and transmitting
+the same or another type of value to the recipient, in a way designed to mask the
+identity of the transmittor, is a money transmitter under FinCEN regulations.
+4.5.1(b) Anonymizing software provider
+An anonymizing software provider is not a money transmitter. FinCEN regulations
+exempt from the definition of money transmitter those persons providing “the
+delivery, communication, or network access services used by a money transmitter
+to support money transmission services.”60 This is because suppliers of tools
+(communications, hardware, or software) that may be utilized in money transmission,
+like anonymizing software, are engaged in trade and not money transmission.
+By contrast, a person that utilizes the software to anonymize the person’s own
+transactions will be either a user or a money transmitter, depending on the purpose
+of each transaction. For example, a user would employ the software when paying
+for goods or services on its own behalf, while a money transmitter would use it to
+engage as a business in the acceptance and transmission of value as a transmittor’s or
+intermediary’s financial institution.
+Lastly, FinCEN issued guidance stating that originating or intermediary financial
+institutions that replace the proper identity of a transmittor or recipient in the
+transmittal order with a pseudonym or reference that may not be decoded by the
+receiving financial institution (i.e., substituting the full name of the transmittor with a
+numeric code) are not complying with their obligations under the Funds Travel Rule.61
+4.5.2. Providers of anonymity-enhanced CVCs
+A person that creates or sells anonymity-enhanced CVCs designed to prevent
+their tracing through publicly visible ledgers would be a money transmitter under
+FinCEN regulations depending on the type of payment system and the person’s
+activity.62 For example:
+(a) a person operating as the administrator of a centralized CVC payment system
+will become a money transmitter the moment that person issues anonymity-
+enhanced CVC against the receipt of another type of value;63
+60. 31 CFR § 1010.100(ff)(5)(ii).
+61. See FIN-2010-G004, “Funds “Travel” Regulations: Questions & Answers,” at Question 16, Nov. 09,
+2010.
+62. See, supra, Section 1.1.
+63. A payment system may change from centralized to decentralized (see Section 5.2). This operational
+change does not alter the obligations of the person acting as administrator of the system, while the
+system worked on a centralized basis.
+20
+
+F I N C E N G U I D A N C E
+(b) a person that uses anonymity-enhanced CVCs to pay for goods or services
+on his or her own behalf would not be a money transmitter under the BSA.
+However, if the person uses the CVC to accept and transmit value from one
+person to another person or location, the person will fall under the definition of
+money transmitter, if not otherwise exempted.
+(c) a person that develops a decentralized CVC payment system will become a
+money transmitter if that person also engages as a business in the acceptance
+and transmission of value denominated in the CVC it developed (even if the
+CVC value was mined at an earlier date). The person would not be a money
+transmitter if that person uses the CVC it mined to pay for goods and services on
+his or her own behalf.64
+4.5.3. Money Transmitters that accept or transmit anonymity-enhanced
+CVCs
+Many money transmitters involved in CVC transactions comply with their BSA
+obligations, in part, by incorporating procedures into their AML Programs that
+allow them to track and monitor the transaction history of a CVC through publicly
+visible ledgers.
+As mentioned above, FinCEN has issued guidance stating that transmittor’s or
+intermediary’s financial institutions that replace the proper identity of a transmittor
+or recipient in the transmittal order with a pseudonym or reference that may not be
+decoded by the receiving financial institution (i.e., substituting the full name of the
+transmittor with a numeric code) are not complying with their obligations under
+the Funds Travel Rule.65 A money transmitter must follow its AML risk assessment
+policies and procedures to determine under which circumstances the money
+transmitter will accept or transmit value already denominated in anonymity-enhanced
+CVCs. When knowingly accepting anonymity-enhanced CVCs (or regular CVC that
+has been anonymized), money transmitters engaged in CVC transactions subject to
+the Funds Travel Rule must not only track a CVC through the different transactions,
+but must also implement procedures to obtain the identity of the transmittor or
+recipient of the value.
+4.6. Payment Processing Services Involving CVC Money Transmission
+CVC payment processors are financial intermediaries that enable traditional
+merchants to accept CVC from customers in exchange for goods and services sold.
+CVC payment processors sometimes integrate with a merchant’s point of sale or
+64. See 2013 VC Guidance, at 4-5 (discussing centralized and decentralized payment systems).
+65. See, supra, at 19 n. 59.
+21
+
+F I N C E N G U I D A N C E
+online shopping cart solution so that the value of goods being purchased is quoted in
+CVC. The CVC payment processor may collect the CVC from the customer and then
+transmit currency or funds to the merchant, or vice versa.
+CVC payment processors fall within the definition of a money transmitter and are
+not eligible for the payment processor exemption because they do not satisfy all the
+required conditions for the exemption. Under the payment processor exemption, a
+person is exempt from the definition of “money transmitter” when that person only
+“[a]cts as a payment processor to facilitate the purchase of, or payment of a bill for,
+a good or service through a clearance and settlement system by agreement with the
+creditor or seller.”66 To be eligible for the payment processor exemption, a person must:
+(a) facilitate the purchase of goods or services, or the payment of bills for goods or
+services (not just the money transmission itself);
+(b) operate through clearance and settlement systems that admit only BSA-
+regulated financial institutions;
+(c) provide its service pursuant to a formal agreement; and
+(d) enter a formal agreement with, at a minimum, the seller or creditor that
+provided the goods or services and also receives the funds.67
+A person providing payment processing services through CVC money
+transmission generally is unable to satisfy the second condition because such
+money transmitters do not operate, either in whole or in part, through clearing and
+settlement systems that only admit BSA-regulated financial institutions as members.
+This condition is critical, because BSA-regulated financial institutions have greater
+visibility into the complete pattern of activities of the buyer or debtor, on the one
+hand, and the seller or creditor, on the other hand. Having BSA-regulated financial
+institutions at either end of the clearance and settlement of transactions reduces
+the need to impose additional obligations on the payment processor.68 This same
+66. 31 CFR § 1010.100(ff)(5)(ii)(B). For a discussion on the conditions applicable to the payment processor
+exemption from money transmission, see, e.g., FIN-2013-R002, “Administrative Ruling on Whether
+a Company that Offers a Payment Mechanism Based on Payable-Through Drafts to its Commercial
+Customers is a Money Transmitter,” Nov. 13, 2013. See also, FIN-2014-R009, “Application of Money
+Services Business Regulations to a Company Acting as an Independent Sales Organization and
+Payment Processor,” Aug. 27, 2014.
+67. See FIN-2014-R012, “Request for Administrative Ruling on the Application of FinCEN’s Regulations
+to a Virtual Currency Payment System,” Oct. 27, 2014.
+68. Id. The CVC payment processor in that ruling received real currency payments from the buyer
+through a clearing and settlement system that only admits BSA-regulated financial institutions as
+members (specifically, a credit card network), but made payment of the Bitcoin equivalent to the
+merchant, to a merchant-owned virtual currency wallet or to a larger virtual currency exchange that
+admits both financial institution and non-financial institution members, for the account of the merchant.
+22
+
+F I N C E N G U I D A N C E
+visibility simply does not exist when a CVC payment processor operates through a
+clearance and settlement system involving non-BSA regulated entities unless the CVC
+payment processor complies with the reporting obligations of a money transmitter.
+Accordingly, in general, persons providing payment processing services in CVC
+will be money transmitters under the BSA, regardless of whether they accept and
+transmit the same type of CVC, or they accept one type of value (such as currency or
+funds) and transmit another (such as CVC).69
+4.7. CVC Money Transmission Performed by Internet Casinos
+Internet casinos are virtual platforms created for betting on the possible outcome
+of events related to a number of gaming models (e.g., traditional casinos), but
+accepting deposits and bets and issuing payouts denominated in CVC. Internet
+casinos may also include entities known as predictive markets, information markets,
+decision markets, idea futures, and event derivatives.
+FinCEN regulations define a casino, gambling casino or card club, as a person duly
+licensed or authorized to do business as such in the United States, whether under the
+laws of a State or a Territory or Insular Possession of the United States, or under the
+Indian Gaming Regulatory Act or other Federal, State, or tribal law or arrangement
+affecting tribal land, having gross annual gaming revenue in excess of $1 million,
+whether denominated in CVC or other value.70 Any person engaged in the business
+of gambling that is not covered by the regulatory definition of casino, gambling
+casino, or card club, but accepts and transmits value denominated in CVC, may still
+be regulated under the BSA as a money transmitter. Indeed, even when the original
+transmission or the payout are done on a conditional basis (that is, only if a certain
+event occurs), money transmission under BSA regulations still occurs at the moment
+the condition is satisfied and the acceptance or transmission takes place.71
+5. Specific Business Models Involving CVC Transactions that May be
+Exempt From the Definition of Money Transmission
+5.1. CVC Trading Platforms and Decentralized Exchanges
+CVC P2P trading platforms are websites that enable buyers and sellers of CVC to
+find each other. Sometimes, trading platforms also facilitate trades as an intermediary.
+69. A CVC payment processor will be eligible for the payment processor exemption only when it meets
+all criteria as described above. See also, supra, at 21 n. 64.
+70. 31 CFR § 1010.100(t)(5) and (6).
+71. Casinos, as defined above, have their own set of BSA/AML obligations (see 31 CFR Part 1010 –General
+Provisions – and Part 1021 –Rules for Casinos and Card Clubs). While not specifically exempted from
+MSB status, when a person falls under FinCEN’s definitions for both casino and MSB, in general the
+regulatory obligations of a casino satisfy the obligations of an MSB, with the exception of registration.
+23
+
+F I N C E N G U I D A N C E
+Under FinCEN regulations, a person is exempt from money transmitter status
+if the person only provides the delivery, communication, or network access services
+used by a money transmitter to support money transmission services.72 Consistent
+with this exemption, if a CVC trading platform only provides a forum where buyers
+and sellers of CVC post their bids and offers (with or without automatic matching of
+counterparties), and the parties themselves settle any matched transactions through
+an outside venue (either through individual wallets or other wallets not hosted by
+the trading platform), the trading platform does not qualify as a money transmitter
+under FinCEN regulations.73 By contrast, if, when transactions are matched, a trading
+platform purchases the CVC from the seller and sells it to the buyer, then the trading
+platform is acting as a CVC exchanger, and thus falls within the definition of money
+transmitter and its accompanying BSA obligations.74
+5.2. CVC Money Transmission Performed in the Context of Raising Funding
+for Development or Other Projects—Initial Coin Offerings
+Initial coin offerings (ICOs) are generally a means to raise funds for new projects
+from early backers. Whether an ICO is subject to BSA obligations is a matter of facts
+and circumstances. This guidance will address, as an example, the BSA obligations
+of two common business models involving ICOs: (a) ICOs conducting a preferential
+sale of CVC to a select group of buyers (sometimes referred to as investors); and (b)
+ICOs raising funds by offering digital debt or equity instruments among a group
+of lenders or investors to finance a future project (which in turn may consist of the
+creation of a new CVC). This discussion does not attempt to address every possible
+ICO business model.75
+In the first business model, the ICO consists of a group sale of CVC to a distinct
+set of preferred buyers. The exchange of CVC for another type of value may be
+instantaneous or deferred to a later date. The CVC and its application or platform
+may be already operational or it may be the seller’s purpose to use the value received
+from the sale, in whole or in part, to develop such CVC, application, or platform. In
+some cases, after the initial centralized offering, any future creation of the CVC may
+72. 31 CFR § 1010.100(ff)(5)(ii)(A).
+73. The obligations of the hosted wallet provider that utilizes the forum as a money transmitter under the
+BSA remain as described, supra, Section 3.2.
+74. See FIN-2014-R011, “Request for Administrative Ruling on the Application of FinCEN’s Regulations
+to a Virtual Currency Trading Platform,” Oct. 27, 2014.
+75. Nor does it affect the obligations of any of the participants described herein under other regulatory
+frameworks. For example, federal securities law may apply to the issuance of CVC as securities
+regardless of other intended purposes of the CVC. See, e.g, “Framework for ‘Investment Contract’
+Analysis of Digital Assets,” Securities and Exchange Commission, April 3, 2019, available at
+https://www.sec.gov/corpfin/framework-investment-contract-analysis-digital-assets. “Report of
+Investigation Pursuant to Section 21(a) of the Securities Exchange Act of 1934: The DAO,” Securities
+and Exchange Commission, July 25, 2017, available at
+https://www.sec.gov/litigation/investreport/34-81207.pdf.
+24
+
+F I N C E N G U I D A N C E
+occur through mining using a decentralized model. In any of these scenarios, the seller
+of the CVC is a money transmitter, acting in the role of administrator, because at the
+time of the initial offering the seller is the only person authorized to issue and redeem
+(permanently retire from circulation) the new units of CVC.76 The status of the seller
+as a money transmitter is not impacted by the coordinated or simultaneous sales;
+the timing of acceptance of one type of value and transmission of the other type (i.e.,
+whether the exchange happens instantaneously or at a later date); or by the fact that the
+payment system may migrate from one operational status to another at any point in its
+lifetime (for example, changing from a centralized, administrator-controlled system at
+origin to a decentralized, protocol-driven system after the initial sale).
+In the second business model, the ICO raises funds for new projects by selling an
+equity stake or a debt instrument to early backers, or hedges a previous investment
+in CVC through a derivative, such as a futures contract. The funded project generally
+involves the creation of DApps,77 new CVCs (as well as the applications or platforms
+on which the CVCs will run), or new hedging instruments. ICOs are accomplished
+using distributed ledger platforms, in which investors receive a digital token as proof
+of investment. Depending on the purpose of the funded project and the seller’s
+obligations to the investor, when the project is concluded the investor may: (a) receive
+new CVC in exchange for the token; (b) exchange the token for a DApp coin, which
+is a digital token that unlocks the use of DApps that provide various services; (c) use
+the original token itself as a new CVC or DApp coin; or (d) receive some other type of
+return on the original equity investment or debt instrument.78 How BSA regulations
+apply to each of these scenarios will vary, as set forth below in Sections 5.2.1. to 5.2.3.
+5.2.1. Status of Fundraising or Hedging Activity — Overview
+Involvement of banks or persons registered with, and functionally regulated or examined
+by the SEC or CFTC
+The applicable AML regulations governing persons involved in an ICO through
+selling an equity stake or a debt instrument to early backers or through hedging
+a previous investment will depend on whether such persons are MSBs or exempt
+from MSB status under FinCEN regulations or rulings. Persons may be exempt from
+MSB status in two situations. First, FinCEN regulations expressly exempt from the
+76. Whether by contractual agreement or business strategy an administrator declines to exercise such
+authorities is not relevant to the person’s status as a money transmitter.
+77. As discussed, supra, Section 4.4, DApps refer to software programs that run on distributed computing
+platforms—that is, platforms built across dispersed networks of computers designed to accomplish a
+shared objective.
+78. A transaction where a person accepts currency, funds, or value that substitutes for currency in
+exchange for a new CVC at a preferential rate for a group of initial purchasers, before making the
+CVC available to the rest of the public, is simply engaging in money transmission, regardless of any
+specific label (such as “early investors”) applied to the initial purchasers.
+25
+
+F I N C E N G U I D A N C E
+definition of an MSB, among other things, (a) a bank or foreign bank; or (b) a person
+registered with, and functionally regulated or examined by, the SEC or CFTC, or a
+foreign financial agency that engages in financial activities that, if conducted in the
+United States, would require the foreign financial agency to be registered with the
+SEC or CFTC.79 Therefore, a person involved in ICO fundraising activity as issuer,
+intermediary, or investor that is a bank, foreign bank, or a person registered with,
+and functionally regulated or examined by the SEC or CFTC will not be an MSB
+under FinCEN regulations. The person’s AML obligations will flow from FinCEN
+regulations governing those types of financial institutions.80
+Second, FinCEN regulations exempt persons from the definition of money
+transmitter under certain identified facts and circumstances, the most relevant of
+which is when the acceptance and transmission of value is only integral to the sale of
+goods or services different from money transmission.81 Thus, if the person involved
+in the fundraising activity as an issuer, intermediary, or investor is not a bank, foreign
+bank, or a person registered with, and functionally regulated or examined by the
+SEC or CFTC, then any money transmission connected to the fundraising activity
+performed by the person generally will fall under the integral exemption,82 unless the
+asset is issued to serve as value that substitutes for currency.83
+Purchase and re-sale of digital tokens
+The investor may hold the digital token or derivative until the underlying project
+is complete, or the investor may sell the digital token or derivative during the
+project’s development. A re-sale can occur through a P2P transaction, or through a
+financial intermediary or secondary market. In general, the re-sale of the token or
+derivative does not create any BSA obligations for the initial investor. However, if a
+regulatory framework other than the BSA requires a person that either (a) purchases
+the token or derivative, or (b) intermediates in transactions in a primary or secondary
+market, to register as a broker or dealer in securities, futures commission merchant,
+or introducing broker in commodities, then the person will have the BSA obligations
+related to its status under these other regulatory frameworks.84
+79. 31 CFR § 1010.100(ff)(8). See also, supra, Section 1.2.2.
+80. See, supra, at 5 n. 13.
+81. See, supra, at 2 n. 4; 31 CFR § 1010.100(ff)(5)(F); FIN-2008-G008 “Application of the Definition of
+Money Transmitter to Brokers and Dealers in Currency and other Commodities,” Sept. 10, 2008.
+82. For additional discussion of the scope of the integral exemption, see FIN-2008-R004 “Whether a
+Foreign Exchange Consultant is a Currency Dealer or Exchanger or Money Transmitter,” May 9,
+2008, FIN-2008-R003 “Whether a Person that is Engaged in the Business of Foreign Exchange Risk
+Management is a Currency Dealer or Exchanger or Money Transmitter,” May 9, 2008.
+83. See, supra, Section 1.2.3.
+84. See, supra, Section 1.2.2.
+26
+
+F I N C E N G U I D A N C E
+5.2.2. Status of a DApp Developer
+The development of a DApp financed through ICO fundraising activity consists of
+the production of goods or services, and therefore is outside the definition of money
+transmission. Thus, the developer of a DApp is not a money transmitter for the mere
+act of creating the application, even if the purpose of the DApp is to issue a CVC
+or otherwise facilitate financial activities denominated in CVC.85 However, if the
+developer of the DApp uses or deploys it to engage in money transmission, then the
+developer will qualify as a money transmitter under the BSA.
+5.2.3. Status of a DApp User conducting financial activities
+Once the DApp is finalized and in production, FinCEN regulations may apply
+to persons who use the DApp to conduct certain financial activities. For example,
+if an investor or an owner/operator uses or deploys the DApp to engage in money
+transmission denominated in CVC, then the investor or the owner/operator generally
+qualifies as a money transmitter under the BSA. Likewise, as mentioned above, if the
+developer of the DApp uses or deploys the DApp to engage in money transmission,
+then the developer will also qualify as a money transmitter.
+5.3. Status of Creators of CVC and Distributed Applications Conducting
+CVC Transactions
+The creators of a CVC sometimes issue (or “pre-mine”) a certain number of
+CVC units in advance and then either distribute those units as payment for goods
+or services or repayment of obligations (such as amounts owed to project investors),
+or sell the units against currency, funds or another type of CVC once a market is
+established. To the extent that a person mines CVC and uses it solely to purchase
+goods or services on its own behalf, the person is not an MSB under FinCEN
+regulations, because these activities involve neither acceptance nor transmission of
+the CVC within the regulatory definition of money transmission services. However,
+if a person mines CVC and uses it to engage in money transmission, such person
+will be subject to FinCEN’s registration, reporting, monitoring, and recordkeeping
+regulations for MSBs, as is the case with all money transmitters.86
+85. See FIN-2014-R007, “Application of Money Services Business Regulations to the Rental of Computer
+Systems for Mining Virtual Currency,” Apr. 29, 2014.
+86. See FIN-2014-R001, “Application of FinCEN’s Regulations to Virtual Currency Mining Operations,”
+Jan. 30, 2014.
+27
+
+F I N C E N G U I D A N C E
+5.4. CVC Money Transmission Performed by Mining Pools and Cloud Miners
+In certain cases, persons (pool members) combine their computer processing
+resources to form a mining pool to enhance their chances of receiving a reward by
+being the first ones to verify the authenticity of a block of transactions denominated in
+CVC. A block reward would entitle them to receive consistent payouts, which are fees
+paid by the parties to a transaction for the service of authenticating its individual CVC
+transmission. Mining pools may be managed by a controlling person (centralized
+mining pools) or they may operate on a P2P basis (decentralized mining pools). In
+some centralized models, the person acting as the leader of the pool claims the total
+amount of CVC mined or received as fees from participants to the authenticated
+transactions. The leader then distributes this amount to the pool members in
+subsequent transfers, presumably in proportion to the computer processing provided,
+minus its own fee for managing the pool. In other centralized models, such as cloud
+mining, persons (contract purchasers) may purchase “mining contracts” from a seller
+of computer processing (the cloud miner) that grants these purchasers permission to
+use the cloud miner’s computers to mine CVCs on the purchaser’s behalf.
+When the leader of the pool, the cloud miner, or the unincorporated organization
+or software agency acting on behalf of its owner/administrator transfer CVC to
+the pool members or contract purchasers to distribute the amount earned, this
+distribution does not qualify as money transmission under the BSA, as these
+transfers are integral to the provision of services (the authentication of blocks of
+transactions through the combined efforts of a group of providers, or through the
+equipment of the cloud miner). However, if the leader, the cloud miner, or the
+software agency combine their managing and renting services with the service of
+hosting CVC wallets on behalf of the pool members or contract purchasers, the
+leader, cloud miner, unincorporated organization or software agency, or the owner-
+administrator will fall under FinCEN’s definition of money transmitter for engaging
+in account-based money transmission.
+6. Available Resources
+FinCEN expects that persons introducing innovative products or services to a
+highly regulated activity, such as money transmission, will ensure that the innovation
+complies with the regulatory framework applicable to such activity before the
+innovation is taken to market. Persons interested in determining whether a certain
+new activity or variation on an existing activity may subject them to FinCEN’s
+regulatory requirements have several options for obtaining preliminary, general
+guidance or definitive regulatory interpretation.
+28
+
+F I N C E N G U I D A N C E
+Financial institutions with questions about this guidance, other guidance,
+administrative rulings or other matters related to compliance with the BSA and its
+implementing regulations may contact FinCEN’s Resource Center Helpline at (800)
+949-2732 or FRC@fincen.gov.
+Persons requiring general information about the risk assessment, risk
+mitigation, recordkeeping, reporting, and transaction monitoring requirements
+applicable to money services businesses may consult the outreach material, including
+examiners’ expectations about compliance contained in the Bank Secrecy Act / Anti-
+Money Laundering Examination Manual for Money Services Businesses (Dec. 2008).
+For examples of previous interpretations on the application of FinCEN
+regulations to specific sets of facts and circumstances, interested persons may review
+the collection of guidance and administrative rulings.
+Finally, in circumstances where neither the general and interpretive material
+available at FinCEN’s public website, nor the information provided by FinCEN’s
+Resource Center staff is sufficient to address the particulars of a situation, interested
+persons or their legal representatives may request FinCEN to provide individual
+guidance or an administrative ruling, by following the Requirements for Requesting
+an Administrative Ruling.87
+87. See also 31 CFR §§ 1010.710 - 1010.717.
+29
+
+F I N C E N G U I D A N C E
+For convenience, the following chart contains a list of guidance and
+administrative rulings referencing CVC:
+Number Title
+FIN-2013-G001 Guidance on the Application of FinCEN’s Regulations to
+Persons Administering, Exchanging, or Using Virtual Currencies
+(Mar. 18, 2013) https://www.fincen.gov/sites/default/files/
+shared/FIN-2013-G001.pdf
+FIN-2014-R001 Application of FinCEN’s Regulations to Virtual Currency
+Mining Operations (Jan. 30, 2014) https://www.fincen.gov/sites/
+default/files/shared/FIN-2014-R001.pdf
+FIN-2014-R002 Application of FinCEN’s Regulations to Virtual Currency
+Software Development and Certain Investment Activity (Jan.
+30, 2014) https://www.fincen.gov/sites/default/files/shared/FIN-
+2014-R002.pdf
+FIN-2014-R007 Application of Money Services Business regulations to the rental
+of Computer Systems for Mining Virtual Currency (Apr. 29,
+2014) https://www.fincen.gov/sites/default/files/administrative_
+ruling/FIN-2014-R007.pdf
+FIN-2014-R011 Request for Administrative Ruling on the Application of
+FinCEN’s Regulations to a Virtual Currency Trading Platform
+(Oct. 27, 2014) https://www.fincen.gov/sites/default/files/
+administrative_ruling/FIN-2014-R011.pdf
+FIN-2014-R012 Request for Administrative Ruling on the Application of
+FinCEN’s Regulations to a Virtual Currency Payment System
+(Oct. 27, 2014) https://www.fincen.gov/sites/default/files/
+administrative_ruling/FIN-2014-R012.pdf
+FIN-2015-R001 Application of FinCEN’s Regulations to Persons Issuing Physical
+or Digital Negotiable Certificates of Ownership of Precious
+Metals (Aug. 14, 2015) https://www.fincen.gov/sites/default/files/
+administrative_ruling/FIN-2015-R001.pdf
+30

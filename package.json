@@ -15,6 +15,8 @@
     "build:frontend": "npm run build -w aml-hook-frontend",
     "test:contracts": "cd contracts && forge test",
     "test:api": "npm run test -w aml-hook-api",
+    "validate:corpus": "npm run validate:corpus -w aml-hook-api",
+    "extract:corpus": "python scripts/extract_corpus.py",
     "deploy:local": "node scripts/deploy-local.mjs",
     "sync:deployment": "node scripts/sync-deployment.mjs"
   },

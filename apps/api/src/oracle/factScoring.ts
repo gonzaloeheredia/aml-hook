@@ -1,9 +1,10 @@
 /**
- * Deterministic fact-scoring engine (MOCK_MODE) implementing
- * agents/oracle-coa/skills/fact-scoring.md for the UHI10 demo ledger.
+ * Fact-scoring engine implementing agents/oracle-coa/skills/fact-scoring.md.
  *
- * Live vendor APIs are not called — facts are derived from the in-memory
- * N-hop ledger, P2P transfers, and afterSwap / WalletBlocked events.
+ * Wallet A is locked at 100 (protocol exploit). Other wallets accumulate from
+ * the oracle record: SanctionRegistry hits, P2P contamination, and afterSwap
+ * SwapObserved / WalletBlocked emits. The hop graph is one fact among those —
+ * it does not replace the running record.
  */
 
 import { createHash } from "node:crypto";
@@ -15,6 +16,11 @@ import {
   toHookOutput,
 } from "../scoring.js";
 import type { HookEvent, TransferRecord, Wallet, WalletId } from "../types.js";
+import { getWallet } from "../store.js";
+import {
+  demoContractAddresses,
+  isSanctionedAddress,
+} from "../chain/sanctions.js";
 import type {
   FactEvent,
   OracleTrigger,
@@ -22,16 +28,15 @@ import type {
   ScoreResult,
 } from "./types.js";
 
-/** Historical blend weight (fact-scoring §3.3 default). */
-const HISTORICAL_DECAY = 0.4;
-
 /**
- * Builds admissible FactEvents for a wallet from live ledger state.
+ * Builds admissible FactEvents for a wallet from the oracle record
+ * (ledger + afterSwap emits + optional SanctionRegistry hits).
  */
 export function buildFacts(
   wallet: Wallet,
   transfers: TransferRecord[],
   events: HookEvent[],
+  extraFacts: FactEvent[] = [],
 ): FactEvent[] {
   const facts: FactEvent[] = [];
   const walletEvents = events.filter((e) => e.walletId === wallet.id);
@@ -75,25 +80,62 @@ export function buildFacts(
         fact(
           "RAPID_FULL_BALANCE_TRANSFER",
           "NW",
-          hop === 1 ? 8 : 5,
+          0,
           "MEDIUM",
           "FATF VA Red Flags Cat. 2",
-          `Inbound P2P ${last.from}→${last.to} for ${last.amountUsd} USDC recorded; hop graph updated.`,
+          `Inbound P2P ${last.from}→${last.to} for ${last.amountUsd} USDC recorded; hop graph updated. Weight is documentary — hop formula already carries the score.`,
         ),
       );
     }
   }
 
   const swapObserved = walletEvents.filter((e) => e.kind === "SwapObserved");
-  if (swapObserved.length >= 3 && wallet.hopDistance == null && !wallet.exploitConfirmed) {
+  const blocked = walletEvents.filter((e) => e.kind === "WalletBlocked");
+  const hopped =
+    typeof wallet.hopDistance === "number" && wallet.hopDistance >= 1;
+
+  if (swapObserved.length > 0 && !wallet.exploitConfirmed) {
+    const allowN = swapObserved.filter((e) => e.decision === "ALLOW").length;
+    const feeN = swapObserved.filter((e) => e.decision === "FEE_OVERRIDE").length;
+    const usd = swapObserved.reduce((s, e) => s + e.amountUsd, 0);
+    const trailPer = hopped ? 1 : 3;
+    const trailCap = hopped ? 8 : 30;
+    const trail = Math.min(swapObserved.length * trailPer, trailCap);
     facts.push(
       fact(
-        "STRUCTURING_VELOCITY_SPIKE",
+        "SWAP_OBSERVED_TRAIL",
         "ST",
-        5,
-        "LOW",
-        "FATF VA Red Flags Cat. 1",
-        `${swapObserved.length} SwapObserved emits on a clean path — activity noted; not alone grounds for FEE_OVERRIDE.`,
+        trail,
+        "HIGH",
+        "FATF Rec. 10 · afterSwap SwapObserved record",
+        `${swapObserved.length} SwapObserved on the oracle record (ALLOW ${allowN}, FEE_OVERRIDE ${feeN}, USD ${usd.toLocaleString("en-US")}).`,
+      ),
+    );
+    if (feeN > 0) {
+      const feePer = hopped ? 2 : 6;
+      const feeCap = hopped ? 8 : 30;
+      facts.push(
+        fact(
+          "AFTERSWAP_FEE_OVERRIDE_SERIES",
+          "DF",
+          Math.min(feeN * feePer, feeCap),
+          "HIGH",
+          "FATF Rec. 1 · Rec. 10 (EDD trail)",
+          `${feeN} afterSwap FEE_OVERRIDE emit(s) accumulated on the oracle record.`,
+        ),
+      );
+    }
+  }
+
+  if (blocked.length > 0 && !wallet.exploitConfirmed) {
+    facts.push(
+      fact(
+        "WALLET_BLOCKED_TRAIL",
+        "DF",
+        Math.min(blocked.length * 15, 45),
+        "HIGH",
+        "FATF Rec. 6 · fail-closed pool record",
+        `${blocked.length} WalletBlocked emit(s) on the oracle record.`,
       ),
     );
   }
@@ -102,7 +144,9 @@ export function buildFacts(
     wallet.hopDistance == null &&
     !wallet.exploitConfirmed &&
     outbound.length === 0 &&
-    inbound.length === 0
+    inbound.length === 0 &&
+    swapObserved.length === 0 &&
+    blocked.length === 0
   ) {
     facts.push(
       fact(
@@ -126,6 +170,83 @@ export function buildFacts(
     );
   }
 
+  facts.push(...extraFacts);
+  return facts;
+}
+
+/**
+ * SanctionRegistry hits on the subject, P2P counterparties, and pool contracts
+ * the wallet actually used (SwapObserved / WalletBlocked). Fail-open if Anvil is down.
+ */
+export async function collectSanctionFacts(
+  wallet: Wallet,
+  transfers: TransferRecord[],
+  events: HookEvent[],
+): Promise<FactEvent[]> {
+  const facts: FactEvent[] = [];
+  if (await isSanctionedAddress(wallet.address)) {
+    facts.push(
+      fact(
+        "OFAC_DIRECT_MATCH",
+        "S",
+        100,
+        "HIGH",
+        "OFAC SDN · FATF Rec. 6",
+        `${wallet.accountLabel} is listed on SanctionRegistry. Fail-closed score 100.`,
+      ),
+    );
+    return facts;
+  }
+
+  const peers = new Set<string>();
+  for (const t of transfers) {
+    if (t.to === wallet.id) {
+      const peer = getWallet(t.from);
+      if (peer) peers.add(peer.address);
+    }
+    if (t.from === wallet.id) {
+      const peer = getWallet(t.to);
+      if (peer) peers.add(peer.address);
+    }
+  }
+  for (const addr of peers) {
+    if (await isSanctionedAddress(addr)) {
+      facts.push(
+        fact(
+          "SANCTIONED_COUNTERPARTY",
+          "S",
+          100,
+          "HIGH",
+          "OFAC SDN · FATF Rec. 6 / Rec. 10",
+          `P2P counterparty ${addr} is listed on SanctionRegistry.`,
+        ),
+      );
+      break;
+    }
+  }
+
+  const usedPool = events.some(
+    (e) =>
+      e.walletId === wallet.id &&
+      (e.kind === "SwapObserved" || e.kind === "WalletBlocked"),
+  );
+  if (usedPool && !wallet.exploitConfirmed) {
+    for (const contract of demoContractAddresses()) {
+      if (await isSanctionedAddress(contract)) {
+        facts.push(
+          fact(
+            "SANCTIONED_CONTRACT_INTERACTION",
+            "S",
+            100,
+            "HIGH",
+            "OFAC SDN · FATF Rec. 6 (listed contract)",
+            `Pool activity while ${contract} is listed on SanctionRegistry.`,
+          ),
+        );
+        break;
+      }
+    }
+  }
   return facts;
 }
 
@@ -140,10 +261,13 @@ export function scoreFromFacts(
   skillsApplied: string[],
   flow: "FULL" | "INCREMENTAL",
 ): ScoreResult {
+  void priorScore;
   const override = facts.some(
     (f) =>
       f.type === "EXPLOIT_PROTOCOL_FUNDS" ||
       f.type === "OFAC_DIRECT_MATCH" ||
+      f.type === "SANCTIONED_COUNTERPARTY" ||
+      f.type === "SANCTIONED_CONTRACT_INTERACTION" ||
       (f.baseWeight >= 100 && f.dimension === "S"),
   );
 
@@ -161,9 +285,13 @@ export function scoreFromFacts(
 
   const scoredFacts: FactEvent[] = [];
 
-  if (override && wallet.exploitConfirmed) {
+  if (override) {
     scorePresent = 100;
-    breakdown.defiTypologies = 100;
+    if (facts.some((f) => f.type === "EXPLOIT_PROTOCOL_FUNDS")) {
+      breakdown.defiTypologies = 100;
+    } else {
+      breakdown.sanctions = 100;
+    }
     for (const f of facts) {
       scoredFacts.push({ ...f, scoreContribution: f.baseWeight });
     }
@@ -203,29 +331,7 @@ export function scoreFromFacts(
     scorePresent = Math.max(0, scorePresent - mtCapped);
   }
 
-  // Prefer hop-aligned present score when hop facts dominate (demo fidelity)
-  if (
-    !wallet.exploitConfirmed &&
-    typeof wallet.hopDistance === "number" &&
-    wallet.hopDistance >= 1
-  ) {
-    scorePresent = Math.round(
-      ORIGIN_EXPLOIT_SCORE * DECAY_FACTOR ** wallet.hopDistance,
-    );
-    breakdown.networkBehavior = scorePresent;
-    breakdown.mitigants = 0;
-  }
-
   let finalScore = clamp(scorePresent, 0, 100);
-  if (priorScore != null && !wallet.exploitConfirmed) {
-    const blended = Math.round(
-      priorScore * HISTORICAL_DECAY + scorePresent * (1 - HISTORICAL_DECAY),
-    );
-    breakdown.historicalComponent = Math.round(priorScore * HISTORICAL_DECAY);
-    if (wallet.hopDistance == null) {
-      finalScore = clamp(blended, 0, 100);
-    }
-  }
 
   const decision = decisionFromScore(finalScore);
   const hasHigh = scoredFacts.some(

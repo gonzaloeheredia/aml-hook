@@ -1,8 +1,8 @@
 # AML Hook — Compliance Officer Agent (Oracle COA)
 
 Off-chain Compliance Officer Agent pack: system prompt + modular skills for
-behavioral wallet scoring. Spec for the TypeScript mock oracle at
-`apps/api/src/oracle/` and for a future live agent runtime.
+behavioral wallet scoring. Runtime is `apps/api/src/oracle/`: live Claude when
+`ANTHROPIC_API_KEY` is set; skill interpreter otherwise.
 
 Derived from a financial-institution COA. This version drops identity-based
 KYC flows and focuses on on-chain address behavior under U.S., EU, and FATF
@@ -16,18 +16,22 @@ agents/oracle-coa/
 │   └── system.md             # System prompt (forensic discipline)
 └── skills/                   # Domain + task + scoring specs (kebab-case)
 
-apps/api/src/oracle/           # CURRENT runtime (MOCK_MODE)
-├── agent.ts                  # FULL / INCREMENTAL skill flow
-├── factScoring.ts            # Deterministic fact-scoring over Anvil wallets / events
-├── report.ts                 # Opinion pack (FinCEN Who–How narrative model)
-├── store.ts                  # Opinion cache only — quotes use AmlHook.previewSwap
+apps/api/src/oracle/           # Runtime (live Claude if key set)
+├── agent.ts                  # FULL / INCREMENTAL + publish
+├── liveScore.ts              # Claude score + fee + Opinion
+├── liveOpinion.ts            # Tools: search_regulations, consult_skill
+├── keeper.ts                 # 3-minute freshness stamp (no Claude)
+├── skills.ts                 # Load agents/oracle-coa/skills/*.md
+├── factScoring.ts            # Skill interpreter (tests / COA_LIVE=0)
+├── report.ts                 # Opinion schema skeleton
+├── store.ts                  # Cache — quotes use AmlHook.previewSwap
 ├── types.ts                  # ScoreResult · OracleOpinion schemas
 └── index.ts
 ```
 
-There is **no** Python `agent.py` in this repo today. Skills are English
-markdown specs consumed conceptually by the TypeScript mock; a future live
-Claude loop may load them dynamically.
+There is **no** Python `agent.py` in this repo. Skills are English markdown
+in `skills/`. Live Claude loads them with `consult_skill` (use `uhi10-use-case`
+when A–E constraints are unclear). Tests and `COA_LIVE=0` use `factScoring.ts`.
 
 ---
 
@@ -39,10 +43,10 @@ Run the full pipeline on an address: resolve originator attribution, screen
 sanctions, gather on-chain evidence, apply domain skills, run `fact-scoring`,
 and produce a 0–100 score with ternary hook output.
 
-The signed score is written to the oracle cache. Simulated
-`AMLHook.beforeSwap` reads it with no extra latency.
+The signed score is written to `ComplianceOracle`. `AMLHook.beforeSwap` reads
+it with no extra latency.
 
-Entry point (mock): `reevaluateWallet()` in `apps/api/src/oracle/agent.ts`.
+Entry point: `reevaluateWallet()` in `apps/api/src/oracle/agent.ts`.
 
 ### 2. Evidence / Opinion pack
 
@@ -54,19 +58,24 @@ a filing).
 Recipient of all documentary output: the pool operator’s Compliance Officer.
 The agent never files with any authority.
 
-Skill: `task-regulatory-report`. Mock builder: `buildOpinionFromScore()`.
+Skill: `task-regulatory-report`. Live narrative: Claude. Schema fill:
+`buildOpinionFromScore()` / `overlayOpinion()`.
 
-### 3. Normative consultation (future live runtime)
+### 3. Normative consultation
 
-Answer from a session-loaded corpus via `search_regulations`; declare coverage
-gaps. Never answer from training memory in that module.
+Answer from the git-versioned corpus at `corpus/` via `search_regulations`
+(`apps/api/src/oracle/corpus.ts`). Cite `id`, `publicationDate`, and
+`retrievedAt` on the Opinion. Declare a coverage gap when the manifest has no
+in-force document. Never answer from training memory in that module.
 
 ---
 
 ## Architectural constraint
 
-The agent runs off-chain and asynchronously. The hook never invokes it at
-swap time: it reads a precomputed score.
+The agent runs off-chain and asynchronously (Claude when the API key is set;
+skill interpreter otherwise). It consults `uhi10-use-case` before emitting
+`finalScore`. The hook never invokes it at swap time: it reads a published
+score. The keeper only writes `ComplianceOracle`.
 
 ```
 [Off-chain engine]                         [On-chain / demo]
@@ -112,7 +121,7 @@ standard fee + differential in FeeEscrow.
 `tx_hash` and block, correct explorer reading, distinction between not found /
 not consulted / source failed, pagination and effective window, no value
 inference, analytics output as third-party judgment, and receive-vs-use of
-funds. Includes a twelve-point pre-output self-check.
+funds. Includes a thirteen-point pre-output self-check.
 
 ---
 
@@ -120,11 +129,11 @@ funds. Includes a twelve-point pre-output self-check.
 
 | Layer | Implementation |
 |---|---|
-| Runtime | TypeScript `apps/api/src/oracle/` (MOCK_MODE) |
-| Facts | Derived from wallets, P2P transfers, `SwapObserved` / `WalletBlocked` |
-| Persistence | In-memory oracle store (no DB) |
-| Skills | Markdown specs in `skills/` (kebab-case English filenames) |
-| Live vendors | Not called (no Anthropic / OpenSanctions / Etherscan in mock) |
+| Runtime | TypeScript `apps/api/src/oracle/` (Claude if key set; else skill interpreter) |
+| Facts | Wallets, P2P transfers, `SwapObserved` / `WalletBlocked`, SanctionRegistry |
+| Persistence | In-memory cache + `ComplianceOracle.updateScore` |
+| Skills | Markdown in `skills/`; live tool `consult_skill` (`uhi10-use-case`) |
+| Live vendors | Anthropic for score + Opinion. Corpus via `search_regulations`. No OpenSanctions / Etherscan |
 
 ---
 
@@ -139,7 +148,8 @@ DIMENSION 1: DOMAIN                     DIMENSION 2: TASK TYPE
 ├── swap-behavior-analysis               ├── task-blocking-protocol
 ├── typology-detection                   └── task-regulatory-report
 ├── cross-pool-intelligence
-└── protocol-obligations
+├── protocol-obligations
+└── uhi10-use-case                       (A–E demo validations; consult when unsure)
 
 ── SCORING ──                            ── SYSTEM CONTROL ──
 └── fact-scoring                         ├── model-validation
@@ -175,6 +185,9 @@ DIMENSION 1: DOMAIN                     DIMENSION 2: TASK TYPE
   cross-pool-intelligence (query)
           |
           v
+  uhi10-use-case (A–E validations; consult when unsure)
+          |
+          v
   fact-scoring -> task-swap-decision
           |
       +---+---+----------------+---------------------+
@@ -204,25 +217,26 @@ afterSwap emits SwapObserved (+ FeeEscrow deposit on FEE_OVERRIDE)
   task-swap-intake (POST_SWAP mode)
           │
           ├─ score valid, no new S/MX/GEO facts ─▶ swap-behavior-analysis
+          │                                        + uhi10-use-case
           │                                        + incremental fact-scoring → oracle
           ├─ score expired or invalidated ───────▶ full flow
           └─ new sanctions/TF fact on the subject ─▶ task-blocking-protocol
              (notify operator; hook cannot unwind a confirmed swap)
 ```
 
-Mock flows (`agent.ts`):
+Skill flows (`agent.ts`):
 
 ```
 FULL_FLOW = [
   task-swap-intake, originator-attribution, ofac-screening,
   task-onchain-evidence, wallet-screening, swap-behavior-analysis,
-  typology-detection, cross-pool-intelligence, fact-scoring,
-  task-swap-decision, task-regulatory-report,
+  typology-detection, cross-pool-intelligence, uhi10-use-case, fact-scoring,
+  task-swap-decision, search_regulations, task-regulatory-report,
 ]
 
 INCREMENTAL_FLOW = [
-  task-swap-intake, swap-behavior-analysis, fact-scoring,
-  task-swap-decision, task-regulatory-report,
+  task-swap-intake, swap-behavior-analysis, uhi10-use-case, fact-scoring,
+  task-swap-decision, search_regulations, task-regulatory-report,
 ]
 ```
 
@@ -351,7 +365,7 @@ where compliance already exists. See `protocol-obligations`.
 
 ## Governable parameters (reference)
 
-Defaults aligned with the mock / product docs (values may be overridden by
+Defaults aligned with the product docs (values may be overridden by
 DAO Timelock in a live deployment):
 
 | Parameter | Default |

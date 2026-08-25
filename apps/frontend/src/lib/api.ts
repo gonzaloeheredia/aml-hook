@@ -58,6 +58,17 @@ export type ApiTechnicalOpinion = {
   legalBasis: string;
   recommendations: string;
   traceability: string;
+  normativeCitations?: ApiNormativeCitation[];
+};
+
+export type ApiNormativeCitation = {
+  id: string;
+  title: string;
+  framework: "FATF" | "OFAC" | "MICA" | "TFR" | "FINCEN" | "TREASURY" | "WOLFSBERG";
+  series: string;
+  publicationDate: string;
+  retrievedAt: string;
+  sha256: string;
 };
 
 export type ApiCompliancePack = {
@@ -256,6 +267,11 @@ export function fetchHealth() {
     mode: string;
     chain?: { ok: boolean; hook: string | null; reason?: string };
     policy?: ApiPolicyKnobs;
+    agent?: {
+      live?: boolean;
+      model?: string | null;
+      opinion?: string;
+    };
   }>(`/health`);
 }
 

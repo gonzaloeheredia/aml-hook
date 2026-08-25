@@ -16,9 +16,10 @@ with traceability for every datum.
 the source that produced it, with consultation time. A score without an
 evidence chain is not defensible.
 
-**Mock note.** Live vendor APIs are not called. The demo derives facts from
-the in-memory ledger (wallets, P2P transfers, `SwapObserved` /
-`WalletBlocked`). This skill remains the full product spec for live runtime.
+**Demo runtime.** Live vendor APIs are not called. Facts come from the Anvil
+ledger (wallets, P2P transfers, `SwapObserved` / `WalletBlocked`) plus
+`SanctionRegistry`. This skill remains the full product spec for a later
+vendor-wired runtime.
 
 ---
 

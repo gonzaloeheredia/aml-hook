@@ -2,7 +2,7 @@
 
 Uniswap v4 hook that evaluates the swap subject at execution and returns a ternary decision: **ALLOW**, **FEE_OVERRIDE**, or **REVERT**.
 
-The hook does not compute risk on-chain. An off-chain keeper (Compliance Officer Agent) writes a score into `ComplianceOracle`. `beforeSwap` reads that row, applies sanctions and latency floors, and either lets the swap through, takes a risk differential into `FeeEscrow`, or reverts. Liquidity add and remove are a sanctions-only gate (`SanctionRegistry`). They do not read the score. A listed wallet cannot add or remove liquidity. An emergency pause stops swaps and new LP deposits; a clean LP can still withdraw.
+The hook does not compute risk on-chain. The Compliance Officer Agent emits a score; an off-chain keeper writes it into `ComplianceOracle`. `beforeSwap` reads that row, applies sanctions and latency floors, and either lets the swap through, takes a risk differential into `FeeEscrow`, or reverts. Liquidity add and remove are a sanctions-only gate (`SanctionRegistry`). They do not read the score. A listed wallet cannot add or remove liquidity. An emergency pause stops swaps and new LP deposits; a clean LP can still withdraw.
 
 Built for UHI10.
 
@@ -23,6 +23,7 @@ Supporting notes:
 | [`apps/api/README.md`](apps/api/README.md) | Anvil adapter and keeper |
 | [`apps/frontend/README.md`](apps/frontend/README.md) | Guided UI |
 | [`agents/oracle-coa/`](agents/oracle-coa/) | COA skill specs |
+| [`corpus/README.md`](corpus/README.md) | Versioned FATF / FinCEN / Treasury / Wolfsberg corpus |
 
 ## Decision surface
 
@@ -46,7 +47,7 @@ Supporting notes:
 
 A published score of 0 is confirmed clean. An address with no oracle row is unknown. Those are different paths. The 3% / 8% and $1,000 / $15,000 figures above are deploy defaults; `_COMPLIANCE_OFFICER` proposes then confirms retunes (48h). Score cuts 31 / 55 / 71 stay fixed. Full thresholds: whitepaper §8.4. The A–E walkthrough: use case. Fee escrow destinations: §8.3.
 
-N-hop score written by the keeper:
+N-hop score written by the agent (skill `uhi10-use-case`), published by the keeper:
 
 ```
 score = 100 × 0.65 ^ hops
@@ -132,7 +133,7 @@ curl http://127.0.0.1:4000/health
 | Demo balances, P2P, quotes, escrow rows | Anvil. P2P is ERC-20 `transfer` |
 | USD quotes | `lastFx` if younger than 30 minutes; else one Chainlink round per token (`lastFx` until 24h if the live round is missing). Anvil: `MockUsdFeed` ($1 fee token, $1000 ETH). Live chain: official Chainlink ETH/USD + USDC/USD. Extra tokens: governor `setPriceFeed` |
 | Policy knobs (USD floors, floor fees, pool-impact) | `_COMPLIANCE_OFFICER` propose → 48h confirm. Score cuts 31 / 55 / 71 stay fixed |
-| COA opinion | Deterministic stand-in. No live LLM or vendor feeds |
+| COA score + Opinion | Live Claude when `ANTHROPIC_API_KEY` is in `apps/api/.env`. Skill interpreter if the key is off. No Chainalysis / OFAC HTTP |
 
 ## Local deploy
 
@@ -170,5 +171,5 @@ aml-hook/
 
 - Wire a real Uniswap v4 PoolManager and pool (local `MockPoolManager` is a placeholder).
 - Surface add / remove liquidity in the demo. The on-chain sanctions gate (add and remove) is already there.
-- Live COA vendors and LLM.
+- Production KYT vendor feeds (Chainalysis, TRM, OFAC SDN HTTP, etc.).
 - Broader e2e beyond the current Forge suite.

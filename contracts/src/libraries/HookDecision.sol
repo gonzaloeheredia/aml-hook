@@ -6,7 +6,7 @@ pragma solidity ^0.8.26;
 /// @dev Binary allowlists only answer "in or out". AML Hook answers three ways:
 ///
 ///        ALLOW         Score 0–30   → swap proceeds at the pool's standard fee (e.g. 0.30%).
-///                                      Confirmed-clean or low residual risk after N-hop decay.
+///                                      Confirmed-clean or low residual risk after COA N-hop decay.
 ///
 ///        FEE_OVERRIDE  Score 31–70  → swap proceeds at the pool's standard fee;
 ///                                      the risk differential is taken in afterSwap into

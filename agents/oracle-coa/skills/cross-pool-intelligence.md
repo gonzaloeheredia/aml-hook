@@ -18,8 +18,8 @@ competitors, and turns a local false positive into a global block.
 This skill defines what enters the registry, at what weight it exits, and how
 it is corrected.
 
-**Mock:** no live multi-pool registry; skill remains in FULL flow as a no-op /
-pass-through consult step for demo completeness.
+**Demo runtime:** no live multi-pool registry; skill remains in FULL flow as a
+no-op / pass-through consult step.
 
 ---
 

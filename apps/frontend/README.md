@@ -3,7 +3,10 @@
 Hackathon UI for **Uniswap Hook Incubator 10 (UHI10)**.  
 Institutional six-stage demo of the AML Hook use case: **exploit `WalletBlocked` (Wallet A, score 100)**, **N-hop decay**, **oracle-latency / inflow (Wallet D)**, **never-scored USD bands (Wallet E, funded by C)**, and ternary **ALLOW / FEE_OVERRIDE / REVERT**. Newsreader + Inter, ink/cream surfaces, Uniswap logo kept. Dark is the default; the round control in the navbar toggles light.
 
-> Scores and sanctions checks come from Anvil via the API (`AmlHook.previewSwap`). No live OpenSanctions / Etherscan / GoPlus (or OFAC) API calls.  
+> Scores come from Anvil via the API: the COA emits `finalScore` / fee, the
+> keeper publishes `ComplianceOracle`, and `AmlHook.previewSwap` reads that
+> row. Opinion is `GET /compliance` (Claude when the API has a key). No live
+> OpenSanctions / Etherscan / GoPlus / OFAC HTTP.  
 > The UI talks only to the API at `NEXT_PUBLIC_API_URL` (default `http://localhost:4000`). If Anvil is down the API returns `503` `{ error: "deploy_local" }` — there is no offline `withHopOverlay` policy.
 
 ## Guided stages
@@ -45,8 +48,8 @@ REVERT is `beforeSwap` only — no `afterSwap` emit for that attempt.
 4. **Wallet D (score 0)** — 5,000 USDC published clean. Held funds → ALLOW 0.30%. Advance 5 min after a $1,000 swap (no intervening write) → 3% (B mid). Clean C→D ~10k → inflow 3% (no hop). Clean C→D $15k → inflow 8%
 5. **Wallet E (unknown)** — starts empty. Fund from clean **C** (no hop). C→E $500 → 3%; $10k then $1k swap → 8% (A mid); $15k bag + $500 swap → 8% (D); this swap $15k → revert. $10k then $5k → Floor C. Unbind feed after a quote → last FX (silent under 30 min; `PriceFallbackUsed` until 24h after that); `MagnitudeQuoteFailed` only if never quoted or cache > 24h
 
-N-hop formula: `score = 100 × 0.65^hops` (`exposed_proportion` is 1.0 in this demo).  
-Closer hop wins if a wallet is contaminated more than once. Never-scored magnitude is **USD-8**, not native token units. Local Anvil uses `MockUsdFeed` ($1 USDC, $1,000 ETH). A live Deploy binds official Chainlink ETH/USD and USDC/USD.
+N-hop formula (agent applies skill `uhi10-use-case`; keeper publishes): `score = 100 × 0.65^hops` (`exposed_proportion` is 1.0 in this demo).
+The UI waits on `POST /transfers` and `POST /swaps` until that publish lands. Closer hop wins if a wallet is contaminated more than once. Never-scored magnitude is **USD-8**, not native token units. Local Anvil uses `MockUsdFeed` ($1 USDC, $1,000 ETH). A live Deploy binds official Chainlink ETH/USD and USDC/USD.
 
 ## Run locally
 

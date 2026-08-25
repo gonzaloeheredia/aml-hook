@@ -4,7 +4,10 @@
  */
 
 import type { HookOutput, WalletId } from "../types.js";
+import type { NormativeCitation } from "./corpus.js";
 import type { AgentRun } from "./virtualAgent.js";
+
+export type { NormativeCitation } from "./corpus.js";
 
 export type { AgentRun, AgentSkillStep } from "./virtualAgent.js";
 
@@ -13,7 +16,8 @@ export type OracleTrigger =
   | "transfer"
   | "afterSwap"
   | "blocked"
-  | "manual";
+  | "manual"
+  | "tick";
 
 export type FactConfidence = "HIGH" | "MEDIUM" | "LOW";
 
@@ -84,6 +88,8 @@ export type OracleOpinion = {
     legalBasis: string;
     recommendations: string;
     traceability: string;
+    /** Corpus documents actually used at calculation time (point-in-time). */
+    normativeCitations: NormativeCitation[];
   };
   sarAnnex: {
     produced: boolean;
@@ -130,4 +136,8 @@ export type OracleEvaluation = {
   agentRun: AgentRun;
   /** Keeper → ComplianceOracle.updateScore (virtual receipt or rpc tx). */
   onChainPublish?: ScorePublishResult;
+  /** Who drafted the Opinion narrative. */
+  opinionSource?: "mock" | "anthropic";
+  /** Who produced finalScore. Tick republishes the last agent score. */
+  scoreSource?: "skill" | "anthropic";
 };

@@ -2,7 +2,8 @@
  * AML Hook demo API — TypeScript + in-memory ledger (no database).
  *
  * Adapter: Anvil is the ledger and the decision (previewSwap / observeSwap / FeeEscrow).
- * COA stays mock. Privileged txs leave from this process. No TypeScript policy fallback.
+ * The keeper recomputes scores from the oracle record and publishes to ComplianceOracle.
+ * Privileged txs leave from this process. No TypeScript policy fallback.
  *
  * Replaces frontend simWallets / applyTransfer / applyPoolSwap for server-side demo flows.
  */
@@ -10,6 +11,7 @@
 import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { loadEnvFiles } from "./loadEnv.js";
+import { startKeeperTicker } from "./oracle/keeper.js";
 import { registerRoutes } from "./routes.js";
 
 loadEnvFiles();
@@ -33,6 +35,7 @@ async function main() {
 
   await app.listen({ port: PORT, host: HOST });
   app.log.info(`AML Hook demo API on http://localhost:${PORT} — Anvil is the ledger`);
+  startKeeperTicker(app.log);
 }
 
 main().catch((err) => {

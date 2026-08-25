@@ -475,6 +475,27 @@ export function LegalOpinion({ demoCase }: Pick<Props, "demoCase">) {
         </div>
         <div className="mt-12 space-y-8">
           <OpinionRow label="Legal basis" value={legal.basis} />
+          {(opinion.normativeCitations?.length ?? 0) > 0 ? (
+            <div>
+              <div className="font-serif text-[17px] text-uni-pink">
+                Normative basis
+              </div>
+              <ul className="mt-3 space-y-3">
+                {opinion.normativeCitations!.map((cite) => (
+                  <li key={cite.id}>
+                    <p className="text-[15px] font-normal leading-relaxed text-uni-muted">
+                      {cite.title}
+                    </p>
+                    <p className="mt-1 font-mono text-[12px] text-uni-muted/80">
+                      {cite.id} · {cite.framework} · published{" "}
+                      {cite.publicationDate} · retrieved{" "}
+                      {cite.retrievedAt.slice(0, 10)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <OpinionRow label="Directions to the operator" value={legal.directions} />
           <OpinionRow label="Record and retention" value={legal.traceability} />
         </div>

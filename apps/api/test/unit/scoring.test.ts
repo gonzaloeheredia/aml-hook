@@ -176,6 +176,20 @@ describe("unit: scoring", () => {
       }),
       false,
     );
+    assert.equal(
+      shouldPublishScore({
+        neverScored: false,
+        priorScore: 0,
+        nextScore: 0,
+        priorFeeBps: 30,
+        nextFeeBps: 30,
+        lastScoreAt: 1,
+        now: 2,
+        stalenessMs: 300_000,
+        force: true,
+      }),
+      true,
+    );
   });
 
   it("swapUsdcAmount and ethOutFromSwap", () => {

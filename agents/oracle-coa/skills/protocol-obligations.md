@@ -16,6 +16,9 @@ Produces the applicable-obligation map and corresponding evidence standard.
 Does **not** issue binding legal opinions or alone determine obligated-person
 status. That requires operator-specific legal advice in their jurisdiction.
 
+**Demo runtime:** documentary. The agent never files with FinCEN, OFAC, or any
+supervisor. UHI10 does not configure a live operator-obligation map.
+
 ---
 
 ## Expected inputs

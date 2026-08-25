@@ -1,0 +1,215 @@
+Guidance
+FIN-2013-G001
+Issued: March 18, 2013
+Subject: Application of FinCEN’s Regulations to Persons Administering,
+Exchanging, or Using Virtual Currencies
+The Financial Crimes Enforcement Network (“FinCEN”) is issuing this interpretive
+guidance to clarify the applicability of the regulations implementing the Bank Secrecy Act
+(“BSA”) to persons creating, obtaining, distributing, exchanging, accepting, or transmitting
+virtual currencies.1 Such persons are referred to in this guidance as “users,” “administrators,”
+and “exchangers,” all as defined below.2 A user of virtual currency is not an MSB under
+FinCEN’s regulations and therefore is not subject to MSB registration, reporting, and
+recordkeeping regulations. However, an administrator or exchanger is an MSB under FinCEN’s
+regulations, specifically, a money transmitter, unless a limitation to or exemption from the
+definition applies to the person. An administrator or exchanger is not a provider or seller of
+prepaid access, or a dealer in foreign exchange, under FinCEN’s regulations.
+Currency vs. Virtual Currency
+FinCEN’s regulations define currency (also referred to as “real” currency) as “the coin
+and paper money of the United States or of any other country that [i] is designated as legal tender
+and that [ii] circulates and [iii] is customarily used and accepted as a medium of exchange in the
+country of issuance.”3 In contrast to real currency, “virtual” currency is a medium of exchange
+that operates like a currency in some environments, but does not have all the attributes of real
+currency. In particular, virtual currency does not have legal tender status in any jurisdiction.
+This guidance addresses “convertible” virtual currency. This type of virtual currency either has
+an equivalent value in real currency, or acts as a substitute for real currency.
+1 FinCEN is issuing this guidance under its authority to administer the Bank Secrecy Act. See Treasury Order 180-
+01 (March 24, 2003). This guidance explains only how FinCEN characterizes certain activities involving virtual
+currencies under the Bank Secrecy Act and FinCEN regulations. It should not be interpreted as a statement by
+FinCEN about the extent to which those activities comport with other federal or state statutes, rules, regulations, or
+orders.
+2 FinCEN’s regulations define “person” as “an individual, a corporation, a partnership, a trust or estate, a joint stock
+company, an association, a syndicate, joint venture, or other unincorporated organization or group, an Indian Tribe
+(as that term is defined in the Indian Gaming Regulatory Act), and all entities cognizable as legal personalities.” 31
+CFR § 1010.100(mm).
+3 31 CFR § 1010.100(m).
+www.fincen.gov
+
+Background
+On July 21, 2011, FinCEN published a Final Rule amending definitions and other
+regulations relating to money services businesses (“MSBs”).4 Among other things, the MSB
+Rule amends the definitions of dealers in foreign exchange (formerly referred to as “currency
+dealers and exchangers”) and money transmitters. On July 29, 2011, FinCEN published a Final
+Rule on Definitions and Other Regulations Relating to Prepaid Access (the “Prepaid Access
+Rule”).5 This guidance explains the regulatory treatment under these definitions of persons
+engaged in virtual currency transactions.
+Definitions of User, Exchanger, and Administrator
+This guidance refers to the participants in generic virtual currency arrangements, using
+the terms “user,” “exchanger,” and “administrator.”6 A user is a person that obtains virtual
+currency to purchase goods or services.7 An exchanger is a person engaged as a business in the
+exchange of virtual currency for real currency, funds, or other virtual currency. An
+administrator is a person engaged as a business in issuing (putting into circulation) a virtual
+currency, and who has the authority to redeem (to withdraw from circulation) such virtual
+currency.
+Users of Virtual Currency
+A user who obtains convertible virtual currency and uses it to purchase real or virtual
+goods or services is not an MSB under FinCEN’s regulations.8 Such activity, in and of itself,
+does not fit within the definition of “money transmission services” and therefore is not subject to
+FinCEN’s registration, reporting, and recordkeeping regulations for MSBs.9
+4 Bank Secrecy Act Regulations – Definitions and Other Regulations Relating to Money Services Businesses, 76 FR
+43585 (July 21, 2011) (the “MSB Rule”). This defines an MSB as “a person wherever located doing business,
+whether or not on a regular basis or as an organized or licensed business concern, wholly or in substantial part
+within the United States, in one or more of the capacities listed in paragraphs (ff)(1) through (ff)(7) of this section.
+This includes but is not limited to maintenance of any agent, agency, branch, or office within the United States.” 31
+CFR § 1010.100(ff).
+5 Final Rule – Definitions and Other Regulations Relating to Prepaid Access, 76 FR 45403 (July 29, 2011),
+6 These terms are used for the exclusive purpose of this regulatory guidance. Depending on the type and
+combination of a person’s activities, one person may be acting in more than one of these capacities.
+7 How a person engages in “obtaining” a virtual currency may be described using any number of other terms, such as
+“earning,” “harvesting,” ”mining,” “creating,” “auto-generating,” “manufacturing,” or “purchasing,” depending on
+the details of the specific virtual currency model involved. For purposes of this guidance, the label applied to a
+particular process of obtaining a virtual currency is not material to the legal characterization under the BSA of the
+process or of the person engaging in the process.
+8 As noted above, this should not be interpreted as a statement about the extent to which the user’s activities comport
+with other federal or state statutes, rules, regulations, or orders. For example, the activity may still be subject to
+abuse in the form of trade-based money laundering or terrorist financing. The activity may follow the same patterns
+of behavior observed in the “real” economy with respect to the purchase of “real” goods and services, such as
+systematic over- or under-invoicing or inflated transaction fees or commissions.
+9 31 CFR § 1010.100(ff)(1-7).
+2
+
+Administrators and Exchangers of Virtual Currency
+An administrator or exchanger that (1) accepts and transmits a convertible virtual
+currency or (2) buys or sells convertible virtual currency for any reason is a money transmitter
+under FinCEN’s regulations, unless a limitation to or exemption from the definition applies to
+the person.10 FinCEN’s regulations define the term “money transmitter” as a person that
+provides money transmission services, or any other person engaged in the transfer of funds. The
+term “money transmission services” means “the acceptance of currency, funds, or other value
+that substitutes for currency from one person and the transmission of currency, funds, or other
+value that substitutes for currency to another location or person by any means.”11
+The definition of a money transmitter does not differentiate between real currencies and
+convertible virtual currencies. Accepting and transmitting anything of value that substitutes for
+currency makes a person a money transmitter under the regulations implementing the BSA.12
+FinCEN has reviewed different activities involving virtual currency and has made determinations
+regarding the appropriate regulatory treatment of administrators and exchangers under three
+scenarios: brokers and dealers of e-currencies and e-precious metals; centralized convertible
+virtual currencies; and de-centralized convertible virtual currencies.
+a. E-Currencies and E-Precious Metals
+The first type of activity involves electronic trading in e-currencies or e-precious
+metals.13 In 2008, FinCEN issued guidance stating that as long as a broker or dealer in real
+currency or other commodities accepts and transmits funds solely for the purpose of effecting a
+bona fide purchase or sale of the real currency or other commodities for or with a customer, such
+person is not acting as a money transmitter under the regulations.14
+However, if the broker or dealer transfers funds between a customer and a third party that
+is not part of the currency or commodity transaction, such transmission of funds is no longer a
+fundamental element of the actual transaction necessary to execute the contract for the purchase
+or sale of the currency or the other commodity. This scenario is, therefore, money
+10 FinCEN’s regulations provide that whether a person is a money transmitter is a matter of facts and circumstances.
+The regulations identify six circumstances under which a person is not a money transmitter, despite accepting and
+transmitting currency, funds, or value that substitutes for currency. 31 CFR § 1010.100(ff)(5)(ii)(A)–(F).
+11 31 CFR § 1010.100(ff)(5)(i)(A).
+12 Ibid.
+13 Typically, this involves the broker or dealer electronically distributing digital certificates of ownership of real
+currencies or precious metals, with the digital certificate being the virtual currency. However, the same conclusions
+would apply in the case of the broker or dealer issuing paper ownership certificates or manifesting customer
+ownership or control of real currencies or commodities in an account statement or any other form. These
+conclusions would also apply in the case of a broker or dealer in commodities other than real currencies or precious
+metals. A broker or dealer of e-currencies or e-precious metals that engages in money transmission could be either
+an administrator or exchanger depending on its business model.
+14 Application of the Definition of Money Transmitter to Brokers and Dealers in Currency and other Commodities,
+FIN-2008-G008, Sept. 10, 2008. The guidance also notes that the definition of money transmitter excludes any
+person, such as a futures commission merchant, that is “registered with, and regulated or examined by…the
+Commodity Futures Trading Commission.”
+3
+
+transmission.15 Examples include, in part, (1) the transfer of funds between a customer and a
+third party by permitting a third party to fund a customer’s account; (2) the transfer of value from
+a customer’s currency or commodity position to the account of another customer; or (3) the
+closing out of a customer’s currency or commodity position, with a transfer of proceeds to a third
+party. Since the definition of a money transmitter does not differentiate between real currencies
+and convertible virtual currencies, the same rules apply to brokers and dealers of e-currency and
+e-precious metals.
+b. Centralized Virtual Currencies
+The second type of activity involves a convertible virtual currency that has a centralized
+repository. The administrator of that repository will be a money transmitter to the extent that it
+allows transfers of value between persons or from one location to another. This conclusion
+applies, whether the value is denominated in a real currency or a convertible virtual currency. In
+addition, any exchanger that uses its access to the convertible virtual currency services provided
+by the administrator to accept and transmit the convertible virtual currency on behalf of others,
+including transfers intended to pay a third party for virtual goods and services, is also a money
+transmitter.
+FinCEN understands that the exchanger’s activities may take one of two forms. The first
+form involves an exchanger (acting as a “seller” of the convertible virtual currency) that accepts
+real currency or its equivalent from a user (the “purchaser”) and transmits the value of that real
+currency to fund the user’s convertible virtual currency account with the administrator. Under
+FinCEN’s regulations, sending “value that substitutes for currency” to another person or to
+another location constitutes money transmission, unless a limitation to or exemption from the
+definition applies.16 This circumstance constitutes transmission to another location, namely
+from the user’s account at one location (e.g., a user’s real currency account at a bank) to the
+user’s convertible virtual currency account with the administrator. It might be argued that the
+exchanger is entitled to the exemption from the definition of “money transmitter” for persons
+involved in the sale of goods or the provision of services. Under such an argument, one might
+assert that the exchanger is merely providing the service of connecting the user to the
+administrator and that the transmission of value is integral to this service. However, this
+exemption does not apply when the only services being provided are money transmission
+services.17
+The second form involves a de facto sale of convertible virtual currency that is not
+completely transparent. The exchanger accepts currency or its equivalent from a user and
+privately credits the user with an appropriate portion of the exchanger’s own convertible virtual
+currency held with the administrator of the repository. The exchanger then transmits that
+15 In 2011, FinCEN amended the definition of money transmitter. The 2008 guidance, however, was primarily
+concerned with the core elements of the definition – accepting and transmitting currency or value – and the
+exemption for acceptance and transmission integral to another transaction not involving money transmission. The
+2011 amendments have not materially changed these aspects of the definition.
+16 See footnote 11 and adjacent text.
+17 31 CFR § 1010.100(ff)(5)(ii)(F).
+4
+
+internally credited value to third parties at the user’s direction. This constitutes transmission to
+another person, namely each third party to which transmissions are made at the user’s direction.
+To the extent that the convertible virtual currency is generally understood as a substitute for real
+currencies, transmitting the convertible virtual currency at the direction and for the benefit of the
+user constitutes money transmission on the part of the exchanger.
+c. De-Centralized Virtual Currencies
+A final type of convertible virtual currency activity involves a de-centralized convertible
+virtual currency (1) that has no central repository and no single administrator, and (2) that
+persons may obtain by their own computing or manufacturing effort.
+A person that creates units of this convertible virtual currency and uses it to purchase real
+or virtual goods and services is a user of the convertible virtual currency and not subject to
+regulation as a money transmitter. By contrast, a person that creates units of convertible virtual
+currency and sells those units to another person for real currency or its equivalent is engaged in
+transmission to another location and is a money transmitter. In addition, a person is an
+exchanger and a money transmitter if the person accepts such de-centralized convertible virtual
+currency from one person and transmits it to another person as part of the acceptance and transfer
+of currency, funds, or other value that substitutes for currency.
+Providers and Sellers of Prepaid Access
+A person’s acceptance and/or transmission of convertible virtual currency cannot be
+characterized as providing or selling prepaid access because prepaid access is limited to real
+currencies.18
+Dealers in Foreign Exchange
+A person must exchange the currency of two or more countries to be considered a dealer
+in foreign exchange.19 Virtual currency does not meet the criteria to be considered “currency”
+under the BSA, because it is not legal tender. Therefore, a person who accepts real currency in
+18 This is true even if the person holds the value accepted for a period of time before transmitting some or all of that
+value at the direction of the person from whom the value was originally accepted. FinCEN’s regulations define
+“prepaid access” as “access to funds or the value of funds that have been paid in advance and can be retrieved or
+transferred at some point in the future through an electronic device or vehicle, such as a card, code, electronic serial
+number, mobile identification number, or personal identification number.” 31 CFR § 1010.100(ww). Thus,
+“prepaid access” under FinCEN’s regulations is limited to “access to funds or the value of funds.” If FinCEN had
+intended prepaid access to cover funds denominated in a virtual currency or something else that substitutes for real
+currency, it would have used language in the definition of prepaid access like that in the definition of money
+transmission, which expressly includes the acceptance and transmission of “other value that substitutes for
+currency.” 31 CFR § 1010.100(ff)(5)(i) .
+19 FinCEN defines a “dealer in foreign exchange” as a “person that accepts the currency, or other monetary
+instruments, funds, or other instruments denominated in the currency, of one or more countries in exchange for the
+currency, or other monetary instruments, funds, or other instruments denominated in the currency, of one or more
+other countries in an amount greater than $1,000 for any other person on any day in one or more transactions,
+whether or not for same-day delivery.” 31 CFR § 1010.100(ff)(1).
+5
+
+exchange for virtual currency, or vice versa, is not a dealer in foreign exchange under FinCEN’s
+regulations.
+* * * * *
+Financial institutions with questions about this guidance or other matters related to
+compliance with the implementing regulations of the BSA may contact FinCEN’s Regulatory
+Helpline at (800) 949-2732.
+6

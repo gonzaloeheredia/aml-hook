@@ -1,6 +1,6 @@
 ---
 name: fact-scoring
-description: "AML/CFT wallet scoring module (score 0–100) with FATF/OFAC/BSA justification per dimension. Produces the score AML Hook consumes at beforeSwap for ternary output: ALLOW, FEE_OVERRIDE, or REVERT. Use whenever task-swap-decision needs a quantified rating integrable into the task-regulatory-report Opinion pack. Spec implemented by apps/api/src/oracle/factScoring.ts (MOCK_MODE)."
+description: "AML/CFT wallet scoring module (score 0–100) with FATF/OFAC/BSA justification per dimension. Produces the score AML Hook consumes at beforeSwap for ternary output: ALLOW, FEE_OVERRIDE, or REVERT. Use whenever task-swap-decision needs a quantified rating integrable into the task-regulatory-report Opinion pack. Live: Claude via consult_skill. Interpreter: apps/api/src/oracle/factScoring.ts when COA_LIVE=0 or tests."
 ---
 
 # Fact Scoring — Wallet AML/CFT Scoring Module
@@ -33,8 +33,9 @@ Outputs serve two functions:
 The hook never invokes this module at runtime; it reads a precomputed score.
 
 **Demo backbone.** For the UHI10 A/B/C ledger, N-hop contamination uses
-`derived_score = origin_score × (0.65 ^ hops)`. When hop facts dominate,
-`factScoring.ts` aligns `finalScore` to that formula for demo fidelity.
+`derived_score = origin_score × (0.65 ^ hops)`. The live agent applies that
+formula from skill `uhi10-use-case`. The TypeScript interpreter
+(`factScoring.ts`) does the same when Claude is off.
 
 ---
 
@@ -147,7 +148,7 @@ FATF Cat. 3; OFAC VC Guidance 2021. Lookback default 90 days.
 
 ### 2.4 NW — Network / counterparties
 
-FATF Cats. 2, 4, 5; Rec. 10. **Demo types used by the mock:**
+FATF Cats. 2, 4, 5; Rec. 10. **Demo types used in UHI10:**
 
 | Type | Description | baseWeight |
 |---|---|---|
@@ -242,7 +243,8 @@ finalScore = (priorScore × decay_factor) + (presentScore × (1 − decay_factor
 ```
 
 Default `decay_factor = 0.4` (40% history / 60% present). No prior → 0.0.
-Mock skips blend when hop distance dominates (demo fidelity).
+The UHI10 interpreter and live skill `uhi10-use-case` recompute from the full
+record instead of blending when hop facts dominate.
 
 ### 3.4 afterSwap-triggered update
 
@@ -345,22 +347,24 @@ the Compliance Officer decides.
 | 51–70 | 7 days |
 | ≥ 71 | immediate / continuous |
 
-### 4.4 Confidence degradation (mock + live)
+### 4.4 Confidence degradation (live + interpreter)
 
 If `finalScore ≥ 71` without any HIGH contributing fact → degrade to 70 /
 `FEE_OVERRIDE` and flag `INSUFFICIENT_CONFIDENCE`.
 
 ---
 
-## 5. Mock implementation notes
+## 5. Interpreter notes (tests / `COA_LIVE=0`)
 
-`apps/api/src/oracle/factScoring.ts` implements a deterministic subset:
+`apps/api/src/oracle/factScoring.ts` implements a deterministic subset when
+Claude is not scoring:
 
 - `EXPLOIT_PROTOCOL_FUNDS` → score 100 override (wallet A)
 - Hop contamination → `HIGH_RISK_COUNTERPARTY` / `MEDIUM_RISK_COUNTERPARTY`
   with weight `100 × 0.65^hops`, plus optional `RAPID_FULL_BALANCE_TRANSFER`
 - Clean path → `LONG_CLEAN_HISTORY` + `COHERENT_TRANSACTION_PROFILE`
-- Optional low-weight `STRUCTURING_VELOCITY_SPIKE` on repeated SwapObserved
+- afterSwap `SwapObserved` / `WalletBlocked` accumulate on the record
 
-Live catalog types above remain the full product spec; the mock covers the
-demo ledger path without vendor APIs.
+Live catalog types above remain the full product spec. A–E constraints that
+must not drift live in skill `uhi10-use-case`. Vendor KYT APIs are still
+out of band.

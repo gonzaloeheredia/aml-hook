@@ -2,13 +2,13 @@
 
 TypeScript API that talks to the local stack. It does not own the ledger. Balances, scores, quotes, and FeeEscrow rows live on Anvil. Without `npm run deploy:local` every chain route returns `503` `{ error: "deploy_local" }`.
 
-**Oracle COA (MOCK_MODE):** scores and Opinion are produced by `apps/api/src/oracle/` using the skill pack in [`agents/oracle-coa/`](../../agents/oracle-coa/). Facts come from Anvil wallets, P2P ERC-20 transfers, and `SwapObserved` / `WalletBlocked`. There are **no live calls** to Anthropic, OpenSanctions, Etherscan, GoPlus, Chainalysis, TRM, or OFAC APIs.
+**Oracle COA:** with `ANTHROPIC_API_KEY` in `apps/api/.env`, Claude emits `finalScore`, `recommendedFeeBps`, and the Opinion (tools: `consult_skill` / `uhi10-use-case`, `search_regulations`). The keeper writes `ComplianceOracle`; quotes and swaps read `AmlHook.previewSwap`. Without a key, or `COA_LIVE=0` / tests, `factScoring.ts` interprets the skills. There are **no live calls** to OpenSanctions, Etherscan, GoPlus, Chainalysis, TRM, or OFAC HTTP APIs. Seed waits on Claude when the key is set (A–D). The 3-minute keeper tick only stamps the last score.
 
 **Quotes:** `GET /wallets/:id/quote` and swap settlement call `AmlHook.previewSwap` — the same L1→L3 path `beforeSwap` uses. There is no TypeScript policy fallback.
 
 **FEE_OVERRIDE settlement:** the COA publishes `recommendedFeeBps` as total intended friction. A demo swap is `previewSwap` + `observeSwap` (activity / baseline / `SwapObserved`). On FEE_OVERRIDE the API mints the extra slice and calls `FeeEscrow.deposit`. That is not a live Uniswap `PoolManager` fill. A later clean exit goes to the LP compensation fund. A confirmed-illicit row is recovered to the compliance reserve only (whitepaper §8.3).
 
-The keeper writes when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band changes, **or** when the last write is at least as old as Floor B (`STALENESS_MS` = 5 minutes). That freshness stamp stops a stable clean wallet from looking stale. Floor B: stale + no swap yet this hour → 3%; stale + prior activity → pass / 3% / 8% by swap+window USD. `updateScore` is signed by Anvil **#9** (attestor) over `attestationHash`. An empty signature is rejected.
+The keeper writes when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band changes, **or** on a 3-minute heartbeat (same score, new `updatedAt`), **or** when the last write is at least as old as Floor B (`STALENESS_MS` = 5 minutes). That freshness stamp stops a stable clean wallet from looking stale. Floor B: stale + no swap yet this hour → 3%; stale + prior activity → pass / 3% / 8% by swap+window USD. `updateScore` is signed by Anvil **#9** (attestor) over `attestationHash`. An empty signature is rejected.
 
 ## What it replaces (conceptually)
 
@@ -38,7 +38,7 @@ Restart the API after every `deploy:local` so it loads `.env.local`.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/health` | `mode: "anvil"`, `scoreSource: "onchain"`, `chain.ok` |
+| `GET` | `/health` | `mode: "anvil"`, `agent.score` / `agent.opinion`, `keeperTickMs`, `chain.ok` |
 | `GET` | `/wallets` | All wallets + live `previewSwap` quote |
 | `GET` | `/wallets/:id` | One wallet (`A`–`E`) + quote |
 | `GET` | `/wallets/:id/compliance` | **Oracle opinion** for Opinion UI |
@@ -47,8 +47,8 @@ Restart the API after every `deploy:local` so it loads `.env.local`.
 | `GET` | `/oracle/:id` | ScoreResult + opinion for one wallet |
 | `POST` | `/oracle/:id/catch-up` | Publish deferred keeper score (Wallet D latency path) |
 | `GET` | `/oracle/publishes` | Keeper `updateScore` trail (`txHash`) |
-| `POST` | `/transfers` | P2P USDC on Anvil → hop update → oracle reevaluate (tainted inbound to D defers keeper) |
-| `POST` | `/swaps` | `previewSwap` + `observeSwap` + FeeEscrow deposit on FEE_OVERRIDE |
+| `POST` | `/transfers` | P2P USDC on Anvil → wait for agent score → keeper publish (tainted inbound to D defers keeper) |
+| `POST` | `/swaps` | `previewSwap` + `observeSwap` + wait for agent + FeeEscrow deposit on FEE_OVERRIDE |
 | `POST` | `/demo/elapse` | `evm_increaseTime` + `evm_mine` (`{ seconds: 301 }` → Floor B) |
 | `POST` | `/demo/price-feed` | Bind / unbind USDC/USD (`{ bound: false }` → silent `lastFx` if quoted in the last 30 min; `PriceFallbackUsed` until 24h after that; else `MagnitudeQuoteFailed`) |
 | `GET` | `/escrow` | Live FeeEscrow rows |
@@ -56,7 +56,7 @@ Restart the API after every `deploy:local` so it loads `.env.local`.
 | `POST` | `/escrow/:id/recover` | Recover Blocked → compliance reserve |
 | `GET` | `/transfers` | Transfer history |
 | `GET` | `/events` | Hook trail (`SwapObserved` / blocked) |
-| `POST` | `/reset` | Mint + `syncBaseline` + publish A–D (E stays unpublished) |
+| `POST` | `/reset` | Mint + `syncBaseline` + agent seed A–D (Claude wait when key set; E unpublished) |
 
 ### Oracle flow
 
@@ -66,7 +66,7 @@ P2P transfer or afterSwap / WalletBlocked
         ▼
   oracle COA (skills in agents/oracle-coa)
         │
-        ├─► cache for Opinion UI only
+        ├─► Claude (or skill interpreter) → cache
         │
         └─► ComplianceOracle.updateScore (signed RPC, or fail)
               keeper = Anvil #0 · attestor = Anvil #9
@@ -76,7 +76,7 @@ P2P transfer or afterSwap / WalletBlocked
   opinion → GET /compliance → Opinion stage
 ```
 
-See [`.env.example`](.env.example) for required Anvil env vars.
+See [`.env.example`](.env.example) for required Anvil env vars. Put `ANTHROPIC_API_KEY` in `apps/api/.env` (gitignored). Do not put it in `.env.example` or `.env.local`.
 
 ### Example — compliance opinion (oracle-backed)
 
