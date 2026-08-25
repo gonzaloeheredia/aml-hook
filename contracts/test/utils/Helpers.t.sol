@@ -203,9 +203,11 @@ contract Helpers is Test {
         vm.stopPrank();
     }
 
+    MockAggregatorV3 public usdFeed;
+
     /// @dev Bind a $1 Chainlink stand-in for stub pool currencies (address(1)/address(2)) and native ETH.
     function _bindUsdFeeds() internal {
-        MockAggregatorV3 usdFeed = new MockAggregatorV3();
+        usdFeed = new MockAggregatorV3();
         usdFeed.setRound(1e8, block.timestamp);
         vm.startPrank(hookGovernor);
         hook.setPriceFeed(address(0), address(usdFeed));
@@ -248,7 +250,7 @@ contract Helpers is Test {
         AccessManager _accessManager,
         SanctionRegistry _registry,
         ComplianceOracle _oracle,
-        RiskPolicy _policy,
+        RiskPolicy _riskPolicy,
         IFeeEscrow _feeEscrow
     ) internal returns (AmlHook _hook) {
         address flags = address(
@@ -264,7 +266,7 @@ contract Helpers is Test {
                 address(_accessManager),
                 _registry,
                 _oracle,
-                _policy,
+                _riskPolicy,
                 _feeEscrow,
                 uint256(300),
                 uint64(3600)
@@ -279,9 +281,9 @@ contract Helpers is Test {
         AccessManager _accessManager,
         SanctionRegistry _registry,
         ComplianceOracle _oracle,
-        RiskPolicy _policy
+        RiskPolicy _riskPolicy
     ) internal returns (AmlHook _hook) {
-        return _deployHook(_accessManager, _registry, _oracle, _policy, IFeeEscrow(address(0)));
+        return _deployHook(_accessManager, _registry, _oracle, _riskPolicy, IFeeEscrow(address(0)));
     }
 
     function _buildKey(address _hook) internal pure returns (PoolKey memory _key) {

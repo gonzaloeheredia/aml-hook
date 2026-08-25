@@ -177,6 +177,15 @@ contract UnitAmlHookTest is Helpers {
         manager.callAfterSwap(IHooks(address(hook)), sender, key, params, BalanceDelta.wrap(0), abi.encode(walletC));
     }
 
+    function test_AfterSwap_DoesNotNeedLiveFeed() external {
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletC, 0, 0, address(0), 0, _scoreSig(walletC, 0, 0));
+        address sender = _bindTrustedSubject(walletC);
+        manager.callBeforeSwap(IHooks(address(hook)), sender, key, params, "");
+        usdFeed.setRevertOnRead(true);
+        manager.callAfterSwap(IHooks(address(hook)), sender, key, params, BalanceDelta.wrap(0), "");
+    }
+
     /// @dev Cleared cache must not leak the prior subject into a second afterSwap in the same tx.
     function test_AfterSwapWhenCalledTwice() external {
         vm.prank(keeper);

@@ -11,6 +11,7 @@ import {IFeeEscrow} from "../../interfaces/escrow/IFeeEscrow.sol";
 import {HookDecision} from "../../libraries/HookDecision.sol";
 import {SwapCache} from "../../libraries/SwapCache.sol";
 import {SwapCurrencies} from "../../libraries/SwapCurrencies.sol";
+import {OracleQuote} from "../../libraries/OracleQuote.sol";
 
 import {Hooks} from "v4-core/src/libraries/Hooks.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
@@ -130,10 +131,13 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
 
     function _cacheStore(PoolKey calldata key, SwapEvaluation memory ev) private {
         SwapCache.store(key.toId(), ev.wallet, ev.token, ev.decision, ev.feeBps, ev.risk, ev.inflowTriggered);
+        SwapCache.storeFx(key.toId(), ev.volumeFx.price, OracleQuote.pack(ev.volumeFx));
     }
 
     function _cacheLoad(PoolKey calldata key) private view returns (SwapEvaluation memory ev) {
         (ev.wallet, ev.token, ev.decision, ev.feeBps, ev.risk, ev.inflowTriggered) = SwapCache.load(key.toId());
+        (uint256 price, uint256 packed) = SwapCache.loadFx(key.toId());
+        ev.volumeFx = OracleQuote.unpack(price, packed);
     }
 
     function _maybeEscrow(

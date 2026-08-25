@@ -357,7 +357,7 @@ The exact USD thresholds for each case (unknown wallet, published-clean wallet w
 
 **Between swaps.** The keeper publishes scores. The hook never writes the oracle. Trusted routers, multisigs, and price feeds are governor work. USD floors, floor fees, and the pool-impact cut are compliance-officer work (propose, then confirm after 48 hours). Both sit off the swap path.
 
-**Fallback.** A last published row is used only when `updatedAt > 0`. A wallet the keeper has never written (`updatedAt == 0`) is unknown — Mitigation A — not a silent-oracle ALLOW. That fallback does not apply to the USD price feed. A bad price fail-closes. Do not confuse the score store with the token/USD feed.
+**Fallback.** A last published row is used only when `updatedAt > 0`. A wallet the keeper has never written (`updatedAt == 0`) is unknown — Mitigation A — not a silent-oracle ALLOW. The USD price feed is separate: one Chainlink round per token per swap. A usable round (including a heartbeat-stale round) is cached as `lastFx`. If this block has no usable live round, the hook multiplies this swap's amounts by that last price, until the cache is older than 24 hours. Only then does a missing feed fail-close. Do not confuse the score store with the token/USD feed.
 
 **Smart accounts and routers.** Institutional funds use Safes. The address the pool sees is often the router, not the user. Scoring the router would either bless every swap or block the pool. The hook never treats the router as the subject.
 
@@ -430,14 +430,14 @@ A single table replaces every condition that determines a swap's outcome: the pu
 | Published-clean wallet, inbound USD under $1,000, score still older than the baseline | Floor D dust | ALLOW | Pool standard, 0.30% |
 | Published-clean wallet, inbound USD $1,000–$14,999, score still older than the baseline | Floor D mid | FEE_OVERRIDE | 3% |
 | Published-clean wallet, inbound USD ≥ $15,000, score still older than the baseline | Floor D large | FEE_OVERRIDE | 8% |
-| Token has no bound price feed, feed is stale (>1h, max 24h), or the answer is invalid or non-positive | Price feed guard | REVERT | Fail-closed |
+| No live Chainlink round and no `lastFx` within 24 hours | Price feed guard | REVERT | Fail-closed |
 
 Notes on reading the table:
 
 - A published score of 0 (Wallet D in the use case) and a wallet that was never written (Wallet E) are different rows. Floor A no longer applies once a score exists, even if that score is 0. Floor D **does** apply to a never-written wallet: with no baseline the current input-token bag is inbound (pass / 3% / 8%). The stricter of A (swap size) and D (bag) wins. A may still revert on swap size or on a high pool-impact mid-band swap. Demo E starts empty; clean C funds it (no hop). Do not fund E from A (exploit origin / score 100).
 - Floor B and Floor D never revert. Floor A large reverts on this swap. Floor C reverts when several swaps in 24 hours cross $15,000. B and D use the same USD cuts as A ($1,000 / $15,000) but map them to pass / 3% / 8%. B's 20% pool-impact extra hardens the fee band and stops at 8%. D has no pool-impact extra.
 - None of these floors soften a score-band revert, or a fee-override already set by the score.
-- A working price feed is not needed when the wallet is published-clean, has no new inflow to quantify, and Floor B is not armed.
+- A working price feed is not needed when the wallet is published-clean, has no new inflow to quantify, and Floor B is not armed. When a quote is required, the hook reads Chainlink once per token and reuses that price for every amount in the swap (ticket, inbound, bag, settled size, window add). A heartbeat-stale round is still a price: it is used and stored. An unbound or reverting feed uses `lastFx`. `PriceFallbackUsed` records both cases.
 
 **How the USD thresholds are computed.** Figures use 8 decimals. The pool's base fee on an executing swap is always 0.30%. When the override is higher, escrow holds the difference. The compliance officer retunes the USD floors, floor fees, and pool-impact cut named in the "Who retunes what" table below (48-hour delay). Score cuts 31 / 55 / 71 and `MAX_OVERRIDE` stay fixed in the policy.
 
@@ -507,7 +507,7 @@ The keeper writes when the new score would change the decision tier (ALLOW / FEE
 | Inflow share (of current USD) | 50% | Hook governor |
 | Score staleness | 5 minutes (contract and local-deploy default). Institutional pools may set 120 seconds. | Hook governor |
 | Price staleness | 1 hour | Hook governor |
-| Per-token price feed | Official Chainlink ETH/USD (native + WETH) and USDC/USD at deploy on live chains. Anvil uses MockUsdFeed. Extra tokens unbound (fail-closed) | Hook governor |
+| Per-token price feed | Official Chainlink ETH/USD (native + WETH) and USDC/USD at deploy on live chains. Anvil uses MockUsdFeed. Extra tokens unbound: use `lastFx` if fresh, else fail-closed | Hook governor |
 | Trusted routers / position managers | Seeded at deploy | Hook governor |
 | Floor B activity window | 1 hour | Hook governor |
 | Floor C daily window | 24 hours | Hook governor |
@@ -532,7 +532,7 @@ Recommendation 10's aggregation principle, under which a single operation or sev
 
 Recommendation 1's description of the risk-based approach requires that policies, controls, and procedures be approved by senior management. This is the basis for separating operational scoring, which compliance performs continuously through the keeper, from policy-level changes to these thresholds and percentages, which require the compliance role, a 48-hour delay, and an on-chain event on both the proposal and the confirmation before taking effect. The only numeric validations are the FATF VA $1,000 floor on the fee threshold and the rule that, in each related pair, the upper value stays strictly above the lower.
 
-**Residual risk — price oracle.** Unknown-wallet size, Floor B once armed, and Floor D now depend on the price feed. A halted or lagged feed over-blocks (fail-closed). Deploy binds official Chainlink ETH/USD and USDC/USD. The governor binds extra tokens and keeps the price-staleness window at or above the feed heartbeat.
+**Residual risk — price oracle.** Unknown-wallet size, Floor B once armed, and Floor D depend on USD-8. The hook reads each token's feed once per swap and caches a usable round. A halted aggregator or an unbound feed does not immediately over-block: the last cached price (up to 24 hours, `MAX_PRICE_STALENESS`) still sizes this ticket. That window can under-count USD after a sharp move, so Floor A and Floor C may look smaller than spot. After 24 hours with no usable live round the path fail-closes (`MagnitudeQuoteFailed`). Deploy binds official Chainlink ETH/USD and USDC/USD. The governor binds extra tokens and keeps `priceStalenessThreshold` at or above the feed heartbeat (that knob now flags stale live rounds in `PriceFallbackUsed`; it does not by itself revert).
 
 **Residual risk — Floor B.** If the keeper is down or slower than `stalenessThreshold`, a published-clean wallet that already swapped in the hour is banded by swap+window USD (pass / 3% / 8%) until a write lands. That is intended friction under a lagging clock, not a contamination finding. B needs a working price feed once it is armed. The freshness write (same score, new timestamp) is what stops a healthy keeper from looking late. The oracle allows 24 `updateScore`s per wallet per hour so a 5-minute stamp plus a few real tier changes fit.
 

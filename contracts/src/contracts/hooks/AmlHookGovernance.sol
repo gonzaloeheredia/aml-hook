@@ -11,6 +11,7 @@ import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol"
 import {IRiskPolicy} from "../../interfaces/policies/IRiskPolicy.sol";
 import {IAggregatorV3} from "../../interfaces/external/IAggregatorV3.sol";
 import {FeeBps} from "../../libraries/FeeBps.sol";
+import {OracleQuote} from "../../libraries/OracleQuote.sol";
 import {Roles} from "../../libraries/Roles.sol";
 import {MultisigAggregation, MultisigType, TrustedMultisig} from "../../libraries/WalletSubject.sol";
 
@@ -23,6 +24,7 @@ abstract contract AmlHookGovernance is AccessManaged, Pausable {
     mapping(address => bool) public trustedRouters;
     mapping(address => TrustedMultisig) public trustedMultisigs;
     mapping(address => IAggregatorV3) public priceFeeds;
+    mapping(address => OracleQuote.CachedFx) public lastFx;
 
     MultisigAggregation public multisigAggregation = MultisigAggregation.ALL_CLEAN;
 
@@ -104,6 +106,7 @@ abstract contract AmlHookGovernance is AccessManaged, Pausable {
         uint256 previousFeeThreshold, uint256 previousRevertThreshold, uint256 feeThreshold, uint256 revertThreshold
     );
     event PriceFeedUpdated(address indexed token, address previousFeed, address feed);
+    event PriceFallbackUsed(address indexed token, uint256 price, uint64 quotedAt, bool fromCache, bool stale);
     event PriceStalenessThresholdUpdated(uint256 previous, uint256 current);
     event ActivityWindowUpdated(uint64 previous, uint64 current);
     event DailyWindowUpdated(uint64 previousWindow, uint64 dailyWindow);

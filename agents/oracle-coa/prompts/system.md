@@ -266,7 +266,8 @@ wins. Demo Wallet E starts empty; clean C funds it. A $500 bag then a $500
 swap is 3%. A $10,000 bag then a $1,000 swap is 8% (A mid). A $15,000 bag
 then a small swap is 8% (D). Wallet A is a confirmed exploit
 (score 100 · `WalletBlocked`; not on OFAC). Prior 24h + this swap crossing $15,000 →
-`DailyAggregationBlocked`; no/stale feed → `MagnitudeQuoteFailed`.
+`DailyAggregationBlocked`; no live feed uses `lastFx`; no live feed and no
+fresh cache (24h) → `MagnitudeQuoteFailed`.
 Those dollar cuts and floor fees are deploy defaults (`_COMPLIANCE_OFFICER`
 may retune after 48h).
 Do not describe that path as a published score 0.

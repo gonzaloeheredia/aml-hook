@@ -64,7 +64,7 @@ Floor C may still REVERT if prior 24h USD + this swap crosses $15,000.
 | $1,000 – $14,999 | `FEE_OVERRIDE` 8% |
 | ≥ `unscoredRevertThreshold` (default $15,000 / `15_000e8`) this swap | `UnscoredMagnitudeBlocked` |
 | Prior 24h USD > 0 and prior + this swap ≥ $15,000 | `DailyAggregationBlocked` (Floor C) |
-| No feed / stale `latestRoundData.updatedAt` (> 3600s) / bad answer | `MagnitudeQuoteFailed` (fail-closed) |
+| No live round and no `lastFx` within 24h | `MagnitudeQuoteFailed` (fail-closed) |
 
 That path is not Wallet D. The COA should publish an explicit score 0 once E is
 reviewed so a later large swap of already-held funds is ALLOW.

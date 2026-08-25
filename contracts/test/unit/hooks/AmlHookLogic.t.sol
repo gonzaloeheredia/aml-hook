@@ -426,14 +426,48 @@ contract UnitAmlHookLogicTest is Helpers {
         harness.evaluate(walletA, address(orphan), 1 ether);
     }
 
-    function test_UnscoredStaleFeed_FailClosed() external {
+    function test_UnscoredStaleFeed_UsesLiveRound() external {
         feed.setRound(int256(USD_1), block.timestamp - 3_601);
+        (HookDecision d, uint24 fee,) = harness.evaluate(walletA, address(token), 1 ether);
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, 300);
+    }
+
+    function test_UnscoredUnboundFeed_UsesLastFx() external {
+        harness.evaluateLive(walletA, address(token), 1 ether);
+        (uint256 price, uint64 quotedAt,,) = harness.lastFx(address(token));
+        assertEq(price, USD_1);
+        assertEq(quotedAt, uint64(block.timestamp));
+
+        vm.prank(hookGovernor);
+        harness.setPriceFeed(address(token), address(0));
+
+        (HookDecision d, uint24 fee,) = harness.evaluate(walletA, address(token), 500 ether);
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, 300);
+    }
+
+    function test_UnscoredUnboundFeed_CacheExpired_FailClosed() external {
+        harness.evaluateLive(walletA, address(token), 1 ether);
+        vm.prank(hookGovernor);
+        harness.setPriceFeed(address(token), address(0));
+        vm.warp(block.timestamp + harness.MAX_PRICE_STALENESS() + 1);
         vm.expectRevert(
             abi.encodeWithSelector(
                 AmlHookLogic.MagnitudeQuoteFailed.selector, address(token), harness.QUOTE_STALE_FEED()
             )
         );
         harness.evaluate(walletA, address(token), 1 ether);
+    }
+
+    function test_BadLivePrice_DoesNotOverwriteLastFx() external {
+        harness.evaluateLive(walletA, address(token), 1 ether);
+        feed.setRound(0, block.timestamp);
+        (HookDecision d, uint24 fee,) = harness.evaluate(walletA, address(token), 1 ether);
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, 300);
+        (uint256 price,,,) = harness.lastFx(address(token));
+        assertEq(price, USD_1);
     }
 
     function test_PublishedScoreZero_LargeSwapStillAllows() external {

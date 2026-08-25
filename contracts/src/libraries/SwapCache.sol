@@ -18,6 +18,8 @@ library SwapCache {
     bytes32 private constant _TOKEN = keccak256("aml.hook.transient.token");
     bytes32 private constant _ORIGIN = keccak256("aml.hook.transient.origin");
     bytes32 private constant _PACKED = keccak256("aml.hook.transient.packed");
+    bytes32 private constant _FX_PRICE = keccak256("aml.hook.transient.fxPrice");
+    bytes32 private constant _FX_PACKED = keccak256("aml.hook.transient.fxPacked");
     bytes32 private constant _NONCE = keccak256("aml.hook.transient.slotNonce");
 
     /// @dev packed: decision (8) | feeBps (24) | score (8) | hopDistance (8) | updatedAt (64)
@@ -71,12 +73,25 @@ library SwapCache {
         inflowTriggered = uint8(packed >> _INFLOW_SHIFT) != 0;
     }
 
+    /// @notice Persist the specified-token FX resolved in beforeSwap so afterSwap does not reread Chainlink.
+    function storeFx(PoolId poolId, uint256 price, uint256 packed) internal {
+        _tstore(_slot(_FX_PRICE, poolId), price);
+        _tstore(_slot(_FX_PACKED, poolId), packed);
+    }
+
+    function loadFx(PoolId poolId) internal view returns (uint256 price, uint256 packed) {
+        price = _tload(_slot(_FX_PRICE, poolId));
+        packed = _tload(_slot(_FX_PACKED, poolId));
+    }
+
     /// @notice Wipe the snapshot and bump the per-pool nonce so a later swap cannot reuse it.
     function clear(PoolId poolId) internal {
         _tstore(_slot(_WALLET, poolId), 0);
         _tstore(_slot(_TOKEN, poolId), 0);
         _tstore(_slot(_ORIGIN, poolId), 0);
         _tstore(_slot(_PACKED, poolId), 0);
+        _tstore(_slot(_FX_PRICE, poolId), 0);
+        _tstore(_slot(_FX_PACKED, poolId), 0);
         _tstore(_nonceSlot(poolId), _tload(_nonceSlot(poolId)) + 1);
     }
 

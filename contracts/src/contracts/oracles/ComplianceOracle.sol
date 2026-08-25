@@ -158,7 +158,7 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
         if (signer == address(0) || signer != attestor) revert InvalidAttestation();
     }
 
-    /// @dev Extracted from `_verifyAttestation` to keep its stack frame within EVM limits during coverage.
+    /// @dev ECDSA recover of `ethSigned` from a 65-byte compact signature in calldata.
     function _recoverSigner(bytes32 ethSigned, bytes calldata signature) private pure returns (address) {
         bytes32 r;
         bytes32 s;

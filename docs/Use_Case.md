@@ -25,7 +25,7 @@ Use this table as the map while running the demo. Each row points to the matchin
 | 10a | C → E $500, then E $500 swap | — | FEE_OVERRIDE (A dust) | 3% |
 | 10b | C → E $10k, then E $1,000 | — | FEE_OVERRIDE (A mid) | 8% |
 | 10c | C → E $15k, then E $15,000 | — | REVERT | `UnscoredMagnitudeBlocked` |
-| 10d | E | Unbind price feed | — | REVERT | `MagnitudeQuoteFailed` |
+| 10d | E | Unbind price feed (after a prior quote) | — | FEE_OVERRIDE (last FX) | Same 3%/8% as with a live feed. `PriceFallbackUsed`. `MagnitudeQuoteFailed` only if that token never quoted or `lastFx` > 24h |
 | 11 | — | Normative review of floors A–D (whitepaper §8.4) | — | Officer / governor | — |
 | 12 | FEE_OVERRIDE paths | Escrow hold 24h / 48h | — | On-chain FeeEscrow | Differential |
 | 13 | Operator | Opinion stage | — | COA (Compliance Officer Agent) file | — |
@@ -69,7 +69,7 @@ Same order as the whitepaper (§3.3 / §8.4) and `RiskPolicy.decide`, then hook-
 | Never written, this swap ≥ $15,000 | REVERT | `UnscoredMagnitudeBlocked` |
 | Never written, current bag $1,000–$14,999 (swap may be smaller) | FEE_OVERRIDE (D on E) | 3% |
 | Never written, current bag ≥ $15,000 (swap may be smaller) | FEE_OVERRIDE (D on E) | 8% |
-| USD quote required and feed missing / stale / bad | REVERT | `MagnitudeQuoteFailed` |
+| USD quote required, no live round, and no `lastFx` within 24h | REVERT | `MagnitudeQuoteFailed` |
 
 N-hop score:
 
@@ -86,7 +86,7 @@ A second inbound from a closer source replaces the farther hop. Clean-to-clean P
 
 ## 4. Walkthrough
 
-Reference for executing the demo step by step. Anvil must already be running (`npm run deploy:local`). Use the frontend (Connect + MetaMask panel) or the API. Amounts match the Anvil A–E wallets (#1–#5). On the swap card: **Advance 5 min** (Floor B) and **Unbind price feed** (E / D absolute quote). Restart data reseeds A–E on-chain.
+Reference for executing the demo step by step. Anvil must already be running (`npm run deploy:local`). Use the frontend (Connect + MetaMask panel) or the API. Amounts match the Anvil A–E wallets (#1–#5). On the swap card: **Advance 5 min** (Floor B) and **Unbind price feed** (uses `lastFx` after a prior quote; `MagnitudeQuoteFailed` only if that token was never quoted or the cache is older than 24h). Restart data reseeds A–E on-chain.
 
 ### Step 0 — Clean swap (D, or B / C)
 
@@ -226,14 +226,15 @@ Floor A looks at **this swap**. Floor D looks at the **unpublished bag** C just 
 | C→E $15,000, E swaps $10,000 then $5,000 | REVERT | `DailyAggregationBlocked` |
 | C→E $15,000, E swaps $15,000 | REVERT | `UnscoredMagnitudeBlocked` |
 
-Press **Unbind price feed**, then any E size (or a D path that needs a USD quote):
+Press **Unbind price feed** after E (or D) has already been quoted at least once:
 
 | Check | Result |
 | --- | --- |
-| Decision | REVERT |
-| Error | `MagnitudeQuoteFailed` |
+| Decision | Same floor as with a live feed (A/D bands still in USD) |
+| Event | `PriceFallbackUsed` (`fromCache`) |
+| Error | None, unless that token has no `lastFx` or the cache is older than 24 hours → `MagnitudeQuoteFailed` |
 
-Bind the feed again to continue. A published score of 0 (Wallet D) and an unknown wallet (Wallet E) are different rows. Restart between the C→E sizes so C's 50,000 USDC covers each act.
+Bind the feed again to refresh the live round. A published score of 0 (Wallet D) and an unknown wallet (Wallet E) are different rows. Restart between the C→E sizes so C's 50,000 USDC covers each act.
 
 ### Step 11 — Normative review of the four floors
 

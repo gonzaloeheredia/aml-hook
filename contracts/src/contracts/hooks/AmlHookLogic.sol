@@ -29,6 +29,13 @@ abstract contract AmlHookLogic is AmlHookActivity {
     event LatencyMitigationApplied(address indexed wallet, bytes32 reason, uint24 feeBps, uint8 oracleScore);
     event InflowHeuristicTriggered(address indexed wallet, uint256 deltaBps, uint256 timestamp);
 
+    struct QuoteCtx {
+        OracleQuote.Fx volume;
+        OracleQuote.Fx input;
+        bytes32 volumeErr;
+        bytes32 inputErr;
+    }
+
     bytes32 public constant REASON_SCORE_NEVER_WRITTEN = keccak256("SCORE_NEVER_WRITTEN");
     bytes32 public constant REASON_STALE_WITH_POOL_ACTIVITY = keccak256("STALE_WITH_POOL_ACTIVITY");
     bytes32 public constant REASON_POOL_IMPACT = keccak256("POOL_IMPACT");
@@ -44,6 +51,7 @@ abstract contract AmlHookLogic is AmlHookActivity {
         uint24 feeBps;
         IComplianceOracle.WalletRisk risk;
         bool inflowTriggered;
+        OracleQuote.Fx volumeFx;
     }
 
     struct EvalSignals {
@@ -59,20 +67,30 @@ abstract contract AmlHookLogic is AmlHookActivity {
         uint256 swapUsd;
     }
 
+    /// @dev One memory pointer through `_evaluateCore`. Live path copies into `SwapEvaluation`.
+    struct EvalFrame {
+        HookDecision decision;
+        uint24 feeBps;
+        IComplianceOracle.WalletRisk risk;
+        EvalSignals signals;
+        QuoteCtx q;
+    }
+
     function _beginSwap(address router, address token, address volumeToken, uint256 amount, uint256 poolImpactBps)
         internal
         returns (SwapEvaluation memory eval)
     {
-        eval.wallet = WalletSubject.resolve(
-            router, trustedRouters, trustedMultisigs, sanctionRegistry, multisigAggregation
+        eval = _evaluateLive(
+            WalletSubject.resolve(router, trustedRouters, trustedMultisigs, sanctionRegistry, multisigAggregation),
+            token,
+            volumeToken,
+            amount,
+            poolImpactBps
         );
-        eval.token = token;
-        (eval.decision, eval.feeBps, eval.risk, eval.inflowTriggered) =
-            _evaluateLive(eval.wallet, token, volumeToken, amount, poolImpactBps);
     }
 
     function _endSwap(SwapEvaluation memory eval, address volumeToken, uint256 settledAmount) internal {
-        _recordActivity(eval.wallet, volumeToken, settledAmount);
+        _recordActivity(eval.wallet, volumeToken, settledAmount, eval.volumeFx);
         _updateKnownBalance(eval.wallet, eval.token, eval.inflowTriggered);
         _emitSwapObserved(eval.wallet, eval.decision, eval.feeBps, eval.risk);
     }
@@ -90,11 +108,7 @@ abstract contract AmlHookLogic is AmlHookActivity {
         restricted
         returns (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk)
     {
-        SwapEvaluation memory eval;
-        eval.wallet = wallet;
-        eval.token = token;
-        (eval.decision, eval.feeBps, eval.risk, eval.inflowTriggered) =
-            _evaluateLive(wallet, token, token, amount, 0);
+        SwapEvaluation memory eval = _evaluateLive(wallet, token, token, amount, 0);
         _endSwap(eval, token, 0);
         return (eval.decision, eval.feeBps, eval.risk);
     }
@@ -124,22 +138,27 @@ abstract contract AmlHookLogic is AmlHookActivity {
         view
         returns (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk)
     {
-        (decision, feeBps, risk,) = _evaluateCore(wallet, token, volumeToken, amount, poolImpactBps);
+        EvalFrame memory frame = _evaluateCore(wallet, token, volumeToken, amount, poolImpactBps);
+        return (frame.decision, frame.feeBps, frame.risk);
     }
 
     function _evaluateLive(address wallet, address token, address volumeToken, uint256 amount, uint256 poolImpactBps)
         internal
-        returns (
-            HookDecision decision,
-            uint24 feeBps,
-            IComplianceOracle.WalletRisk memory risk,
-            bool inflowTriggered
-        )
+        returns (SwapEvaluation memory eval)
     {
-        EvalSignals memory signals;
-        (decision, feeBps, risk, signals) = _evaluateCore(wallet, token, volumeToken, amount, poolImpactBps);
-        inflowTriggered = signals.hasSignificantInflow;
-        _emitMitigations(wallet, risk, signals, poolImpactBps, decision, feeBps);
+        EvalFrame memory frame = _evaluateCore(wallet, token, volumeToken, amount, poolImpactBps);
+        eval.wallet = wallet;
+        eval.token = token;
+        eval.decision = frame.decision;
+        eval.feeBps = frame.feeBps;
+        eval.risk = frame.risk;
+        eval.inflowTriggered = frame.signals.hasSignificantInflow;
+        eval.volumeFx = frame.q.volume;
+        OracleQuote.commit(lastFx, volumeToken, frame.q.volume);
+        if (token != volumeToken) OracleQuote.commit(lastFx, token, frame.q.input);
+        _emitPriceFallback(volumeToken, frame.q.volume);
+        if (token != volumeToken && frame.q.input.price != 0) _emitPriceFallback(token, frame.q.input);
+        _emitMitigations(wallet, frame.risk, frame.signals, poolImpactBps, frame.decision, frame.feeBps);
     }
 
     function _evaluateCore(
@@ -148,23 +167,16 @@ abstract contract AmlHookLogic is AmlHookActivity {
         address volumeToken,
         uint256 amount,
         uint256 poolImpactBps
-    )
-        private
-        view
-        returns (
-            HookDecision decision,
-            uint24 feeBps,
-            IComplianceOracle.WalletRisk memory risk,
-            EvalSignals memory signals
-        )
-    {
+    ) private view returns (EvalFrame memory frame) {
         _requireNotPaused();
         _requireNotSanctioned(wallet);
-        risk = complianceOracle.getRisk(wallet);
-        signals = _gather(wallet, token, volumeToken, amount, risk);
-        IRiskPolicy.DecisionResult memory result = RiskPolicyLib.decide(_toInput(risk, signals, poolImpactBps));
-        _revertBlocked(wallet, risk, signals, poolImpactBps, result);
-        return (result.decision, result.feeBps, risk, signals);
+        frame.risk = complianceOracle.getRisk(wallet);
+        (frame.signals, frame.q) = _gather(wallet, token, volumeToken, amount, frame.risk);
+        IRiskPolicy.DecisionResult memory result =
+            RiskPolicyLib.decide(_toInput(frame.risk, frame.signals, poolImpactBps));
+        _revertBlocked(wallet, frame.risk, frame.signals, poolImpactBps, result);
+        frame.decision = result.decision;
+        frame.feeBps = result.feeBps;
     }
 
     function _gather(
@@ -173,7 +185,7 @@ abstract contract AmlHookLogic is AmlHookActivity {
         address volumeToken,
         uint256 amount,
         IComplianceOracle.WalletRisk memory risk
-    ) private view returns (EvalSignals memory signals) {
+    ) private view returns (EvalSignals memory signals, QuoteCtx memory q) {
         signals.operationCount = _opsInCurrentWindow(wallet);
         signals.isStale = risk.updatedAt == 0 || block.timestamp > uint256(risk.updatedAt) + stalenessThreshold;
         (signals.hasSignificantInflow, signals.inflowShareBps, signals.inflowTokenDelta) = Inflow.signal(
@@ -184,7 +196,33 @@ abstract contract AmlHookLogic is AmlHookActivity {
         if (signals.priorDailyUsd == type(uint256).max) {
             revert MagnitudeQuoteFailed(volumeToken, QUOTE_WINDOW_FAILED);
         }
-        _fillUsd(wallet, token, volumeToken, amount, signals);
+        _resolveQuotes(token, volumeToken, amount, signals, q);
+        _fillUsd(wallet, token, volumeToken, amount, signals, q);
+    }
+
+    function _resolveQuotes(
+        address token,
+        address volumeToken,
+        uint256 amount,
+        EvalSignals memory signals,
+        QuoteCtx memory q
+    ) private view {
+        bool needVolume = amount > 0 || signals.neverScored
+            || (signals.isStale && signals.operationCount > 0) || signals.priorDailyUsd > 0
+            || (signals.inflowTokenDelta > 0 && token == volumeToken);
+        if (needVolume) {
+            (q.volume, q.volumeErr) =
+                OracleQuote.resolve(priceFeeds, lastFx, priceStalenessThreshold, MAX_PRICE_STALENESS, volumeToken);
+        }
+        if (signals.inflowTokenDelta > 0) {
+            if (token == volumeToken) {
+                q.input = q.volume;
+                q.inputErr = q.volumeErr;
+            } else {
+                (q.input, q.inputErr) =
+                    OracleQuote.resolve(priceFeeds, lastFx, priceStalenessThreshold, MAX_PRICE_STALENESS, token);
+            }
+        }
     }
 
     function _fillUsd(
@@ -192,20 +230,24 @@ abstract contract AmlHookLogic is AmlHookActivity {
         address token,
         address volumeToken,
         uint256 amount,
-        EvalSignals memory signals
+        EvalSignals memory signals,
+        QuoteCtx memory q
     ) private view {
         if (signals.neverScored) {
-            (signals.assessedUsd,) = _requireUsdQuote(volumeToken, amount, 0);
+            _requireFx(volumeToken, q.volume, q.volumeErr);
+            signals.assessedUsd = OracleQuote.toUsd(q.volume, amount);
             signals.swapUsd = signals.assessedUsd;
             if (signals.inflowTokenDelta > 0) {
-                (signals.inflowUsd,) = _requireUsdQuote(token, signals.inflowTokenDelta, 0);
+                _requireFx(token, q.input, q.inputErr);
+                signals.inflowUsd = OracleQuote.toUsd(q.input, signals.inflowTokenDelta);
             }
             return;
         }
         if (signals.inflowTokenDelta > 0) {
-            (signals.inflowUsd,) = _requireUsdQuote(token, signals.inflowTokenDelta, 0);
+            _requireFx(token, q.input, q.inputErr);
+            signals.inflowUsd = OracleQuote.toUsd(q.input, signals.inflowTokenDelta);
             uint256 currentBalance = IERC20Minimal(token).balanceOf(wallet);
-            (uint256 currentBalanceUsd,) = _requireUsdQuote(token, currentBalance, 0);
+            uint256 currentBalanceUsd = OracleQuote.toUsd(q.input, currentBalance);
             if (currentBalanceUsd > 0) {
                 signals.inflowShareBps = (signals.inflowUsd * 10_000) / currentBalanceUsd;
                 signals.hasSignificantInflow = signals.inflowShareBps > inflowThresholdBps;
@@ -214,11 +256,26 @@ abstract contract AmlHookLogic is AmlHookActivity {
             }
         }
         if (signals.isStale && signals.operationCount > 0) {
-            (signals.assessedUsd,) = _requireUsdQuote(volumeToken, amount, _usdInCurrentWindow(wallet));
+            uint256 windowUsd = _usdInCurrentWindow(wallet);
+            if (windowUsd == type(uint256).max) revert MagnitudeQuoteFailed(volumeToken, QUOTE_WINDOW_FAILED);
+            _requireFx(volumeToken, q.volume, q.volumeErr);
+            signals.assessedUsd = windowUsd + OracleQuote.toUsd(q.volume, amount);
         }
         if (signals.priorDailyUsd > 0 && amount > 0) {
-            (signals.swapUsd,) = _requireUsdQuote(volumeToken, amount, 0);
+            _requireFx(volumeToken, q.volume, q.volumeErr);
+            signals.swapUsd = OracleQuote.toUsd(q.volume, amount);
         }
+    }
+
+    function _requireFx(address token, OracleQuote.Fx memory fx, bytes32 err) private pure {
+        if (err != bytes32(0) || fx.price == 0) {
+            revert MagnitudeQuoteFailed(token, err == bytes32(0) ? QUOTE_NO_FEED : err);
+        }
+    }
+
+    function _emitPriceFallback(address token, OracleQuote.Fx memory fx) private {
+        if (fx.price == 0 || !(fx.fromCache || fx.stale)) return;
+        emit PriceFallbackUsed(token, fx.price, fx.quotedAt, fx.fromCache, fx.stale);
     }
 
     function _toInput(IComplianceOracle.WalletRisk memory risk, EvalSignals memory signals, uint256 poolImpactBps)
@@ -226,27 +283,11 @@ abstract contract AmlHookLogic is AmlHookActivity {
         view
         returns (IRiskPolicy.DecisionInput memory i)
     {
-        i = _scoreInput(risk, signals);
-        _fillFloors(i, signals, poolImpactBps);
-    }
-
-    function _scoreInput(IComplianceOracle.WalletRisk memory risk, EvalSignals memory signals)
-        private
-        pure
-        returns (IRiskPolicy.DecisionInput memory i)
-    {
         i.score = risk.score;
         i.recommendedFeeBps = risk.feeBps;
         i.isStale = signals.isStale;
         i.operationCount = signals.operationCount;
         i.neverScored = signals.neverScored;
-    }
-
-    function _fillFloors(
-        IRiskPolicy.DecisionInput memory i,
-        EvalSignals memory signals,
-        uint256 poolImpactBps
-    ) private view {
         i.assessedUsd = signals.assessedUsd;
         i.inflowUsd = signals.inflowUsd;
         i.unscoredFeeThreshold = unscoredFeeThreshold;
@@ -311,17 +352,6 @@ abstract contract AmlHookLogic is AmlHookActivity {
                 emit LatencyMitigationApplied(wallet, reason, feeBps, risk.score);
             }
         }
-    }
-
-    function _requireUsdQuote(address token, uint256 amount, uint256 windowUsd)
-        private
-        view
-        returns (uint256 totalUsd, bytes32 quoteError)
-    {
-        if (windowUsd == type(uint256).max) revert MagnitudeQuoteFailed(token, QUOTE_WINDOW_FAILED);
-        (uint256 usd, bytes32 err) = OracleQuote.tryQuote(priceFeeds, priceStalenessThreshold, token, amount);
-        if (err != bytes32(0)) revert MagnitudeQuoteFailed(token, err);
-        return (windowUsd + usd, bytes32(0));
     }
 
     function _emitSwapObserved(

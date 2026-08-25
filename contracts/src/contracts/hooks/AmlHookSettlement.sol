@@ -72,8 +72,6 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
 
     /// @dev Take differential risk fee from the swap and deposit into FeeEscrow.
     ///      Follows Uniswap v4 afterSwap custom-accounting guide (unspecified currency).
-    ///      Currency/basis math, string events, and the failed-deposit write live in helpers so
-    ///      this frame stays within the 16-slot limit during `forge coverage` (no via_ir).
     function _escrowRiskFee(
         address wallet,
         PoolKey calldata key,

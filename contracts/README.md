@@ -65,7 +65,7 @@ returns zero). Uniswap `hookData` is ignored. Untrusted initiators revert `Missi
 | 0–30 | ALLOW | Pool base (0.30%) |
 | 31–70 | FEE_OVERRIDE | Pool base + differential (`feeBps − 30`) → FeeEscrow; keeper `feeBps` or ~8% / ~3% hop fallbacks |
 | 71–100 | REVERT | — |
-| `updatedAt == 0` and assessed USD-8 ≥ `unscoredRevertThreshold` (default $15,000) | REVERT | Distinct error `UnscoredMagnitudeBlocked` (USD amount in the error). Missing/stale Chainlink feed → `MagnitudeQuoteFailed` |
+| `updatedAt == 0` and assessed USD-8 ≥ `unscoredRevertThreshold` (default $15,000) | REVERT | Distinct error `UnscoredMagnitudeBlocked` (USD amount in the error). No live Chainlink round and no `lastFx` within 24h → `MagnitudeQuoteFailed` |
 
 ### Roles
 
@@ -103,12 +103,12 @@ Mitigations A–D elevate **ALLOW → FEE_OVERRIDE** (never soften an existing R
 | A | Score never written (`updatedAt == 0`), this swap USD < $1,000 | FEE_OVERRIDE **3%**. If the swap is more than 20% of the pool's active liquidity → **8%** |
 | A mid | Same, $1,000 ≤ this swap USD < $15,000 | FEE_OVERRIDE **8%**. Same pool-drain extra → **REVERT** `UnscoredPoolImpactBlocked` |
 | A + magnitude | Same, this swap USD ≥ $15,000 | **REVERT** (`UnscoredMagnitudeBlocked`) |
-| A fail-closed | Never-scored and no Chainlink feed, stale feed, or bad answer | **REVERT** (`MagnitudeQuoteFailed`) |
+| A fail-closed | Never-scored and no live price and no `lastFx` within 24h | **REVERT** (`MagnitudeQuoteFailed`) |
 | B | Score older than `stalenessThreshold` (default 5 minutes) + ≥1 settled swap already in the 1-hour window | Swap + hour USD: under $1,000 → ALLOW; $1,000–$14,999 → 3%; ≥ $15,000 → 8%. Pool-drain extra: pass → 3%, 3% → 8% (ceiling; never REVERT). First swap of a new hour does not arm this. |
 | C | Prior 24h USD > 0 and prior + this swap ≥ $15,000 (any wallet) | **REVERT** (`DailyAggregationBlocked`) |
 | D | Inbound vs `lastKnownBalance` while oracle predates baseline, quoted to USD-8 | Under $1,000 → ALLOW (or ignored on never-scored, where A already charges); $1,000–$14,999 → 3%; ≥ $15,000 → 8%. Does **not** revert. On never-scored wallets the bag is the inbound (baseline 0). **Skipped** only when a published score has no baseline yet |
 
-Defaults: `unscoredFeeThreshold = 1_000e8` ($1,000); `unscoredRevertThreshold = 15_000e8` ($15,000); `proportionalFeeBps = 300`; `punitiveFeeBps = 800`; `stalenessThreshold = 5 minutes`; `priceStalenessThreshold = 3600`; `activityWindow = 1 hour` (Floor B); `dailyWindow = 24 hours` (Floor C). Those USD floors are **8 decimals** (Chainlink). Deploy binds official ETH/USD (native + WETH) and USDC/USD on live chains; Anvil uses `MockUsdFeed`. `_HOOK_GOVERNOR` binds extra tokens via `setPriceFeed`, retunes Floor B via `setStalenessThreshold` / `setActivityWindow`, and retunes Floor C via `setDailyWindow`. `_COMPLIANCE_OFFICER` proposes then confirms (48h) the USD floors, floor fees, and `poolImpactThresholdBps`. The fee floor cannot go below $1,000; the revert floor must stay strictly above it. Missing or stale feed is fail-closed.
+Defaults: `unscoredFeeThreshold = 1_000e8` ($1,000); `unscoredRevertThreshold = 15_000e8` ($15,000); `proportionalFeeBps = 300`; `punitiveFeeBps = 800`; `stalenessThreshold = 5 minutes`; `priceStalenessThreshold = 3600`; `activityWindow = 1 hour` (Floor B); `dailyWindow = 24 hours` (Floor C). Those USD floors are **8 decimals** (Chainlink). Deploy binds official ETH/USD (native + WETH) and USDC/USD on live chains; Anvil uses `MockUsdFeed`. `_HOOK_GOVERNOR` binds extra tokens via `setPriceFeed`, retunes Floor B via `setStalenessThreshold` / `setActivityWindow`, and retunes Floor C via `setDailyWindow`. `_COMPLIANCE_OFFICER` proposes then confirms (48h) the USD floors, floor fees, and `poolImpactThresholdBps`. The fee floor cannot go below $1,000; the revert floor must stay strictly above it. Each swap reads Chainlink **once per token**; a missing or unusable live round uses `lastFx` (the previous good price, max 24h). Only with no live round and no fresh cache does the hook fail-close (`MagnitudeQuoteFailed`).
 
 Published score 0 (`updatedAt != 0`) is confirmed-clean: Floor A magnitude REVERT does **not** apply to a first $15,000 ticket of already-held funds. Floor C still blocks later swaps that make the 24-hour total cross $15,000.
 
@@ -183,7 +183,7 @@ Deployer = Anvil account #0 (local defaults for admin / registry keeper / oracle
 
 On chainid 31337 the script binds `MockUsdFeed` ($1 fee token, $1000 ETH) and labels wallets A–E as Anvil **#1–#5**. Wallet A is not listed; the demo API publishes score 100 so pool swaps hit `WalletBlocked`. The API then mints balances (E starts at 0 USDC — fund from C), calls `previewSwap` (same L1→L3 as `beforeSwap`), `observeSwap` (activity / baseline / `SwapObserved`), and `syncBaseline` on reset. That is still not a live `PoolManager` fill.
 
-On other chains Deploy binds official Chainlink Data Feeds: ETH/USD on `address(0)` and canonical WETH, USDC/USD on native USDC. Extra pool tokens still need `_HOOK_GOVERNOR` `setPriceFeed`. Never-scored magnitude and Mitigation D quote to USD-8 from `latestRoundData`. A token with no feed, or a feed older than `priceStalenessThreshold` (default 3600s), fail-closes (`MagnitudeQuoteFailed`).
+On other chains Deploy binds official Chainlink Data Feeds: ETH/USD on `address(0)` and canonical WETH, USDC/USD on native USDC. Extra pool tokens still need `_HOOK_GOVERNOR` `setPriceFeed`. Never-scored magnitude and Mitigation D quote to USD-8 from **one** `latestRoundData` per token; every amount in that swap (ticket, inbound, bag, settled, 1h/24h add) uses that price. A usable round is stored in `lastFx`. Unbind or a dead aggregator falls back to that cache until `MAX_PRICE_STALENESS` (24h). No live round and no fresh cache → `MagnitudeQuoteFailed`. `PriceFallbackUsed` logs stale live rounds and cache hits.
 
 Writes `contracts/deployments/31337.json` and copies to `packages/sdk/deployments/`.
 

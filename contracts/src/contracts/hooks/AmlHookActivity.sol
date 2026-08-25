@@ -49,10 +49,14 @@ abstract contract AmlHookActivity is AmlHookGovernance {
     }
 
     function _recordActivity(address wallet) internal {
-        _recordActivity(wallet, address(0), 0);
+        _recordActivity(wallet, address(0), 0, OracleQuote.Fx(0, 0, 0, 0, false, false));
     }
 
     function _recordActivity(address wallet, address token, uint256 amount) internal {
+        _recordActivity(wallet, token, amount, OracleQuote.Fx(0, 0, 0, 0, false, false));
+    }
+
+    function _recordActivity(address wallet, address token, uint256 amount, OracleQuote.Fx memory fx) internal {
         PoolActivity storage act = _activity[wallet];
         bool windowElapsed = act.windowStart != 0 && block.timestamp >= uint256(act.windowStart) + uint256(activityWindow);
 
@@ -70,11 +74,20 @@ abstract contract AmlHookActivity is AmlHookGovernance {
         _windowVolume[wallet][token] =
             TokenVolume({epoch: act.epoch, amount: _volumeInCurrentWindow(wallet, token) + amount});
 
-        (uint256 usd, bytes32 quoteError) = OracleQuote.tryQuote(priceFeeds, priceStalenessThreshold, token, amount);
-        if (quoteError != bytes32(0)) {
-            act.volumeUsd = type(uint256).max;
-            _recordDailyUsd(wallet, type(uint256).max);
-        } else if (act.volumeUsd != type(uint256).max) {
+        if (fx.price == 0) {
+            bytes32 quoteError;
+            (fx, quoteError) =
+                OracleQuote.resolve(priceFeeds, lastFx, priceStalenessThreshold, MAX_PRICE_STALENESS, token);
+            if (quoteError != bytes32(0)) {
+                act.volumeUsd = type(uint256).max;
+                _recordDailyUsd(wallet, type(uint256).max);
+                return;
+            }
+            OracleQuote.commit(lastFx, token, fx);
+        }
+
+        uint256 usd = OracleQuote.toUsd(fx, amount);
+        if (act.volumeUsd != type(uint256).max) {
             act.volumeUsd += usd;
             _recordDailyUsd(wallet, usd);
         }

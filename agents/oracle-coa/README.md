@@ -290,15 +290,17 @@ The agent never:
 | Never written, unpublished bag ≥ $15,000 (swap may be smaller) | n/a | `FEE_OVERRIDE` 8% — Floor D on E; demo E starts empty, then C funds the bag |
 | Never written, this swap ≥ $15,000 | n/a | `REVERT` `UnscoredMagnitudeBlocked` |
 | Any wallet, prior 24h USD + this swap crosses $15,000 | n/a | `REVERT` `DailyAggregationBlocked` (Floor C) |
-| Never written, no / stale Chainlink feed | n/a | `REVERT` `MagnitudeQuoteFailed` (fail-closed) |
+| Never written, no live feed and no `lastFx` within 24h | n/a | `REVERT` `MagnitudeQuoteFailed` (fail-closed) |
 
-Those last four rows are **not** a COA score. The hook quotes `amountSpecified` to
-USD-8 (`1_000e8` / `15_000e8`) via a Chainlink AggregatorV3 feed. Deploy binds
-official ETH/USD and USDC/USD on live chains; Anvil uses `MockUsdFeed`. Extra
-tokens go through the governor's `setPriceFeed`. The compliance officer retunes
-the USD floors after a 48h confirm. Publish score 0 with a non-zero `updatedAt`
-when the wallet is confirmed-clean so magnitude REVERT stops applying to
-already-held funds.
+Those last four rows are **not** a COA score. The hook reads each token's
+Chainlink feed **once per swap** and applies that price to every amount (ticket,
+inbound, bag, settled). A usable round is cached as `lastFx`. A missing live
+round uses that cache for up to 24 hours; only then does it fail-close.
+Deploy binds official ETH/USD and USDC/USD on live chains; Anvil uses
+`MockUsdFeed`. Extra tokens go through the governor's `setPriceFeed`. The
+compliance officer retunes the USD floors after a 48h confirm. Publish score 0
+with a non-zero `updatedAt` when the wallet is confirmed-clean so magnitude
+REVERT stops applying to already-held funds.
 
 **FEE_OVERRIDE settlement (on-chain).** `beforeSwap` does **not** set a punitive
 `lpFeeOverride`. The pool charges its standard LP fee. In `afterSwap`, the hook

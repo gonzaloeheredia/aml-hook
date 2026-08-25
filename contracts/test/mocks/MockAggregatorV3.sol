@@ -8,6 +8,7 @@ contract MockAggregatorV3 {
     uint256 public updatedAt;
     uint80 public roundId = 1;
     uint80 public answeredInRound = 1;
+    bool public revertOnRead;
 
     constructor() {
         updatedAt = block.timestamp;
@@ -26,11 +27,16 @@ contract MockAggregatorV3 {
         answeredInRound = answeredInRound_;
     }
 
+    function setRevertOnRead(bool revertOnRead_) external {
+        revertOnRead = revertOnRead_;
+    }
+
     function latestRoundData()
         external
         view
         returns (uint80, int256, uint256, uint256, uint80)
     {
+        if (revertOnRead) revert();
         return (roundId, answer, updatedAt, updatedAt, answeredInRound);
     }
 }

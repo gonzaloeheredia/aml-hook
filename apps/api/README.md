@@ -50,7 +50,7 @@ Restart the API after every `deploy:local` so it loads `.env.local`.
 | `POST` | `/transfers` | P2P USDC on Anvil → hop update → oracle reevaluate (tainted inbound to D defers keeper) |
 | `POST` | `/swaps` | `previewSwap` + `observeSwap` + FeeEscrow deposit on FEE_OVERRIDE |
 | `POST` | `/demo/elapse` | `evm_increaseTime` + `evm_mine` (`{ seconds: 301 }` → Floor B) |
-| `POST` | `/demo/price-feed` | Bind / unbind USDC/USD (`{ bound: false }` → `MagnitudeQuoteFailed`) |
+| `POST` | `/demo/price-feed` | Bind / unbind USDC/USD (`{ bound: false }` → `lastFx` if the token was quoted in the last 24h, else `MagnitudeQuoteFailed`) |
 | `GET` | `/escrow` | Live FeeEscrow rows |
 | `POST` | `/escrow/:id/checkpoint2` | Checkpoint 2 illicit → Blocked |
 | `POST` | `/escrow/:id/recover` | Recover Blocked → compliance reserve |
@@ -121,7 +121,7 @@ curl -X POST http://localhost:4000/swaps ^
 - Receive from **A** → ~65 / 8% (1-hop)  
 - Receive from the other after it was tainted by A → ~42 / 3% (2-hop); closer hop wins  
 - Clean **C → D** (or B while clean) is **not** a hop: ~10k → **FEE_OVERRIDE 3%** (inflow); ≥ $15,000 → **FEE_OVERRIDE 8%**  
-- **Wallet E** (no oracle row, starts empty): fund from **C** (no hop). Floor A is this swap; Floor D is the bag C sent; stricter fee wins. C→E $500 → 3%; $10k then $1k swap → 8% (A mid); $15k bag → 8% on a small swap (D); this swap ≥ $15,000 → `UnscoredMagnitudeBlocked`; 24h sum → `DailyAggregationBlocked`; no/stale feed → `MagnitudeQuoteFailed`  
+- **Wallet E** (no oracle row, starts empty): fund from **C** (no hop). Floor A is this swap; Floor D is the bag C sent; stricter fee wins. C→E $500 → 3%; $10k then $1k swap → 8% (A mid); $15k bag → 8% on a small swap (D); this swap ≥ $15,000 → `UnscoredMagnitudeBlocked`; 24h sum → `DailyAggregationBlocked`; no live feed uses `lastFx`; no live feed and no fresh cache → `MagnitudeQuoteFailed`  
 - **1 ETH = 1,000 USDC** on Anvil only (`MockUsdFeed` at local deploy). Live Deploy binds official Chainlink ETH/USD and USDC/USD. On-chain floors are USD-8 (`1_000e8` / `15_000e8`), not native ether. `_COMPLIANCE_OFFICER` can retune those floors after a 48h confirm.
 
 ## Anvil identities + keeper

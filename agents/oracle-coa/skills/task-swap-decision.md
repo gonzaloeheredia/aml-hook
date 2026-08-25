@@ -79,7 +79,7 @@ Do not fund E from A (exploit origin / score 100).
 | $1,000 – $14,999 | `FEE_OVERRIDE` | 8% (`FeeBps.LATENCY`) |
 | ≥ $15,000 (`15_000e8`) this swap | `REVERT` `UnscoredMagnitudeBlocked` | — |
 | Prior 24h + this swap ≥ $15,000 | `REVERT` `DailyAggregationBlocked` | Floor C |
-| No / stale / invalid price feed | `REVERT` `MagnitudeQuoteFailed` | fail-closed |
+| No live round and no `lastFx` within 24h | `REVERT` `MagnitudeQuoteFailed` | fail-closed |
 
 Publish an explicit score 0 with a fresh `updatedAt` when the wallet is
 confirmed-clean. Until then, do not describe a large first swap as ALLOW.

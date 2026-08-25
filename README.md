@@ -40,7 +40,7 @@ Supporting notes:
 | Never written, assessed USD &lt; $1,000 | FEE_OVERRIDE 3% | Unknown wallet (use-case wallet E) |
 | Never written, $1,000–$14,999 | FEE_OVERRIDE 8% | Unknown wallet |
 | Never written, this swap ≥ $15,000 | REVERT | `UnscoredMagnitudeBlocked` |
-| Never written, no usable USD price | REVERT | `MagnitudeQuoteFailed` |
+| Never written, no live price and no last FX (or last FX older than 24h) | REVERT | `MagnitudeQuoteFailed` |
 
 A published score of 0 is confirmed clean. An address with no oracle row is unknown. Those are different paths. The 3% / 8% and $1,000 / $15,000 figures above are deploy defaults; `_COMPLIANCE_OFFICER` proposes then confirms retunes (48h). Score cuts 31 / 55 / 71 stay fixed. Full thresholds: whitepaper §8.4. The A–E walkthrough: use case. Fee escrow destinations: §8.3.
 
@@ -128,7 +128,7 @@ curl http://127.0.0.1:4000/health
 | PoolManager | Local `MockPoolManager` unless `POOL_MANAGER` is set. Demo swap is `previewSwap` + `observeSwap` + FeeEscrow deposit — not a live Uniswap fill |
 | `updateScore` | Signed tx (keeper #0 + attestor #9) |
 | Demo balances, P2P, quotes, escrow rows | Anvil. P2P is ERC-20 `transfer` |
-| USD quotes | Anvil: `MockUsdFeed` ($1 fee token, $1000 ETH). Live chain: official Chainlink ETH/USD + USDC/USD. Extra tokens: governor `setPriceFeed` |
+| USD quotes | One Chainlink round per token per swap (`lastFx` if the live round is missing, max 24h). Anvil: `MockUsdFeed` ($1 fee token, $1000 ETH). Live chain: official Chainlink ETH/USD + USDC/USD. Extra tokens: governor `setPriceFeed` |
 | Policy knobs (USD floors, floor fees, pool-impact) | `_COMPLIANCE_OFFICER` propose → 48h confirm. Score cuts 31 / 55 / 71 stay fixed |
 | COA opinion | Deterministic stand-in. No live LLM or vendor feeds |
 
