@@ -1,10 +1,10 @@
 # AML Hook — Use case
 
-This walkthrough is the product demo of the whitepaper. Every decision below is the same mapping `RiskPolicy` + hook-local Mitigation C apply on-chain. The frontend talks to the API; the API calls `AmlHook.previewSwap` on Anvil so quotes cannot drift from the hook.
+This walkthrough is the product demo of the whitepaper. Every decision below is the same mapping `RiskPolicy.decide` applies on-chain (score bands plus floors A–D, including Floor C). The frontend talks to the API; the API calls `AmlHook.previewSwap` on Anvil so quotes cannot drift from the hook.
 
 The pool is a Uniswap v4 RWA (Real World Asset) pool with AML Hook attached. Swaps go through `beforeSwap` and `afterSwap`. Peer-to-peer USDC transfers happen off-pool. Those transfers are what move risk. Pool swaps never raise a score.
 
-A sanctioned wallet that tries to add or remove liquidity is reverted at the liquidity boundary. That path reads the sanctions list only. This walkthrough is swap-only.
+A wallet on the sanctions list that tries to add or remove liquidity is reverted at the liquidity boundary (`SanctionHit`). That path reads the list only — not the score. Wallet A (score 100, not OFAC-listed) can still add and remove. Pause still lets a **clean** LP withdraw; it does not lift a list hit. This walkthrough is swap-only.
 
 ## 1. Sequence at a glance
 
@@ -46,7 +46,7 @@ B and C are symmetric for hops. Any path A → B → C or A → C → B produces
 
 ## 3. How the hook decides
 
-Same order as the whitepaper (§3.3 / §8.4) and `RiskPolicy.decide`, then hook-local Floor C (24h USD) which can still REVERT.
+Same order as the whitepaper (§3.3 / §8.4) and `RiskPolicy.decide`. Floor C (24h USD) sits in that mapping and can still REVERT.
 
 | Score or condition | Decision | Fee |
 | --- | --- | --- |
@@ -55,11 +55,12 @@ Same order as the whitepaper (§3.3 / §8.4) and `RiskPolicy.decide`, then hook-
 | 55–70 (keeper omitted fee) | FEE_OVERRIDE | 8% |
 | 1-hop (~65) / 2-hop (~42) with keeper fee | FEE_OVERRIDE | 8% / 3% |
 | 71–100 | REVERT | `WalletBlocked` |
-| On the sanctions list | REVERT | `SanctionHit` |
+| On the sanctions list | REVERT | `SanctionHit` (swap, LP add, LP remove) |
 | Published 0, inbound USD under $1,000, score still older than the baseline | ALLOW (D dust) | Pool 0.30% |
 | Published 0, inbound USD $1,000–$14,999, score still older than the baseline | FEE_OVERRIDE (D mid) | 3% |
 | Published, inbound USD ≥ $15,000, score still older than the baseline | FEE_OVERRIDE (D large) | 8% |
-| Score older than `stalenessThreshold` (demo 5 minutes) **and** at least one swap in this hour, assessed USD under $1,000 | ALLOW (B dust) | Pool 0.30% |
+| Score older than `stalenessThreshold` (demo 5 minutes), **0** swaps in this hour | FEE_OVERRIDE (B first) | 3% |
+| Score older than `stalenessThreshold` **and** at least one swap in this hour, assessed USD under $1,000 | ALLOW (B dust) | Pool 0.30% |
 | Same Floor B trigger, assessed USD $1,000–$14,999 | FEE_OVERRIDE (B mid) | 3% |
 | Same Floor B trigger, assessed USD ≥ $15,000 | FEE_OVERRIDE (B large) | 8% (pool-impact extra does not raise this further) |
 | Same Floor B trigger, assessed USD under $1,000, swap > 20% of the pool | FEE_OVERRIDE (B extra) | 3% |
@@ -166,7 +167,7 @@ Restart. Send **15,000** USDC from clean **C → E**. Connect **E**. Swap **$10,
 
 D works the same after two sized swaps that add to $15,000. The hook governor retunes the 24-hour window via `setDailyWindow`.
 
-### Step 7 — Mitigation B (stale score + pool activity)
+### Step 7 — Mitigation B (stale score)
 
 Stay on D (or any published-clean wallet that already swapped in this hour). Press **Advance 5 min**. Swap again.
 
@@ -178,7 +179,7 @@ Stay on D (or any published-clean wallet that already swapped in this hour). Pre
 | Floor | `STALE_WITH_POOL_ACTIVITY` |
 | Fee | 3% on a $1,000 swap (mid band). Under $1,000 passes. $15,000 or more → 8%. A swap that takes more than 20% of the pool hardens the band and stops at 8%. B never reverts. |
 
-A stale score with **no** swap in the hour stays ALLOW. The first swap of a new hour does not arm Floor B. Floor B fires when the keeper is actually late — the demo button advances the clock without a write. A healthy keeper stamps `updatedAt` again when the window ages, even if the score did not move.
+A stale score with **no** prior swap in the hour is also Floor B: **3%** on that first swap (8% if it takes more than 20% of the pool). Floor B fires when the keeper is actually late — the demo button advances the clock without a write. A healthy keeper stamps `updatedAt` again when the window ages, even if the score did not move.
 
 ### Step 8 — C sends to D (clean inbound, mid band)
 
@@ -258,4 +259,4 @@ Owner recovery waits at least 7 days and can go only to the compliance reserve. 
 
 ### Step 13 — Opinion / COA file
 
-After a FEE_OVERRIDE or REVERT, open **Opinion**. That screen is the Compliance Officer Agent file for this swap (deterministic mock in this repo). It is the suspicious-operation documentation the whitepaper describes. Successful swaps also emit `SwapObserved`. Reverts do not keep that log. Index the error on the failed transaction.
+After a FEE_OVERRIDE or REVERT, open **Opinion**. That screen is the Compliance Officer Agent file for this swap. In this repo it is a **deterministic mock** (no live LLM, no vendor feeds) — the product idea is whitepaper §7. It is still the suspicious-operation documentation the whitepaper describes. Successful swaps also emit `SwapObserved`. Reverts do not keep that log. Index the error on the failed transaction.

@@ -45,7 +45,7 @@ REVERT is `beforeSwap` only — no `afterSwap` emit for that attempt.
 4. **Wallet D (score 0)** — 5,000 USDC published clean. Held funds → ALLOW 0.30%. Advance 5 min after a $1,000 swap (no intervening write) → 3% (B mid). Clean C→D ~10k → inflow 3% (no hop). Clean C→D $15k → inflow 8%
 5. **Wallet E (unknown)** — starts empty. Fund from clean **C** (no hop). C→E $500 → 3%; $10k then $1k swap → 8% (A mid); $15k bag + $500 swap → 8% (D); this swap $15k → revert. $10k then $5k → Floor C. Unbind feed after a quote → last FX (silent under 30 min; `PriceFallbackUsed` until 24h after that); `MagnitudeQuoteFailed` only if never quoted or cache > 24h
 
-N-hop formula: `derived_score = origin_score × (0.65 ^ hops) × exposed_proportion`  
+N-hop formula: `score = 100 × 0.65^hops` (`exposed_proportion` is 1.0 in this demo).  
 Closer hop wins if a wallet is contaminated more than once. Never-scored magnitude is **USD-8**, not native token units. Local Anvil uses `MockUsdFeed` ($1 USDC, $1,000 ETH). A live Deploy binds official Chainlink ETH/USD and USDC/USD.
 
 ## Run locally

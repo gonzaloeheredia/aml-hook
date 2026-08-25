@@ -2,7 +2,7 @@
 
 Uniswap v4 hook that evaluates the swap subject at execution and returns a ternary decision: **ALLOW**, **FEE_OVERRIDE**, or **REVERT**.
 
-The hook does not compute risk on-chain. An off-chain keeper (Compliance Officer Agent) writes a score into `ComplianceOracle`. `beforeSwap` reads that row, applies sanctions and latency floors, and either lets the swap through, takes a risk differential into `FeeEscrow`, or reverts. Liquidity add and remove are a sanctions-only gate. They do not read the score.
+The hook does not compute risk on-chain. An off-chain keeper (Compliance Officer Agent) writes a score into `ComplianceOracle`. `beforeSwap` reads that row, applies sanctions and latency floors, and either lets the swap through, takes a risk differential into `FeeEscrow`, or reverts. Liquidity add and remove are a sanctions-only gate (`SanctionRegistry`). They do not read the score. A listed wallet cannot add or remove liquidity. An emergency pause stops swaps and new LP deposits; a clean LP can still withdraw.
 
 Built for UHI10.
 
@@ -29,16 +29,18 @@ Supporting notes:
 | Condition | Output | Settlement |
 | --- | --- | --- |
 | Score 0–30, published and fresh | ALLOW | Pool fee 0.30% |
-| Score 31–70 | FEE_OVERRIDE | Pool keeps 0.30%. Extra slice → FeeEscrow (48h). Clean exit → LP compensation fund. Confirmed illicit → compliance reserve |
+| Score 31–54 (keeper omitted fee) | FEE_OVERRIDE | Pool keeps 0.30%. Extra slice → FeeEscrow (48h). Fallback 3% |
+| Score 55–70 (keeper omitted fee) | FEE_OVERRIDE | Pool keeps 0.30%. Extra slice → FeeEscrow (48h). Fallback 8% |
 | Score 71–100 | REVERT | No swap |
-| Sanctions list | REVERT | No swap. Score is not read |
+| Sanctions list | REVERT | No swap. Score is not read. LP add and remove also revert (`SanctionHit`) |
 | Published 0 + inbound USD under $1,000 | ALLOW | Floor D dust |
 | Published 0 + inbound USD $1,000–$14,999 | FEE_OVERRIDE 3% | Floor D mid |
 | Published + inbound USD ≥ $15,000, score still older than the baseline | FEE_OVERRIDE 8% | Floor D large. Does not revert |
-| Score older than `stalenessThreshold` (default 5 minutes) and at least one prior swap in the hour | pass / 3% / 8% by swap+hour USD | Floor B. Never reverts. 20% pool extra hardens the band and stops at 8%. |
+| Score older than `stalenessThreshold` (default 5 minutes), no swap yet in the hour | FEE_OVERRIDE 3% | Floor B first swap of the hour. Never reverts |
+| Score older than `stalenessThreshold` and at least one prior swap in the hour | pass / 3% / 8% by swap+hour USD | Floor B. Never reverts. 20% pool extra hardens the band and stops at 8%. |
 | Prior 24h USD + this swap crosses $15,000 | REVERT | Floor C `DailyAggregationBlocked` |
 | Never written, assessed USD &lt; $1,000 | FEE_OVERRIDE 3% | Unknown wallet (use-case wallet E) |
-| Never written, $1,000–$14,999 | FEE_OVERRIDE 8% | Unknown wallet |
+| Never written, $1,000–$14,999 | FEE_OVERRIDE 8% | Unknown wallet. Swap &gt; 20% of the pool → `UnscoredPoolImpactBlocked` |
 | Never written, this swap ≥ $15,000 | REVERT | `UnscoredMagnitudeBlocked` |
 | Never written, no live price and no last FX (or last FX older than 24h) | REVERT | `MagnitudeQuoteFailed` |
 
@@ -60,7 +62,7 @@ User → trusted router → PoolManager → AmlHook
                                          ├─ AmlHookSettlement   differential → FeeEscrow
                                          ├─ SanctionRegistry    Layer 1
                                          ├─ ComplianceOracle    Layer 2  ← keeper + attestor
-                                         └─ RiskPolicyLib       Layer 3  (JUMP; RiskPolicy is the preview wrapper)
+                                         └─ RiskPolicy          Layer 3  (CALL `decide`; wraps RiskPolicyLib)
 ```
 
 | Contract | Responsibility |
@@ -70,7 +72,7 @@ User → trusted router → PoolManager → AmlHook
 | `AmlHookSettlement` | Take the fee differential. Does not decide risk |
 | `SanctionRegistry` | Static list. New hits are commit-reveal |
 | `ComplianceOracle` | Stored score, hop, origin, fee, timestamp |
-| `RiskPolicy` / `RiskPolicyLib` | Score + floors → decision. Hook jumps the library. Contract is off-chain preview. No external calls |
+| `RiskPolicy` / `RiskPolicyLib` | Score + floors → decision. Hook **calls** `RiskPolicy.decide` (external). `RiskPolicyLib` is the pure mapping inside that contract. Also used off-chain as preview. No external calls from the policy itself |
 | `FeeEscrow` | 48h hold of the extra fee. Clean / early / default → LP compensation fund. Confirmed illicit → compliance reserve. Own access list |
 | `AccessManager` | Shared authority for registry, oracle, hook governor, and compliance officer |
 
@@ -124,7 +126,7 @@ curl http://127.0.0.1:4000/health
 | Piece | Status |
 | --- | --- |
 | AccessManager, SanctionRegistry, ComplianceOracle, RiskPolicy, AmlHook, FeeEscrow | Deployed contracts |
-| Liquidity sanctions gate | On-chain. Demo UI is still swap-only |
+| Liquidity sanctions gate | On-chain for add **and** remove. Pause blocks add and swaps, not a clean LP exit. Demo UI is still swap-only |
 | PoolManager | Local `MockPoolManager` unless `POOL_MANAGER` is set. Demo swap is `previewSwap` + `observeSwap` + FeeEscrow deposit — not a live Uniswap fill |
 | `updateScore` | Signed tx (keeper #0 + attestor #9) |
 | Demo balances, P2P, quotes, escrow rows | Anvil. P2P is ERC-20 `transfer` |
@@ -167,6 +169,6 @@ aml-hook/
 ## Open work
 
 - Wire a real Uniswap v4 PoolManager and pool (local `MockPoolManager` is a placeholder).
-- Surface add / remove liquidity in the demo. The on-chain sanctions gate is already there.
+- Surface add / remove liquidity in the demo. The on-chain sanctions gate (add and remove) is already there.
 - Live COA vendors and LLM.
 - Broader e2e beyond the current Forge suite.

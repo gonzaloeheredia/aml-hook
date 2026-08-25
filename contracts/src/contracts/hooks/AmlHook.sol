@@ -92,7 +92,8 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         });
     }
 
-    /// @dev Rejects paused hook and sanctioned senders; liquidity providers are not screened for risk score.
+    /// @dev Rejects paused hook and sanctioned senders. Liquidity providers are not scored.
+    ///      The LP subject is `sender` (no trusted-router lookup).
     function _beforeAddLiquidity(address sender, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
         internal
         view
@@ -104,13 +105,15 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         return this.beforeAddLiquidity.selector;
     }
 
-    /// @dev Always allowed — liquidity removal is never blocked (users must be able to exit).
-    function _beforeRemoveLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
+    /// @dev Layer 1 only: a listed wallet cannot extract LP capital (`SanctionHit`).
+    ///      Pause does not run here — a clean LP must still be able to exit (H-1).
+    function _beforeRemoveLiquidity(address sender, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
         internal
         view
         override
         returns (bytes4)
     {
+        _requireNotSanctioned(sender);
         return this.beforeRemoveLiquidity.selector;
     }
 
