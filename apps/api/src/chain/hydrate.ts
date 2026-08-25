@@ -1,11 +1,11 @@
 /**
- * Overlay on-chain balances / neverScored onto the in-memory A–E labels and hops.
+ * Overlay on-chain balances / neverScored onto the in-memory A–F labels and hops.
  */
 
 import type { Wallet, WalletId } from "../types.js";
 import { resetOracle } from "../oracle/index.js";
 import { getStore, setWallets } from "../store.js";
-import { DEMO_WALLETS, WALLET_IDS } from "./accounts.js";
+import { DEMO_WALLETS, WALLET_IDS, bindOfacDemoWallet } from "./accounts.js";
 import { requireChain } from "./clients.js";
 import { readRisk } from "./evaluate.js";
 import { balanceUsdc, ethDisplay, seedBalances } from "./ledger.js";
@@ -14,6 +14,7 @@ let seeded = false;
 
 export async function hydrateWallets(): Promise<Wallet[]> {
   await requireChain();
+  await bindOfacDemoWallet();
   if (!seeded) {
     const opening = await balanceUsdc(DEMO_WALLETS.A.address);
     if (opening === 0) {
@@ -35,7 +36,8 @@ export async function hydrateWallets(): Promise<Wallet[]> {
       address,
       usdc,
       eth: ethDisplay(id),
-      neverScored: risk.updatedAt === 0,
+      neverScored: id === "F" ? false : risk.updatedAt === 0,
+      ofacSubject: Boolean(DEMO_WALLETS[id].ofacSubject),
     };
   }
   setWallets(next);

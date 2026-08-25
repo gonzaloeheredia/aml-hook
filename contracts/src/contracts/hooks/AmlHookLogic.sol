@@ -19,6 +19,9 @@ abstract contract AmlHookLogic is AmlHookActivity {
     /// @notice Wallet is in the REVERT score band (71–100) or exceeds the unscored magnitude floor.
     error WalletBlocked(address wallet, uint8 score, string reason);
     /// @notice Wallet (or one of its multisig owners) is on the sanctions list.
+    /// @dev Layer 1 only. The COA writes the mapping off-chain (live OFAC SDN → demo Wallet F).
+    ///      `beforeSwap` does not call Treasury. Distinct from `WalletBlocked` (score 71–100,
+    ///      demo Wallet A exploit, not listed).
     error SanctionHit(address wallet);
     /// @notice Never-scored wallet's assessed USD meets or exceeds the unscored revert threshold.
     error UnscoredMagnitudeBlocked(address wallet, uint256 assessedUsd, uint256 threshold);

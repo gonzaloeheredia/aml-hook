@@ -76,7 +76,9 @@ A live OFAC SDN exact-address screen is already in the payload (\`ofac\`).
 Use it for sanctionsCheck. You may call \`screen_ofac\` for another address.
 Do not invent an SDN hit. Demo wallets A–E are not OFAC-listed unless
 \`ofac.subject.match\` is true (Wallet A is an exploit, not an SDN match).
-If the frozen score looks inconsistent with wallets A–E, call \`consult_skill\`
+Wallet F is the live OFAC SDN subject — expect subjectMatch true and a
+SanctionRegistry write. The swap fail-closes SanctionHit, not WalletBlocked.
+If the frozen score looks inconsistent with wallets A–F, call \`consult_skill\`
 with name \`uhi10-use-case\` — do not change the published score.
 Cite only documents returned by that tool (git corpus). Never fill norms from
 training memory. If the tool returns nothing, declare a coverage gap.

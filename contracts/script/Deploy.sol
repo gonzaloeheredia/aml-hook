@@ -77,6 +77,8 @@ contract Deploy is Script {
     /// @dev Anvil accounts #1–#5. Demo wallets A–E. API holds the matching keys locally.
     ///      A is not listed: the COA emits score 100 (`WalletBlocked`); the keeper publishes it.
     ///      E starts empty and stays unpublished.
+    ///      Wallet F is not an Anvil key — the API binds a live OFAC SDN ETH address and the
+    ///      COA writes `SanctionRegistry` so pool swaps hit `SanctionHit` (not `WalletBlocked`).
     address public constant DEMO_WALLET_A = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
     address constant DEMO_WALLET_B = 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC;
     address constant DEMO_WALLET_C = 0x90F79bf6EB2c4f870365E785982E1f101E93b906;
@@ -209,7 +211,8 @@ contract Deploy is Script {
         );
         // Wallet A stays off SanctionRegistry. The COA emits score 100
         // (confirmed exploit); the keeper publishes it so pool swaps hit
-        // WalletBlocked / SCORE_REVERT_BAND.
+        // WalletBlocked / SCORE_REVERT_BAND. Wallet F (live OFAC SDN) is
+        // listed later by the API COA, not in this script.
         vm.stopBroadcast();
 
         _writeDeploymentJson(deployer, admin, registryKeeper, oracleKeeper, hookGovernor, complianceOfficer);

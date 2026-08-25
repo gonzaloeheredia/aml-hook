@@ -61,6 +61,7 @@ const EMPTY_STATS: Record<DemoCaseId, SwapStats> = {
   C: { count: 0, tradedUsd: 0, tradedEth: 0 },
   D: { count: 0, tradedUsd: 0, tradedEth: 0 },
   E: { count: 0, tradedUsd: 0, tradedEth: 0 },
+  F: { count: 0, tradedUsd: 0, tradedEth: 0 },
 };
 
 type ApiStatus = "connecting" | "online" | "offline";
@@ -169,7 +170,7 @@ export default function HomePage() {
 
   /**
    * Loads wallets, transfers, and events from the backend.
-   * Returns the live A–E map so callers can cap the next swap to remaining USDC.
+   * Returns the live A–F map so callers can cap the next swap to remaining USDC.
    */
   const refreshLedger = useCallback(async () => {
     const [walletsRes, transfersRes, eventsRes] = await Promise.all([
@@ -292,6 +293,9 @@ export default function HomePage() {
     to: SimWalletId,
     amountUsd: number,
   ): Promise<string | null> => {
+    if (from === "F" || to === "F") {
+      return "Wallet F is an OFAC SDN subject — P2P is disabled. Use a pool swap to see SanctionHit.";
+    }
     if (apiStatus !== "online") {
       return "Anvil is required. Run npm run deploy:local and start the API.";
     }
@@ -310,7 +314,7 @@ export default function HomePage() {
   };
 
   /**
-   * Reseeds A–E to the use-case baseline and returns the demo to Swap.
+   * Reseeds A–F to the use-case baseline and returns the demo to Swap.
    */
   const handleRestartData = useCallback(async () => {
     setRunning(false);

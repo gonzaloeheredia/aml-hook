@@ -6,6 +6,7 @@ import type { OfacScreenResult } from "../../src/oracle/ofacScreen.js";
 import {
   isOfacLiveEnabled,
   parseEthAddressesFromSdn,
+  pickLiveSdnAddress,
   resetOfacSdnCache,
   screenOfacAddress,
   setOfacFetch,
@@ -51,6 +52,31 @@ describe("unit: ofac sdn", () => {
     assert.ok(hit.snapshot.addressCount >= 1);
     const miss = await screenOfacAddress(DEMO_A);
     assert.equal(miss.match, false);
+  });
+
+  it("pickLiveSdnAddress prefers Garantex when present, else first sorted live address", async () => {
+    process.env.OFAC_LIVE = "1";
+    const other = "0x0000000000000000000000000000000000000001";
+    const garantex = "0x7ff9cfad3877f21d41da833e2f775db0569ee3d9";
+    resetOfacSdnCache();
+    setOfacFetch(async () =>
+      new Response(`Digital Currency Address - ETH ${other} ETH ${garantex}`, {
+        status: 200,
+      }),
+    );
+    const preferred = await pickLiveSdnAddress();
+    assert.equal(preferred.address, garantex);
+    assert.equal(preferred.preferredHit, true);
+    assert.equal(preferred.fromLiveList, true);
+
+    resetOfacSdnCache();
+    setOfacFetch(async () =>
+      new Response(`Digital Currency Address - ETH ${other}`, { status: 200 }),
+    );
+    const fallback = await pickLiveSdnAddress();
+    assert.equal(fallback.address, other);
+    assert.equal(fallback.preferredHit, false);
+    assert.equal(fallback.fromLiveList, true);
   });
 
   it("factsFromOfacScreen emits OFAC_DIRECT_MATCH on a subject hit", () => {

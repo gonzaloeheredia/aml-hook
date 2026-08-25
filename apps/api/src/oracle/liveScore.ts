@@ -47,16 +47,18 @@ The keeper publishes your finalScore and recommendedFeeBps to ComplianceOracle;
 AMLHook.beforeSwap and FeeEscrow read that row.
 
 Before you emit finalScore, call consult_skill with name uhi10-use-case.
-That skill is the A–E demo validations (exploit vs OFAC, N-hop, E unpublished,
-D deferral, afterSwap caps, fee bps). If a weight, band, or floor is still
-unclear, consult_skill again (fact-scoring, task-swap-decision). Do not invent
-a hop table from memory when the skill is available.
+That skill is the A–F demo validations (exploit vs OFAC, N-hop, E unpublished,
+Wallet F live SDN / SanctionHit, D deferral, afterSwap caps, fee bps). If a
+weight, band, or floor is still unclear, consult_skill again (fact-scoring,
+task-swap-decision). Do not invent a hop table from memory when the skill is
+available.
 
 Call search_regulations at least once before legalBasis. Never cite norms from
 training memory. If the tool is empty, declare a coverage gap.
 A live OFAC SDN exact-address screen is in the payload (ofac). Use it. Call
 screen_ofac for another address if needed. Do not invent an SDN match.
 Demo wallets A–E are not OFAC-listed unless ofac.subject.match is true.
+Wallet F is the live OFAC SDN subject (expect a match and a registry write).
 Do not list skill filenames in Opinion sources.
 
 Reply with a single JSON object (no markdown):

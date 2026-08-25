@@ -297,6 +297,6 @@ Before emitting any output, verify:
 10. Did I declare analysis limits: hop depth, gaps, degraded mode, attribution coverage?
 11. Does any conclusion exceed section 5?
 12. Was any field filled with data I did not query?
-13. For wallets A–E (hop, exploit vs OFAC, unpublished E, deferred D, fees), did I consult `uhi10-use-case` rather than inventing a TypeScript shortcut?
+13. For wallets A–F (hop, exploit vs OFAC, unpublished E, Wallet F SanctionHit, deferred D, fees), did I consult `uhi10-use-case` rather than inventing a TypeScript shortcut?
 
 If any answer is unsatisfactory, correct before emitting.

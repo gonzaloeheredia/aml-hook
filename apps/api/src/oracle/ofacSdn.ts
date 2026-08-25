@@ -279,6 +279,38 @@ export async function loadOfacSdn(): Promise<OfacSdnSnapshot> {
   return mem.snapshot;
 }
 
+/** Preferred live SDN ETH addresses (Garantex, still listed as of 2026). */
+export const PREFERRED_SDN_ETH = [
+  "0x7ff9cfad3877f21d41da833e2f775db0569ee3d9",
+  "0x8dce2aac0de82bdcaf6b4373b79f94331b8e4995",
+  "0xf4377eda661e04b6dda78969796ed31658d602d4",
+] as const;
+
+/**
+ * Pick Wallet F's address from the live SDN set.
+ * Prefers known Garantex ETH identifiers; otherwise the sorted first live address.
+ */
+export async function pickLiveSdnAddress(
+  preferred: readonly string[] = PREFERRED_SDN_ETH,
+): Promise<{ address: string; fromLiveList: boolean; preferredHit: boolean }> {
+  const mem = await ensureMemory();
+  const preferredNorm = preferred.map((a) => a.toLowerCase());
+  if (mem.snapshot.ok && mem.set.size > 0) {
+    for (const p of preferredNorm) {
+      if (mem.set.has(p)) {
+        return { address: p, fromLiveList: true, preferredHit: true };
+      }
+    }
+    const first = [...mem.set].sort()[0]!;
+    return { address: first, fromLiveList: true, preferredHit: false };
+  }
+  return {
+    address: preferredNorm[0] ?? PREFERRED_SDN_ETH[0],
+    fromLiveList: false,
+    preferredHit: false,
+  };
+}
+
 function normalize(address: string): string | null {
   const trimmed = address.trim().toLowerCase();
   if (!/^0x[a-f0-9]{40}$/.test(trimmed)) return null;

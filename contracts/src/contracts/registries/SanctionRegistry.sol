@@ -8,7 +8,8 @@ import {ISanctionRegistry} from "../../interfaces/registries/ISanctionRegistry.s
 /// @title Layer 1 — SanctionRegistry (REAL on-chain list)
 /// @notice Static sanctions screening (whitepaper §3.2 Layer 1 / §3.5 / §4.1 OFAC/SDN).
 ///
-/// @dev `setSanctioned` remains available for immediate emergencies. Production listings
+/// @dev `setSanctioned` remains available for immediate emergencies and for the COA's
+///      live OFAC SDN writer (demo Wallet F exact-address match). Production listings
 ///      should use the commit-reveal path. Reveal transactions MUST be submitted via a
 ///      private mempool (Flashbots Protect or equivalent); this contract cannot enforce
 ///      that on-chain. A public reveal exposes `account` in calldata before inclusion.

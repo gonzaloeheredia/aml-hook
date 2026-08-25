@@ -45,7 +45,7 @@ Supporting notes:
 | Never written, this swap ≥ $15,000 | REVERT | `UnscoredMagnitudeBlocked` |
 | Never written, no live price and no last FX (or last FX older than 24h) | REVERT | `MagnitudeQuoteFailed` |
 
-A published score of 0 is confirmed clean. An address with no oracle row is unknown. Those are different paths. The 3% / 8% and $1,000 / $15,000 figures above are deploy defaults; `_COMPLIANCE_OFFICER` proposes then confirms retunes (48h). Score cuts 31 / 55 / 71 stay fixed. Full thresholds: whitepaper §8.4. The A–E walkthrough: use case. Fee escrow destinations: §8.3.
+A published score of 0 is confirmed clean. An address with no oracle row is unknown. Those are different paths. The 3% / 8% and $1,000 / $15,000 figures above are deploy defaults; `_COMPLIANCE_OFFICER` proposes then confirms retunes (48h). Score cuts 31 / 55 / 71 stay fixed. Full thresholds: whitepaper §8.4. The A–F walkthrough: use case. Fee escrow destinations: §8.3.
 
 N-hop score written by the agent (skill `uhi10-use-case`), published by the keeper:
 
@@ -83,7 +83,7 @@ Writes are split so a score keeper cannot move escrow, and an escrow keeper cann
 
 ## Demo wallets
 
-The frontend talks to the API. The API reads and writes the use-case ledger on Anvil (wallets A–E = accounts #1–#5).
+The frontend talks to the API. The API reads and writes the use-case ledger on Anvil (wallets A–E = accounts #1–#5; Wallet F is a live OFAC SDN ETH address, not Anvil #6).
 
 | Wallet | Starting state | What to try |
 | --- | --- | --- |
@@ -92,6 +92,7 @@ The frontend talks to the API. The API reads and writes the use-case ledger on A
 | C | Clean, score 0, 50,000 USDC | Fund E (unknown) or D (inflow). Receive from A → ~65 / 8% |
 | D | Published score 0, 5,000 USDC | Held funds → ALLOW. Clean C→D $10k → 3%; $15k → 8% (no hop). Advance 5 min after a swap → Floor B |
 | E | Never written, empty | Fund from C. C→E $500 → 3%; $10k then $1k swap → 8% (A mid); $15k bag + small swap → 8% (D); $15k this swap → revert |
+| F | Live OFAC SDN ETH address, 10,000 USDC, no demo key | Pool swap → `SanctionHit`. No P2P. Contrast with A (`WalletBlocked`) |
 
 ## Quick start
 
@@ -142,7 +143,7 @@ npm run deploy:local
 ```
 
 1. Starts Anvil on `:8545`.
-2. Deploys AccessManager, L1/L2/L3, AmlHook (CREATE2), and FeeEscrow. Uses `MockPoolManager` unless `POOL_MANAGER` is set. On Anvil binds `MockUsdFeed` ($1 fee token, $1000 ETH). On a live chain binds official Chainlink ETH/USD, WETH, and USDC/USD. Seeds wallets A–E (Anvil #1–#5).
+2. Deploys AccessManager, L1/L2/L3, AmlHook (CREATE2), and FeeEscrow. Uses `MockPoolManager` unless `POOL_MANAGER` is set. On Anvil binds `MockUsdFeed` ($1 fee token, $1000 ETH). On a live chain binds official Chainlink ETH/USD, WETH, and USDC/USD. Seeds wallets A–E (Anvil #1–#5). The API then binds Wallet F to a live OFAC SDN ETH address and mints USDC to it.
 3. Wires roles. Anvil account #0 is the default admin / keepers / governor / compliance officer. Anvil #9 is the local attestor. Production requires a distinct `ATTESTOR`, a Safe as `ADMIN` or `FEE_ESCROW_OWNER`, a dedicated `COMPLIANCE_OFFICER` (48h grant delay), and a dedicated `COMPLIANCE_RESERVE` (never the LP fund). Floor B default is 5 minutes (`DEFAULT_STALENESS` / `MAX_SCORE_AGE`). Institutional pools may tighten to 120 seconds.
 4. Writes `contracts/deployments/31337.json` (hook, escrow, fee token, feeds, wallets, attestor) and copies it into `packages/sdk/deployments/`.
 5. Writes `apps/api/.env.local`.

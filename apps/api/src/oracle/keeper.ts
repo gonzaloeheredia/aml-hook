@@ -2,7 +2,11 @@
  * Periodic oracle keeper: recompute scores from the live record and stamp
  * ComplianceOracle.updatedAt so Floor B does not fire on a stable wallet.
  *
- * Tick does not call Claude. It stamps the last agent score so Floor B stays quiet.
+ * Tick is 3 minutes (`KEEPER_TICK_MS`). Floor B arms at 5 minutes
+ * (`stalenessThreshold`). The tick does not call Claude — it stamps the last
+ * agent score. If the agent is down, this heartbeat still keeps a published
+ * row fresh. If there is no last score (`neverScored`, Wallet E), the tick
+ * skips. Includes Wallet F (published OFAC subject).
  */
 
 import { isKeeperPending, listWallets } from "../store.js";
@@ -23,7 +27,7 @@ export function keeperTickMs(): number {
 }
 
 /**
- * Recomputes and publishes A–D (skips E and deferred Wallet D).
+ * Recomputes and publishes A–D and F (skips E and deferred Wallet D).
  */
 export async function runKeeperTick(): Promise<void> {
   for (const w of listWallets()) {

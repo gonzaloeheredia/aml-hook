@@ -97,6 +97,7 @@ contract UnitAmlHookLiquidityTest is Helpers {
     }
 
     /// @dev Score is swap-only. Wallet A (100, not OFAC-listed) can still extract LP.
+    ///      A listed subject (demo Wallet F) reverts `SanctionHit` on add and remove.
     function test_HighScoreWalletCanRemoveLiquidity() external {
         vm.prank(keeper);
         complianceOracle.updateScore(walletA, 100, 0, walletA, 0, _scoreSig(walletA, 100, 0, walletA, 0));

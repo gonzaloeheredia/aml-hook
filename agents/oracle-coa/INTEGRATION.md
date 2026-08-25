@@ -7,7 +7,7 @@ the **off-chain scoring oracle** for the UHI10 demo.
 
 The TypeScript runner lives in `apps/api/src/oracle/`. With `ANTHROPIC_API_KEY`,
 Claude emits score, fee, and Opinion (`liveScore.ts`). Tools:
-`consult_skill` (call `uhi10-use-case` before scoring A–E),
+`consult_skill` (call `uhi10-use-case` before scoring A–F),
 `search_regulations`, `get_active_version_at`, `screen_ofac`. The keeper publishes
 `finalScore` + `recommendedFeeBps` to `ComplianceOracle`. Quotes use
 `AmlHook.previewSwap`. A 3-minute tick stamps `updatedAt` without calling
@@ -33,7 +33,7 @@ on an exact match. The swap still only reads that mapping.
 
 No live OpenSanctions / Etherscan / Chainalysis calls. Facts come from Anvil
 wallets, P2P ERC-20 transfers, `SwapObserved` / `WalletBlocked`, live OFAC SDN
-(ETH addresses), and `SanctionRegistry`. N-hop decay (`100 × 0.65^hops`) is the A–E backbone in
+(ETH addresses), and `SanctionRegistry`. N-hop decay (`100 × 0.65^hops`) is the A–F backbone in
 skill `uhi10-use-case`; the agent applies it — TypeScript does not precompute
 65/42 when live.
 
@@ -58,8 +58,8 @@ POST /swaps      → afterSwap SwapObserved → wait for agent → reevaluate(wa
                  → or WalletBlocked → wait for agent → reevaluate(wallet)
                  → if D keeperPending: catch-up publish (~65) after latency swap
 POST /oracle/:id/catch-up → manual deferred publish (Wallet D)
-POST /reset      → clear + seed oracle for A–D (Claude wait when key set; E unpublished)
-keeper tick 3m   → republish last agent score (no Claude)
+POST /reset      → clear + seed oracle for A–D and F (Claude wait when key set; E unpublished)
+keeper tick 3m   → republish last agent score (no Claude). If the agent is down, this stamp still keeps Floor B (5 min) quiet.
 ```
 
 Quotes and swaps call `AmlHook.previewSwap` (same L1→L3 as `beforeSwap`). They

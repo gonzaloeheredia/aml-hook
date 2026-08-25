@@ -116,7 +116,7 @@ Published score 0 (`updatedAt != 0`) is confirmed-clean: Floor A magnitude REVER
 
 24-hour volume is accumulated in USD-8 so ETH and USDC are not added as raw units. Small swaps that sum over $15,000 still REVERT (Floor C).
 
-Product paths: Wallet A (exploit score 100 · `WalletBlocked`), Wallet D (inflow, B, C, $15k) and Wallet E (starts empty; fund from C; USD bands, window, feed) in [`docs/Use_Case.md`](../docs/Use_Case.md).
+Product paths: Wallet A (exploit score 100 · `WalletBlocked`), Wallet F (live OFAC SDN · `SanctionHit`), Wallet D (inflow, B, C, $15k) and Wallet E (starts empty; fund from C; USD bands, window, feed) in [`docs/Use_Case.md`](../docs/Use_Case.md).
 
 REVERT does not emit a lasting log. Index custom errors on reverted txs: `SanctionHit`, `WalletBlocked` (score ≥ 71), `UnscoredMagnitudeBlocked`, `DailyAggregationBlocked`, `UnscoredPoolImpactBlocked`, `MagnitudeQuoteFailed`. `InflowMagnitudeBlocked` and `StalePoolImpactBlocked` are reserved and unused (D and B never revert).
 
@@ -183,7 +183,7 @@ Deployer = Anvil account #0 (local defaults for admin / registry keeper / oracle
 
 `bootstrapDepositor` runs in the same deploy tx so the first FEE_OVERRIDE `deposit` does not wait 24h.
 
-On chainid 31337 the script binds `MockUsdFeed` ($1 fee token, $1000 ETH) and labels wallets A–E as Anvil **#1–#5**. Wallet A is not listed; the COA publishes score 100 so pool swaps hit `WalletBlocked`. The API then mints balances (E starts at 0 USDC — fund from C), calls `previewSwap` (same L1→L3 as `beforeSwap`), `observeSwap` (activity / baseline / `SwapObserved`), and `syncBaseline` on reset. That is still not a live `PoolManager` fill.
+On chainid 31337 the script binds `MockUsdFeed` ($1 fee token, $1000 ETH) and labels wallets A–E as Anvil **#1–#5**. Wallet A is not listed; the COA publishes score 100 so pool swaps hit `WalletBlocked`. Wallet F is bound by the API to a live OFAC SDN ETH address (not Anvil #6); the COA writes `SanctionRegistry` so pool swaps hit `SanctionHit`. The API then mints balances (E starts at 0 USDC — fund from C; F starts with 10,000 USDC and has no demo key), calls `previewSwap` (same L1→L3 as `beforeSwap`), `observeSwap` (activity / baseline / `SwapObserved`), and `syncBaseline` on reset. That is still not a live `PoolManager` fill.
 
 On other chains Deploy binds official Chainlink Data Feeds: ETH/USD on `address(0)` and canonical WETH, USDC/USD on native USDC. Extra pool tokens still need `_HOOK_GOVERNOR` `setPriceFeed`. If `lastFx` is younger than 30 minutes (`FX_HOT_TTL`), the swap does not call Chainlink. Otherwise never-scored magnitude and Mitigation D quote to USD-8 from **one** `latestRoundData` per token; every amount in that swap uses that price. A usable round is stored in `lastFx`. Unbind or a dead aggregator falls back to that cache until `MAX_PRICE_STALENESS` (24h). No live round and no fresh cache → `MagnitudeQuoteFailed`. `PriceFallbackUsed` logs heartbeat-stale live rounds and the 24h cache path.
 

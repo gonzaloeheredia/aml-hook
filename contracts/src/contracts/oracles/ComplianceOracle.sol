@@ -17,6 +17,12 @@ import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol"
 ///      emits `finalScore` + `recommendedFeeBps` off-chain. `_ORACLE_KEEPER` *publishes*
 ///      that row here via `updateScore`. AMLHook only reads. The hook never calls the agent.
 ///
+///      Demo clocks: event-driven COA write (transfer / swap / seed) waits on the agent.
+///      A 3-minute heartbeat then stamps the last score (no Claude) so Floor B (5-minute
+///      `stalenessThreshold`) does not fire on a stable wallet. If the agent is down and
+///      there is no last score, Floor A (never-written) applies. If there is a last score
+///      but both the agent and the tick are slower than 5 minutes, Floor B applies.
+///
 ///      Auth: `_ORACLE_KEEPER` submits the tx; a distinct `attestor` ECDSA-signs the
 ///      payload (C-01). `_HOOK_GOVERNOR` rotates the attestor.
 contract ComplianceOracle is AccessManaged, IComplianceOracle {

@@ -17,6 +17,8 @@ describe("unit: COA skills", () => {
     assert.match(hit.text, /100 × 0\.65/);
     assert.match(hit.text, /neverScored/);
     assert.match(hit.text, /EXPLOIT_PROTOCOL_FUNDS/);
+    assert.match(hit.text, /Wallet F/);
+    assert.match(hit.text, /SanctionHit/);
   });
 
   it("consultSkill rejects path traversal", () => {

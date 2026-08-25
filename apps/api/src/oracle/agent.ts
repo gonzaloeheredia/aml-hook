@@ -281,7 +281,7 @@ async function persistEvaluation(input: {
 }
 
 /**
- * Seeds oracle scores for A–D at process start or after reset. E stays unpublished.
+ * Seeds oracle scores for A–D and F at process start or after reset. E stays unpublished.
  */
 export async function seedOracleAll(): Promise<void> {
   for (const w of listWallets()) {
