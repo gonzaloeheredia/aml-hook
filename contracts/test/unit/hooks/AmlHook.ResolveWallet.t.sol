@@ -177,21 +177,6 @@ contract UnitAmlHookResolveWalletTest is Helpers {
         hook.setTrustedRouter(address(trusted), true);
     }
 
-    /// @dev Unwired hook selectors stay admin-only (forgotten wiring fails closed).
-    function test_SetStalenessThreshold_WhenSelectorWasNeverWired() external {
-        // Fresh stack: hook authority is accessManager but no target function role was set.
-        AccessManager mgr = new AccessManager(owner);
-        SanctionRegistry reg = new SanctionRegistry(address(mgr));
-        ComplianceOracle ora = new ComplianceOracle(address(mgr), _attestor());
-        RiskPolicy pol = new RiskPolicy();
-        manager = new HookPoolManagerStub();
-        AmlHook unwired = _deployHook(mgr, reg, ora, pol);
-
-        vm.prank(hookGovernor);
-        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, hookGovernor));
-        unwired.setStalenessThreshold(120);
-    }
-
     function test_ContractSubjectWithoutMultisigWhitelist_Reverts() external {
         MockTrustedRouter trusted = new MockTrustedRouter();
         MockTrustedRouter subject = new MockTrustedRouter();
@@ -329,5 +314,23 @@ contract UnitAmlHookResolveWalletTest is Helpers {
         address sender = _bindTrustedSubject(address(safe));
         vm.expectRevert(abi.encodeWithSelector(AmlHookLogic.SanctionHit.selector, walletA));
         manager.callBeforeSwap(IHooks(address(hook)), sender, key, params, "");
+    }
+}
+
+/// @notice Forgotten wiring: selectors stay admin-only (separate suite: hook address is etched once).
+contract UnitAmlHookResolveWalletUnwiredTest is Helpers {
+    function setUp() public {
+        manager = new HookPoolManagerStub();
+        accessManager = new AccessManager(owner);
+        sanctionRegistry = new SanctionRegistry(address(accessManager));
+        complianceOracle = new ComplianceOracle(address(accessManager), _attestor());
+        riskPolicy = new RiskPolicy();
+        hook = _deployHook(accessManager, sanctionRegistry, complianceOracle, riskPolicy);
+    }
+
+    function test_SetStalenessThreshold_WhenSelectorWasNeverWired() external {
+        vm.prank(hookGovernor);
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, hookGovernor));
+        hook.setStalenessThreshold(120);
     }
 }
