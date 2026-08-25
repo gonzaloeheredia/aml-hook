@@ -129,6 +129,7 @@ abstract contract AmlHookLogic is AmlHookActivity {
         bool isStale;
         uint32 operationCount;
         bool hasSignificantInflow;
+        bool neverScored;
         uint256 inflowShareBps;
         uint256 assessedUsd;
         uint256 inflowTokenDelta;
@@ -430,8 +431,99 @@ abstract contract AmlHookLogic is AmlHookActivity {
         (signals.hasSignificantInflow, signals.inflowShareBps, signals.inflowTokenDelta) =
             _inflowSignal(wallet, token, risk.updatedAt);
 
-        bool neverScored = risk.updatedAt == 0;
-        if (neverScored) {
+        signals.neverScored = risk.updatedAt == 0;
+        _resolveUsdSignals(wallet, token, volumeToken, amount, signals);
+
+        // ── Layer 3 — RiskPolicy ternary (§3.2 / §3.3) ───────────────────────
+        (decision, feeBps) = _callRiskPolicy(risk, signals);
+
+        (decision, feeBps) = _applyFloors(wallet, poolImpactBps, risk, signals, decision, feeBps);
+
+        // Floor C: prior 24h USD + this swap crosses the live high floor (several ops).
+        // A single ticket at/above that floor is A/B/D, not C (`priorDaily == 0` on the first swap).
+        // Score-band and A-magnitude REVERTs above win first.
+        _enforceDailyAggregation(wallet, volumeToken, amount, signals.neverScored, signals.assessedUsd);
+    }
+
+    /// @dev Applies Floors A and B (pool-impact guards) and the REVERT band check.
+    ///      Extracted from `_evaluateCore` to keep its stack frame within EVM limits during coverage.
+    function _applyFloors(
+        address wallet,
+        uint256 poolImpactBps,
+        IComplianceOracle.WalletRisk memory risk,
+        EvalSignals memory signals,
+        HookDecision decision,
+        uint24 feeBps
+    ) private view returns (HookDecision, uint24) {
+        // ── Floor A extra — pool-drain guard for unknown wallet ───────────────
+        if (
+            signals.neverScored && poolImpactThresholdBps != 0 && poolImpactBps > poolImpactThresholdBps
+                && decision == HookDecision.FEE_OVERRIDE
+        ) {
+            if (feeBps >= punitiveFeeBps) {
+                revert UnscoredPoolImpactBlocked(wallet, poolImpactBps, poolImpactThresholdBps);
+            }
+            feeBps = punitiveFeeBps;
+        }
+
+        // ── Floor B extra — stale wallet draining active liquidity ───────────
+        // Hardens the band (pass → mid, mid → high) but never REVERTs. Ceiling is punitive fee.
+        // H-01 fix: operationCount > 0 gate removed — stale score ≠ confirmed clean regardless
+        // of window position; applies on the first op of a new window too.
+        if (
+            !signals.neverScored && signals.isStale
+                && poolImpactThresholdBps != 0 && poolImpactBps > poolImpactThresholdBps
+        ) {
+            if (decision == HookDecision.ALLOW) {
+                decision = HookDecision.FEE_OVERRIDE;
+                feeBps = proportionalFeeBps;
+            } else if (decision == HookDecision.FEE_OVERRIDE && feeBps < punitiveFeeBps) {
+                feeBps = punitiveFeeBps;
+            }
+        }
+
+        if (decision == HookDecision.REVERT) {
+            if (signals.neverScored) {
+                revert UnscoredMagnitudeBlocked(wallet, signals.assessedUsd, unscoredRevertThreshold);
+            }
+            revert WalletBlocked(wallet, risk.score, "SCORE_REVERT_BAND");
+        }
+
+        return (decision, feeBps);
+    }
+
+    /// @dev Wraps the 12-argument RiskPolicy external call so `_evaluateCore` doesn't exceed
+    ///      the 16-slot stack limit during coverage compilation (which disables via_ir).
+    function _callRiskPolicy(
+        IComplianceOracle.WalletRisk memory risk,
+        EvalSignals memory signals
+    ) private view returns (HookDecision decision, uint24 feeBps) {
+        return riskPolicy.decide(
+            risk.score,
+            risk.feeBps,
+            signals.isStale,
+            signals.operationCount,
+            signals.hasSignificantInflow,
+            signals.neverScored,
+            signals.assessedUsd,
+            signals.inflowUsd,
+            unscoredFeeThreshold,
+            unscoredRevertThreshold,
+            proportionalFeeBps,
+            punitiveFeeBps
+        );
+    }
+
+    /// @dev Fills USD amounts into `signals` for the current swap context.
+    ///      Extracted from `_evaluateCore` to keep that function's stack frame within EVM limits.
+    function _resolveUsdSignals(
+        address wallet,
+        address token,
+        address volumeToken,
+        uint256 amount,
+        EvalSignals memory signals
+    ) private view {
+        if (signals.neverScored) {
             (signals.assessedUsd,) = _requireUsdQuote(volumeToken, amount, 0);
             if (signals.inflowTokenDelta > 0) {
                 (signals.inflowUsd,) = _requireUsdQuote(token, signals.inflowTokenDelta, 0);
@@ -452,61 +544,6 @@ abstract contract AmlHookLogic is AmlHookActivity {
                 (signals.assessedUsd,) = _requireUsdQuote(volumeToken, amount, _usdInCurrentWindow(wallet));
             }
         }
-
-        // ── Layer 3 — RiskPolicy ternary (§3.2 / §3.3) ───────────────────────
-        (decision, feeBps) = riskPolicy.decide(
-            risk.score,
-            risk.feeBps,
-            signals.isStale,
-            signals.operationCount,
-            signals.hasSignificantInflow,
-            neverScored,
-            signals.assessedUsd,
-            signals.inflowUsd,
-            unscoredFeeThreshold,
-            unscoredRevertThreshold,
-            proportionalFeeBps,
-            punitiveFeeBps
-        );
-
-        // ── Floor A extra — pool-drain guard for unknown wallet ───────────────
-        if (
-            neverScored && poolImpactThresholdBps != 0 && poolImpactBps > poolImpactThresholdBps
-                && decision == HookDecision.FEE_OVERRIDE
-        ) {
-            if (feeBps >= punitiveFeeBps) {
-                revert UnscoredPoolImpactBlocked(wallet, poolImpactBps, poolImpactThresholdBps);
-            }
-            feeBps = punitiveFeeBps;
-        }
-
-        // ── Floor B extra — stale wallet draining active liquidity ───────────
-        // Hardens the band (pass → mid, mid → high) but never REVERTs. Ceiling is punitive fee.
-        // H-01 fix: operationCount > 0 gate removed — stale score ≠ confirmed clean regardless
-        // of window position; applies on the first op of a new window too.
-        if (
-            !neverScored && signals.isStale
-                && poolImpactThresholdBps != 0 && poolImpactBps > poolImpactThresholdBps
-        ) {
-            if (decision == HookDecision.ALLOW) {
-                decision = HookDecision.FEE_OVERRIDE;
-                feeBps = proportionalFeeBps;
-            } else if (decision == HookDecision.FEE_OVERRIDE && feeBps < punitiveFeeBps) {
-                feeBps = punitiveFeeBps;
-            }
-        }
-
-        if (decision == HookDecision.REVERT) {
-            if (neverScored) {
-                revert UnscoredMagnitudeBlocked(wallet, signals.assessedUsd, unscoredRevertThreshold);
-            }
-            revert WalletBlocked(wallet, risk.score, "SCORE_REVERT_BAND");
-        }
-
-        // Floor C: prior 24h USD + this swap crosses the live high floor (several ops).
-        // A single ticket at/above that floor is A/B/D, not C (`priorDaily == 0` on the first swap).
-        // Score-band and A-magnitude REVERTs above win first.
-        _enforceDailyAggregation(wallet, volumeToken, amount, neverScored, signals.assessedUsd);
     }
 
     /// @dev Elevates ALLOW → FEE_OVERRIDE for hook-local signals not passed into RiskPolicy.

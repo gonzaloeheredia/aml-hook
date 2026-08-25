@@ -154,7 +154,12 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
         if (signature.length != 65) revert InvalidAttestation();
         bytes32 hash = attestationHash(wallet, score, hopDistance, origin, feeBps, updatedAt);
         bytes32 ethSigned = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", hash));
+        address signer = _recoverSigner(ethSigned, signature);
+        if (signer == address(0) || signer != attestor) revert InvalidAttestation();
+    }
 
+    /// @dev Extracted from `_verifyAttestation` to keep its stack frame within EVM limits during coverage.
+    function _recoverSigner(bytes32 ethSigned, bytes calldata signature) private pure returns (address) {
         bytes32 r;
         bytes32 s;
         uint8 v;
@@ -164,9 +169,7 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
             v := byte(0, calldataload(add(signature.offset, 64)))
         }
         if (v < 27) v += 27;
-
-        address signer = ecrecover(ethSigned, v, r, s);
-        if (signer == address(0) || signer != attestor) revert InvalidAttestation();
+        return ecrecover(ethSigned, v, r, s);
     }
 
     /// @dev H-05: at most `maxUpdatesPerWindow` updates whose timestamps fall in

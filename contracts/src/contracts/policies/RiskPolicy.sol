@@ -169,14 +169,16 @@ contract RiskPolicy is IRiskPolicy {
             if (unscoredRevertThreshold != 0 && assessedUsd >= unscoredRevertThreshold) {
                 return (HookDecision.REVERT, 0);
             }
-            // A: this swap. D: inbound bag (baseline 0 on first contact). Stricter fee wins.
+            // D: inbound bag (baseline 0 on first contact). A: this swap. Stricter fee wins.
+            // Compute D into feeBps first (14 base slots → DUP15 ✓), then A as one local (15 slots).
+            // Avoids having two locals simultaneously live when calling _publishedUsdBand (would need DUP17).
+            feeBps = _publishedUsdBand(
+                inflowUsd, unscoredFeeThreshold, unscoredRevertThreshold, proportionalFeeBps, punitiveFeeBps
+            );
             uint24 aFee = (unscoredFeeThreshold != 0 && assessedUsd < unscoredFeeThreshold)
                 ? proportionalFeeBps
                 : punitiveFeeBps;
-            uint24 bagFee = _publishedUsdBand(
-                inflowUsd, unscoredFeeThreshold, unscoredRevertThreshold, proportionalFeeBps, punitiveFeeBps
-            );
-            feeBps = aFee > bagFee ? aFee : bagFee;
+            if (aFee > feeBps) feeBps = aFee;
             return (HookDecision.FEE_OVERRIDE, feeBps);
         }
 
@@ -196,6 +198,12 @@ contract RiskPolicy is IRiskPolicy {
         // oracle score is stale always pays at least proportionalFeeBps, even on the first op
         // of a new activity window (operationCount == 0 at window boundaries). When opCount > 0
         // the full USD-band logic applies (existing Floor B behaviour).
+        //
+        // Compute D into feeBps first (14 base → DUP15 ✓), then B as one local (15 base → DUP16 ✓).
+        // Avoids having bFee+dFee simultaneously live when calling _publishedUsdBand (would need DUP17).
+        feeBps = _publishedUsdBand(
+            inflowUsd, unscoredFeeThreshold, unscoredRevertThreshold, proportionalFeeBps, punitiveFeeBps
+        );
         uint24 bFee = 0;
         if (isStale) {
             if (operationCount > 0) {
@@ -206,10 +214,7 @@ contract RiskPolicy is IRiskPolicy {
                 bFee = proportionalFeeBps;
             }
         }
-        uint24 dFee = _publishedUsdBand(
-            inflowUsd, unscoredFeeThreshold, unscoredRevertThreshold, proportionalFeeBps, punitiveFeeBps
-        );
-        feeBps = bFee > dFee ? bFee : dFee;
+        if (bFee > feeBps) feeBps = bFee;
         if (feeBps > 0) {
             return (HookDecision.FEE_OVERRIDE, feeBps);
         }
