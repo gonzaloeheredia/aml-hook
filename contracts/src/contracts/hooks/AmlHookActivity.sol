@@ -5,45 +5,65 @@ import {AmlHookGovernance} from "./AmlHookGovernance.sol";
 import {IERC20Minimal} from "../../interfaces/external/IERC20Minimal.sol";
 import {OracleQuote} from "../../libraries/OracleQuote.sol";
 
-/// @title Floor B/C accumulators and Mitigation D baseline. No setters.
+/// @title AmlHookActivity — rolling-window accumulators for Floor B/C and Mitigation D baseline
+/// @notice Tracks per-wallet operation counts, USD volume, and token balances.
+///         No compliance decisions here — all reads are consumed by `AmlHookLogic`.
 abstract contract AmlHookActivity is AmlHookGovernance {
+    /// @dev Rolling `activityWindow` accumulator per wallet.
     struct PoolActivity {
-        uint64 windowStart;
-        uint32 opCount;
-        uint64 lastSwapAt;
-        uint32 epoch;
-        uint256 volumeUsd;
+        uint64 windowStart;  // timestamp when the current window opened
+        uint32 opCount;      // swaps recorded in the current window
+        uint64 lastSwapAt;   // block timestamp of the most recent recorded swap
+        uint32 epoch;        // incremented on window rollover; used to invalidate TokenVolume entries
+        uint256 volumeUsd;   // 8-decimal USD volume in the current window (type(uint256).max = overflow)
     }
 
+    /// @dev Rolling `dailyWindow` USD accumulator per wallet.
     struct DailyActivity {
-        uint64 windowStart;
-        uint256 volumeUsd;
+        uint64 windowStart;  // timestamp when the current daily window opened
+        uint256 volumeUsd;   // 8-decimal USD volume in the current daily window
     }
 
+    /// @dev Per-wallet per-token native-unit accumulator, epoch-gated so stale entries are free to ignore.
     struct TokenVolume {
-        uint32 epoch;
-        uint256 amount;
+        uint32 epoch;    // must match `_activity[wallet].epoch` to be considered current
+        uint256 amount;  // token-native units accumulated in the current window
     }
 
+    /// @dev Rolling activity snapshot per wallet (operation count, volume, timestamps).
     mapping(address => PoolActivity) internal _activity;
+    /// @dev Daily USD accumulator per wallet.
     mapping(address => DailyActivity) internal _daily;
+    /// @dev Native-unit volume per wallet per token in the current epoch window.
     mapping(address => mapping(address => TokenVolume)) internal _windowVolume;
+
+    /// @notice Last-seen ERC-20 balance per wallet per token (Mitigation D baseline).
     mapping(address => mapping(address => uint256)) public lastKnownBalance;
+    /// @notice Block timestamp of the last `lastKnownBalance` write per wallet per token.
     mapping(address => mapping(address => uint256)) public lastKnownBalanceTimestamp;
 
+    /// @notice Returns the current rolling-window activity snapshot for `wallet`.
+    /// @return windowStart Timestamp when the current window opened (0 if never recorded).
+    /// @return opCount     Swap count in the current window.
+    /// @return lastSwapAt  Timestamp of the most recent recorded swap.
     function poolActivity(address wallet) external view returns (uint64 windowStart, uint32 opCount, uint64 lastSwapAt) {
         PoolActivity storage act = _activity[wallet];
         return (act.windowStart, act.opCount, act.lastSwapAt);
     }
 
+    /// @notice Native-unit volume for `wallet` and `token` in the current activity window.
     function windowVolume(address wallet, address token) external view returns (uint256) {
         return _volumeInCurrentWindow(wallet, token);
     }
 
+    /// @notice 8-decimal USD volume for `wallet` in the current activity window.
+    ///         Returns `type(uint256).max` when the window had a price-quote failure.
     function windowVolumeUsd(address wallet) external view returns (uint256) {
         return _usdInCurrentWindow(wallet);
     }
 
+    /// @notice 8-decimal USD volume for `wallet` in the current daily window.
+    ///         Returns `type(uint256).max` when the window had a price-quote failure.
     function dailyVolumeUsd(address wallet) external view returns (uint256) {
         return _usdInDailyWindow(wallet);
     }
@@ -93,6 +113,10 @@ abstract contract AmlHookActivity is AmlHookGovernance {
         }
     }
 
+    /// @dev Write the current ERC-20 balance of `wallet` for `token` as the Mitigation D baseline.
+    ///      Skipped when `inflowTriggered` (the heuristic already fired — resetting the baseline
+    ///      would hide the inflow from future evaluations until the oracle catches up), when the
+    ///      token is not an ERC-20 contract, or when less than `minBaselineInterval` has elapsed.
     function _updateKnownBalance(address wallet, address token, bool inflowTriggered) internal {
         if (inflowTriggered) return;
         if (token == address(0) || token.code.length == 0) return;
@@ -102,6 +126,7 @@ abstract contract AmlHookActivity is AmlHookGovernance {
         lastKnownBalanceTimestamp[wallet][token] = block.timestamp;
     }
 
+    /// @dev Returns 0 when the window has not been opened yet or has elapsed.
     function _opsInCurrentWindow(address wallet) internal view returns (uint32) {
         PoolActivity storage act = _activity[wallet];
         if (act.windowStart == 0) return 0;
@@ -109,6 +134,7 @@ abstract contract AmlHookActivity is AmlHookGovernance {
         return act.opCount;
     }
 
+    /// @dev Returns 0 when no window is open or it has elapsed. Returns `type(uint256).max` on overflow.
     function _usdInCurrentWindow(address wallet) internal view returns (uint256) {
         PoolActivity storage act = _activity[wallet];
         if (act.windowStart == 0) return 0;
@@ -116,6 +142,7 @@ abstract contract AmlHookActivity is AmlHookGovernance {
         return act.volumeUsd;
     }
 
+    /// @dev Returns 0 when no daily window is open or it has elapsed. Returns `type(uint256).max` on overflow.
     function _usdInDailyWindow(address wallet) internal view returns (uint256) {
         DailyActivity storage daily = _daily[wallet];
         if (daily.windowStart == 0) return 0;

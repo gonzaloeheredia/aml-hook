@@ -79,6 +79,7 @@ library SwapCache {
         _tstore(_slot(_FX_PACKED, poolId), packed);
     }
 
+    /// @notice Read the FX rate stored by `storeFx` for this pool.
     function loadFx(PoolId poolId) internal view returns (uint256 price, uint256 packed) {
         price = _tload(_slot(_FX_PRICE, poolId));
         packed = _tload(_slot(_FX_PACKED, poolId));

@@ -5,9 +5,15 @@ import {IRiskPolicy} from "../interfaces/policies/IRiskPolicy.sol";
 import {FeeBps} from "./FeeBps.sol";
 import {HookDecision} from "./HookDecision.sol";
 
-/// @title Layer 3 mapping: score + floors A–D → ALLOW / FEE_OVERRIDE / REVERT.
-/// @dev Pure. One memory pointer in, one result out. No storage, no CALL, no packing.
+/// @title RiskPolicyLib — pure compliance decision engine (Layer 3)
+/// @notice Maps score + floor signals A–D to ALLOW / FEE_OVERRIDE / REVERT.
+/// @dev Pure: one memory pointer in, one result out. No storage, no external calls, no packing.
 library RiskPolicyLib {
+    /// @notice Apply the full ternary decision tree to a pre-gathered signal set.
+    /// @dev Call order: score band → never-scored / allow-band → stale-pool-impact → daily gate.
+    ///      A daily-aggregation block can override an ALLOW or FEE_OVERRIDE but never a REVERT.
+    /// @param in_ Packed signal struct built by `AmlHookLogic._toInput`.
+    /// @return r  Decision, override fee, and revert kind (None when decision ≠ REVERT).
     function decide(IRiskPolicy.DecisionInput memory in_)
         internal
         pure
@@ -33,6 +39,8 @@ library RiskPolicyLib {
         }
     }
 
+    /// @dev Floor A: wallet has no score on-chain. Apply magnitude / pool-impact / inflow floors.
+    ///      UnscoredMagnitude REVERT takes precedence over UnscoredPoolImpact REVERT.
     function _neverScored(IRiskPolicy.DecisionInput memory in_)
         private
         pure
@@ -62,6 +70,8 @@ library RiskPolicyLib {
         }
     }
 
+    /// @dev Floor B (stale activity) and Floor D (inflow heuristic) for the 0–30 score band.
+    ///      Returns ALLOW when neither floor triggers; FEE_OVERRIDE otherwise.
     function _allowBand(IRiskPolicy.DecisionInput memory in_)
         private
         pure
@@ -108,11 +118,14 @@ library RiskPolicyLib {
         return r;
     }
 
+    /// @dev Floor C: daily rolling USD (prior + this swap) meets or exceeds `unscoredRevertThreshold`.
     function _dailyBlocked(IRiskPolicy.DecisionInput memory in_) private pure returns (bool) {
         if (in_.unscoredRevertThreshold == 0 || in_.priorDailyUsd == 0) return false;
         return in_.priorDailyUsd + in_.swapUsd >= in_.unscoredRevertThreshold;
     }
 
+    /// @dev Maps a USD amount to a fee tier: punitive if `usd >= highThreshold`,
+    ///      proportional if `usd >= feeThreshold`, else 0.
     function _publishedUsdBand(
         uint256 usd,
         uint256 feeThreshold,
@@ -125,6 +138,7 @@ library RiskPolicyLib {
         return 0;
     }
 
+    /// @dev Prefer keeper `recommendedFeeBps` when 0 < fee ≤ `MAX_OVERRIDE`; else punitive (≥ 55) or proportional.
     function _resolveOverrideFee(IRiskPolicy.DecisionInput memory in_) private pure returns (uint24) {
         if (in_.recommendedFeeBps > 0 && in_.recommendedFeeBps <= FeeBps.MAX_OVERRIDE) {
             return in_.recommendedFeeBps;

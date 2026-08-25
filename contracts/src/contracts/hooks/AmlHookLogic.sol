@@ -12,62 +12,99 @@ import {OracleQuote} from "../../libraries/OracleQuote.sol";
 import {RiskPolicyLib} from "../../libraries/RiskPolicyLib.sol";
 import {WalletSubject} from "../../libraries/WalletSubject.sol";
 
-/// @title beforeSwap / afterSwap compliance: resolve subject, gather signals, RiskPolicyLib.decide.
+/// @title AmlHookLogic — beforeSwap / afterSwap compliance evaluation
+/// @notice Resolves the swap subject, gathers risk signals, and delegates to `RiskPolicyLib.decide`.
+///         All state mutations (activity, baseline) happen in `_endSwap` after the decision.
 abstract contract AmlHookLogic is AmlHookActivity {
+    /// @notice Wallet is in the REVERT score band (71–100) or exceeds the unscored magnitude floor.
     error WalletBlocked(address wallet, uint8 score, string reason);
+    /// @notice Wallet (or one of its multisig owners) is on the sanctions list.
     error SanctionHit(address wallet);
+    /// @notice Never-scored wallet's assessed USD meets or exceeds the unscored revert threshold.
     error UnscoredMagnitudeBlocked(address wallet, uint256 assessedUsd, uint256 threshold);
+    /// @notice Never-scored wallet's pool-impact bps exceeds the threshold at a punitive fee floor.
     error UnscoredPoolImpactBlocked(address wallet, uint256 poolImpactBps, uint256 threshold);
+    /// @notice Wallet's rolling daily USD (prior + this swap) meets or exceeds the revert threshold.
     error DailyAggregationBlocked(address wallet, uint256 assessedUsd, uint256 threshold);
+    /// @notice USD quote for `token` is required but unavailable (`reason` is one of the QUOTE_* constants).
     error MagnitudeQuoteFailed(address token, bytes32 reason);
+    /// @notice Trusted router's `msgSender()` call failed or returned `address(0)`.
     error TrustedRouterSubjectFailed(address router);
+    /// @notice `syncBaseline` refused: the stored balance is newer than the oracle's last write.
     error BaselineAheadOfOracle(address wallet, address token, uint64 oracleUpdatedAt, uint256 lastWriteTs);
 
+    /// @notice Emitted once per swap with the final compliance outcome.
+    /// @param wallet      Resolved compliance subject.
+    /// @param score       Behavioral score at evaluation time (0–100).
+    /// @param decision    ALLOW / FEE_OVERRIDE / REVERT.
+    /// @param feeBps      Override fee in bps (0 on ALLOW / REVERT).
+    /// @param hopDistance N-hop distance from the contamination origin (0 = direct / unknown).
+    /// @param origin      Contamination origin wallet (`address(0)` when clean).
     event SwapObserved(
         address indexed wallet, uint8 score, HookDecision decision, uint24 feeBps, uint8 hopDistance, address origin
     );
+    /// @notice Emitted when a latency-mitigation floor elevates the decision above the score band.
+    /// @param wallet     Compliance subject.
+    /// @param reason     One of REASON_SCORE_NEVER_WRITTEN, REASON_STALE_WITH_POOL_ACTIVITY, REASON_POOL_IMPACT.
+    /// @param feeBps     Applied override fee.
+    /// @param oracleScore Score at evaluation time (may be 0 if never written).
     event LatencyMitigationApplied(address indexed wallet, bytes32 reason, uint24 feeBps, uint8 oracleScore);
+    /// @notice Emitted when the inflow heuristic (Mitigation D) detects a significant balance increase.
+    /// @param wallet    Compliance subject.
+    /// @param deltaBps  Inflow share in bps relative to current balance.
+    /// @param timestamp Block timestamp at detection.
     event InflowHeuristicTriggered(address indexed wallet, uint256 deltaBps, uint256 timestamp);
 
+    /// @dev USD quote pair for the volume token and the input token (may share an instance when equal).
     struct QuoteCtx {
-        OracleQuote.Fx volume;
-        OracleQuote.Fx input;
-        bytes32 volumeErr;
-        bytes32 inputErr;
+        OracleQuote.Fx volume;  // FX for the specified / volume token
+        OracleQuote.Fx input;   // FX for the input token (Mitigation D baseline)
+        bytes32 volumeErr;      // non-zero OracleQuote error code when volume quote failed
+        bytes32 inputErr;       // non-zero OracleQuote error code when input quote failed
     }
 
+    /// @notice `LatencyMitigationApplied` reason: wallet has no score on-chain yet.
     bytes32 public constant REASON_SCORE_NEVER_WRITTEN = keccak256("SCORE_NEVER_WRITTEN");
+    /// @notice `LatencyMitigationApplied` reason: score is stale and there is activity in the current window.
     bytes32 public constant REASON_STALE_WITH_POOL_ACTIVITY = keccak256("STALE_WITH_POOL_ACTIVITY");
+    /// @notice `LatencyMitigationApplied` reason: pool-impact bps exceeded the configured threshold.
     bytes32 public constant REASON_POOL_IMPACT = keccak256("POOL_IMPACT");
+
+    /// @notice `MagnitudeQuoteFailed` reason: no Chainlink feed registered for the token.
     bytes32 public constant QUOTE_NO_FEED = OracleQuote.NO_FEED;
+    /// @notice `MagnitudeQuoteFailed` reason: live feed and cache both exceeded `maxPriceStaleness`.
     bytes32 public constant QUOTE_STALE_FEED = OracleQuote.STALE_FEED;
+    /// @notice `MagnitudeQuoteFailed` reason: feed returned a non-positive or malformed price.
     bytes32 public constant QUOTE_BAD_PRICE = OracleQuote.BAD_PRICE;
+    /// @notice `MagnitudeQuoteFailed` reason: USD window accumulator overflowed (quote-failure sentinel).
     bytes32 public constant QUOTE_WINDOW_FAILED = OracleQuote.WINDOW_FAILED;
 
+    /// @dev Full result passed from `_beginSwap` to `_endSwap` via transient storage (SwapCache).
     struct SwapEvaluation {
-        address wallet;
-        address token;
-        HookDecision decision;
-        uint24 feeBps;
-        IComplianceOracle.WalletRisk risk;
-        bool inflowTriggered;
-        OracleQuote.Fx volumeFx;
+        address wallet;                      // resolved compliance subject
+        address token;                       // input token (Mitigation D baseline)
+        HookDecision decision;               // ALLOW / FEE_OVERRIDE / REVERT
+        uint24 feeBps;                       // differential fee in bps (0 on ALLOW)
+        IComplianceOracle.WalletRisk risk;   // oracle snapshot at evaluation time
+        bool inflowTriggered;                // true when Mitigation D detected a significant inflow
+        OracleQuote.Fx volumeFx;             // FX quote cached for `_endSwap` activity recording
     }
 
+    /// @dev Intermediate signals gathered before calling `RiskPolicyLib.decide`.
     struct EvalSignals {
-        bool isStale;
-        uint32 operationCount;
-        bool hasSignificantInflow;
-        bool neverScored;
-        uint256 inflowShareBps;
-        uint256 assessedUsd;
-        uint256 inflowTokenDelta;
-        uint256 inflowUsd;
-        uint256 priorDailyUsd;
-        uint256 swapUsd;
+        bool isStale;               // score age exceeds `stalenessThreshold`
+        uint32 operationCount;      // ops in the current activity window
+        bool hasSignificantInflow;  // Mitigation D: inflow share exceeds `inflowThresholdBps`
+        bool neverScored;           // oracle `updatedAt == 0`
+        uint256 inflowShareBps;     // inflow fraction of current balance in bps
+        uint256 assessedUsd;        // USD value assessed for magnitude floors A/B
+        uint256 inflowTokenDelta;   // raw token units of the inflow (pre-USD conversion)
+        uint256 inflowUsd;          // USD value of the inflow (Mitigation D)
+        uint256 priorDailyUsd;      // daily rolling volume before this swap
+        uint256 swapUsd;            // USD value of this swap alone (daily aggregation check)
     }
 
-    /// @dev One memory pointer through `_evaluateCore`. Live path copies into `SwapEvaluation`.
+    /// @dev One memory pointer through `_evaluateCore`. Live path copies fields into `SwapEvaluation`.
     struct EvalFrame {
         HookDecision decision;
         uint24 feeBps;
@@ -76,6 +113,8 @@ abstract contract AmlHookLogic is AmlHookActivity {
         QuoteCtx q;
     }
 
+    /// @dev Resolves the compliance subject from `router` and runs the full live evaluation.
+    ///      Called in `beforeSwap`; the result is stored in transient storage for `afterSwap`.
     function _beginSwap(address router, address token, address volumeToken, uint256 amount, uint256 poolImpactBps)
         internal
         returns (SwapEvaluation memory eval)
@@ -89,12 +128,23 @@ abstract contract AmlHookLogic is AmlHookActivity {
         );
     }
 
+    /// @dev Records settled volume and updates the Mitigation D balance baseline.
+    ///      Called in `afterSwap` after the transient cache has been consumed.
     function _endSwap(SwapEvaluation memory eval, address volumeToken, uint256 settledAmount) internal {
         _recordActivity(eval.wallet, volumeToken, settledAmount, eval.volumeFx);
         _updateKnownBalance(eval.wallet, eval.token, eval.inflowTriggered);
         _emitSwapObserved(eval.wallet, eval.decision, eval.feeBps, eval.risk);
     }
 
+    /// @notice Off-chain preview of the compliance decision for a given wallet, token, and amount.
+    /// @dev Read-only: does not record activity, update baselines, or commit FX cache.
+    ///      Uses `poolImpactBps = 0` and `volumeToken = token`.
+    /// @param wallet  Compliance subject to evaluate.
+    /// @param token   Token being swapped (used as both input and volume token).
+    /// @param amount  Native token units of the swap.
+    /// @return decision ALLOW / FEE_OVERRIDE / REVERT.
+    /// @return feeBps   Override fee in bps (0 when decision is ALLOW or REVERT).
+    /// @return risk     Oracle snapshot used in the evaluation.
     function previewSwap(address wallet, address token, uint256 amount)
         external
         view
@@ -103,6 +153,15 @@ abstract contract AmlHookLogic is AmlHookActivity {
         return _evaluate(wallet, token, token, amount, 0);
     }
 
+    /// @notice Governor-triggered evaluation that also records activity and updates the baseline.
+    /// @dev Useful for off-chain-triggered compliance checks (e.g. manual review of a wallet).
+    ///      Uses `poolImpactBps = 0` and `settledAmount = 0`; no FX is committed from a zero amount.
+    /// @param wallet  Compliance subject.
+    /// @param token   Token to evaluate (used as both input and volume token).
+    /// @param amount  Hypothetical native-unit amount for signal gathering.
+    /// @return decision ALLOW / FEE_OVERRIDE / REVERT.
+    /// @return feeBps   Override fee in bps.
+    /// @return risk     Oracle snapshot used in the evaluation.
     function observeSwap(address wallet, address token, uint256 amount)
         external
         restricted
@@ -113,6 +172,11 @@ abstract contract AmlHookLogic is AmlHookActivity {
         return (eval.decision, eval.feeBps, eval.risk);
     }
 
+    /// @notice Force-refresh the Mitigation D balance baseline for `wallet` and `token`.
+    /// @dev Reverts when the stored baseline is newer than the oracle's last write and the balance
+    ///      has grown since — advancing the baseline would hide a pre-score inflow from the heuristic.
+    /// @param wallet Compliance subject whose baseline to refresh.
+    /// @param token  ERC-20 token to snapshot; address(0) or non-contract is a no-op.
     function syncBaseline(address wallet, address token) external restricted {
         if (token != address(0) && token.code.length != 0) {
             uint256 lastWriteTs = lastKnownBalanceTimestamp[wallet][token];

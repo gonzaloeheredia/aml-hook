@@ -5,27 +5,46 @@ import {IGnosisSafeOwners} from "../interfaces/external/IGnosisSafeOwners.sol";
 import {IMsgSender} from "../interfaces/external/IMsgSender.sol";
 import {ISanctionRegistry} from "../interfaces/registries/ISanctionRegistry.sol";
 
+/// @notice Owner-sanction aggregation rule for multisig wallets.
+///         `ALL_CLEAN` reverts if any owner is sanctioned; `ANY_CLEAN` reverts only if all are.
 enum MultisigAggregation {
     ALL_CLEAN,
     ANY_CLEAN
 }
 
+/// @notice Supported multisig contract types for owner enumeration.
 enum MultisigType {
-    NONE,
-    GNOSIS_SAFE
+    NONE,          // not a multisig (used as the revoke sentinel)
+    GNOSIS_SAFE    // Gnosis Safe — owners read via `getOwners()`
 }
 
+/// @notice Registry entry for a multisig account eligible to swap through the hook.
 struct TrustedMultisig {
-    bool trusted;
-    MultisigType kind;
+    bool trusted;     // false when the entry has been revoked
+    MultisigType kind; // contract type (NONE when not trusted)
 }
 
-/// @title §3.5 subject resolution — trusted router `msgSender()`, then optional Safe L1.
+/// @title WalletSubject — compliance subject resolution (whitepaper §3.5)
+/// @notice Resolves the true swap originator from a trusted router, with optional Gnosis Safe owner screening.
 library WalletSubject {
+    /// @notice Router is not in the trusted set, or subject resolution returned `address(0)`.
     error MissingSwapSubject();
+    /// @notice Trusted router's `msgSender()` call reverted or returned `address(0)`.
     error TrustedRouterSubjectFailed(address router);
+    /// @notice Subject wallet (or one of its Safe owners) is on the sanctions list.
     error SanctionHit(address wallet);
 
+    /// @notice Resolve the compliance subject for a swap routed through `router`.
+    /// @dev Resolution order:
+    ///      1. Require `router` to be trusted.
+    ///      2. Call `router.msgSender()` to get the underlying EOA or contract.
+    ///      3. If the result is a contract, require it to be a registered multisig and screen its owners.
+    /// @param router           The Uniswap v4 router that initiated the swap.
+    /// @param trustedRouters   Registry of approved router intermediaries.
+    /// @param trustedMultisigs Registry of approved multisig contracts with their type.
+    /// @param sanctionRegistry Layer 1 sanctions list used to screen owners.
+    /// @param aggregation      Owner-sanction aggregation policy (ALL_CLEAN / ANY_CLEAN).
+    /// @return wallet          Resolved compliance subject (EOA or multisig contract).
     function resolve(
         address router,
         mapping(address => bool) storage trustedRouters,
@@ -48,6 +67,14 @@ library WalletSubject {
         requireOwnersClean(wallet, ms.kind, sanctionRegistry, aggregation);
     }
 
+    /// @notice Screen the owners of a multisig `wallet` against the sanctions list.
+    /// @dev For `ALL_CLEAN`: reverts on the first sanctioned owner.
+    ///      For `ANY_CLEAN`: reverts only when every owner is sanctioned.
+    ///      Currently only `GNOSIS_SAFE` kind is supported; other kinds revert.
+    /// @param wallet       Multisig contract whose owners to screen.
+    /// @param kind         Multisig type (must be GNOSIS_SAFE).
+    /// @param sanctionRegistry Layer 1 sanctions list.
+    /// @param aggregation  Aggregation policy applied to the owner set.
     function requireOwnersClean(
         address wallet,
         MultisigType kind,

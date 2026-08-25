@@ -5,34 +5,51 @@ import {IAggregatorV3} from "../interfaces/external/IAggregatorV3.sol";
 import {IERC20Minimal} from "../interfaces/external/IERC20Minimal.sol";
 import {UsdQuote} from "./UsdQuote.sol";
 
-/// @title Chainlink USD-8 quotes for hook magnitude floors.
-/// @dev Skip the aggregator when `lastFx` is younger than `HOT_TTL` (30 minutes). Otherwise one
-///      `latestRoundData` per token; a usable live round is cached. If the live read fails, `lastFx`
-///      still sizes this swap until `maxPriceStaleness` (24h).
+/// @title OracleQuote — Chainlink USD-8 price resolution with hot-cache fallback
+/// @notice Provides USD quotes for token amounts used by the hook's magnitude floors.
+/// @dev Resolution order per token:
+///      1. Hot cache (`lastFx` age < `HOT_TTL` = 30 min) → return cached without calling Chainlink.
+///      2. Live Chainlink `latestRoundData` → cache if valid.
+///      3. Stale cache (`lastFx` age < `maxPriceStaleness` = 24h) → return as fallback.
+///      4. No usable data → return error code.
 library OracleQuote {
+    /// @dev Returned when no Chainlink feed is registered for a token.
     bytes32 internal constant NO_FEED = keccak256("NO_FEED");
+    /// @dev Returned when both the live feed and the fallback cache exceed `maxPriceStaleness`.
     bytes32 internal constant STALE_FEED = keccak256("STALE_FEED");
+    /// @dev Returned when the live feed returns a non-positive or malformed price.
     bytes32 internal constant BAD_PRICE = keccak256("BAD_PRICE");
+    /// @dev Sentinel stored in a USD window accumulator when a quote failure occurs mid-window.
     bytes32 internal constant WINDOW_FAILED = keccak256("WINDOW_FAILED");
+    /// @dev Cache age below which `lastFx` is used directly, skipping the Chainlink call.
     uint256 internal constant HOT_TTL = 30 minutes;
 
+    /// @dev Persistent storage layout for one cached FX round.
     struct CachedFx {
-        uint256 price;
-        uint64 quotedAt;
-        uint8 feedDecimals;
-        uint8 tokenDecimals;
+        uint256 price;       // raw Chainlink price (positive int256 cast to uint256)
+        uint64 quotedAt;     // `updatedAt` from the Chainlink round
+        uint8 feedDecimals;  // decimals of the Chainlink feed (e.g. 8 for USD feeds)
+        uint8 tokenDecimals; // decimals of the ERC-20 token (18 for native / no-code)
     }
 
+    /// @dev In-memory FX quote with provenance flags used for logging and conditional logic.
     struct Fx {
-        uint256 price;
-        uint64 quotedAt;
-        uint8 feedDecimals;
-        uint8 tokenDecimals;
-        bool fromCache;
-        bool stale;
+        uint256 price;       // raw Chainlink price
+        uint64 quotedAt;     // round timestamp
+        uint8 feedDecimals;  // feed decimal count
+        uint8 tokenDecimals; // token decimal count
+        bool fromCache;      // true when sourced from `lastFx` rather than a live round
+        bool stale;          // true when `quotedAt` is older than `priceStalenessThreshold`
     }
 
-    /// @dev Hot `lastFx` (< 30m) skips Chainlink. Else live round, else cache until 24h.
+    /// @notice Resolve a USD price for `token` using the three-tier cache strategy.
+    /// @param priceFeeds             Registered Chainlink feeds per token.
+    /// @param lastFx                 Hot cache of last-good rounds per token.
+    /// @param priceStalenessThreshold Max age (seconds) for a live round to be considered fresh.
+    /// @param maxPriceStaleness      Max age (seconds) for the fallback cache to be used.
+    /// @param token                  ERC-20 token to price.
+    /// @return fx  Resolved quote (zero-value when `err != 0`).
+    /// @return err Non-zero error code (one of NO_FEED / STALE_FEED / BAD_PRICE) on failure.
     function resolve(
         mapping(address => IAggregatorV3) storage priceFeeds,
         mapping(address => CachedFx) storage lastFx,
@@ -47,7 +64,8 @@ library OracleQuote {
         return _fromCache(cached, maxPriceStaleness, liveErr);
     }
 
-    /// @dev Persist a live round. Never writes a cache hit or a zero price.
+    /// @notice Persist a live Chainlink round to the `lastFx` hot cache.
+    /// @dev No-op when `fx.fromCache` is true (don't write a cache hit back) or `fx.price` is zero.
     function commit(mapping(address => CachedFx) storage lastFx, address token, Fx memory fx) internal {
         if (fx.fromCache || fx.price == 0) return;
         lastFx[token] = CachedFx({
@@ -58,16 +76,23 @@ library OracleQuote {
         });
     }
 
+    /// @notice Convert a native-unit `amount` to 8-decimal USD using the resolved quote.
+    /// @dev Returns 0 when the price or amount is zero (no revert — callers handle zero separately).
     function toUsd(Fx memory fx, uint256 amount) internal pure returns (uint256) {
         if (fx.price == 0 || amount == 0) return 0;
         return UsdQuote.toUsd8(amount, fx.tokenDecimals, fx.price, fx.feedDecimals);
     }
 
+    /// @notice Pack the non-price fields of `fx` into a single `uint256` for EIP-1153 transient storage.
+    /// @dev Layout (bits): tokenDecimals[0:8] | feedDecimals[8:16] | fromCache[16] | stale[17] | quotedAt[24:88].
     function pack(Fx memory fx) internal pure returns (uint256 p) {
         p = uint256(fx.tokenDecimals) | (uint256(fx.feedDecimals) << 8) | (uint256(fx.fromCache ? 1 : 0) << 16)
             | (uint256(fx.stale ? 1 : 0) << 17) | (uint256(fx.quotedAt) << 24);
     }
 
+    /// @notice Unpack a previously `pack`ed `uint256` back into an `Fx` struct.
+    /// @param price  The price field stored separately (full `uint256` precision).
+    /// @param packed The packed non-price fields from `pack`.
     function unpack(uint256 price, uint256 packed) internal pure returns (Fx memory fx) {
         fx.price = price;
         fx.tokenDecimals = uint8(packed);

@@ -21,10 +21,20 @@ import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/src/types/BeforeSwapDelta.sol";
 import {ModifyLiquidityParams, SwapParams} from "v4-core/src/types/PoolOperation.sol";
 
-/// @title AMLHook — Uniswap v4 callbacks only. Risk lives in AmlHookLogic / RiskPolicy.
+/// @title AmlHook — Uniswap v4 AML hook entry-point
+/// @notice Uniswap v4 callback shell that wires settlement, governance, and compliance logic.
+///         Risk evaluation lives in `AmlHookLogic` / `RiskPolicyLib`; fee custody in `AmlHookSettlement`.
 contract AmlHook is AmlHookSettlement, AmlHookLogic {
     using PoolIdLibrary for PoolKey;
 
+    /// @param poolManager_        Uniswap v4 PoolManager (passed to BaseHook).
+    /// @param accessManager_      OpenZeppelin AccessManager that governs role assignments.
+    /// @param sanctionRegistry_   Layer 1 sanctions list (fail-closed screen).
+    /// @param complianceOracle_   Layer 2 behavioral-score store written by the Oracle Keeper.
+    /// @param riskPolicy_         Layer 3 pure decision contract (preview / off-chain use).
+    /// @param feeEscrow_          48-hour escrow for FEE_OVERRIDE differentials; `address(0)` disables.
+    /// @param stalenessThreshold_ Seconds after which a score is considered stale; 0 → DEFAULT_STALENESS.
+    /// @param activityWindow_     Rolling window for operation-count and USD accumulators; 0 → DEFAULT_ACTIVITY_WINDOW.
     constructor(
         IPoolManager poolManager_,
         address accessManager_,
@@ -41,10 +51,18 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         )
     {}
 
+    /// @notice Governor grants or revokes a subject's right to reclaim a failed-deposit balance for `token`.
+    /// @dev Single-use approval consumed on `claimFailedDeposit` (M-02 fix).
+    /// @param wallet   Compliance subject (swap originator).
+    /// @param token    ERC-20 token of the stranded balance.
+    /// @param approved True to allow the claim; false to revoke.
     function approveFailedDepositRefund(address wallet, address token, bool approved) external restricted {
         _setFailedDepositRefundApproval(wallet, token, approved);
     }
 
+    /// @notice Returns the Uniswap v4 hook permission bitmap for this hook.
+    /// @dev Enables beforeAddLiquidity, beforeRemoveLiquidity, beforeSwap, afterSwap,
+    ///      afterSwapReturnDelta. All other flags are false.
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: false,
@@ -64,6 +82,7 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         });
     }
 
+    /// @dev Rejects paused hook and sanctioned senders; liquidity providers are not screened for risk score.
     function _beforeAddLiquidity(address sender, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
         internal
         view
@@ -75,6 +94,7 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         return this.beforeAddLiquidity.selector;
     }
 
+    /// @dev Always allowed — liquidity removal is never blocked (users must be able to exit).
     function _beforeRemoveLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
         internal
         view
@@ -84,6 +104,8 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         return this.beforeRemoveLiquidity.selector;
     }
 
+    /// @dev Resolves the compliance subject, runs the risk evaluation, and stores the result in
+    ///      transient storage so `_afterSwap` can read it without rerunning the oracle.
     function _beforeSwap(address sender, PoolKey calldata key, SwapParams calldata params, bytes calldata)
         internal
         override
@@ -94,6 +116,8 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
+    /// @dev Loads the transient evaluation, clears the cache, records activity, and takes the
+    ///      differential fee into escrow when the decision is FEE_OVERRIDE.
     function _afterSwap(
         address,
         PoolKey calldata key,
@@ -107,6 +131,7 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         return (this.afterSwap.selector, _maybeEscrow(ev, key, params, delta));
     }
 
+    /// @dev Unwraps pool currencies and pool-impact bps before forwarding to `_beginSwap`.
     function _beginSwapFromKey(address sender, PoolKey calldata key, SwapParams calldata params)
         private
         returns (SwapEvaluation memory)
@@ -120,6 +145,7 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         );
     }
 
+    /// @dev Records settled volume using the specified currency and its post-swap delta.
     function _finishSwap(
         SwapEvaluation memory ev,
         PoolKey calldata key,
@@ -129,17 +155,21 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         _endSwap(ev, SwapCurrencies.specifiedToken(key, params), SwapCurrencies.settledSpecified(key, params, delta));
     }
 
+    /// @dev Writes evaluation snapshot and FX rate into EIP-1153 transient storage for this pool.
     function _cacheStore(PoolKey calldata key, SwapEvaluation memory ev) private {
         SwapCache.store(key.toId(), ev.wallet, ev.token, ev.decision, ev.feeBps, ev.risk, ev.inflowTriggered);
         SwapCache.storeFx(key.toId(), ev.volumeFx.price, OracleQuote.pack(ev.volumeFx));
     }
 
+    /// @dev Reads the evaluation snapshot and FX rate from transient storage for this pool.
     function _cacheLoad(PoolKey calldata key) private view returns (SwapEvaluation memory ev) {
         (ev.wallet, ev.token, ev.decision, ev.feeBps, ev.risk, ev.inflowTriggered) = SwapCache.load(key.toId());
         (uint256 price, uint256 packed) = SwapCache.loadFx(key.toId());
         ev.volumeFx = OracleQuote.unpack(price, packed);
     }
 
+    /// @dev Takes the differential risk fee into FeeEscrow when all conditions are met:
+    ///      FEE_OVERRIDE decision, escrow configured, and non-zero feeBps.
     function _maybeEscrow(
         SwapEvaluation memory ev,
         PoolKey calldata key,

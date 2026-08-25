@@ -3,10 +3,30 @@ pragma solidity ^0.8.26;
 
 import {IERC20Minimal} from "../interfaces/external/IERC20Minimal.sol";
 
-/// @title Mitigation D — inbound token delta vs last-known baseline.
+/// @title Inflow — Mitigation D pre-swap inbound token delta detector
+/// @notice Compares the wallet's current ERC-20 balance against the last-known baseline to detect
+///         a significant inflow that may have arrived since the score was last written.
 library Inflow {
-    /// @dev Never-written score: the whole bag is inbound. Published score newer than baseline: skip.
-    ///      Share is a token-unit provisional; the hook overwrites with USD / current USD.
+    /// @notice Compute the inflow signal for `wallet` on `token`.
+    /// @dev Signal is skipped (returns false) when:
+    ///      - `token` is address(0) or has no code (native / non-ERC-20).
+    ///      - Current balance is zero.
+    ///      - Score was never written (`scoreUpdatedAt == 0`): returns the full balance as delta
+    ///        so the caller can apply a never-scored override; `hasSignificantInflow` is still false.
+    ///      - No baseline exists yet (`baselineTimestamp == 0`).
+    ///      - Score was written after the baseline (`scoreUpdatedAt > baselineTimestamp`):
+    ///        the oracle already accounts for the inflow; skip the heuristic.
+    ///      Share (`inflowShareBps`) is computed in token-native units here;
+    ///      `AmlHookLogic._fillUsd` overwrites it with the USD-denominated share.
+    /// @param wallet                   Compliance subject.
+    /// @param token                    ERC-20 token to inspect.
+    /// @param scoreUpdatedAt           `WalletRisk.updatedAt` from the oracle (0 = never written).
+    /// @param lastKnownBalance         Stored baselines per wallet per token.
+    /// @param lastKnownBalanceTimestamp Timestamps of stored baselines.
+    /// @param inflowThresholdBps       Bps above which the inflow is "significant".
+    /// @return hasSignificantInflow True when inflow share exceeds the threshold and the heuristic applies.
+    /// @return inflowShareBps       Inflow as a fraction of current balance (bps), or 0 when skipped.
+    /// @return inflowTokenDelta     Raw token units of the inflow (0 when heuristic is skipped).
     function signal(
         address wallet,
         address token,

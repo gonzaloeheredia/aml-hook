@@ -10,21 +10,26 @@ import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 import {PoolImpact} from "./PoolImpact.sol";
 
-/// @title Uniswap v4 swap currency / size helpers for the AML hook callbacks.
+/// @title SwapCurrencies — Uniswap v4 swap currency and size derivation helpers
+/// @notice Utility functions used by the AML hook to derive token addresses and amounts from
+///         the Uniswap v4 `PoolKey` and `SwapParams` structs.
 library SwapCurrencies {
     using PoolIdLibrary for PoolKey;
 
+    /// @notice Absolute value of a signed integer (safe for the int256 min is not used in v4 params).
     function abs(int256 amount) internal pure returns (uint256) {
         return amount < 0 ? uint256(-amount) : uint256(amount);
     }
 
-    /// @dev Input currency — Mitigation D baseline token.
+    /// @notice The token flowing into the pool from the swapper (Mitigation D baseline token).
+    /// @dev zeroForOne → currency0; else → currency1.
     function inputToken(PoolKey calldata key, SwapParams calldata params) internal pure returns (address) {
         Currency c = params.zeroForOne ? key.currency0 : key.currency1;
         return Currency.unwrap(c);
     }
 
-    /// @dev Currency of `amountSpecified`: input on exact-in, output on exact-out.
+    /// @notice The currency of `amountSpecified`: input token on exact-in, output token on exact-out.
+    /// @dev Used as the volume token for USD accumulation and FX caching.
     function specifiedToken(PoolKey calldata key, SwapParams calldata params) internal pure returns (address) {
         bool exactIn = params.amountSpecified < 0;
         Currency c = exactIn
@@ -33,7 +38,9 @@ library SwapCurrencies {
         return Currency.unwrap(c);
     }
 
-    /// @dev Specified amount vs active-tick virtual reserve (Floors A/B extra).
+    /// @notice Pool-impact of this swap in bps relative to the active-tick virtual reserve.
+    /// @dev Used by Floors A/B extra (unscored pool-drain and stale + pool-drain hardening).
+    ///      Virtual reserve is computed from `sqrtPriceX96` and `liquidity` via `PoolImpact`.
     function poolImpactBps(IPoolManager poolManager, PoolKey calldata key, SwapParams calldata params)
         internal
         view
@@ -47,7 +54,8 @@ library SwapCurrencies {
         return PoolImpact.impactBps(abs(params.amountSpecified), reserve);
     }
 
-    /// @dev Settled size of the specified currency after the swap (native units).
+    /// @notice Native-unit settled amount of the specified currency after the swap.
+    /// @dev Read from `delta` in `afterSwap`; used to record the actual volume (not the requested amount).
     function settledSpecified(PoolKey calldata, SwapParams calldata params, BalanceDelta delta)
         internal
         pure
