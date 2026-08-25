@@ -16,8 +16,8 @@ import {Roles} from "libraries/Roles.sol";
 import {Helpers, HookPoolManagerStub} from "test/utils/Helpers.t.sol";
 
 /// @notice AmlHook liquidity gate: sanctions + pause block new LP positions (`_beforeAddLiquidity`).
-///         LP exit (`_beforeRemoveLiquidity`) is always permitted — no sanction or pause gate.
-///         The LP subject is `sender` directly (no trusted router).
+///         LP exit (`_beforeRemoveLiquidity`) is sanctions-only: a listed wallet cannot extract
+///         capital; pause does not freeze a clean LP. The LP subject is `sender` (no trusted router).
 contract UnitAmlHookLiquidityTest is Helpers {
     PoolKey key;
     ModifyLiquidityParams addParams;
@@ -30,6 +30,10 @@ contract UnitAmlHookLiquidityTest is Helpers {
         complianceOracle = new ComplianceOracle(address(accessManager), _attestor());
         riskPolicy = new RiskPolicy();
         hook = _deployHook(accessManager, sanctionRegistry, complianceOracle, riskPolicy);
+
+        bytes4[] memory oracleSelectors = new bytes4[](1);
+        oracleSelectors[0] = ComplianceOracle.updateScore.selector;
+        _wireRole(accessManager, owner, address(complianceOracle), oracleSelectors, Roles._ORACLE_KEEPER, keeper);
 
         bytes4[] memory registrySelectors = new bytes4[](3);
         registrySelectors[0] = SanctionRegistry.setSanctioned.selector;
@@ -78,18 +82,39 @@ contract UnitAmlHookLiquidityTest is Helpers {
         assertEq(sel, hook.beforeRemoveLiquidity.selector);
     }
 
-    /// @dev H-2: a sanction must not freeze capital already in the pool.
-    function test_SanctionedWalletCanRemoveLiquidity() external {
+    /// @dev A listed wallet cannot extract LP capital (`SanctionHit`). Same Layer 1 as add.
+    function test_SanctionedWalletCannotRemoveLiquidity() external {
         _sanction(sanctionRegistry, keeper, walletB);
 
-        bytes4 sel =
-            manager.callBeforeRemoveLiquidity(IHooks(address(hook)), walletB, key, removeParams, "");
-        assertEq(sel, hook.beforeRemoveLiquidity.selector);
+        vm.expectRevert(abi.encodeWithSelector(AmlHookLogic.SanctionHit.selector, walletB));
+        manager.callBeforeRemoveLiquidity(IHooks(address(hook)), walletB, key, removeParams, "");
     }
 
     function test_DirectSenderCanRemoveLiquidityWithoutTrustedRouter() external {
         bytes4 sel =
             manager.callBeforeRemoveLiquidity(IHooks(address(hook)), router, key, removeParams, "");
+        assertEq(sel, hook.beforeRemoveLiquidity.selector);
+    }
+
+    /// @dev Score is swap-only. Wallet A (100, not OFAC-listed) can still extract LP.
+    function test_HighScoreWalletCanRemoveLiquidity() external {
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletA, 100, 0, walletA, 0, _scoreSig(walletA, 100, 0, walletA, 0));
+
+        bytes4 sel =
+            manager.callBeforeRemoveLiquidity(IHooks(address(hook)), walletA, key, removeParams, "");
+        assertEq(sel, hook.beforeRemoveLiquidity.selector);
+    }
+
+    /// @dev Delist is the unlock. Positions are not burned while the hit stands.
+    function test_DelistedWalletCanRemoveLiquidity() external {
+        _sanction(sanctionRegistry, keeper, walletB);
+
+        vm.prank(keeper);
+        sanctionRegistry.setSanctioned(walletB, false);
+
+        bytes4 sel =
+            manager.callBeforeRemoveLiquidity(IHooks(address(hook)), walletB, key, removeParams, "");
         assertEq(sel, hook.beforeRemoveLiquidity.selector);
     }
 
@@ -116,15 +141,15 @@ contract UnitAmlHookLiquidityTest is Helpers {
         assertEq(sel, hook.beforeRemoveLiquidity.selector);
     }
 
-    function test_PausedHookStillAllowsSanctionedRemoveLiquidity() external {
+    /// @dev Pause does not lift an OFAC/list hit. Remove still reverts `SanctionHit`.
+    function test_PausedHookStillBlocksSanctionedRemoveLiquidity() external {
         _sanction(sanctionRegistry, keeper, walletB);
 
         vm.prank(hookGovernor);
         hook.pause();
 
-        bytes4 sel =
-            manager.callBeforeRemoveLiquidity(IHooks(address(hook)), walletB, key, removeParams, "");
-        assertEq(sel, hook.beforeRemoveLiquidity.selector);
+        vm.expectRevert(abi.encodeWithSelector(AmlHookLogic.SanctionHit.selector, walletB));
+        manager.callBeforeRemoveLiquidity(IHooks(address(hook)), walletB, key, removeParams, "");
     }
 
     /// @dev pause() still stops the swap path.

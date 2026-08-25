@@ -49,7 +49,8 @@ do not apply TypeScript floors on the COA cache. The keeper writes when the
 decision tier or fee band changes, or when the last write is at least as old
 as Floor B (5 minutes). The publisher is signed RPC or it fails.
 That freshness stamp stops a stable clean wallet from looking stale. Floor B
-still bands swap USD (pass / 3% / 8%) if the keeper is late and the wallet already swapped in the hour.
+charges 3% on the first stale swap of the hour, then pass / 3% / 8% by swap+window
+USD if the keeper is late and the wallet already swapped in that hour.
 A wallet with `updatedAt == 0` is Mitigation A
 (unknown / Wallet E): the hook converts **this swap** to USD-8 (`lastFx` if
 younger than 30 minutes, else Chainlink; official ETH/USD + USDC/USD on a live Deploy; `MockUsdFeed` on Anvil), then

@@ -8,7 +8,7 @@ TypeScript API that talks to the local stack. It does not own the ledger. Balanc
 
 **FEE_OVERRIDE settlement:** the COA publishes `recommendedFeeBps` as total intended friction. A demo swap is `previewSwap` + `observeSwap` (activity / baseline / `SwapObserved`). On FEE_OVERRIDE the API mints the extra slice and calls `FeeEscrow.deposit`. That is not a live Uniswap `PoolManager` fill. A later clean exit goes to the LP compensation fund. A confirmed-illicit row is recovered to the compliance reserve only (whitepaper §8.3).
 
-The keeper writes when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band changes, **or** when the last write is at least as old as Floor B (`STALENESS_MS` = 5 minutes). That freshness stamp stops a stable clean wallet from looking stale. Floor B bands swap+window USD (pass / 3% / 8%) if the keeper is actually late and the wallet already swapped in the hour. `updateScore` is signed by Anvil **#9** (attestor) over `attestationHash`. An empty signature is rejected.
+The keeper writes when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band changes, **or** when the last write is at least as old as Floor B (`STALENESS_MS` = 5 minutes). That freshness stamp stops a stable clean wallet from looking stale. Floor B: stale + no swap yet this hour → 3%; stale + prior activity → pass / 3% / 8% by swap+window USD. `updateScore` is signed by Anvil **#9** (attestor) over `attestationHash`. An empty signature is rejected.
 
 ## What it replaces (conceptually)
 
@@ -99,13 +99,13 @@ curl http://localhost:4000/wallets/B/compliance
 ### Example — Wallet D inflow (clean C→D, no hop)
 
 ```bash
-# C still clean: credits D without a hop. Inflow vs last baseline → 8%.
+# C still clean: credits D without a hop. Inflow vs last baseline → 3%.
 curl -X POST http://localhost:4000/transfers ^
   -H "Content-Type: application/json" ^
   -d "{\"from\":\"C\",\"to\":\"D\",\"amountUsd\":10000}"
 
 curl http://localhost:4000/wallets/D/quote
-# → FEE_OVERRIDE · feeBps 800 · latencyMitigation INFLOW_HEURISTIC · hopDistance null
+# → FEE_OVERRIDE · feeBps 300 · latencyMitigation INFLOW_HEURISTIC · hopDistance null
 
 curl -X POST http://localhost:4000/swaps ^
   -H "Content-Type: application/json" ^

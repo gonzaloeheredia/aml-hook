@@ -25,7 +25,7 @@ script/                         test/unit/script/
 | `unit/registries/` | `SanctionRegistry` (fuzz + isolation + commit-reveal) |
 | `unit/libraries/` | `Roles` + `HookDecision` ordinals + `FeeBps` / `UsdQuote` / `PoolImpact` / `ChainlinkFeeds` / `UniversalRouters` (unit + fuzz). `SwapCache` EIP-1153 beforeSwap → afterSwap snapshot. `ChainlinkFeeds.t.sol` live quote if `MAINNET_RPC_URL` is set. |
 | `unit/script/` | `Deploy.sol` AccessManager wiring (four roles, officer 48h, Chainlink vs `MockUsdFeed`) |
-| `integration/` | Full stack evaluate path (A/B/C bands) plus compliance-officer retune of USD / floor fees. `AmlStack.Relations` covers L1→L2→L3→hook→FeeEscrow, role isolation, Floor B/C vs policy, and liquidity ignoring score. |
+| `integration/` | Full stack evaluate path (A/B/C bands) plus compliance-officer retune of USD / floor fees. `AmlStack.Relations` covers L1→L2→L3→hook→FeeEscrow, role isolation, Floor B/C vs policy. Liquidity ignores the score; add and remove still screen `SanctionRegistry`. |
 | `utils/` | Shared fixtures (`Helpers`, `HookPoolManagerStub`) |
 | `mocks/` | Test-only ERC-20s + `MockAggregatorV3` (Chainlink stand-in) |
 

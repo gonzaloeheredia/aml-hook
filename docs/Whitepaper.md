@@ -106,7 +106,7 @@ AML Hook is a modular compliance layer that runs as a Uniswap v4 hook. It checks
 
 On swaps it intercepts two moments: before the swap and after the swap. It screens the resolved end-user, reads a behavioral score, and decides whether the swap executes, pays an extra fee into escrow, or reverts. A reporting path then turns those decisions into an audit trail.
 
-Independently, it also intercepts liquidity add and remove. Those calls check the sanctions list only. A sanctioned wallet cannot add or remove liquidity. The behavioral score and the risk policy are not consulted on that path. The liquidity gate exists so LPs (liquidity providers) cannot use the pool to place or extract tainted capital. An emergency pause stops swap evaluation and leaves LP withdrawals open, so a pool-wide incident switch does not freeze every LP. The position stays in place. When the sanction is lifted, the same withdrawal succeeds.
+Independently, it also intercepts liquidity add and remove. Those calls check the sanctions list only. A wallet on the OFAC / Layer 1 list cannot add or remove liquidity. The behavioral score and the risk policy are not consulted on that path. The liquidity gate exists so LPs (liquidity providers) cannot use the pool to place or extract tainted capital. An emergency pause stops swap evaluation and new LP deposits; it leaves withdrawals open for a **clean** LP, so a pool-wide incident switch does not freeze every position. A listed wallet still cannot withdraw while the hit stands. When the sanction is lifted, the same withdrawal succeeds.
 
 ### 2.2 Objectives
 
@@ -116,7 +116,7 @@ Independently, it also intercepts liquidity add and remove. Those calls check th
 
 **Open the pool to institutional LPs.** Funds that cannot sit in anonymous pools get a venue where counterparties are evaluated on every swap. This matters most for RWA pools, where the underlying asset already carries transfer restrictions.
 
-**Keep LPs off the laundering path.** Two controls. A sanctioned wallet cannot add or remove liquidity, so the LP book itself is not a placement or extraction channel. The extra risk fee never lands in the pool as live LP yield. Paying LPs that slice on the same swap would pay them with funds that may still be illicit and would make those LPs instruments of money launderers. If Checkpoint 2 later confirms a sanction or illicit typology, that slice is recovered to a dedicated compliance reserve — never to the LP compensation fund, at any point.
+**Keep LPs off the laundering path.** Two controls. A wallet on the sanctions list cannot add or remove liquidity, so the LP book itself is not a placement or extraction channel. Pause is a different switch: it stops swaps and new deposits, and still lets a clean LP exit. The extra risk fee never lands in the pool as live LP yield. Paying LPs that slice on the same swap would pay them with funds that may still be illicit and would make those LPs instruments of money launderers. If Checkpoint 2 later confirms a sanction or illicit typology, that slice is recovered to a dedicated compliance reserve — never to the LP compensation fund, at any point.
 
 **Price intermediate risk and create a new revenue line.** The hook prices residual risk that the pool would otherwise absorb for free. The pool keeps its standard LP fee on every swap that executes. On a fee-override, only the extra risk slice goes to FeeEscrow (section 8.3). That differential is revenue for assuming the risk of letting a medium-risk swap settle. If the wallet is later confirmed clean, the slice is released as retroactive LP compensation. If a sanction or illicit typology is confirmed, the slice stays blocked in escrow for the audit file and is then recovered to the compliance reserve — never to LPs. Clean wallets pay the standard fee.
 
@@ -133,7 +133,7 @@ The hook evaluates the end-user of the swap. It reads that address from a truste
 
 ### 3.2 Four layers
 
-If one layer fails, the others still run.
+If Layer 1 hits, the swap (or LP add/remove) reverts and Layers 2–3 are not read. If Layer 1 is clear, Layers 2 and 3 still run even when the score is missing or stale — that is what the latency floors cover.
 
 | Layer | Name | Function |
 | --- | --- | --- |
@@ -149,14 +149,15 @@ Existing hooks are binary: allow or block. AML Hook has a third exit.
 | Score | Output | Why |
 | --- | --- | --- |
 | 0–30 | Allow at the standard fee | No sanctioned exposure, no anomalous pattern. |
-| 31–70 | Fee-override | Atypical behavior without a confirmed sanction. No legal duty to block. The pool keeps its standard fee. The extra slice goes to FeeEscrow for 48 hours. This is the on-chain form of enhanced due diligence. |
+| 31–54 (no keeper fee) | Fee-override at 3% | Atypical behavior without a confirmed sanction. |
+| 55–70 (no keeper fee) | Fee-override at 8% | Same band family; keeper may still send an explicit `feeBps`. |
 | 71–100 or OFAC | Revert | Confirmed exposure. No discretion. |
 
 Medium risk is the product difference. Regulatory practice for that band is monitoring and friction. The escrowed extra fee is that response, and it is also the hook's revenue for assuming residual risk. The slice does not go to LPs on that swap: paying them with still-suspect funds would make them instruments of money launderers. Later clean releases go to the LP compensation fund. A confirmed sanction is recovered to the compliance reserve, never to LPs. See section 8.3.
 
 **Score 31–70.** No legal duty to block. The duty is to monitor and report. Banks apply the same FATF risk-based approach: enhanced due diligence, automatic rejection only when the law requires it.
 
-**Sanctioned or score 71–100.** Unconditional block. Same outcome as a binary competitor.
+**Sanctioned or score 71–100.** Unconditional block **on swaps**. Same outcome as a binary competitor. Liquidity is list-only: a 71–100 wallet that is not on Layer 1 can still add and remove.
 
 When the keeper has not written, the score is stale, or a large inflow is still unpublished, those three bands are not enough. Section 8.4 lists the extra floors and every numeric threshold.
 
@@ -277,9 +278,11 @@ Yields of 8%–12% versus 4%–5% on Treasuries pay for the control. A pool that
 
 ## 7. Compliance Officer Agent
 
+This section is the **product idea** for a live officer. The in-repo code does not run that officer. Scores, typologies, and the Opinion / STR-shaped file are a **deterministic mock** (`apps/api/src/oracle/`: `virtualAgent.ts`, `factScoring.ts`, `report.ts`). There are no live LLM calls and no vendor APIs (OFAC SDN, Chainalysis, TRM, Elliptic, Forta, EAS, Hypernative).
+
 The hook number is the on-chain decision. The agent writes the file the operator keeps: why this swap was allowed, charged, or reverted.
 
-The in-repo demo ships that file as the Opinion / suspicious-operation pack (deterministic COA mock). A live LLM (Large Language Model) officer is a later swap-in with the same sections.
+The demo ships that file as the Opinion / suspicious-operation pack with the same sections a live LLM officer would fill later.
 
 A supervisor asks why transactions were blocked and wants a reasoned file. A raw count of reverts never answers that. The agent copies a human officer's process: observe, gather source-of-funds context, apply FATF / FinCEN typologies, test the legitimate hypothesis, conclude with a confidence, and write it down.
 
@@ -304,7 +307,7 @@ User → Router → PoolManager → AML Hook
                                  └─ Sanctions registry (liquidity path too)
 ```
 
-The hook is the Uniswap callback. On swaps it runs the three on-chain layers. On add/remove liquidity it only checks the sanctions list. A pause stops swaps and leaves LP exits open.
+The hook is the Uniswap callback. On swaps it **calls** `RiskPolicy.decide` (Layers 1–3: sanctions in the hook, then score + floors in the policy). On add liquidity it checks pause and the sanctions list. On remove liquidity it checks the sanctions list only: a listed wallet cannot extract LP capital; pause does not freeze a clean LP.
 
 **Who may write what**
 
@@ -313,7 +316,7 @@ Two authority boxes. Sanctions, the score store, and hook settings sit on a shar
 | Role | May | May not |
 | --- | --- | --- |
 | Admin | Grant and revoke the four operational roles | Write scores, sanctions, or escrow day to day |
-| Registry keeper | Add sanctions (commit, then reveal after one block); delist immediately | Publish scores, pause the hook, touch escrow |
+| Registry keeper | Add sanctions (`commitSanction`, then `revealSanction` after **10 blocks** minimum; emergency `setSanctioned` is immediate); delist immediately | Publish scores, pause the hook, touch escrow |
 | Oracle keeper | Submit a score update **with** a valid attestor signature | Sign the payload alone; write the sanctions list; move escrow |
 | Attestor | Sign the score payload (wallet, score, hop, origin, fee, time, chain) | Submit the transaction alone |
 | Hook governor | Operational thresholds (staleness, activity, daily window, inflow share), price feeds, trusted routers and multisigs, pause, attestor rotation, rate limit, reveal delay | Write scores, sanctions, or policy knobs (USD floors / floor fees / pool-impact) |
@@ -325,7 +328,7 @@ Two authority boxes. Sanctions, the score store, and hook settings sit on a shar
 
 Deploy requires admin, registry keeper, oracle keeper, hook governor, compliance officer, and attestor. The attestor cannot be zero and cannot collide with the governor or either keeper. The officer grant carries a 48-hour execution delay.
 
-A new sanction uses commit-reveal so the address is not visible in the mempool before the flag lands. Delisting is immediate.
+A new sanction uses commit-reveal (`MIN_REVEAL_DELAY` = 10 blocks) so the address is not visible in the mempool before the flag lands. Delisting is immediate. `setSanctioned` remains for emergencies.
 
 **What each contract does**
 
@@ -367,9 +370,7 @@ Owner screening on-chain is sanctions only. After owners pass, the subject remai
 
 ### 8.2 Reporting
 
-After each successful swap the hook emits a structured event: address, amount, time, score, decision, fee. When USD came from a heartbeat-stale live round or from `lastFx` after a failed live read (not the 30-minute hot cache), it also emits `PriceFallbackUsed`. The Graph indexes those events so operators can query by wallet or date.
-
-The reporting module and the Compliance Officer Agent (section 7) both read that index. For the UHI10 prototype, a local node log is enough to show the same decisions. Production uses The Graph. The jury evaluates the hook's decisions, not the indexer.
+After each successful swap the hook emits a structured event: address, amount, time, score, decision, fee. When USD came from a heartbeat-stale live round or from `lastFx` after a failed live read (not the 30-minute hot cache), it also emits `PriceFallbackUsed`. The UHI10 prototype indexes those events in the API in-memory log (`GET /events`). Production can point The Graph at the same ABI; the jury evaluates the hook's decisions, not the indexer.
 
 Reverted swaps do not keep those events. Index the error on the failed transaction instead.
 
@@ -405,7 +406,7 @@ The behavioral score is not computed during the swap. The engine runs off-chain.
 
 The hook treats a published score as stale once `updatedAt` is older than `stalenessThreshold`. The contract default is 5 minutes — long enough that a retail keeper writing every 3–5 minutes does not look stale between honest writes. The hook governor retunes it per pool (`setStalenessThreshold`, 1 second to 24 hours). Busy institutional pools that write every 30–60 seconds can tighten to 120 seconds. Do not set below ~120 seconds: validators can nudge `block.timestamp`.
 
-Sanctions writes are event-driven. A new hit uses commit-reveal (one extra block) so the address is not leaked in the mempool. Delisting is a single call.
+Sanctions writes are event-driven. A new hit uses commit-reveal (minimum **10 blocks**; the governor may raise `revealDelay`, not lower it). Delisting is a single call. `setSanctioned` is the emergency path.
 
 A structural gap remains. If a transfer changes risk and the keeper has not written yet, the next swap can read a stale or missing score. The hook therefore keeps a little pool-local state and passes derived signals into the policy: stale, operation count, significant inflow, never scored, assessed USD, inbound USD. The policy stays a pure mapping. USD quotes happen in the hook before the decision.
 
@@ -415,7 +416,7 @@ A single table replaces every condition that determines a swap's outcome: the pu
 
 | Condition | Layer / floor | Outcome | Fee |
 | --- | --- | --- | --- |
-| Address on the sanctions list | Layer 1 | REVERT | `SanctionHit` |
+| Address on the sanctions list | Layer 1 | REVERT | `SanctionHit` (swaps, LP add, and LP remove) |
 | Published score 0–30, fresh, no active floor | Score band | ALLOW | Pool standard, 0.30% |
 | Published score 31–54 (keeper omitted an explicit fee) | Score band | FEE_OVERRIDE | 3% (~2 hops) |
 | Published score 55–70 (keeper omitted an explicit fee) | Score band | FEE_OVERRIDE | 8% (~1 hop) |
@@ -423,7 +424,8 @@ A single table replaces every condition that determines a swap's outcome: the pu
 | Wallet never written (unknown), assessed USD < $1,000 | Floor A | FEE_OVERRIDE | 3% (8% if the swap is more than 20% of the pool's active liquidity) |
 | Wallet never written, assessed USD $1,000–$14,999 | Floor A mid | FEE_OVERRIDE | 8% (REVERT if the swap is more than 20% of the pool's active liquidity) |
 | Wallet never written, this swap ≥ $15,000 | Floor A large | REVERT | Blocked by magnitude |
-| Score older than `stalenessThreshold` (default 5 minutes) **and** ≥1 swap in the hour, assessed USD (this swap + hour) under $1,000 | Floor B dust | ALLOW | Pool standard, 0.30% (3% if the swap is more than 20% of the pool) |
+| Score older than `stalenessThreshold` (default 5 minutes), **0** swaps in the hour | Floor B first | FEE_OVERRIDE | 3% (8% if the swap is more than 20% of the pool) |
+| Score older than `stalenessThreshold` **and** ≥1 swap in the hour, assessed USD (this swap + hour) under $1,000 | Floor B dust | ALLOW | Pool standard, 0.30% (3% if the swap is more than 20% of the pool) |
 | Same Floor B trigger, assessed USD $1,000–$14,999 | Floor B mid | FEE_OVERRIDE | 3% (8% if the swap is more than 20% of the pool) |
 | Same Floor B trigger, assessed USD ≥ $15,000 | Floor B large | FEE_OVERRIDE | 8% (pool-impact extra does not raise this further) |
 | Prior 24h USD > 0 and prior + this swap ≥ $15,000 (any wallet) | Floor C | REVERT | `DailyAggregationBlocked` |
@@ -437,7 +439,7 @@ Notes on reading the table:
 - A published score of 0 (Wallet D in the use case) and a wallet that was never written (Wallet E) are different rows. Floor A no longer applies once a score exists, even if that score is 0. Floor D **does** apply to a never-written wallet: with no baseline the current input-token bag is inbound (pass / 3% / 8%). The stricter of A (swap size) and D (bag) wins. A may still revert on swap size or on a high pool-impact mid-band swap. Demo E starts empty; clean C funds it (no hop). Do not fund E from A (exploit origin / score 100).
 - Floor B and Floor D never revert. Floor A large reverts on this swap. Floor C reverts when several swaps in 24 hours cross $15,000. B and D use the same USD cuts as A ($1,000 / $15,000) but map them to pass / 3% / 8%. B's 20% pool-impact extra hardens the fee band and stops at 8%. D has no pool-impact extra.
 - None of these floors soften a score-band revert, or a fee-override already set by the score.
-- A working price feed is not needed when the wallet is published-clean, has no new inflow to quantify, and Floor B is not armed. When a quote is required, the hook uses `lastFx` if that round is younger than 30 minutes (`FX_HOT_TTL`) and does not call Chainlink. Otherwise it reads the feed once per token and reuses that price for every amount in the swap (ticket, inbound, bag, settled size, window add). A heartbeat-stale live round is still a price: it is used and stored. An unbound or reverting feed uses `lastFx` until 24 hours. `PriceFallbackUsed` records heartbeat-stale live rounds and the 24-hour cache path, not the 30-minute hot cache.
+- A working price feed is not needed when the wallet is published-clean, has no new inflow to quantify, and Floor B is not sizing a window (the first stale swap of the hour charges 3% without a quote). When a quote is required, the hook uses `lastFx` if that round is younger than 30 minutes (`FX_HOT_TTL`) and does not call Chainlink. Otherwise it reads the feed once per token and reuses that price for every amount in the swap (ticket, inbound, bag, settled size, window add). A heartbeat-stale live round is still a price: it is used and stored. An unbound or reverting feed uses `lastFx` until 24 hours. `PriceFallbackUsed` records heartbeat-stale live rounds and the 24-hour cache path, not the 30-minute hot cache.
 
 **How the USD thresholds are computed.** Figures use 8 decimals. The pool's base fee on an executing swap is always 0.30%. When the override is higher, escrow holds the difference. The compliance officer retunes the USD floors, floor fees, and pool-impact cut named in the "Who retunes what" table below (48-hour delay). Score cuts 31 / 55 / 71 and `MAX_OVERRIDE` stay fixed in the policy.
 
@@ -453,9 +455,9 @@ The $15,000 cut is Recommendation 10's general occasional-transaction CDD floor 
 
 The 20% pool-impact extra is not a FATF figure. It follows the risk-based approach: institutions must consider all relevant risk factors, including product, service, transaction, and delivery-channel factors (Interpretive Note to Recommendation 10). Liquidity concentration in a pool is a DEX-specific factor with no direct banking equivalent, so it stays a compliance-officer parameter, not a fixed legal number.
 
-**B — Stale score, wallet already active.** A stale low score plus recent pool activity arms the floor. Size of this swap plus the hour window then decides: under $1,000 → pass; $1,000–$14,999 → 3%; $15,000 or more → 8%. If the same swap takes more than 20% of the pool, the band hardens (pass → 3%, 3% → 8%) and stops at 8%. B never reverts. The first swap in the hour does not arm this floor (`operationCount` is still 0). The floor turns off when the hour resets or when a new `updateScore` moves `updatedAt`.
+**B — Stale score.** A published score older than `stalenessThreshold` arms Floor B. If this is the first swap of the hour (`operationCount == 0`), the policy charges 3% (8% if the swap is more than 20% of the pool). If the wallet already swapped in the hour, size of this swap plus the hour window then decides: under $1,000 → pass; $1,000–$14,999 → 3%; $15,000 or more → 8%. If that same swap takes more than 20% of the pool, the band hardens (pass → 3%, 3% → 8%) and stops at 8%. B never reverts. The floor turns off when the hour resets or when a new `updateScore` moves `updatedAt`.
 
-The arming condition — a score that exists but was not refreshed, and a wallet that came back to the pool — sits on Recommendation 10(d): institutions must conduct ongoing due diligence on the business relationship, including scrutiny of transactions throughout that relationship. Recommendation 10, paragraph 23, adds that CDD information must be kept up to date, particularly for higher-risk categories.
+The arming condition — a score that exists but was not refreshed — sits on Recommendation 10(d): institutions must conduct ongoing due diligence on the business relationship, including scrutiny of transactions throughout that relationship. Recommendation 10, paragraph 23, adds that CDD information must be kept up to date, particularly for higher-risk categories. The first stale swap of the hour is already friction (3%); later swaps in the same hour are sized by USD.
 
 The same $1,000 / $15,000 cuts apply, but the outcome never reaches a hard block. The wallet already has a favourable oracle write, even if stale. Blocking on that basis would be disproportionate friction against a relationship already assessed. The 20% extra accelerates the band the same way as in A; the ceiling of this floor remains 8% so B stays internally consistent.
 
@@ -534,7 +536,7 @@ Recommendation 1's description of the risk-based approach requires that policies
 
 **Residual risk — price oracle.** Unknown-wallet size, Floor B once armed, and Floor D depend on USD-8. If `lastFx` is younger than 30 minutes (`FX_HOT_TTL`), the swap does not call Chainlink and sizes the ticket from that cache. Otherwise it reads the feed once per token and stores a usable round. A halted aggregator or an unbound feed does not immediately over-block: the last cached price (up to 24 hours, `MAX_PRICE_STALENESS`) still sizes this ticket. Those windows can under-count USD after a sharp move, so Floor A and Floor C may look smaller than spot. After 24 hours with no usable live round the path fail-closes (`MagnitudeQuoteFailed`). Deploy binds official Chainlink ETH/USD and USDC/USD. The governor binds extra tokens and keeps `priceStalenessThreshold` at or above the feed heartbeat (that knob flags stale live rounds in `PriceFallbackUsed`; it does not by itself revert).
 
-**Residual risk — Floor B.** If the keeper is down or slower than `stalenessThreshold`, a published-clean wallet that already swapped in the hour is banded by swap+window USD (pass / 3% / 8%) until a write lands. That is intended friction under a lagging clock, not a contamination finding. Once armed, B sizes that USD from `lastFx` when it is younger than 30 minutes, else from the live Chainlink round, else from `lastFx` until 24 hours. It fail-closes only when none of those are available. The freshness write (same score, new timestamp) is what stops a healthy keeper from looking late. The oracle allows 24 `updateScore`s per wallet per hour so a 5-minute stamp plus a few real tier changes fit.
+**Residual risk — Floor B.** If the keeper is down or slower than `stalenessThreshold`, a published-clean wallet pays friction until a write lands: 3% on the first swap of the hour, then pass / 3% / 8% by swap+window USD once it has already swapped in that hour. That is intended lag, not a contamination finding. Once the hour has activity, B sizes USD from `lastFx` when it is younger than 30 minutes, else from the live Chainlink round, else from `lastFx` until 24 hours. It fail-closes only when none of those are available. The freshness write (same score, new timestamp) is what stops a healthy keeper from looking late. The oracle allows 24 `updateScore`s per wallet per hour so a 5-minute stamp plus a few real tier changes fit.
 
 **Residual risk — Floor C.** The 24-hour window is a BSA CTR analogy, not a FATF number. A venue that already identifies counterparties may widen it; one that does not should treat 24 hours as a conservative default until that review is complete. A first $15,000 ticket of the day is not C.
 
@@ -546,7 +548,7 @@ Uniswap v4 puts every pool in one PoolManager. That single execution point is wh
 2. **Lock.** The router unlocks the PoolManager.
 3. **Swap call.** Inside the lock the router calls swap. Direction and size matter for later USD quotes. Hook data is ignored as identity.
 4. **Hook bits.** The pool key carries the hook address. AML Hook needs before-swap, after-swap, after-swap return-delta (so it can take the extra fee without rewriting the LP fee), and the two liquidity gates.
-5. **Before the swap.** Resolve the end-user from a trusted router. Sanction match → revert. Else read the score, derive latency signals, quote USD (`lastFx` if younger than 30 minutes, else Chainlink once per token), decide. Unknown wallet: 3% / 8% / revert by this swap. Published clean with inbound or a stale score plus prior activity: pass / 3% / 8% by USD (B and D do not revert). High score → revert. Floor C (24-hour sum crossing $15,000) → revert. Medium score → continue at the standard pool fee and remember the override. Low score, fresh write, no floor → continue at 0.30%.
+5. **Before the swap.** Resolve the end-user from a trusted router. Sanction match → revert. Else read the score, derive latency signals, quote USD (`lastFx` if younger than 30 minutes, else Chainlink once per token), decide via `RiskPolicy.decide`. Unknown wallet: 3% / 8% / revert by this swap. Published clean with inbound, a stale first swap of the hour (3%), or a stale score plus prior activity: pass / 3% / 8% by USD (B and D do not revert). High score → revert. Floor C (24-hour sum crossing $15,000) → revert. Medium score → continue at the standard pool fee and remember the override. Low score, fresh write, no floor → continue at 0.30%.
 6. **Pool math.** Ticks, price, output. Tokens have not moved yet.
 7. **After the swap.** Update activity and the USD window, refresh the last balance, emit the audit event. On fee-override, take the extra slice into escrow. A failed deposit does not unwind the swap.
 8. **Settle.** The router pays and withdraws, or leaves a credit in the PoolManager.
@@ -557,9 +559,11 @@ The hook touches two of those ten steps: 5 and 7. The rest is a normal Uniswap v
 
 ### 8.6 Tooling
 
+Section 7 is the product idea for the officer. This subsection lists the **intended** production sources. The UHI10 code path does not call them: the COA is the deterministic mock in `apps/api/src/oracle/`. Layer 1 at execution is `SanctionRegistry` (keeper-written). Layer 2 is `ComplianceOracle` (keeper + attestor). USD magnitude uses Chainlink (or `MockUsdFeed` on Anvil).
+
 #### 8.6.1 Signals
 
-The oracle is a weighted aggregator. Each source contributes by reliability.
+The production oracle is designed as a weighted aggregator. Each source would contribute by reliability. None of these HTTP/vendor feeds are wired in this repo.
 
 | Source | Role | Type |
 | --- | --- | --- |
@@ -599,7 +603,7 @@ Identity sits outside the current oracle surface. The hook reads sanctions and t
 
 Production: Chainlink Functions / CCIP (Cross-Chain Interoperability Protocol), or an equivalent signed job. Prototype: a server signs with a dedicated attestor key. The oracle keeper submits the transaction. The governor rotates the attestor.
 
-The Graph is the reporting side. The prototype can replace it with a local log. The jury scores the decision, not the indexer.
+The Graph can be the production reporting side. The prototype uses the API event log (`GET /events`). The jury scores the decision, not the indexer.
 
 #### 8.6.5 Community reports (later)
 

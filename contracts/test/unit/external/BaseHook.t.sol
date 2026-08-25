@@ -34,7 +34,7 @@ contract UnitBaseHookTest is Helpers {
         riskPolicy = new RiskPolicy();
 
         // Concrete AmlHook: PoolManager gating + unimplemented lifecycle stubs
-        // (liquidity callbacks ARE implemented: add screens sender, remove always succeeds).
+        // (liquidity callbacks ARE implemented: add and remove screen sender for sanctions).
         hook = _deployHook(accessManager, sanctionRegistry, complianceOracle, riskPolicy);
 
         // Bare hook: default `_beforeSwap` / `_afterSwap` → HookNotImplemented.
