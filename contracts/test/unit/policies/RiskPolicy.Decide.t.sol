@@ -2,7 +2,9 @@
 pragma solidity ^0.8.26;
 
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
+import {IRiskPolicy} from "interfaces/policies/IRiskPolicy.sol";
 import {HookDecision} from "libraries/HookDecision.sol";
+import {RiskPolicyLib} from "libraries/RiskPolicyLib.sol";
 import {Helpers} from "test/utils/Helpers.t.sol";
 
 contract UnitRiskPolicyDecideTest is Helpers {
@@ -61,6 +63,15 @@ contract UnitRiskPolicyDecideTest is Helpers {
     function test_AcceptsMaxOverrideFee() external view {
         (, uint24 fee) = _dec(_in(50, 1000));
         assertEq(fee, 1000);
+    }
+
+    function test_WrapperMatchesLibrary() external view {
+        IRiskPolicy.DecisionInput memory i = _in(42, 300);
+        IRiskPolicy.DecisionResult memory viaLib = RiskPolicyLib.decide(i);
+        IRiskPolicy.DecisionResult memory viaContract = riskPolicy.decide(i);
+        assertEq(uint8(viaLib.decision), uint8(viaContract.decision));
+        assertEq(viaLib.feeBps, viaContract.feeBps);
+        assertEq(uint8(viaLib.revertKind), uint8(viaContract.revertKind));
     }
 
     function test_Constants() external view {

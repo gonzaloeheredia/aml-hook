@@ -38,20 +38,6 @@ interface IRiskPolicy {
     }
 
     /// @notice Single mapping for score bands plus floors A–D (USD, pool-impact extra, daily aggregation).
+    /// @dev Off-chain preview. The swap hot path calls `RiskPolicyLib.decide` (one memory pointer, no CALL).
     function decide(DecisionInput calldata input) external pure returns (DecisionResult memory);
-
-    /// @notice Same mapping as `decide`, without ABI-encoding the 15-field struct.
-    /// @dev `packed` is `DecisionPack.pack`. Remaining args are the uint256 floor fields.
-    ///      Exists so `forge coverage` (no via_ir) can compile the hook and tests.
-    function decidePacked(
-        uint256 packed,
-        uint256 assessedUsd,
-        uint256 inflowUsd,
-        uint256 unscoredFeeThreshold,
-        uint256 unscoredRevertThreshold,
-        uint256 poolImpactBps,
-        uint256 poolImpactThresholdBps,
-        uint256 priorDailyUsd,
-        uint256 swapUsd
-    ) external pure returns (DecisionResult memory);
 }

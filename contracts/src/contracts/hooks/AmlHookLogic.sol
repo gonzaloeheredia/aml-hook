@@ -9,10 +9,10 @@ import {IERC20Minimal} from "../../interfaces/external/IERC20Minimal.sol";
 import {HookDecision} from "../../libraries/HookDecision.sol";
 import {Inflow} from "../../libraries/Inflow.sol";
 import {OracleQuote} from "../../libraries/OracleQuote.sol";
-import {DecisionPack} from "../../libraries/DecisionPack.sol";
+import {RiskPolicyLib} from "../../libraries/RiskPolicyLib.sol";
 import {WalletSubject} from "../../libraries/WalletSubject.sol";
 
-/// @title beforeSwap / afterSwap compliance: resolve subject, gather signals, call RiskPolicy.
+/// @title beforeSwap / afterSwap compliance: resolve subject, gather signals, RiskPolicyLib.decide.
 abstract contract AmlHookLogic is AmlHookActivity {
     error WalletBlocked(address wallet, uint8 score, string reason);
     error SanctionHit(address wallet);
@@ -162,7 +162,7 @@ abstract contract AmlHookLogic is AmlHookActivity {
         _requireNotSanctioned(wallet);
         risk = complianceOracle.getRisk(wallet);
         signals = _gather(wallet, token, volumeToken, amount, risk);
-        IRiskPolicy.DecisionResult memory result = _callPolicy(_toInput(risk, signals, poolImpactBps));
+        IRiskPolicy.DecisionResult memory result = RiskPolicyLib.decide(_toInput(risk, signals, poolImpactBps));
         _revertBlocked(wallet, risk, signals, poolImpactBps, result);
         return (result.decision, result.feeBps, risk, signals);
     }
@@ -257,48 +257,6 @@ abstract contract AmlHookLogic is AmlHookActivity {
         i.poolImpactThresholdBps = poolImpactThresholdBps;
         i.priorDailyUsd = signals.priorDailyUsd;
         i.swapUsd = signals.swapUsd;
-    }
-
-    function _callPolicy(IRiskPolicy.DecisionInput memory input)
-        private
-        view
-        returns (IRiskPolicy.DecisionResult memory)
-    {
-        return _callPacked(
-            DecisionPack.pack(input),
-            input.assessedUsd,
-            input.inflowUsd,
-            input.unscoredFeeThreshold,
-            input.unscoredRevertThreshold,
-            input.poolImpactBps,
-            input.poolImpactThresholdBps,
-            input.priorDailyUsd,
-            input.swapUsd
-        );
-    }
-
-    function _callPacked(
-        uint256 packed,
-        uint256 assessedUsd,
-        uint256 inflowUsd,
-        uint256 unscoredFeeThreshold,
-        uint256 unscoredRevertThreshold,
-        uint256 poolImpactBps,
-        uint256 poolImpactThresholdBps,
-        uint256 priorDailyUsd,
-        uint256 swapUsd
-    ) private view returns (IRiskPolicy.DecisionResult memory) {
-        return riskPolicy.decidePacked(
-            packed,
-            assessedUsd,
-            inflowUsd,
-            unscoredFeeThreshold,
-            unscoredRevertThreshold,
-            poolImpactBps,
-            poolImpactThresholdBps,
-            priorDailyUsd,
-            swapUsd
-        );
     }
 
     function _revertBlocked(

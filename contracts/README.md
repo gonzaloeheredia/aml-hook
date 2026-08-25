@@ -15,7 +15,7 @@ contracts/
 │   │   ├── escrow/           FeeEscrow
 │   │   └── external/         (third-party adapters live under lib/; no local BaseHook)
 │   ├── interfaces/           Same role subfolders (hooks/oracles/… + external/)
-│   └── libraries/            HookDecision · Roles · FeeBps · UsdQuote · ChainlinkFeeds
+│   └── libraries/            RiskPolicyLib · HookDecision · Roles · FeeBps · UsdQuote · ChainlinkFeeds
 ├── test/
 │   ├── unit/<role>/          Mirrors src/contracts (+ by function when needed)
 │   ├── unit/script/          Deploy.t.sol (AccessManager wiring)
@@ -37,7 +37,7 @@ User → Router → PoolManager → AmlHook          (Uniswap callbacks only)
                                  ├─ AmlHookSettlement  take / approve / FeeEscrow.deposit
                                  ├─ SanctionRegistry (L1)
                                  ├─ ComplianceOracle (L2)  ← updateScore (oracle keeper + attestor sig)
-                                 └─ RiskPolicy (L3)        ← score + latency floors + never-scored USD 3%/8%/REVERT
+                                 └─ RiskPolicyLib (L3)     ← JUMP: score + floors A–D. RiskPolicy is the preview wrapper.
 ```
 
 | Contract | Role |
@@ -45,7 +45,7 @@ User → Router → PoolManager → AmlHook          (Uniswap callbacks only)
 | **AccessManager** | Shared OpenZeppelin authority (`Roles`: registry / oracle keepers, hook governor, compliance officer). Admin grants/revokes those roles. |
 | **SanctionRegistry** | Sanctions hit → REVERT before score. New hits: `commitSanction` + `revealSanction`. `setSanctioned` remains for emergencies. |
 | **ComplianceOracle** | Score / hop / origin / `feeBps` / `updatedAt`. `_ORACLE_KEEPER` submits `updateScore`; a distinct **attestor** ECDSA-signs `attestationHash` (wallet, score, hop, origin, feeBps, updatedAt, chainid). Missing hop/origin in the sig is rejected. |
-| **RiskPolicy** | Ternary bands + §8.4 floors (stale+activity, significant inflow) + never-scored USD bands (3% / 8% / REVERT at $1,000 / $15,000). Pure — no Chainlink call. |
+| **RiskPolicy** | Layer 3 deploy artifact. Off-chain `decide` preview. The swap hot path jumps into `RiskPolicyLib` (one memory pointer, no CALL). Same mapping: ternary bands + §8.4 floors + never-scored USD bands (3% / 8% / REVERT at $1,000 / $15,000). Pure — no Chainlink call. |
 | **AmlHook** | Uniswap callbacks only. Must call `_beginSwap` then `_endSwap` in that order. |
 | **AmlHookLogic** | Subject resolve, L1→L3, mitigations A–D, Chainlink USD-8 quotes (`priceFeeds`). `_HOOK_GOVERNOR` retunes operational knobs, feeds, and Mitigation C (`setActivityWindow`). `_COMPLIANCE_OFFICER` proposes / confirms USD floors, floor fees, and the pool-impact cut (48h delay). Neither invents scores. |
 | **AmlHookSettlement** | Differential take + escrow deposit / `failedDeposits` / claim / retry. Does not decide risk. |
@@ -131,6 +131,16 @@ forge install OpenZeppelin/openzeppelin-contracts --no-git --shallow
 forge build
 forge test
 ```
+
+Coverage (Foundry 1.7 turns off `--via-ir --optimize`; `--ir-minimum` is the escape). Scope is `src/` minus `lib/` and `script/`. The Uniswap v4 callback wrapper (`AmlHook.sol`) is proven with `forge test` (IR) and is excluded from lcov — BaseHook / v4 types, not product logic. `AmlHookLogic` is covered via `AmlHookHarness`.
+
+```bash
+forge coverage --ir-minimum --offline --exclude-tests \
+  --no-match-coverage '(script/|lib/|src/contracts/hooks/AmlHook\.sol)' \
+  --report summary --report lcov
+```
+
+Production compile is unchanged: `via_ir = true`, `optimizer_runs = 200`.
 
 Focused latency / policy / deploy tests:
 

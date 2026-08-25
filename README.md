@@ -60,7 +60,7 @@ User → trusted router → PoolManager → AmlHook
                                          ├─ AmlHookSettlement   differential → FeeEscrow
                                          ├─ SanctionRegistry    Layer 1
                                          ├─ ComplianceOracle    Layer 2  ← keeper + attestor
-                                         └─ RiskPolicy          Layer 3  (pure)
+                                         └─ RiskPolicyLib       Layer 3  (JUMP; RiskPolicy is the preview wrapper)
 ```
 
 | Contract | Responsibility |
@@ -70,7 +70,7 @@ User → trusted router → PoolManager → AmlHook
 | `AmlHookSettlement` | Take the fee differential. Does not decide risk |
 | `SanctionRegistry` | Static list. New hits are commit-reveal |
 | `ComplianceOracle` | Stored score, hop, origin, fee, timestamp |
-| `RiskPolicy` | Score + floors → decision. No external calls |
+| `RiskPolicy` / `RiskPolicyLib` | Score + floors → decision. Hook jumps the library. Contract is off-chain preview. No external calls |
 | `FeeEscrow` | 48h hold of the extra fee. Clean / early / default → LP compensation fund. Confirmed illicit → compliance reserve. Own access list |
 | `AccessManager` | Shared authority for registry, oracle, hook governor, and compliance officer |
 

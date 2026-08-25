@@ -24,6 +24,8 @@ contracts/cache/
 contracts/out/
 contracts/broadcast/
 contracts/lib/
+contracts/lcov.info
+contracts/coverage.json
 # Keep official BaseHook (missing from published v4-periphery 1.0.4 tree used locally).
 !contracts/lib/v4-periphery/
 !contracts/lib/v4-periphery/src/

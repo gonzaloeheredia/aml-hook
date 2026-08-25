@@ -22,7 +22,6 @@ import {SanctionRegistry} from "contracts/registries/SanctionRegistry.sol";
 import {IFeeEscrow} from "interfaces/escrow/IFeeEscrow.sol";
 import {IRiskPolicy} from "interfaces/policies/IRiskPolicy.sol";
 import {HookDecision} from "libraries/HookDecision.sol";
-import {DecisionPack} from "libraries/DecisionPack.sol";
 import {Roles} from "libraries/Roles.sol";
 import {MockTrustedRouter} from "../../script/mocks/MockTrustedRouter.sol";
 import {MockAggregatorV3} from "test/mocks/MockAggregatorV3.sol";
@@ -361,17 +360,7 @@ contract Helpers is Test {
     }
 
     function _policy(IRiskPolicy.DecisionInput memory i) internal view returns (IRiskPolicy.DecisionResult memory) {
-        return riskPolicy.decidePacked(
-            DecisionPack.pack(i),
-            i.assessedUsd,
-            i.inflowUsd,
-            i.unscoredFeeThreshold,
-            i.unscoredRevertThreshold,
-            i.poolImpactBps,
-            i.poolImpactThresholdBps,
-            i.priorDailyUsd,
-            i.swapUsd
-        );
+        return riskPolicy.decide(i);
     }
 
     function _dec(IRiskPolicy.DecisionInput memory i) internal view returns (HookDecision, uint24) {
