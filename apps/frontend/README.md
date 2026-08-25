@@ -5,8 +5,9 @@ Institutional six-stage demo of the AML Hook use case: **exploit `WalletBlocked`
 
 > Scores come from Anvil via the API: the COA emits `finalScore` / fee, the
 > keeper publishes `ComplianceOracle`, and `AmlHook.previewSwap` reads that
-> row. Opinion is `GET /compliance` (Claude when the API has a key). No live
-> OpenSanctions / Etherscan / GoPlus / OFAC HTTP.  
+> row. Opinion is `GET /compliance` (Claude when the API has a key). Live
+> OFAC SDN is screened by the API COA (writer → `SanctionRegistry`). No
+> OpenSanctions / Etherscan / GoPlus HTTP from this UI.  
 > The UI talks only to the API at `NEXT_PUBLIC_API_URL` (default `http://localhost:4000`). If Anvil is down the API returns `503` `{ error: "deploy_local" }` — there is no offline `withHopOverlay` policy.
 
 ## Guided stages

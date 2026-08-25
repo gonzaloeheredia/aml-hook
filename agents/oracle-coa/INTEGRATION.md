@@ -8,11 +8,13 @@ the **off-chain scoring oracle** for the UHI10 demo.
 The TypeScript runner lives in `apps/api/src/oracle/`. With `ANTHROPIC_API_KEY`,
 Claude emits score, fee, and Opinion (`liveScore.ts`). Tools:
 `consult_skill` (call `uhi10-use-case` before scoring A–E),
-`search_regulations`, `get_active_version_at`. The keeper publishes
+`search_regulations`, `get_active_version_at`, `screen_ofac`. The keeper publishes
 `finalScore` + `recommendedFeeBps` to `ComplianceOracle`. Quotes use
 `AmlHook.previewSwap`. A 3-minute tick stamps `updatedAt` without calling
 Claude. Without a key, `COA_LIVE=0`, or `npm test`, `factScoring.ts`
-interprets the skills.
+interprets the skills. Every evaluation (and every Opinion) screens the
+subject against the live OFAC SDN ETH list and writes `SanctionRegistry`
+on an exact match. The swap still only reads that mapping.
 
 | Module | Role |
 |---|---|
@@ -26,11 +28,12 @@ interprets the skills.
 | `corpus.ts` | `searchRegulations` · `getActiveVersionAt` |
 | `store.ts` | In-memory cache. Quotes do not read this |
 | `onchainPublisher.ts` | Keeper → `ComplianceOracle.updateScore` (signed RPC, or fail). The attestor must sign `attestationHash(wallet, score, hopDistance, origin, feeBps, updatedAt, chainid)`. A score-only or empty signature is rejected. |
+| `ofacSdn.ts` / `ofacScreen.ts` | Live OFAC SDN ETH set + `setSanctioned` writer |
 | `types.ts` | `ScoreResult` · `OracleOpinion` · `ScorePublishResult` |
 
 No live OpenSanctions / Etherscan / Chainalysis calls. Facts come from Anvil
-wallets, P2P ERC-20 transfers, `SwapObserved` / `WalletBlocked`, and
-`SanctionRegistry`. N-hop decay (`100 × 0.65^hops`) is the A–E backbone in
+wallets, P2P ERC-20 transfers, `SwapObserved` / `WalletBlocked`, live OFAC SDN
+(ETH addresses), and `SanctionRegistry`. N-hop decay (`100 × 0.65^hops`) is the A–E backbone in
 skill `uhi10-use-case`; the agent applies it — TypeScript does not precompute
 65/42 when live.
 

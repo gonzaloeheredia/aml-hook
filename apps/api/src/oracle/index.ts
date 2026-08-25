@@ -41,6 +41,7 @@ export {
   validateCorpus,
 } from "./corpus.js";
 export { anthropicModel, isLiveCoaEnabled } from "./liveOpinion.js";
+export { ofacHealth } from "./ofacScreen.js";
 export { scoreResultFromAgentDraft } from "./liveScore.js";
 export { consultSkill, listSkillNames } from "./skills.js";
 export type { AgentSkillStep } from "./virtualAgent.js";

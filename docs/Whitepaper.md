@@ -564,15 +564,15 @@ The hook touches two of those ten steps: 5 and 7. The rest is a normal Uniswap v
 
 ### 8.6 Tooling
 
-Section 7 is the officer that writes the score and the Opinion file. This subsection lists **intended** production KYT sources. The UHI10 demo does not call those HTTP/vendor feeds: Claude (or the skill interpreter when the key is off) scores from the Anvil ledger plus `SanctionRegistry` and the git corpus (`search_regulations`). Layer 1 at execution is `SanctionRegistry` (keeper-written). Layer 2 is `ComplianceOracle` (keeper + attestor, agent-published score and fee). USD magnitude uses Chainlink (or `MockUsdFeed` on Anvil).
+Section 7 is the officer that writes the score and the Opinion file. This subsection lists **intended** production KYT sources. The UHI10 demo now screens the public OFAC SDN ETH-address dump on every COA evaluation and Opinion; a direct match is written to `SanctionRegistry`. The swap still only reads that mapping — there is no Treasury call inside `beforeSwap`. Other vendor KYT feeds (Chainalysis, TRM, Elliptic, OpenSanctions, Etherscan, GoPlus) are not wired. Claude (or the skill interpreter when the key is off) scores from the Anvil ledger plus that live SDN screen, `SanctionRegistry`, and the git corpus (`search_regulations`). Layer 1 at execution is `SanctionRegistry`. Layer 2 is `ComplianceOracle` (keeper + attestor, agent-published score and fee). USD magnitude uses Chainlink (or `MockUsdFeed` on Anvil).
 
 #### 8.6.1 Signals
 
-The production oracle is designed as a weighted aggregator. Each source would contribute by reliability. None of these HTTP/vendor feeds are wired in this repo.
+The production oracle is designed as a weighted aggregator. Each source would contribute by reliability. OFAC SDN ETH addresses are wired (COA fetch + registry writer). Chainalysis, TRM, Elliptic, Forta, EAS, and Hypernative are not.
 
 | Source | Role | Type |
 | --- | --- | --- |
-| OFAC SDN | Official crypto-address list since 2018 | Official |
+| OFAC SDN | Official crypto-address list since 2018 | Official — live in the COA; swap reads `SanctionRegistry` |
 | Chainalysis | Institutional on-chain mapping, binary sanctioned-or-not | Commercial |
 | TRM / Elliptic | Comparable coverage; TRM strong in LatAm, Elliptic in Europe | Commercial |
 | Forta | Distributed bots; sometimes minutes of lead time on exploits | Decentralized |

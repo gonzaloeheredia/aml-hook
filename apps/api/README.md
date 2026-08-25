@@ -2,7 +2,7 @@
 
 TypeScript API that talks to the local stack. It does not own the ledger. Balances, scores, quotes, and FeeEscrow rows live on Anvil. Without `npm run deploy:local` every chain route returns `503` `{ error: "deploy_local" }`.
 
-**Oracle COA:** with `ANTHROPIC_API_KEY` in `apps/api/.env`, Claude emits `finalScore`, `recommendedFeeBps`, and the Opinion (tools: `consult_skill` / `uhi10-use-case`, `search_regulations`). The keeper writes `ComplianceOracle`; quotes and swaps read `AmlHook.previewSwap`. Without a key, or `COA_LIVE=0` / tests, `factScoring.ts` interprets the skills. There are **no live calls** to OpenSanctions, Etherscan, GoPlus, Chainalysis, TRM, or OFAC HTTP APIs. Seed waits on Claude when the key is set (A–D). The 3-minute keeper tick only stamps the last score.
+**Oracle COA:** with `ANTHROPIC_API_KEY` in `apps/api/.env`, Claude emits `finalScore`, `recommendedFeeBps`, and the Opinion (tools: `consult_skill` / `uhi10-use-case`, `search_regulations`, `screen_ofac`). The keeper writes `ComplianceOracle`; quotes and swaps read `AmlHook.previewSwap`. On every evaluation the COA screens the subject against the live OFAC SDN ETH list and, on an exact match, writes `SanctionRegistry` — the swap still only reads that mapping. Tests and `OFAC_LIVE=0` skip Treasury. There are still **no** live calls to OpenSanctions, Etherscan, GoPlus, Chainalysis, or TRM. Seed waits on Claude when the key is set (A–D). The 3-minute keeper tick only stamps the last score.
 
 **Quotes:** `GET /wallets/:id/quote` and swap settlement call `AmlHook.previewSwap` — the same L1→L3 path `beforeSwap` uses. There is no TypeScript policy fallback.
 
@@ -66,14 +66,15 @@ P2P transfer or afterSwap / WalletBlocked
         ▼
   oracle COA (skills in agents/oracle-coa)
         │
+        ├─► OFAC SDN ETH screen → SanctionRegistry.setSanctioned on match
         ├─► Claude (or skill interpreter) → cache
         │
         └─► ComplianceOracle.updateScore (signed RPC, or fail)
               keeper = Anvil #0 · attestor = Anvil #9
         │
         ▼
-  quote / swap → AmlHook.previewSwap
-  opinion → GET /compliance → Opinion stage
+  quote / swap → AmlHook.previewSwap  (L1 reads the mapping only)
+  opinion → GET /compliance → Opinion stage (includes live SDN result)
 ```
 
 See [`.env.example`](.env.example) for required Anvil env vars. Put `ANTHROPIC_API_KEY` in `apps/api/.env` (gitignored). Do not put it in `.env.example` or `.env.local`.

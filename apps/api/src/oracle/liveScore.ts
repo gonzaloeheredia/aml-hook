@@ -20,6 +20,8 @@ import {
 import type { HookEvent, TransferRecord, Wallet } from "../types.js";
 import type { AgentRun, AgentSkillStep } from "./virtualAgent.js";
 import type { NormativeCitation } from "./corpus.js";
+import type { OfacScreenResult } from "./ofacScreen.js";
+import { ofacFindingText, ofacSourceLine } from "./ofacScreen.js";
 import type {
   FactEvent,
   OracleOpinion,
@@ -52,6 +54,9 @@ a hop table from memory when the skill is available.
 
 Call search_regulations at least once before legalBasis. Never cite norms from
 training memory. If the tool is empty, declare a coverage gap.
+A live OFAC SDN exact-address screen is in the payload (ofac). Use it. Call
+screen_ofac for another address if needed. Do not invent an SDN match.
+Demo wallets A–E are not OFAC-listed unless ofac.subject.match is true.
 Do not list skill filenames in Opinion sources.
 
 Reply with a single JSON object (no markdown):
@@ -92,6 +97,7 @@ export type ScoringEvidence = {
     listedCounterparties: string[];
     listedContractsTouched: string[];
   };
+  ofac?: OfacScreenResult;
 };
 
 /**
@@ -131,6 +137,17 @@ export function scoringEvidencePayload(evidence: ScoringEvidence): string {
         at: e.at,
       })),
       sanctions: evidence.sanctions,
+      ofac: evidence.ofac
+        ? {
+            finding: ofacFindingText(evidence.ofac),
+            subjectMatch: evidence.ofac.subject.match,
+            source: evidence.ofac.snapshot.source,
+            addressCount: evidence.ofac.snapshot.addressCount,
+            fetchedAt: evidence.ofac.snapshot.fetchedAt,
+            publishedAt: evidence.ofac.snapshot.publishedAt,
+            registryTx: evidence.ofac.subject.registry?.txHash ?? null,
+          }
+        : null,
     },
     null,
     2,
@@ -326,6 +343,7 @@ function buildLiveAgentRun(input: {
   citations: NormativeCitation[];
   model: string;
   durationMs: number;
+  ofac?: OfacScreenResult;
 }): AgentRun {
   const started = Date.now() - input.durationMs;
   const steps = parseSkillSteps(
@@ -339,6 +357,7 @@ function buildLiveAgentRun(input: {
   for (const c of input.citations) {
     sourceSet.add(`${c.framework} · ${c.title} (${c.id}, ${c.publicationDate})`);
   }
+  if (input.ofac) sourceSet.add(ofacSourceLine(input.ofac));
   return {
     runId: `coa_${createHash("sha256")
       .update(`${input.wallet.id}:${input.trigger}:${started}:${input.flow}`)
@@ -393,11 +412,13 @@ export async function evaluateWithLiveAgent(input: {
     citations: live.citations,
     model: live.model,
     durationMs: live.durationMs,
+    ofac: input.evidence.ofac,
   });
   const skeleton = buildOpinionFromScore(
     input.evidence.wallet,
     scoreResult,
     agentRun,
+    input.evidence.ofac,
   );
   return {
     scoreResult,

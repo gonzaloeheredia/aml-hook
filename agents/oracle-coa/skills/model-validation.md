@@ -19,7 +19,8 @@ Also the material used to answer due diligence from a protocol evaluating hook
 integration.
 
 **Demo runtime:** no accredited backtest pack is produced. Limitations: Anvil
-ledger facts + git corpus; Claude or interpreter; no live KYT vendor APIs.
+ledger facts + git corpus + live OFAC SDN exact-address screen; Claude or
+interpreter; no Chainalysis / TRM / Elliptic HTTP.
 
 ---
 
@@ -128,7 +129,7 @@ Never publish effective secret threshold values in public materials; ranges of
   "driftFlags": [],
   "sensitivityFindings": [],
   "limitations": [
-    "Demo uses Anvil ledger facts + git corpus; no live KYT vendor APIs"
+    "Demo uses Anvil ledger facts + git corpus + live OFAC SDN; no Chainalysis / TRM HTTP"
   ],
   "auditHash": "...",
   "recommendation": "retain | recalibrate | escalate"

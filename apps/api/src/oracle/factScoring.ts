@@ -21,6 +21,7 @@ import {
   demoContractAddresses,
   isSanctionedAddress,
 } from "../chain/sanctions.js";
+import type { OfacScreenResult } from "./ofacScreen.js";
 import type {
   FactEvent,
   OracleTrigger,
@@ -172,6 +173,63 @@ export function buildFacts(
 
   facts.push(...extraFacts);
   return facts;
+}
+
+/**
+ * P2P counterparty addresses for a live OFAC screen.
+ */
+export function counterpartiesOf(
+  wallet: Wallet,
+  transfers: TransferRecord[],
+): string[] {
+  const peers = new Set<string>();
+  for (const t of transfers) {
+    if (t.to === wallet.id) {
+      const peer = getWallet(t.from);
+      if (peer) peers.add(peer.address);
+    }
+    if (t.from === wallet.id) {
+      const peer = getWallet(t.to);
+      if (peer) peers.add(peer.address);
+    }
+  }
+  return [...peers];
+}
+
+/**
+ * Live SDN hits the COA just screened (and tried to write to SanctionRegistry).
+ * Used when the registry write has not landed yet so scoring still fail-closes.
+ */
+export function factsFromOfacScreen(
+  wallet: Wallet,
+  ofac: OfacScreenResult,
+): FactEvent[] {
+  if (ofac.subject.match) {
+    return [
+      fact(
+        "OFAC_DIRECT_MATCH",
+        "S",
+        100,
+        "HIGH",
+        "OFAC SDN · FATF Rec. 6",
+        `${wallet.accountLabel} is a direct OFAC SDN ETH-address match. COA wrote SanctionRegistry; next swap reads the mapping.`,
+      ),
+    ];
+  }
+  const peer = ofac.counterparties.find((c) => c.match);
+  if (peer) {
+    return [
+      fact(
+        "SANCTIONED_COUNTERPARTY",
+        "S",
+        100,
+        "HIGH",
+        "OFAC SDN · FATF Rec. 6 / Rec. 10",
+        `P2P counterparty ${peer.address} is a direct OFAC SDN match. Written to SanctionRegistry.`,
+      ),
+    ];
+  }
+  return [];
 }
 
 /**

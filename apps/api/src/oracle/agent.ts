@@ -22,7 +22,8 @@ import {
 } from "../store.js";
 import { shouldPublishScore } from "../scoring.js";
 import type { WalletId } from "../types.js";
-import { buildFacts, collectSanctionFacts, scoreFromFacts } from "./factScoring.js";
+import { buildFacts, collectSanctionFacts, counterpartiesOf, factsFromOfacScreen, scoreFromFacts } from "./factScoring.js";
+import { screenWalletOfac, type OfacScreenResult } from "./ofacScreen.js";
 import {
   clearScorePublishes,
   publishScoreToChain,
@@ -61,6 +62,7 @@ const FULL_FLOW = [
 
 const INCREMENTAL_FLOW = [
   "task-swap-intake",
+  "ofac-screening",
   "swap-behavior-analysis",
   "uhi10-use-case",
   "fact-scoring",
@@ -99,14 +101,27 @@ export async function reevaluateWallet(
 
   const transfers = listTransfers();
   const events = listEvents();
-  const extraFacts = await collectSanctionFacts(wallet, transfers, events);
+  const ofac = await screenWalletOfac({
+    subject: wallet.address,
+    counterparties: counterpartiesOf(wallet, transfers),
+  });
+  const registryFacts = await collectSanctionFacts(wallet, transfers, events);
+  const liveOfacFacts = factsFromOfacScreen(wallet, ofac);
+  const extraFacts = [
+    ...liveOfacFacts,
+    ...registryFacts.filter(
+      (f) => !liveOfacFacts.some((live) => live.type === f.type),
+    ),
+  ];
   const evidence: ScoringEvidence = {
     wallet,
     priorScore: prior,
     transfers,
     events,
     sanctions: {
-      subjectListed: extraFacts.some((f) => f.type === "OFAC_DIRECT_MATCH"),
+      subjectListed:
+        ofac.subject.match ||
+        extraFacts.some((f) => f.type === "OFAC_DIRECT_MATCH"),
       listedCounterparties: extraFacts
         .filter((f) => f.type === "SANCTIONED_COUNTERPARTY")
         .map((f) => f.justification),
@@ -114,6 +129,7 @@ export async function reevaluateWallet(
         .filter((f) => f.type === "SANCTIONED_CONTRACT_INTERACTION")
         .map((f) => f.justification),
     },
+    ofac,
   };
 
   if (live) {
@@ -128,6 +144,7 @@ export async function reevaluateWallet(
         opinionSource: "anthropic",
         trigger,
         prior,
+        ofac,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -144,6 +161,7 @@ export async function reevaluateWallet(
     skills,
     flow,
     theater: trigger !== "seed",
+    ofac,
   });
   const facts = buildFacts(wallet, transfers, events, extraFacts);
   const scoreResult = scoreFromFacts(
@@ -162,6 +180,7 @@ export async function reevaluateWallet(
     opinionSource: "mock",
     trigger,
     prior,
+    ofac,
   });
 }
 
@@ -215,10 +234,11 @@ async function persistEvaluation(input: {
   opinionSource: "mock" | "anthropic";
   trigger: OracleTrigger;
   prior: number | null;
+  ofac: OfacScreenResult;
 }): Promise<OracleEvaluation> {
-  const { wallet, scoreResult, agentRun, scoreSource, prior } = input;
+  const { wallet, scoreResult, agentRun, scoreSource, prior, ofac } = input;
   const opinion =
-    input.opinion ?? buildOpinionFromScore(wallet, scoreResult, agentRun);
+    input.opinion ?? buildOpinionFromScore(wallet, scoreResult, agentRun, ofac);
   const priorFee = prior == null ? null : getOracleFeeBps(wallet.id);
   const shouldWrite = shouldPublishScore({
     neverScored: wallet.neverScored,
@@ -254,6 +274,7 @@ async function persistEvaluation(input: {
     onChainPublish,
     opinionSource: input.opinionSource,
     scoreSource,
+    ofacScreen: ofac,
   };
   setOracleEvaluation(wallet.id, evaluation);
   return evaluation;

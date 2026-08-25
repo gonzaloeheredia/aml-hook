@@ -17,10 +17,13 @@ import {
   type NormativeCitation,
 } from "./corpus.js";
 import { consultSkill, listSkillNames } from "./skills.js";
-import { getWallet } from "../store.js";
+import { screenOfacAddress } from "./ofacSdn.js";
+import { ofacFindingText, screenWalletOfac, type OfacScreenResult } from "./ofacScreen.js";
+import { getWallet, listTransfers } from "../store.js";
 import { setOracleEvaluation } from "./store.js";
 import type { OracleEvaluation, OracleOpinion } from "./types.js";
 import type { AgentRun } from "./virtualAgent.js";
+import { counterpartiesOf } from "./factScoring.js";
 
 const MAX_TOOL_ROUNDS = 8;
 const CORPUS_FRAMEWORKS = new Set([
@@ -69,6 +72,10 @@ function loadSystemPrompt(): string {
 
 The numeric score and hook output are already computed. Do not change them.
 Call \`search_regulations\` at least once before you write legalBasis.
+A live OFAC SDN exact-address screen is already in the payload (\`ofac\`).
+Use it for sanctionsCheck. You may call \`screen_ofac\` for another address.
+Do not invent an SDN hit. Demo wallets A–E are not OFAC-listed unless
+\`ofac.subject.match\` is true (Wallet A is an exploit, not an SDN match).
 If the frozen score looks inconsistent with wallets A–E, call \`consult_skill\`
 with name \`uhi10-use-case\` — do not change the published score.
 Cite only documents returned by that tool (git corpus). Never fill norms from
@@ -147,6 +154,21 @@ const TOOLS: Anthropic.Tool[] = [
       },
     },
   },
+  {
+    name: "screen_ofac",
+    description:
+      "Exact-address screen against the live OFAC SDN ETH/EVM address set. Does not change the published score. Direct matches are written to SanctionRegistry by the COA writer outside this tool.",
+    input_schema: {
+      type: "object",
+      properties: {
+        address: {
+          type: "string",
+          description: "0x-prefixed 20-byte address to screen",
+        },
+      },
+      required: ["address"],
+    },
+  },
 ];
 
 function asCitation(hit: NormativeCitation): NormativeCitation {
@@ -161,11 +183,11 @@ function asCitation(hit: NormativeCitation): NormativeCitation {
   };
 }
 
-function executeTool(
+async function executeTool(
   name: string,
   input: Record<string, unknown>,
   citations: Map<string, NormativeCitation>,
-): unknown {
+): Promise<unknown> {
   if (name === "search_regulations") {
     const query = String(input.query ?? "");
     const asOf = input.asOf ? String(input.asOf) : undefined;
@@ -207,6 +229,16 @@ function executeTool(
       return { skills: listSkillNames() };
     }
     return consultSkill(skillName);
+  }
+  if (name === "screen_ofac") {
+    const address = String(input.address ?? "");
+    const hit = await screenOfacAddress(address);
+    return {
+      address: hit.address,
+      match: hit.match,
+      list: hit.match ? "OFAC_SDN" : null,
+      snapshot: hit.snapshot,
+    };
   }
   return { error: `unknown tool ${name}` };
 }
@@ -254,7 +286,7 @@ export async function completeCoaJson(params: {
           block.input && typeof block.input === "object"
             ? (block.input as Record<string, unknown>)
             : {};
-        const result = executeTool(block.name, input, citations);
+        const result = await executeTool(block.name, input, citations);
         toolResults.push({
           type: "tool_result",
           tool_use_id: block.id,
@@ -353,7 +385,11 @@ export function overlayOpinion(
   };
 }
 
-function caseBrief(wallet: Wallet, evaluation: OracleEvaluation): string {
+function caseBrief(
+  wallet: Wallet,
+  evaluation: OracleEvaluation,
+  ofac?: OfacScreenResult,
+): string {
   const score = evaluation.scoreResult;
   return JSON.stringify(
     {
@@ -367,6 +403,20 @@ function caseBrief(wallet: Wallet, evaluation: OracleEvaluation): string {
         neverScored: wallet.neverScored,
         usdc: wallet.usdc,
       },
+      ofac: ofac
+        ? {
+            finding: ofacFindingText(ofac),
+            subjectMatch: ofac.subject.match,
+            source: ofac.snapshot.source,
+            addressCount: ofac.snapshot.addressCount,
+            fetchedAt: ofac.snapshot.fetchedAt,
+            publishedAt: ofac.snapshot.publishedAt,
+            registryWrote: ofac.subject.registry?.ok && !ofac.subject.registry.skipped,
+            counterparties: ofac.counterparties
+              .filter((c) => c.match)
+              .map((c) => c.address),
+          }
+        : null,
       score: {
         finalScore: score.finalScore,
         riskLevel: score.riskLevel,
@@ -398,9 +448,10 @@ async function draftLiveOpinion(
   model: string;
   durationMs: number;
 }> {
+  const ofac = evaluation.ofacScreen;
   const live = await completeCoaJson({
     system: loadSystemPrompt(),
-    user: `Draft the operator Opinion for this evaluation. Frozen score/output must stay as given.\n\n${caseBrief(wallet, evaluation)}`,
+    user: `Draft the operator Opinion for this evaluation. Frozen score/output must stay as given.\n\n${caseBrief(wallet, evaluation, ofac)}`,
   });
   return {
     opinion: overlayOpinion(
@@ -466,12 +517,22 @@ export async function applyLiveOpinionIfNeeded(
     const wallet = getWallet(walletId);
     if (!wallet) return evaluation;
     try {
-      const live = await draftLiveOpinion(wallet, evaluation);
-      const next: OracleEvaluation = {
+      const ofac =
+        evaluation.ofacScreen ??
+        (await screenWalletOfac({
+          subject: wallet.address,
+          counterparties: counterpartiesOf(wallet, listTransfers()),
+        }));
+      const base: OracleEvaluation = {
         ...evaluation,
+        ofacScreen: ofac,
+      };
+      const live = await draftLiveOpinion(wallet, base);
+      const next: OracleEvaluation = {
+        ...base,
         opinion: live.opinion,
         agentRun: withLiveRun(
-          evaluation.agentRun,
+          base.agentRun,
           live.citations,
           live.model,
           live.durationMs,
