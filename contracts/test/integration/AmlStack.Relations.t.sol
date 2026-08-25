@@ -18,6 +18,7 @@ import {FeeEscrow} from "contracts/escrow/FeeEscrow.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
 import {SanctionRegistry} from "contracts/registries/SanctionRegistry.sol";
 import {IComplianceOracle} from "interfaces/oracles/IComplianceOracle.sol";
+import {IRiskPolicy} from "interfaces/policies/IRiskPolicy.sol";
 import {IFeeEscrow} from "interfaces/escrow/IFeeEscrow.sol";
 import {HookDecision} from "libraries/HookDecision.sol";
 import {Roles} from "libraries/Roles.sol";
@@ -46,7 +47,7 @@ contract IntegrationAmlStackRelationsTest is Helpers {
         complianceOracle = new ComplianceOracle(address(accessManager), _attestor());
         riskPolicy = new RiskPolicy();
         harness = new AmlHookHarness(
-            address(accessManager), sanctionRegistry, complianceOracle, riskPolicy, 300, 3600, 3
+            address(accessManager), sanctionRegistry, complianceOracle, riskPolicy, 300, 3600
         );
 
         token = new MockERC20();
@@ -115,9 +116,7 @@ contract IntegrationAmlStackRelationsTest is Helpers {
         vm.prank(oracleKeeper);
         complianceOracle.updateScore(walletB, 65, 1, walletA, 800, _scoreSig(walletB, 65, 1, walletA, 800));
 
-        (HookDecision policyDecision, uint24 policyFee) = riskPolicy.decide(
-            65, 800, false, 0, false, false, 0, 0, 1_000e8, 15_000e8, 300, 800
-        );
+        (HookDecision policyDecision, uint24 policyFee) = _dec(_usd(65, 800, false, 0, false, 0, 0, 1_000e8, 15_000e8));
         (HookDecision hookDecision, uint24 hookFee, IComplianceOracle.WalletRisk memory risk) =
             harness.evaluate(walletB);
 
@@ -133,7 +132,7 @@ contract IntegrationAmlStackRelationsTest is Helpers {
         vm.prank(oracleKeeper);
         complianceOracle.updateScore(walletA, 90, 0, walletA, 0, _scoreSig(walletA, 90, 0, walletA, 0));
 
-        (HookDecision d,) = riskPolicy.decide(90, 0, false, 0, false);
+        (HookDecision d,) = _dec(_in(90, 0));
         assertEq(uint8(d), uint8(HookDecision.REVERT));
 
         vm.expectRevert(
@@ -223,19 +222,12 @@ contract IntegrationAmlStackRelationsTest is Helpers {
         vm.prank(oracleKeeper);
         complianceOracle.updateScore(walletC, score, 1, walletA, feeBps, _scoreSig(walletC, score, 1, walletA, feeBps));
 
-        (HookDecision expected, uint24 expectedFee) = riskPolicy.decide(
-            score,
-            feeBps,
-            false,
-            0,
-            false,
-            false,
-            0,
-            0,
-            harness.unscoredFeeThreshold(),
-            harness.unscoredRevertThreshold(),
-            harness.proportionalFeeBps(),
-            harness.punitiveFeeBps()
+        (HookDecision expected, uint24 expectedFee) = _dec(
+            _fees(
+                _usd(score, feeBps, false, 0, false, 0, 0, harness.unscoredFeeThreshold(), harness.unscoredRevertThreshold()),
+                harness.proportionalFeeBps(),
+                harness.punitiveFeeBps()
+            )
         );
 
         if (expected == HookDecision.REVERT) {
@@ -252,19 +244,12 @@ contract IntegrationAmlStackRelationsTest is Helpers {
         amount = bound(amount, 0, 40_000 ether);
         uint256 usd = amount / 1e10;
 
-        (HookDecision expected, uint24 expectedFee) = riskPolicy.decide(
-            0,
-            0,
-            false,
-            0,
-            false,
-            true,
-            usd,
-            0,
-            harness.unscoredFeeThreshold(),
-            harness.unscoredRevertThreshold(),
-            harness.proportionalFeeBps(),
-            harness.punitiveFeeBps()
+        (HookDecision expected, uint24 expectedFee) = _dec(
+            _fees(
+                _usd(0, 0, false, 0, true, usd, 0, harness.unscoredFeeThreshold(), harness.unscoredRevertThreshold()),
+                harness.proportionalFeeBps(),
+                harness.punitiveFeeBps()
+            )
         );
 
         if (expected == HookDecision.REVERT) {
@@ -281,28 +266,23 @@ contract IntegrationAmlStackRelationsTest is Helpers {
         }
     }
 
-    function test_FloorC_IsHookLocal_PolicyWouldAllow() external {
+    function test_FloorC_PolicyAndHookAgree() external {
         vm.prank(oracleKeeper);
         complianceOracle.updateScore(walletC, 0, 0, address(0), 0, _scoreSig(walletC, 0, 0));
 
         vm.prank(hookGovernor);
         harness.observeSwap(walletC, address(token), 10_000 ether);
 
-        (HookDecision policyDecision,) = riskPolicy.decide(
-            0,
-            0,
-            false,
-            0,
-            false,
-            false,
-            0,
-            0,
-            harness.unscoredFeeThreshold(),
-            harness.unscoredRevertThreshold(),
+        IRiskPolicy.DecisionInput memory i = _fees(
+            _usd(0, 0, false, 0, false, 0, 0, harness.unscoredFeeThreshold(), harness.unscoredRevertThreshold()),
             harness.proportionalFeeBps(),
             harness.punitiveFeeBps()
         );
-        assertEq(uint8(policyDecision), uint8(HookDecision.ALLOW));
+        i.priorDailyUsd = 10_000e8;
+        i.swapUsd = 5_000e8;
+        IRiskPolicy.DecisionResult memory policy = riskPolicy.decide(i);
+        assertEq(uint8(policy.decision), uint8(HookDecision.REVERT));
+        assertEq(uint8(policy.revertKind), uint8(IRiskPolicy.RevertKind.DailyAggregation));
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -321,19 +301,12 @@ contract IntegrationAmlStackRelationsTest is Helpers {
 
         uint256 amount = 1_000 ether;
         uint256 assessedUsd = amount / 1e10 + harness.windowVolumeUsd(walletC);
-        (HookDecision expected, uint24 expectedFee) = riskPolicy.decide(
-            0,
-            0,
-            true,
-            1,
-            false,
-            false,
-            assessedUsd,
-            0,
-            harness.unscoredFeeThreshold(),
-            harness.unscoredRevertThreshold(),
-            harness.proportionalFeeBps(),
-            harness.punitiveFeeBps()
+        (HookDecision expected, uint24 expectedFee) = _dec(
+            _fees(
+                _usd(0, 0, true, 1, false, assessedUsd, 0, harness.unscoredFeeThreshold(), harness.unscoredRevertThreshold()),
+                harness.proportionalFeeBps(),
+                harness.punitiveFeeBps()
+            )
         );
 
         (HookDecision d, uint24 fee,) = harness.evaluate(walletC, address(token), amount);

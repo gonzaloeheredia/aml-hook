@@ -10,8 +10,6 @@ import {HookDecision} from "libraries/HookDecision.sol";
 import {IComplianceOracle} from "interfaces/oracles/IComplianceOracle.sol";
 
 /// @dev Concrete harness to exercise AmlHookLogic without Uniswap v4 BaseHook.
-///      Constructor delegates to AmlHookGovernance — the root of the linear chain
-///      (AmlHookGovernance → AmlHookActivity → AmlHookLogic).
 contract AmlHookHarness is AmlHookLogic {
     constructor(
         address accessManager_,
@@ -19,20 +17,15 @@ contract AmlHookHarness is AmlHookLogic {
         ComplianceOracle oracle_,
         RiskPolicy policy_,
         uint256 stalenessThreshold_,
-        uint64 activityWindow_,
-        uint32 maxOpsInWindow_
-    )
-        AmlHookGovernance(
-            accessManager_, registry_, oracle_, policy_, stalenessThreshold_, activityWindow_, maxOpsInWindow_
-        )
-    {}
+        uint64 activityWindow_
+    ) AmlHookGovernance(accessManager_, registry_, oracle_, policy_, stalenessThreshold_, activityWindow_) {}
 
     function evaluate(address wallet)
         external
         view
         returns (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk)
     {
-        return _evaluate(wallet, address(0));
+        return _evaluate(wallet, address(0), address(0), 0, 0);
     }
 
     function evaluate(address wallet, address token, uint256 amount)
@@ -40,7 +33,7 @@ contract AmlHookHarness is AmlHookLogic {
         view
         returns (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk)
     {
-        return _evaluate(wallet, token, token, amount);
+        return _evaluate(wallet, token, token, amount, 0);
     }
 
     function evaluate(address wallet, address token, uint256 amount, uint256 poolImpactBps)
@@ -56,28 +49,28 @@ contract AmlHookHarness is AmlHookLogic {
         view
         returns (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk)
     {
-        return _evaluate(wallet, token);
+        return _evaluate(wallet, token, token, 0, 0);
     }
 
     function evaluateLive(address wallet)
         external
         returns (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk)
     {
-        (decision, feeBps, risk,) = _evaluateWithMitigationEvents(wallet, address(0));
+        (decision, feeBps, risk,) = _evaluateLive(wallet, address(0), address(0), 0, 0);
     }
 
     function evaluateLiveWithToken(address wallet, address token)
         external
         returns (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk)
     {
-        (decision, feeBps, risk,) = _evaluateWithMitigationEvents(wallet, token);
+        (decision, feeBps, risk,) = _evaluateLive(wallet, token, token, 0, 0);
     }
 
     function evaluateLive(address wallet, address token, uint256 amount)
         external
         returns (HookDecision decision, uint24 feeBps, IComplianceOracle.WalletRisk memory risk)
     {
-        (decision, feeBps, risk,) = _evaluateWithMitigationEvents(wallet, token, token, amount);
+        (decision, feeBps, risk,) = _evaluateLive(wallet, token, token, amount, 0);
     }
 
     function recordActivity(address wallet) external {

@@ -20,6 +20,8 @@ import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
 import {SanctionRegistry} from "contracts/registries/SanctionRegistry.sol";
 import {IFeeEscrow} from "interfaces/escrow/IFeeEscrow.sol";
+import {IRiskPolicy} from "interfaces/policies/IRiskPolicy.sol";
+import {HookDecision} from "libraries/HookDecision.sol";
 import {Roles} from "libraries/Roles.sol";
 import {MockTrustedRouter} from "../../script/mocks/MockTrustedRouter.sol";
 import {MockAggregatorV3} from "test/mocks/MockAggregatorV3.sol";
@@ -265,8 +267,7 @@ contract Helpers is Test {
                 _policy,
                 _feeEscrow,
                 uint256(300),
-                uint64(3600),
-                uint32(3)
+                uint64(3600)
             ),
             flags
         );
@@ -310,5 +311,56 @@ contract Helpers is Test {
             liquidityDelta: _liquidityDelta,
             salt: bytes32(0)
         });
+    }
+
+    function _in(uint8 score, uint24 rec) internal pure returns (IRiskPolicy.DecisionInput memory i) {
+        return _in(score, rec, false, 0);
+    }
+
+    function _in(uint8 score, uint24 rec, bool stale, uint32 ops)
+        internal
+        pure
+        returns (IRiskPolicy.DecisionInput memory i)
+    {
+        i.score = score;
+        i.recommendedFeeBps = rec;
+        i.isStale = stale;
+        i.operationCount = ops;
+        i.proportionalFeeBps = 300;
+        i.punitiveFeeBps = 800;
+    }
+
+    function _usd(
+        uint8 score,
+        uint24 rec,
+        bool stale,
+        uint32 ops,
+        bool neverScored,
+        uint256 assessedUsd,
+        uint256 inflowUsd,
+        uint256 feeTh,
+        uint256 revTh
+    ) internal pure returns (IRiskPolicy.DecisionInput memory i) {
+        i = _in(score, rec, stale, ops);
+        i.neverScored = neverScored;
+        i.assessedUsd = assessedUsd;
+        i.inflowUsd = inflowUsd;
+        i.unscoredFeeThreshold = feeTh;
+        i.unscoredRevertThreshold = revTh;
+    }
+
+    function _fees(IRiskPolicy.DecisionInput memory i, uint24 prop, uint24 pun)
+        internal
+        pure
+        returns (IRiskPolicy.DecisionInput memory)
+    {
+        i.proportionalFeeBps = prop;
+        i.punitiveFeeBps = pun;
+        return i;
+    }
+
+    function _dec(IRiskPolicy.DecisionInput memory i) internal view returns (HookDecision, uint24) {
+        IRiskPolicy.DecisionResult memory r = riskPolicy.decide(i);
+        return (r.decision, r.feeBps);
     }
 }

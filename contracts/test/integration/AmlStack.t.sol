@@ -33,9 +33,9 @@ contract IntegrationAmlStackTest is Helpers {
         sanctionRegistry = new SanctionRegistry(address(accessManager));
         complianceOracle = new ComplianceOracle(address(accessManager), _attestor());
         riskPolicy = new RiskPolicy();
-        // stalenessThreshold=300s, activityWindow=3600s, maxOps=3
+        // stalenessThreshold=300s, activityWindow=3600s
         harness =
-            new AmlHookHarness(address(accessManager), sanctionRegistry, complianceOracle, riskPolicy, 300, 3600, 3);
+            new AmlHookHarness(address(accessManager), sanctionRegistry, complianceOracle, riskPolicy, 300, 3600);
 
         bytes4[] memory oracleSelectors = new bytes4[](1);
         oracleSelectors[0] = ComplianceOracle.updateScore.selector;

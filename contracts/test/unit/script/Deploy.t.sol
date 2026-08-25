@@ -36,8 +36,7 @@ contract DeployHarness is Deploy {
             address(0), // MockPoolManager
             address(0), // MockTrustedRouter
             300,
-            3600,
-            3
+            3600
         );
     }
 
@@ -85,7 +84,7 @@ contract UnitDeployTest is Helpers {
 
         vm.startPrank(hookGovernor);
         hook.setStalenessThreshold(120);
-        hook.setActivityWindow(2 hours, 5);
+        hook.setActivityWindow(2 hours);
         vm.stopPrank();
 
         // It grants each role exactly the writes it needs
@@ -93,7 +92,6 @@ contract UnitDeployTest is Helpers {
         assertEq(complianceOracle.getScore(account), 65);
         assertEq(hook.stalenessThreshold(), 120);
         assertEq(hook.activityWindow(), 2 hours);
-        assertEq(hook.maxOpsInWindow(), 5);
     }
 
     /// @dev The separation only holds if the wiring made it hold; this is the assertion the script encodes.

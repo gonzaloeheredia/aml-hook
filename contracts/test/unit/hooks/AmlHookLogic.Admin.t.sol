@@ -10,6 +10,7 @@ import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
 import {SanctionRegistry} from "contracts/registries/SanctionRegistry.sol";
+import {MultisigAggregation, MultisigType} from "libraries/WalletSubject.sol";
 import {FeeBps} from "libraries/FeeBps.sol";
 import {HookDecision} from "libraries/HookDecision.sol";
 import {Roles} from "libraries/Roles.sol";
@@ -30,7 +31,7 @@ contract UnitAmlHookLogicAdminTest is Helpers {
         complianceOracle = new ComplianceOracle(address(accessManager), _attestor());
         riskPolicy = new RiskPolicy();
         harness = new AmlHookHarness(
-            address(accessManager), sanctionRegistry, complianceOracle, riskPolicy, 0, 0, 0
+            address(accessManager), sanctionRegistry, complianceOracle, riskPolicy, 0, 0
         );
         token = new MockERC20();
 
@@ -61,7 +62,6 @@ contract UnitAmlHookLogicAdminTest is Helpers {
     function test_Constructor_ZeroArgsSeedDefaults() external view {
         assertEq(harness.stalenessThreshold(), harness.DEFAULT_STALENESS());
         assertEq(harness.activityWindow(), harness.DEFAULT_ACTIVITY_WINDOW());
-        assertEq(harness.maxOpsInWindow(), harness.DEFAULT_MAX_OPS_IN_WINDOW());
         assertEq(harness.dailyWindow(), harness.DEFAULT_DAILY_WINDOW());
         assertEq(harness.unscoredFeeThreshold(), harness.DEFAULT_USD_FEE_THRESHOLD());
         assertEq(harness.unscoredRevertThreshold(), harness.DEFAULT_USD_REVERT_THRESHOLD());
@@ -71,7 +71,7 @@ contract UnitAmlHookLogicAdminTest is Helpers {
         assertEq(harness.priceStalenessThreshold(), harness.DEFAULT_PRICE_STALENESS());
         assertEq(harness.inflowThresholdBps(), 5000);
         assertEq(harness.minBaselineInterval(), 1 hours);
-        assertEq(uint8(harness.multisigAggregation()), uint8(AmlHookGovernance.MultisigAggregation.ALL_CLEAN));
+        assertEq(uint8(harness.multisigAggregation()), uint8(MultisigAggregation.ALL_CLEAN));
         assertEq(address(harness.sanctionRegistry()), address(sanctionRegistry));
         assertEq(address(harness.complianceOracle()), address(complianceOracle));
         assertEq(address(harness.riskPolicy()), address(riskPolicy));
@@ -86,14 +86,13 @@ contract UnitAmlHookLogicAdminTest is Helpers {
             complianceOracle,
             riskPolicy,
             tooHigh,
-            3600,
-            3
+            3600
         );
     }
 
     function test_Constructor_RejectsInvalidActivityWindow() external {
         vm.expectRevert(AmlHookGovernance.ActivityWindowInvalid.selector);
-        new AmlHookHarness(address(accessManager), sanctionRegistry, complianceOracle, riskPolicy, 300, 1, 3);
+        new AmlHookHarness(address(accessManager), sanctionRegistry, complianceOracle, riskPolicy, 300, 1);
     }
 
     function test_SetMinBaselineInterval_GovernorOnly() external {
@@ -152,11 +151,6 @@ contract UnitAmlHookLogicAdminTest is Helpers {
         assertEq(fee, 0);
     }
 
-    function test_Constructor_RejectsInvalidMaxOps() external {
-        vm.expectRevert(AmlHookGovernance.MaxOpsInWindowInvalid.selector);
-        new AmlHookHarness(address(accessManager), sanctionRegistry, complianceOracle, riskPolicy, 300, 3600, 101);
-    }
-
     function test_WindowVolumeGetters_StartAtZeroThenAccumulate() external {
         assertEq(harness.windowVolume(walletA, address(token)), 0);
         assertEq(harness.windowVolumeUsd(walletA), 0);
@@ -207,36 +201,36 @@ contract UnitAmlHookLogicAdminTest is Helpers {
         address safe = makeAddr("safe");
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
-        harness.setTrustedMultisig(safe, AmlHookGovernance.MultisigType.GNOSIS_SAFE, true);
+        harness.setTrustedMultisig(safe, MultisigType.GNOSIS_SAFE, true);
 
         vm.prank(hookGovernor);
         vm.expectRevert(AmlHookGovernance.MissingSwapSubject.selector);
-        harness.setTrustedMultisig(address(0), AmlHookGovernance.MultisigType.GNOSIS_SAFE, true);
+        harness.setTrustedMultisig(address(0), MultisigType.GNOSIS_SAFE, true);
 
         vm.prank(hookGovernor);
         vm.expectRevert(AmlHookGovernance.MissingSwapSubject.selector);
-        harness.setTrustedMultisig(safe, AmlHookGovernance.MultisigType.NONE, true);
+        harness.setTrustedMultisig(safe, MultisigType.NONE, true);
 
         vm.prank(hookGovernor);
-        harness.setTrustedMultisig(safe, AmlHookGovernance.MultisigType.GNOSIS_SAFE, true);
-        (bool trusted, AmlHookGovernance.MultisigType kind) = harness.trustedMultisigs(safe);
+        harness.setTrustedMultisig(safe, MultisigType.GNOSIS_SAFE, true);
+        (bool trusted, MultisigType kind) = harness.trustedMultisigs(safe);
         assertTrue(trusted);
-        assertEq(uint8(kind), uint8(AmlHookGovernance.MultisigType.GNOSIS_SAFE));
+        assertEq(uint8(kind), uint8(MultisigType.GNOSIS_SAFE));
 
         vm.prank(hookGovernor);
-        harness.setTrustedMultisig(safe, AmlHookGovernance.MultisigType.GNOSIS_SAFE, false);
+        harness.setTrustedMultisig(safe, MultisigType.GNOSIS_SAFE, false);
         (trusted, kind) = harness.trustedMultisigs(safe);
         assertFalse(trusted);
-        assertEq(uint8(kind), uint8(AmlHookGovernance.MultisigType.NONE));
+        assertEq(uint8(kind), uint8(MultisigType.NONE));
     }
 
     function test_SetMultisigAggregation_GovernorOnly() external {
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
-        harness.setMultisigAggregation(AmlHookGovernance.MultisigAggregation.ANY_CLEAN);
+        harness.setMultisigAggregation(MultisigAggregation.ANY_CLEAN);
 
         vm.prank(hookGovernor);
-        harness.setMultisigAggregation(AmlHookGovernance.MultisigAggregation.ANY_CLEAN);
-        assertEq(uint8(harness.multisigAggregation()), uint8(AmlHookGovernance.MultisigAggregation.ANY_CLEAN));
+        harness.setMultisigAggregation(MultisigAggregation.ANY_CLEAN);
+        assertEq(uint8(harness.multisigAggregation()), uint8(MultisigAggregation.ANY_CLEAN));
     }
 }

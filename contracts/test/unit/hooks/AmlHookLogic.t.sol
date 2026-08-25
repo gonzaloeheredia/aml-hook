@@ -37,8 +37,8 @@ contract UnitAmlHookLogicTest is Helpers {
         sanctionRegistry = new SanctionRegistry(address(accessManager));
         complianceOracle = new ComplianceOracle(address(accessManager), _attestor());
         riskPolicy = new RiskPolicy();
-        // staleness=100, window=1000, maxOps=3
-        harness = new AmlHookHarness(address(accessManager), sanctionRegistry, complianceOracle, riskPolicy, 100, 1000, 3);
+        // staleness=100, window=1000
+        harness = new AmlHookHarness(address(accessManager), sanctionRegistry, complianceOracle, riskPolicy, 100, 1000);
         token = new MockERC20();
 
         bytes4[] memory oracleSelectors = new bytes4[](1);
@@ -599,31 +599,23 @@ contract UnitAmlHookLogicTest is Helpers {
 
     function test_SetActivityWindow_RestrictedToGovernor() external {
         assertEq(harness.activityWindow(), 1000);
-        assertEq(harness.maxOpsInWindow(), 3);
 
         vm.prank(hookGovernor);
-        harness.setActivityWindow(2 hours, 5);
+        harness.setActivityWindow(2 hours);
         assertEq(harness.activityWindow(), 2 hours);
-        assertEq(harness.maxOpsInWindow(), 5);
 
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
-        harness.setActivityWindow(1 hours, 3);
+        harness.setActivityWindow(1 hours);
     }
 
     function test_SetActivityWindow_RevertsOutOfRange() external {
         vm.startPrank(hookGovernor);
         vm.expectRevert(AmlHookGovernance.ActivityWindowInvalid.selector);
-        harness.setActivityWindow(59, 3);
+        harness.setActivityWindow(59);
 
         vm.expectRevert(AmlHookGovernance.ActivityWindowInvalid.selector);
-        harness.setActivityWindow(uint64(7 days) + 1, 3);
-
-        vm.expectRevert(AmlHookGovernance.MaxOpsInWindowInvalid.selector);
-        harness.setActivityWindow(1 hours, 0);
-
-        vm.expectRevert(AmlHookGovernance.MaxOpsInWindowInvalid.selector);
-        harness.setActivityWindow(1 hours, 101);
+        harness.setActivityWindow(uint64(7 days) + 1);
         vm.stopPrank();
     }
 

@@ -89,13 +89,6 @@ export const hookAbi = [
   },
   {
     type: "function",
-    name: "maxOpsInWindow",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint32" }],
-  },
-  {
-    type: "function",
     name: "inflowThresholdBps",
     stateMutability: "view",
     inputs: [],

@@ -8,6 +8,7 @@ import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
 import {SanctionRegistry} from "contracts/registries/SanctionRegistry.sol";
+import {IRiskPolicy} from "interfaces/policies/IRiskPolicy.sol";
 import {HookDecision} from "libraries/HookDecision.sol";
 import {Roles} from "libraries/Roles.sol";
 import {AmlHookHarness} from "./AmlHookHarness.sol";
@@ -27,7 +28,7 @@ contract UnitAmlHookLogicFuzzTest is Helpers {
         complianceOracle = new ComplianceOracle(address(accessManager), _attestor());
         riskPolicy = new RiskPolicy();
         harness = new AmlHookHarness(
-            address(accessManager), sanctionRegistry, complianceOracle, riskPolicy, 300, 3600, 3
+            address(accessManager), sanctionRegistry, complianceOracle, riskPolicy, 300, 3600
         );
         token = new MockERC20();
 
@@ -58,19 +59,12 @@ contract UnitAmlHookLogicFuzzTest is Helpers {
         vm.prank(keeper);
         complianceOracle.updateScore(wallet, score, 0, address(0), feeBps, _scoreSig(wallet, score, feeBps));
 
-        (HookDecision expectedDecision, uint24 expectedFee) = riskPolicy.decide(
-            score,
-            feeBps,
-            false,
-            0,
-            false,
-            false,
-            0,
-            0,
-            harness.unscoredFeeThreshold(),
-            harness.unscoredRevertThreshold(),
-            harness.proportionalFeeBps(),
-            harness.punitiveFeeBps()
+        (HookDecision expectedDecision, uint24 expectedFee) = _dec(
+            _fees(
+                _usd(score, feeBps, false, 0, false, 0, 0, harness.unscoredFeeThreshold(), harness.unscoredRevertThreshold()),
+                harness.proportionalFeeBps(),
+                harness.punitiveFeeBps()
+            )
         );
 
         if (expectedDecision == HookDecision.REVERT) {
@@ -100,9 +94,7 @@ contract UnitAmlHookLogicFuzzTest is Helpers {
         else assertEq(fee, harness.punitiveFeeBps());
     }
 
-    function testFuzz_GovernorSetters_RejectOutOfRange(uint256 staleness, uint256 inflow, uint64 window, uint32 maxOps)
-        external
-    {
+    function testFuzz_GovernorSetters_RejectOutOfRange(uint256 staleness, uint256 inflow, uint64 window) external {
         if (staleness == 0 || staleness > harness.MAX_STALENESS()) {
             vm.prank(hookGovernor);
             vm.expectRevert();
@@ -123,18 +115,14 @@ contract UnitAmlHookLogicFuzzTest is Helpers {
             assertEq(harness.inflowThresholdBps(), inflow);
         }
 
-        if (
-            window < harness.MIN_ACTIVITY_WINDOW() || window > harness.MAX_ACTIVITY_WINDOW()
-                || maxOps < harness.MIN_MAX_OPS_IN_WINDOW() || maxOps > harness.MAX_MAX_OPS_IN_WINDOW()
-        ) {
+        if (window < harness.MIN_ACTIVITY_WINDOW() || window > harness.MAX_ACTIVITY_WINDOW()) {
             vm.prank(hookGovernor);
             vm.expectRevert();
-            harness.setActivityWindow(window, maxOps);
+            harness.setActivityWindow(window);
         } else {
             vm.prank(hookGovernor);
-            harness.setActivityWindow(window, maxOps);
+            harness.setActivityWindow(window);
             assertEq(harness.activityWindow(), window);
-            assertEq(harness.maxOpsInWindow(), maxOps);
         }
     }
 
@@ -173,19 +161,12 @@ contract UnitAmlHookLogicFuzzTest is Helpers {
         uint256 swapUsd = amount / 1e10;
         uint256 assessedUsd = swapUsd + windowUsd;
 
-        (HookDecision expected, uint24 expectedFee) = riskPolicy.decide(
-            0,
-            0,
-            true,
-            1,
-            false,
-            false,
-            assessedUsd,
-            0,
-            harness.unscoredFeeThreshold(),
-            harness.unscoredRevertThreshold(),
-            harness.proportionalFeeBps(),
-            harness.punitiveFeeBps()
+        (HookDecision expected, uint24 expectedFee) = _dec(
+            _fees(
+                _usd(0, 0, true, 1, false, assessedUsd, 0, harness.unscoredFeeThreshold(), harness.unscoredRevertThreshold()),
+                harness.proportionalFeeBps(),
+                harness.punitiveFeeBps()
+            )
         );
 
         (HookDecision d, uint24 fee,) = harness.evaluate(walletC, address(token), amount);
@@ -207,28 +188,23 @@ contract UnitAmlHookLogicFuzzTest is Helpers {
         uint256 swapUsd = second / 1e10;
         uint256 high = harness.unscoredRevertThreshold();
 
-        (HookDecision policyDecision,) = riskPolicy.decide(
-            0,
-            0,
-            false,
-            0,
-            false,
-            false,
-            0,
-            0,
-            harness.unscoredFeeThreshold(),
-            high,
+        IRiskPolicy.DecisionInput memory i = _fees(
+            _usd(0, 0, false, 0, false, 0, 0, harness.unscoredFeeThreshold(), high),
             harness.proportionalFeeBps(),
             harness.punitiveFeeBps()
         );
-        assertEq(uint8(policyDecision), uint8(HookDecision.ALLOW));
+        i.priorDailyUsd = prior;
+        i.swapUsd = swapUsd;
+        IRiskPolicy.DecisionResult memory policy = riskPolicy.decide(i);
 
         if (prior + swapUsd >= high) {
+            assertEq(uint8(policy.decision), uint8(HookDecision.REVERT));
             vm.expectRevert(
                 abi.encodeWithSelector(AmlHookLogic.DailyAggregationBlocked.selector, walletC, prior + swapUsd, high)
             );
             harness.evaluate(walletC, address(token), second);
         } else {
+            assertEq(uint8(policy.decision), uint8(HookDecision.ALLOW));
             (HookDecision d,,) = harness.evaluate(walletC, address(token), second);
             assertEq(uint8(d), uint8(HookDecision.ALLOW));
         }

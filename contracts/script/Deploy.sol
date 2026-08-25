@@ -191,9 +191,7 @@ contract Deploy is Script {
         address trustedRouterOverride = vm.envOr("TRUSTED_ROUTER", address(0));
 
         uint256 stalenessThreshold = vm.envOr("MAX_SCORE_AGE", uint256(5 minutes));
-        // Initial Mitigation C knobs. After deploy the hook governor retunes via setActivityWindow.
         uint64 activityWindow = uint64(vm.envOr("ACTIVITY_WINDOW", uint256(1 hours)));
-        uint32 maxOpsInWindow = uint32(vm.envOr("MAX_OPS_IN_WINDOW", uint256(3)));
 
         vm.startBroadcast(pk);
         _deploy(
@@ -206,8 +204,7 @@ contract Deploy is Script {
             poolManagerAddr,
             trustedRouterOverride,
             stalenessThreshold,
-            activityWindow,
-            maxOpsInWindow
+            activityWindow
         );
         // Wallet A stays off SanctionRegistry. The demo API publishes score 100
         // (confirmed exploit) so pool swaps hit WalletBlocked / SCORE_REVERT_BAND.
@@ -237,7 +234,6 @@ contract Deploy is Script {
     /// @param trustedRouterOverride Extra router to trust (in addition to the canonical Universal Router)
     /// @param stalenessThreshold Seconds before a published score counts as stale (Floor B; default 5 minutes)
     /// @param activityWindow Initial Floor B window in seconds (governor retunes via `setActivityWindow`)
-    /// @param maxOpsInWindow Unused op-cap storage seeded with the activity window (ABI compat)
     function _deploy(
         address configurer,
         address admin,
@@ -248,8 +244,7 @@ contract Deploy is Script {
         address poolManagerOverride,
         address trustedRouterOverride,
         uint256 stalenessThreshold,
-        uint64 activityWindow,
-        uint32 maxOpsInWindow
+        uint64 activityWindow
     ) internal {
         if (
             attestor == address(0) || attestor == hookGovernor || attestor == oracleKeeper
@@ -259,9 +254,7 @@ contract Deploy is Script {
         }
         if (feeEscrowOwner == address(0)) feeEscrowOwner = admin;
         oracleAttestor = attestor;
-        _deployContracts(
-            configurer, poolManagerOverride, stalenessThreshold, activityWindow, maxOpsInWindow, attestor
-        );
+        _deployContracts(configurer, poolManagerOverride, stalenessThreshold, activityWindow, attestor);
         _configureAccess(
             configurer, admin, registryKeeper, oracleKeeper, hookGovernor, trustedRouterOverride
         );
@@ -273,7 +266,6 @@ contract Deploy is Script {
         address poolManagerOverride,
         uint256 stalenessThreshold,
         uint64 activityWindow,
-        uint32 maxOpsInWindow,
         address attestor
     ) private {
         accessManager = new AccessManager(configurer);
@@ -317,8 +309,7 @@ contract Deploy is Script {
             address(riskPolicy),
             address(feeEscrow),
             stalenessThreshold,
-            activityWindow,
-            maxOpsInWindow
+            activityWindow
         );
         // Broadcast scripts rewrite `new {salt}` through the deterministic CREATE2 factory; unit
         // tests that call `_deploy` from a harness use that harness as the CREATE2 origin.
@@ -335,8 +326,7 @@ contract Deploy is Script {
             riskPolicy,
             IFeeEscrow(address(feeEscrow)),
             stalenessThreshold,
-            activityWindow,
-            maxOpsInWindow
+            activityWindow
         );
         require(address(hook) == hookAddr, "hook address mismatch");
 

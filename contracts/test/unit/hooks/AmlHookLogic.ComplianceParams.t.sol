@@ -34,7 +34,7 @@ contract UnitAmlHookLogicComplianceParamsTest is Helpers {
         complianceOracle = new ComplianceOracle(address(accessManager), _attestor());
         riskPolicy = new RiskPolicy();
         harness = new AmlHookHarness(
-            address(accessManager), sanctionRegistry, complianceOracle, riskPolicy, 100, 1000, 3
+            address(accessManager), sanctionRegistry, complianceOracle, riskPolicy, 100, 1000
         );
         token = new MockERC20();
 
