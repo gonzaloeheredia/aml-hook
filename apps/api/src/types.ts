@@ -1,11 +1,11 @@
 /**
  * Shared types for the in-memory AML Hook demo API.
  * Mirrors the frontend use-case model:
- * A exploit · B/C N-hop · D published score 0 · E unknown (never written).
+ * A exploit · B/C N-hop · D published score 0 · E unknown · F live OFAC SDN.
  */
 
 /** Demo wallet identifiers used across the use case. */
-export type WalletId = "A" | "B" | "C" | "D" | "E";
+export type WalletId = "A" | "B" | "C" | "D" | "E" | "F";
 
 /** §3.8 latency mitigation reason when ALLOW is elevated to FEE_OVERRIDE. */
 export type LatencyMitigation =
@@ -49,6 +49,8 @@ export type Wallet = {
   exploitConfirmed: boolean;
   /** True when the oracle has never published a row (Wallet E). */
   neverScored: boolean;
+  /** True when this row is the OFAC SDN demo subject (Wallet F). */
+  ofacSubject?: boolean;
 };
 
 /** Record of a completed P2P USDC transfer. */

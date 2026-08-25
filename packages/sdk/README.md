@@ -12,7 +12,7 @@ node scripts/deploy-local.mjs
 
 Writes:
 
-- `packages/sdk/deployments/31337.json` — AccessManager, L1/L2/L3, AmlHook, FeeEscrow, `feeToken`, `usdFeed` / `ethUsdFeed`, demo wallets A–E, attestor, role holders (`hookGovernor`, `complianceOfficer`, keepers), poolManager
+- `packages/sdk/deployments/31337.json` — AccessManager, L1/L2/L3, AmlHook, FeeEscrow, `feeToken`, `usdFeed` / `ethUsdFeed`, demo wallets A–E (Anvil #1–#5), attestor, role holders (`hookGovernor`, `complianceOfficer`, keepers), poolManager. Wallet F is a live OFAC SDN ETH address bound by the API, not this JSON.
 - `apps/api/.env.local` — RPC, hook, oracle, escrow, token, feeds, keeper (Anvil #0), attestor (Anvil #9)
 
 ```ts

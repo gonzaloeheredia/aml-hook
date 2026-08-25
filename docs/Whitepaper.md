@@ -177,7 +177,7 @@ Section 1.2 is the crime model. The hook maps those typologies onto three famili
 
 **Market conduct.** Wash trading and self-cycles; rug pulls and exit liquidity; layering — chained swaps that hide the route. Structuring is the same family when the aim is to dodge a reporting or policy threshold. Mitigation C and the unknown-wallet USD window are the on-chain form of that red flag.
 
-**Real-time threats.** Named-address OFAC — Layer 1 `SanctionHit` when the registry lists an address (score not read). The use-case Wallet A is **not** listed: the officer writes score 100 from an external exploit finding (`WalletBlocked` / `SCORE_REVERT_BAND`). P2P from A still contaminates B, C, and D. Exploit cash-out before a keeper write — Wallet E (never written, starts empty, funded only by clean C). Clean-wallet overlay — Wallet D's inbound-USD bands (pass / 3% / 8%). Compromised keys: an institutional wallet still has valid credentials, and the attacker uses them. The signal is a sudden change in size or counterparties.
+**Real-time threats.** Named-address OFAC — Layer 1 `SanctionHit` when the registry lists an address (score not read). The use-case Wallet F is that path: a **live OFAC SDN ETH address** (not Anvil #6); the COA writes `SanctionRegistry` and the swap fail-closes before the score is read. Wallet A is **not** listed: the officer writes score 100 from an external exploit finding (`WalletBlocked` / `SCORE_REVERT_BAND`). P2P from A still contaminates B, C, and D. F has no demo key — no P2P, no hop into B/C/D, do not fund E from F. Exploit cash-out before a keeper write — Wallet E (never written, starts empty, funded only by clean C). Clean-wallet overlay — Wallet D's inbound-USD bands (pass / 3% / 8%). Compromised keys: an institutional wallet still has valid credentials, and the attacker uses them. The signal is a sudden change in size or counterparties.
 
 A static list reaches only the named-address slice of the first family. Graph, conduct, and the race against the list need the cumulative model.
 
@@ -282,7 +282,7 @@ This section is the Compliance Officer Agent. In the UHI10 demo, when
 `ANTHROPIC_API_KEY` is set, Claude emits `finalScore`, `recommendedFeeBps`,
 typologies, and the Opinion / STR-shaped file. The keeper publishes the score
 and fee to `ComplianceOracle`. `beforeSwap` never calls the model — it reads
-that row. A–E constraints live in skill `uhi10-use-case` (`consult_skill`).
+that row. A–F constraints live in skill `uhi10-use-case` (`consult_skill`).
 Without a key, or under `COA_LIVE=0` / tests, a skill interpreter
 (`factScoring.ts`) applies the same skills. There are still no live vendor KYT APIs
 (OFAC SDN HTTP, Chainalysis, TRM, Elliptic, Forta, EAS, Hypernative).
@@ -409,7 +409,18 @@ The extra fee is a real cost even when the first filter allowed the swap. When t
 
 The behavioral score is not computed during the swap. The engine runs off-chain. A keeper writes the result into `ComplianceOracle`. The swap itself adds no wait.
 
-The hook treats a published score as stale once `updatedAt` is older than `stalenessThreshold`. The contract default is 5 minutes — long enough that a retail keeper writing every 3–5 minutes does not look stale between honest writes. The hook governor retunes it per pool (`setStalenessThreshold`, 1 second to 24 hours). Busy institutional pools that write every 30–60 seconds can tighten to 120 seconds. Do not set below ~120 seconds: validators can nudge `block.timestamp`.
+**When the oracle row moves.** Three clocks, on purpose shorter than Floor B so a healthy writer never looks late:
+
+| Clock | Interval | Who writes `ComplianceOracle` | If the agent is absent |
+| --- | --- | --- | --- |
+| COA evaluation | Event-driven (seed, P2P, swap). Duration = Claude or skill-interpreter runtime. Demo `POST /transfers` and `POST /swaps` wait for this write. | `_ORACLE_KEEPER` after the agent emits `finalScore` / `recommendedFeeBps` | No new facts. The last published row stays. |
+| Keeper heartbeat | **3 minutes** (`KEEPER_TICK_MS`, default 180_000). Does **not** call the agent. Republishes the last score so `updatedAt` stays fresh. | Same keeper + attestor | Floor B stays quiet on a stable wallet for as long as this tick runs. |
+| Floor B arm | **5 minutes** (`stalenessThreshold` / `MAX_SCORE_AGE`; contract and local-deploy default) | Nobody — the hook treats the existing row as stale | Published-clean wallet pays Floor B friction until a write lands. |
+| Never written | `updatedAt == 0` | Nobody | Floor A (unknown wallet), not B. Wallet E is this path by design. |
+
+The 3-minute tick is shorter than the 5-minute stale window so a retail keeper that is only stamping freshness does not look late between honest writes. Busy institutional pools that write every 30–60 seconds can tighten Floor B to 120 seconds (`setStalenessThreshold`). Do not set below ~120 seconds: validators can nudge `block.timestamp`. If both the agent and the tick are down (or slower than 5 minutes), Floor B is the intended lag — not a contamination finding. The oracle allows 24 `updateScore`s per wallet per hour so a 5-minute stamp plus a few real tier changes fit.
+
+The hook treats a published score as stale once `updatedAt` is older than `stalenessThreshold`. The hook governor retunes it per pool (`setStalenessThreshold`, 1 second to 24 hours).
 
 Sanctions writes are event-driven. A new hit uses commit-reveal (minimum **10 blocks**; the governor may raise `revealDelay`, not lower it). Delisting is a single call. `setSanctioned` is the emergency path.
 
@@ -441,7 +452,8 @@ A single table replaces every condition that determines a swap's outcome: the pu
 
 Notes on reading the table:
 
-- A published score of 0 (Wallet D in the use case) and a wallet that was never written (Wallet E) are different rows. Floor A no longer applies once a score exists, even if that score is 0. Floor D **does** apply to a never-written wallet: with no baseline the current input-token bag is inbound (pass / 3% / 8%). The stricter of A (swap size) and D (bag) wins. A may still revert on swap size or on a high pool-impact mid-band swap. Demo E starts empty; clean C funds it (no hop). Do not fund E from A (exploit origin / score 100).
+- A published score of 0 (Wallet D in the use case) and a wallet that was never written (Wallet E) are different rows. Floor A no longer applies once a score exists, even if that score is 0. Floor D **does** apply to a never-written wallet: with no baseline the current input-token bag is inbound (pass / 3% / 8%). The stricter of A (swap size) and D (bag) wins. A may still revert on swap size or on a high pool-impact mid-band swap. Demo E starts empty; clean C funds it (no hop). Do not fund E from A (exploit origin / score 100) or from F (OFAC SDN).
+- Layer 1 `SanctionHit` (Wallet F, live SDN mapping) is not a score-band revert. Wallet A (`WalletBlocked`, score 100, mapping clear) is the contrast.
 - Floor B and Floor D never revert. Floor A large reverts on this swap. Floor C reverts when several swaps in 24 hours cross $15,000. B and D use the same USD cuts as A ($1,000 / $15,000) but map them to pass / 3% / 8%. B's 20% pool-impact extra hardens the fee band and stops at 8%. D has no pool-impact extra.
 - None of these floors soften a score-band revert, or a fee-override already set by the score.
 - A working price feed is not needed when the wallet is published-clean, has no new inflow to quantify, and Floor B is not sizing a window (the first stale swap of the hour charges 3% without a quote). When a quote is required, the hook uses `lastFx` if that round is younger than 30 minutes (`FX_HOT_TTL`) and does not call Chainlink. Otherwise it reads the feed once per token and reuses that price for every amount in the swap (ticket, inbound, bag, settled size, window add). A heartbeat-stale live round is still a price: it is used and stored. An unbound or reverting feed uses `lastFx` until 24 hours. `PriceFallbackUsed` records heartbeat-stale live rounds and the 24-hour cache path, not the 30-minute hot cache.
@@ -500,7 +512,7 @@ The 20% pool-impact extra is **not** applied to D. Extending it to a revert woul
 
 The inflow floor sees a pattern (new funds, then a swap). It does not name the sender. A legitimate large deposit plus an immediate swap pays the same temporary 3% or 8% until the keeper writes. That false positive is accepted and bounded to the catch-up window. N-hop decay is what attributes contamination once the write lands.
 
-The keeper writes when the new score would change the decision tier (ALLOW / FEE_OVERRIDE / REVERT) or the 3% / 8% fee band, **or** when the last write is at least as old as `stalenessThreshold`. A move from 12 to 15 is skipped if the row is still fresh. A move from 28 to 34 is written. A move from 42 to 65 is written (3% → 8%). A same-tier write after the window ages is a freshness stamp: same score, new `updatedAt`. That is the only way the clock moves. `updateScore` is still the only on-chain stamp. Floor B then fires only when the keeper is actually late, not because a stable clean wallet was skipped forever.
+The keeper writes when the new score would change the decision tier (ALLOW / FEE_OVERRIDE / REVERT) or the 3% / 8% fee band, **or** on the 3-minute heartbeat (same score, new `updatedAt`, no agent call), **or** when the last write is at least as old as `stalenessThreshold` (5 minutes). A move from 12 to 15 is skipped if the row is still fresh. A move from 28 to 34 is written. A move from 42 to 65 is written (3% → 8%). A same-tier write after the window ages is a freshness stamp: same score, new `updatedAt`. That is the only way the clock moves. `updateScore` is still the only on-chain stamp. Floor B then fires only when the keeper is actually late (agent and tick both slower than 5 minutes), not because a stable clean wallet was skipped forever.
 
 **Who retunes what**
 
@@ -513,6 +525,7 @@ The keeper writes when the new score would change the decision tier (ALLOW / FEE
 | Pool-impact extra | 20% | Compliance officer (48-hour delay). No numeric range. |
 | Inflow share (of current USD) | 50% | Hook governor |
 | Score staleness | 5 minutes (contract and local-deploy default). Institutional pools may set 120 seconds. | Hook governor |
+| Keeper heartbeat (off-chain) | 3 minutes (`KEEPER_TICK_MS`). Stamps last score; does not call the agent. | API env. Not an on-chain knob. |
 | Price staleness | 1 hour (flags a live round in `PriceFallbackUsed`; does not revert). Hot cache `FX_HOT_TTL` is 30 minutes (skip Chainlink). Cache fail-closed at 24 hours. | Hook governor (1 hour knob only) |
 | Per-token price feed | Official Chainlink ETH/USD (native + WETH) and USDC/USD at deploy on live chains. Anvil uses MockUsdFeed. Extra tokens unbound: skip live if `lastFx` &lt; 30 minutes; else use `lastFx` until 24 hours; else fail-closed | Hook governor |
 | Trusted routers / position managers | Seeded at deploy | Hook governor |
@@ -541,7 +554,7 @@ Recommendation 1's description of the risk-based approach requires that policies
 
 **Residual risk — price oracle.** Unknown-wallet size, Floor B once armed, and Floor D depend on USD-8. If `lastFx` is younger than 30 minutes (`FX_HOT_TTL`), the swap does not call Chainlink and sizes the ticket from that cache. Otherwise it reads the feed once per token and stores a usable round. A halted aggregator or an unbound feed does not immediately over-block: the last cached price (up to 24 hours, `MAX_PRICE_STALENESS`) still sizes this ticket. Those windows can under-count USD after a sharp move, so Floor A and Floor C may look smaller than spot. After 24 hours with no usable live round the path fail-closes (`MagnitudeQuoteFailed`). Deploy binds official Chainlink ETH/USD and USDC/USD. The governor binds extra tokens and keeps `priceStalenessThreshold` at or above the feed heartbeat (that knob flags stale live rounds in `PriceFallbackUsed`; it does not by itself revert).
 
-**Residual risk — Floor B.** If the keeper is down or slower than `stalenessThreshold`, a published-clean wallet pays friction until a write lands: 3% on the first swap of the hour, then pass / 3% / 8% by swap+window USD once it has already swapped in that hour. That is intended lag, not a contamination finding. Once the hour has activity, B sizes USD from `lastFx` when it is younger than 30 minutes, else from the live Chainlink round, else from `lastFx` until 24 hours. It fail-closes only when none of those are available. The freshness write (same score, new timestamp) is what stops a healthy keeper from looking late. The oracle allows 24 `updateScore`s per wallet per hour so a 5-minute stamp plus a few real tier changes fit.
+**Residual risk — Floor B.** If the agent is down, the 3-minute tick still stamps the last score and Floor B stays quiet. If the keeper is down entirely, or slower than `stalenessThreshold` (5 minutes), a published-clean wallet pays friction until a write lands: 3% on the first swap of the hour, then pass / 3% / 8% by swap+window USD once it has already swapped in that hour. That is intended lag, not a contamination finding. Once the hour has activity, B sizes USD from `lastFx` when it is younger than 30 minutes, else from the live Chainlink round, else from `lastFx` until 24 hours. It fail-closes only when none of those are available. The freshness write (same score, new timestamp) is what stops a healthy keeper from looking late. The oracle allows 24 `updateScore`s per wallet per hour so a 5-minute stamp plus a few real tier changes fit.
 
 **Residual risk — Floor C.** The 24-hour window is a BSA CTR analogy, not a FATF number. A venue that already identifies counterparties may widen it; one that does not should treat 24 hours as a conservative default until that review is complete. A first $15,000 ticket of the day is not C.
 
@@ -564,7 +577,7 @@ The hook touches two of those ten steps: 5 and 7. The rest is a normal Uniswap v
 
 ### 8.6 Tooling
 
-Section 7 is the officer that writes the score and the Opinion file. This subsection lists **intended** production KYT sources. The UHI10 demo now screens the public OFAC SDN ETH-address dump on every COA evaluation and Opinion; a direct match is written to `SanctionRegistry`. The swap still only reads that mapping — there is no Treasury call inside `beforeSwap`. Other vendor KYT feeds (Chainalysis, TRM, Elliptic, OpenSanctions, Etherscan, GoPlus) are not wired. Claude (or the skill interpreter when the key is off) scores from the Anvil ledger plus that live SDN screen, `SanctionRegistry`, and the git corpus (`search_regulations`). Layer 1 at execution is `SanctionRegistry`. Layer 2 is `ComplianceOracle` (keeper + attestor, agent-published score and fee). USD magnitude uses Chainlink (or `MockUsdFeed` on Anvil).
+Section 7 is the officer that writes the score and the Opinion file. This subsection lists **intended** production KYT sources. The UHI10 demo now screens the public OFAC SDN ETH-address dump on every COA evaluation and Opinion; a direct match is written to `SanctionRegistry` (demo Wallet F). The swap still only reads that mapping — there is no Treasury call inside `beforeSwap`. Wallet A remains an exploit score 100 without a listing (`WalletBlocked`). Other vendor KYT feeds (Chainalysis, TRM, Elliptic, OpenSanctions, Etherscan, GoPlus) are not wired. Claude (or the skill interpreter when the key is off) scores from the Anvil ledger plus that live SDN screen, `SanctionRegistry`, and the git corpus (`search_regulations`). Layer 1 at execution is `SanctionRegistry`. Layer 2 is `ComplianceOracle` (3-minute keeper stamp + attestor; agent-published score and fee). USD magnitude uses Chainlink (or `MockUsdFeed` on Anvil).
 
 #### 8.6.1 Signals
 

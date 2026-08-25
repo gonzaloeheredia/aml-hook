@@ -1,10 +1,11 @@
 /**
- * Local Anvil identities for the A–E demo.
- * Keys stay on the API. The browser never sees them.
+ * Local Anvil identities for the A–E demo, plus Wallet F (live OFAC SDN subject).
+ * Keys stay on the API. The browser never sees them. F has no key — quote only.
  */
 
 import type { Address, Hex } from "viem";
 import type { WalletId } from "../types.js";
+import { pickLiveSdnAddress, PREFERRED_SDN_ETH } from "../oracle/ofacSdn.js";
 
 /** Anvil #0 — deployer / oracle keeper / hook governor / FeeEscrow owner. */
 export const KEEPER_KEY =
@@ -18,10 +19,15 @@ export const ATTESTOR_KEY =
 export const ATTESTOR_ADDRESS =
   "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720" as Address;
 
-export const DEMO_WALLETS: Record<
-  WalletId,
-  { address: Address; key: Hex; usdc: number; eth: number }
-> = {
+export type DemoAccount = {
+  address: Address;
+  key?: Hex;
+  usdc: number;
+  eth: number;
+  ofacSubject?: boolean;
+};
+
+export const DEMO_WALLETS: Record<WalletId, DemoAccount> = {
   A: {
     address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
     key: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
@@ -52,6 +58,12 @@ export const DEMO_WALLETS: Record<
     usdc: 0,
     eth: 1,
   },
+  F: {
+    address: PREFERRED_SDN_ETH[0] as Address,
+    usdc: 10_000,
+    eth: 0,
+    ofacSubject: true,
+  },
 };
 
 /** Where a demo "swap" sends USDC. Not a PoolManager. */
@@ -59,6 +71,22 @@ export const POOL_SINK =
   "0x000000000000000000000000000000000000Dd01" as Address;
 
 export const WALLET_IDS = Object.keys(DEMO_WALLETS) as WalletId[];
+
+/**
+ * Point Wallet F at an address that is on the live OFAC SDN ETH set.
+ */
+export async function bindOfacDemoWallet(): Promise<{
+  address: Address;
+  fromLiveList: boolean;
+}> {
+  const pick = await pickLiveSdnAddress();
+  DEMO_WALLETS.F.address = pick.address as Address;
+  return { address: DEMO_WALLETS.F.address, fromLiveList: pick.fromLiveList };
+}
+
+export function hasSigner(id: WalletId): boolean {
+  return Boolean(DEMO_WALLETS[id].key);
+}
 
 export function idFromAddress(address: string): WalletId | null {
   const lower = address.toLowerCase();

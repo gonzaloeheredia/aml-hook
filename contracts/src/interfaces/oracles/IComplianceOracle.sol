@@ -5,6 +5,11 @@ pragma solidity ^0.8.26;
 /// @notice The oracle keeper publishes a Compliance Officer Agent score; AMLHook reads
 ///         it at beforeSwap (whitepaper §3.2 Layer 2 / §3.5 / §3.8). The hook never
 ///         writes scores and never calls the agent.
+/// @dev Clocks (UHI10 demo): the COA writes on transfer / swap / seed (waits for Claude
+///      or the skill interpreter). A 3-minute keeper tick republishes the last score
+///      without calling the agent so `updatedAt` stays fresh. Floor B arms if that stamp
+///      is older than `stalenessThreshold` (default 5 minutes). If the agent never
+///      published (`updatedAt == 0`), Floor A applies instead of B.
 interface IComplianceOracle {
     /// @notice Per-wallet risk snapshot emitted by the COA and published by the keeper.
     /// @dev `hopDistance` / `origin` support N-hop decay from the UHI10 use-case skill;
@@ -14,7 +19,7 @@ interface IComplianceOracle {
         uint8 hopDistance; // 0 = origin / unknown; N-hop from contamination source
         address origin; // contamination origin wallet (address(0) if clean)
         uint24 feeBps; // COA recommended fee (bps), published by the keeper; used on FEE_OVERRIDE
-        uint64 updatedAt; // unix timestamp of last keeper publish (Mitigations A/B/D)
+        uint64 updatedAt; // unix timestamp of last keeper publish (Mitigations A/B/D). 0 = never written.
     }
 
     event ScoreUpdated(

@@ -108,9 +108,11 @@ const SKILL_CATALOG: Record<
       "Cross-pool intelligence query completed; no contradictory clean attestations.",
   },
   "uhi10-use-case": {
-    sources: ["UHI10 A–E use-case skill"],
+    sources: ["UHI10 A–F use-case skill"],
     finding: (w) =>
-      w.neverScored
+      w.ofacSubject
+        ? "Use-case: Wallet F live OFAC SDN match — Layer 1 SanctionHit, not WalletBlocked."
+        : w.neverScored
         ? "Use-case: Wallet E is unpublished — do not write a COA score."
         : w.exploitConfirmed
           ? "Use-case: Wallet A exploit score 100, not OFAC, REVERT WalletBlocked."
@@ -123,7 +125,9 @@ const SKILL_CATALOG: Record<
   "fact-scoring": {
     sources: ["COA fact-scoring model v1", "N-hop decay policy"],
     finding: (w) =>
-      w.exploitConfirmed
+      w.ofacSubject
+        ? "Fact engine override → score 100 (OFAC_DIRECT_MATCH). Pool path is SanctionHit at Layer 1."
+        : w.exploitConfirmed
         ? "Fact engine override → score 100 (EXPLOIT_PROTOCOL_FUNDS). Pool path is WalletBlocked."
         : w.hopDistance != null
           ? `Fact engine applied N-hop decay at hop ${w.hopDistance}.`
@@ -132,7 +136,9 @@ const SKILL_CATALOG: Record<
   "task-swap-decision": {
     sources: ["RiskPolicy band map", "Keeper fee schedule"],
     finding: (w) =>
-      w.exploitConfirmed
+      w.ofacSubject
+        ? "Decision draft: REVERT SanctionHit (OFAC SDN exact-address · Layer 1)."
+        : w.exploitConfirmed
         ? "Decision draft: REVERT WalletBlocked (score 100 · SCORE_REVERT_BAND)."
         : w.hopDistance === 1
           ? "Decision draft: FEE_OVERRIDE (punitive differential → FeeEscrow)."

@@ -1,6 +1,6 @@
 ---
 name: uhi10-use-case
-description: "Canonical A–E demo validations for the UHI10 AML Hook walkthrough. Use before emitting finalScore or recommendedFeeBps, and whenever hop decay, Wallet A vs OFAC, unpublished E, deferred D, afterSwap accumulation, or fee bps is unclear. The hook owns Floors A–D; this skill owns what the oracle keeper may publish."
+description: "Canonical A–F demo validations for the UHI10 AML Hook walkthrough. Use before emitting finalScore or recommendedFeeBps, and whenever hop decay, Wallet A vs OFAC, Wallet F SanctionHit, unpublished E, deferred D, afterSwap accumulation, or fee bps is unclear. The hook owns Floors A–D; this skill owns what the oracle keeper may publish."
 ---
 
 # UHI10 use-case validations
@@ -24,6 +24,7 @@ read that row.
 | **C** | Same hop rules as B. Funds E (no hop) and D (inflow) | Published | Symmetric with B. Clean C → E does **not** write a hop on E. |
 | **D** | Published clean (score 0), starts with 5,000 USDC | Published | Tainted inbound (A or hopped peer): **defer** `updateScore` so the next swap can show Floor D on stale 0. Catch-up then writes ~65 / 800. Clean C→D does **not** add a hop. Already-held funds ALLOW at 30 bps while the row is fresh 0. |
 | **E** | Unknown. Starts empty. Funded by clean C | **Never written** | Do **not** publish a score. Hook-local Floor A (this swap) + Floor D (bag). Not a COA 0. |
+| **F** | Live OFAC SDN ETH address (Garantex or another identifier from the current dump). Not Anvil #6. No demo key | Published (list override) | Exact-address match → COA writes `SanctionRegistry`. Swap fail-closes **`SanctionHit` at Layer 1**, before the score is read. **Not** `WalletBlocked`. Do not hop-contaminate B/C/D from F. Do not fund E from F. No P2P. |
 
 B and C are hop-symmetric: A→B→C and A→C→B use the same math.
 
@@ -84,19 +85,21 @@ Do not overwrite these with a COA score:
 | **D** | Significant inbound vs published 0 (deferred keeper) | Leave D unpublished after tainted P2P until catch-up |
 
 Sanctions list at LP / swap (`SanctionHit`) is Layer 1. A is score-100 exploit,
-not a list hit.
+not a list hit. F is the live SDN subject — expect a registry write and
+`SanctionHit`, not `WalletBlocked`.
 
 ---
 
 ## 5. Checklist before you emit JSON
 
 1. A and `exploitConfirmed` → 100, not OFAC, unless `subjectListed`.
-2. E / `neverScored` → you should not be scoring; if asked, do not publish.
-3. Hop present → apply `100 × 0.65^hops`, then add event/sanction facts.
-4. 1-hop + a single FEE_OVERRIDE swap → still ≤ 70.
-5. `recommendedFeeBps` matches hop band (800 / 300 / 30 / 0).
-6. Floors A–D are not your score.
-7. Opinion sources: venues and corpus ids — **never** this skill’s filename.
+2. F / `ofacSubject` / live SDN match → registry write; swap is `SanctionHit` at L1.
+3. E / `neverScored` → you should not be scoring; if asked, do not publish.
+4. Hop present → apply `100 × 0.65^hops`, then add event/sanction facts.
+5. 1-hop + a single FEE_OVERRIDE swap → still ≤ 70.
+6. `recommendedFeeBps` matches hop band (800 / 300 / 30 / 0).
+7. Floors A–D are not your score.
+8. Opinion sources: venues and corpus ids — **never** this skill’s filename.
 
 If any item is unclear, call `consult_skill` again with `uhi10-use-case`
 or `fact-scoring` / `task-swap-decision`.

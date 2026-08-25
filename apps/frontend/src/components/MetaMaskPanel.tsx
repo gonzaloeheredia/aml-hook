@@ -92,7 +92,10 @@ export function MetaMaskPanel({
   const totalUsd = active.usdc + active.eth * ETH_USD;
 
   const recipients = useMemo(
-    () => (Object.keys(wallets) as SimWalletId[]).filter((id) => id !== activeId),
+    () =>
+      (Object.keys(wallets) as SimWalletId[]).filter(
+        (id) => id !== activeId && id !== "F" && !wallets[id].ofacSubject,
+      ),
     [wallets, activeId],
   );
 
@@ -101,14 +104,15 @@ export function MetaMaskPanel({
     if (activeId === "C") setToId(wallets.E.usdc <= 0 ? "E" : "D");
     else if (activeId === "B" && !isSenderTainted(wallets.B)) setToId("D");
     else if (activeId === "A") setToId("B");
-    else setToId((prev) => (prev === activeId ? "C" : prev));
+    else setToId((prev) => (prev === activeId || prev === "F" ? "C" : prev));
   }, [activeId, wallets.B, wallets.E.usdc]);
 
   /** Clear flash when switching accounts */
   useEffect(() => {
     setLastMove(null);
     setError(null);
-  }, [activeId]);
+    if (active.ofacSubject) setView("home");
+  }, [activeId, active.ofacSubject]);
 
   const parsedAmount = Math.round(Number(String(amount).replace(/,/g, "")));
   const amountOk = Number.isFinite(parsedAmount) && parsedAmount > 0;
@@ -116,6 +120,9 @@ export function MetaMaskPanel({
     amountOk &&
     parsedAmount <= active.usdc &&
     toId !== activeId &&
+    toId !== "F" &&
+    activeId !== "F" &&
+    !active.ofacSubject &&
     !!wallets[toId];
 
   /**
@@ -255,7 +262,7 @@ export function MetaMaskPanel({
               </button>
               <h3 className="text-xl font-bold text-white">Send USDC</h3>
               <p className="mt-1 text-sm text-white/50">
-                Moves USDC between A–E. For D inflow (no hop), send from C while C is still clean — not from A.
+                Moves USDC between A–E. Wallet F is OFAC SDN — P2P is disabled. For D inflow (no hop), send from C while C is still clean — not from A.
               </p>
 
               <label className="mt-6 text-[11px] uppercase tracking-wider text-white/40">
@@ -408,7 +415,9 @@ export function MetaMaskPanel({
                   {formatUsd(totalUsd)}
                 </div>
                 <div className="mt-1 text-sm text-[#28A745]">
-                  {active.hopDistance == null && !active.exploitConfirmed
+                  {active.ofacSubject
+                    ? "OFAC SDN · pool will REVERT SanctionHit"
+                    : active.hopDistance == null && !active.exploitConfirmed
                     ? "Clean ledger · ready for baseline swap"
                     : active.exploitConfirmed
                       ? "Exploit confirmed · pool will REVERT"
@@ -431,6 +440,11 @@ export function MetaMaskPanel({
               </div>
 
               <div className="mt-4 px-4">
+                {active.ofacSubject ? (
+                  <p className="rounded-2xl border border-white/10 bg-[#1A1A1C] px-3 py-3 text-center text-xs text-white/55">
+                    P2P is disabled for Wallet F. Use this account in Uniswap to demo SanctionHit.
+                  </p>
+                ) : (
                 <button
                   type="button"
                   onClick={() => {
@@ -444,6 +458,7 @@ export function MetaMaskPanel({
                   </span>
                   <span className="text-[11px] font-medium">Send USDC (P2P)</span>
                 </button>
+                )}
               </div>
 
               <div className="mt-6 px-4 pb-2">

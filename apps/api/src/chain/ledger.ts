@@ -5,7 +5,7 @@
  */
 
 import { keccak256, toBytes, type Address, type Hex } from "viem";
-import { DEMO_WALLETS, POOL_SINK, WALLET_IDS } from "./accounts.js";
+import { DEMO_WALLETS, POOL_SINK, WALLET_IDS, bindOfacDemoWallet, hasSigner } from "./accounts.js";
 import { erc20Abi, hookAbi, registryAbi } from "./abi.js";
 import { anvilRpc, keeperWallet, publicClient, requireChain, walletClient } from "./clients.js";
 import { getChainConfig } from "./config.js";
@@ -20,6 +20,7 @@ const ethCredit: Record<WalletId, number> = {
   C: DEMO_WALLETS.C.eth,
   D: DEMO_WALLETS.D.eth,
   E: DEMO_WALLETS.E.eth,
+  F: DEMO_WALLETS.F.eth,
 };
 
 export { usdcToWei, weiToUsdc };
@@ -79,8 +80,8 @@ export async function setTokenBalance(address: Address, usdc: number): Promise<v
     const id = Object.entries(DEMO_WALLETS).find(
       ([, w]) => w.address.toLowerCase() === address.toLowerCase(),
     )?.[0] as WalletId | undefined;
-    if (!id) return;
-    const { account, client } = walletClient(DEMO_WALLETS[id].key);
+    if (!id || !hasSigner(id)) return;
+    const { account, client } = walletClient(DEMO_WALLETS[id].key!);
     const hash = await client.writeContract({
       address: cfg.feeToken,
       abi: erc20Abi,
@@ -114,6 +115,7 @@ async function clearWalletASanction(): Promise<void> {
 
 export async function seedBalances(): Promise<void> {
   await requireChain();
+  await bindOfacDemoWallet();
   resetEthCredits();
   await clearWalletASanction();
   for (const id of WALLET_IDS) {
@@ -139,10 +141,13 @@ export async function transferUsdc(
   to: WalletId,
   usdc: number,
 ): Promise<Hex> {
+  if (!hasSigner(from) || !hasSigner(to)) {
+    throw new Error("Wallet F cannot send or receive P2P — OFAC SDN subject has no demo key");
+  }
   await requireChain();
   const cfg = getChainConfig();
   const amount = usdcToWei(usdc);
-  const { account, client } = walletClient(DEMO_WALLETS[from].key);
+  const { account, client } = walletClient(DEMO_WALLETS[from].key!);
   const hash = await client.writeContract({
     address: cfg.feeToken,
     abi: erc20Abi,
@@ -156,8 +161,11 @@ export async function transferUsdc(
 }
 
 export async function spendToSink(from: WalletId, usdc: number): Promise<Hex> {
+  if (!hasSigner(from)) {
+    throw new Error("Wallet F cannot spend — OFAC SDN subject has no demo key");
+  }
   const cfg = getChainConfig();
-  const { account, client } = walletClient(DEMO_WALLETS[from].key);
+  const { account, client } = walletClient(DEMO_WALLETS[from].key!);
   const hash = await client.writeContract({
     address: cfg.feeToken,
     abi: erc20Abi,

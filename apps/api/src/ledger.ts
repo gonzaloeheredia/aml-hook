@@ -37,6 +37,7 @@ export function applyHopContamination(
   const recipient = wallets[to];
   if (!sender || !recipient || from === to) return wallets;
   if (recipient.neverScored) return wallets;
+  if (sender.ofacSubject || recipient.ofacSubject) return wallets;
 
   const senderIsTainted = sender.exploitConfirmed || sender.hopDistance != null;
   const incomingHop = senderIsTainted ? (sender.hopDistance ?? 0) + 1 : null;

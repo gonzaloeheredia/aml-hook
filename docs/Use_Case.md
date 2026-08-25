@@ -16,6 +16,7 @@ Use this table as the map while running the demo. Each row points to the matchin
 | --- | --- | --- | --- | --- | --- |
 | 0 | D (or B / C) | Swap of already-held USDC | 0 | ALLOW | 0.30% |
 | 1 | A | Pool cash-out | 100 | REVERT | `WalletBlocked` (`SCORE_REVERT_BAND`) |
+| 1b | F | Pool cash-out (live OFAC SDN) | 100 | REVERT | `SanctionHit` (Layer 1 registry) |
 | 2 | A → B | P2P (peer-to-peer) | — | Agent emits 65; keeper publishes | — |
 | 3 | B | Swap | 65 | FEE_OVERRIDE | 8% |
 | 4 | B → C | P2P | — | Agent emits 42; keeper publishes | — |
@@ -32,9 +33,9 @@ Use this table as the map while running the demo. Each row points to the matchin
 | 12 | FEE_OVERRIDE paths | Escrow hold 24h / 48h | — | On-chain FeeEscrow | Differential |
 | 13 | Operator | Opinion stage | — | COA (Compliance Officer Agent) file | — |
 
-How to run it: from the repo root, `npm run deploy:local`, then start the API and the frontend. Without Anvil the API returns `503` `{ error: "deploy_local" }`. Connect A–E from the wallet picker, move USDC in the MetaMask panel, use the size chips and the two swap-card controls, and swap. Local quotes use `MockUsdFeed` ($1 USDC, $1,000 ETH). The API exposes the same Anvil ledger on `POST /transfers`, `POST /swaps`, `POST /demo/elapse`, `POST /demo/price-feed`, and `GET /escrow`. A demo swap is `previewSwap` + `observeSwap` + a FeeEscrow deposit on FEE_OVERRIDE — not a live Uniswap `PoolManager` fill.
+How to run it: from the repo root, `npm run deploy:local`, then start the API and the frontend. Without Anvil the API returns `503` `{ error: "deploy_local" }`. Connect A–F from the wallet picker, move USDC in the MetaMask panel (A–E only — F has no P2P), use the size chips and the two swap-card controls, and swap. Local quotes use `MockUsdFeed` ($1 USDC, $1,000 ETH). The API exposes the same Anvil ledger on `POST /transfers`, `POST /swaps`, `POST /demo/elapse`, `POST /demo/price-feed`, and `GET /escrow`. A demo swap is `previewSwap` + `observeSwap` + a FeeEscrow deposit on FEE_OVERRIDE — not a live Uniswap `PoolManager` fill.
 
-## 2. The five wallets
+## 2. The six wallets
 
 | Wallet | Role | Starting score |
 | --- | --- | --- |
@@ -43,8 +44,9 @@ How to run it: from the repo root, `npm run deploy:local`, then start the API an
 | **C** | Starts clean. Funds E (unknown) and D (inflow). Same hop rules as B. | 0 (published) |
 | **D** | Published score 0. Starts with 5,000 USDC. | 0 (published) |
 | **E** | Unknown. Starts empty. Clean C deposits USDC (no hop). | — (never written) |
+| **F** | Live OFAC SDN ETH address (not Anvil #6). COA writes `SanctionRegistry`. Pool swap hits `SanctionHit`. No P2P (no demo key). | 100 (list override) |
 
-B and C are symmetric for hops. Any path A → B → C or A → C → B produces the same hop math. D is confirmed clean until new funds arrive or a latency floor fires. E is unknown until the agent publishes a score. The step-by-step outcome for each wallet is in section 3.
+B and C are symmetric for hops. Any path A → B → C or A → C → B produces the same hop math. D is confirmed clean until new funds arrive or a latency floor fires. E is unknown until the agent publishes a score. F is the true-positive list path — contrast with A (`WalletBlocked` without a listing). The step-by-step outcome for each wallet is in section 3.
 
 ## 3. How the hook decides
 
@@ -85,11 +87,11 @@ N-hop score (agent applies skill `uhi10-use-case`; keeper publishes):
 | B or C after a 1-hop peer | 2 | 42 | FEE_OVERRIDE 3% |
 | D after keeper catch-up from A | 1 | 65 | FEE_OVERRIDE 8% |
 
-A second inbound from a closer source replaces the farther hop. Clean-to-clean P2P does not contaminate. The agent emits a new score when the hop or facts change. The keeper writes that row when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band changes, **or** on a 3-minute heartbeat (same score, new `updatedAt`), **or** when the last write is at least as old as `stalenessThreshold`. That freshness stamp stops a stable clean wallet from looking stale. Floor B still fires when the keeper is actually late (demo: **Advance 5 min** with no intervening write).
+A second inbound from a closer source replaces the farther hop. Clean-to-clean P2P does not contaminate. The agent emits a new score when the hop or facts change. The keeper writes that row when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band changes, **or** on a 3-minute heartbeat (same score, new `updatedAt`, no agent call), **or** when the last write is at least as old as `stalenessThreshold` (5 minutes). The 3-minute stamp is shorter than Floor B so a healthy API does not look stale when the agent is not re-run. If the agent is down, the tick still republishes the last score. If both the agent and the tick are down, Floor B fires after 5 minutes. That freshness stamp stops a stable clean wallet from looking stale. Floor B still fires when the keeper is actually late (demo: **Advance 5 min** with no intervening write).
 
 ## 4. Walkthrough
 
-Reference for executing the demo step by step. Anvil must already be running (`npm run deploy:local`). Use the frontend (Connect + MetaMask panel) or the API. Amounts match the Anvil A–E wallets (#1–#5). On the swap card: **Advance 5 min** (Floor B) and **Unbind price feed** (uses `lastFx` after a prior quote: silent under 30 minutes, `PriceFallbackUsed` until 24h after that; `MagnitudeQuoteFailed` only if that token was never quoted or the cache is older than 24h). Restart data reseeds A–E on-chain.
+Reference for executing the demo step by step. Anvil must already be running (`npm run deploy:local`). Use the frontend (Connect + MetaMask panel) or the API. Amounts match the Anvil A–E wallets (#1–#5). Wallet F is a live OFAC SDN ETH identifier (not Anvil #6). On the swap card: **Advance 5 min** (Floor B) and **Unbind price feed** (uses `lastFx` after a prior quote: silent under 30 minutes, `PriceFallbackUsed` until 24h after that; `MagnitudeQuoteFailed` only if that token was never quoted or the cache is older than 24h). Restart data reseeds A–F on-chain.
 
 ### Step 0 — Clean swap (D, or B / C)
 
@@ -117,6 +119,20 @@ Connect Wallet A. Swap any size.
 | Settlement | None. Funds stay in A. |
 
 A can still send USDC off-pool to B or C. Do not send A → E.
+
+### Step 1b — OFAC SDN cash-out (F)
+
+Connect Wallet F. Swap any size.
+
+| Check | Result |
+| --- | --- |
+| Sanctions | Listed (`SanctionRegistry` written by the COA from the live OFAC SDN dump) |
+| Score | Not consulted (Layer 1 fail-closes first) |
+| Decision | REVERT |
+| Error | `SanctionHit` |
+| Settlement | None. Funds stay in F. |
+
+F has no demo key — P2P is disabled. Do not fund E from F. Use A vs F to contrast `WalletBlocked` (exploit, not listed) with `SanctionHit` (listed).
 
 ### Step 2 — A sends to B
 

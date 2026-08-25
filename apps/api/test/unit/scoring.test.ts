@@ -120,7 +120,9 @@ describe("unit: scoring", () => {
     assert.equal(feeBand(30), 30);
     assert.equal(feeBand(0), 0);
     assert.equal(isWalletId("A"), true);
+    assert.equal(isWalletId("F"), true);
     assert.equal(isWalletId("Z"), false);
+    assert.equal(hopScore(demoWallet("F", { ofacSubject: true })), 100);
   });
 
   it("shouldPublishScore: first write, band change, staleness", () => {

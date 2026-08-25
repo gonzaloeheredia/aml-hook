@@ -39,9 +39,13 @@ abstract contract AmlHookGovernance is AccessManaged, Pausable {
     /// @notice Owner-level sanction aggregation policy for multisig wallets.
     MultisigAggregation public multisigAggregation = MultisigAggregation.ALL_CLEAN;
 
-    /// @notice Seconds after which a score is considered stale (Mitigations B / D).
+    /// @notice Seconds after which a published score is considered stale (Floor B / Mitigation D).
+    /// @dev Default 5 minutes. The off-chain keeper ticks every 3 minutes (shorter than this)
+    ///      so a healthy API never looks stale even when the COA is not re-run. If the agent
+    ///      never published (`updatedAt == 0`), Floor A applies instead of B.
     uint256 public stalenessThreshold;
-    /// @notice Default `stalenessThreshold` applied when the constructor receives 0.
+    /// @notice Default `stalenessThreshold` applied when the constructor receives 0 (5 minutes).
+    /// @dev Sized so a 3-minute keeper heartbeat stays inside the window (whitepaper §8.4).
     uint256 public constant DEFAULT_STALENESS = 5 minutes;
     /// @notice Hard upper bound on `stalenessThreshold`. Exceeding it reverts.
     uint256 public constant MAX_STALENESS = 24 hours;

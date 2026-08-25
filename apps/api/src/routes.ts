@@ -53,7 +53,7 @@ import {
 } from "./store.js";
 import type { WalletId } from "./types.js";
 
-const WALLET_IDS_HINT = "A, B, C, D, or E";
+const WALLET_IDS_HINT = "A, B, C, D, E, or F";
 
 type TransferBody = {
   from?: string;
@@ -101,7 +101,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       publisher: getPublisherStatus(),
       chain,
       policy,
-      wallets: ["A", "B", "C", "D", "E"],
+      wallets: ["A", "B", "C", "D", "E", "F"],
     };
   });
 
@@ -260,6 +260,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     if (!isWalletId(fromRaw) || !isWalletId(toRaw)) {
       return reply.code(400).send({ error: `from/to must be ${WALLET_IDS_HINT}` });
+    }
+    if (fromRaw === "F" || toRaw === "F") {
+      return reply.code(400).send({
+        error: "Wallet F is an OFAC SDN subject — P2P is disabled. Use a pool swap to see SanctionHit.",
+      });
     }
     if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
       return reply.code(400).send({ error: "amountUsd must be a positive number" });

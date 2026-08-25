@@ -21,8 +21,10 @@ addresses), screens the subject on every evaluation / Opinion, and on a
 direct match writes `SanctionRegistry.setSanctioned`. Layer 1 at swap time
 is still the mapping — `beforeSwap` does not call Treasury. Wallet A is
 **not** on SDN; the agent writes score 100 from the exploit finding
-(`WalletBlocked`). A listed subject, P2P counterparty, or listed contract
-the wallet used in the pool is score 100.
+(`WalletBlocked`). Wallet F **is** a live SDN ETH identifier; expect a
+registry write and `SanctionHit`, not `WalletBlocked`. A listed subject, P2P
+counterparty, or listed contract the wallet used in the pool is score 100.
+Do not hop-contaminate B/C/D from F and do not fund E from F.
 
 ---
 

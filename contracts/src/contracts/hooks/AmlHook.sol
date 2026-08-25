@@ -46,7 +46,9 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
     /// @param complianceOracle_   Layer 2 store of COA scores published by the oracle keeper.
     /// @param riskPolicy_         Layer 3 pure decision contract (preview / off-chain use).
     /// @param feeEscrow_          48-hour escrow for FEE_OVERRIDE differentials; `address(0)` disables.
-    /// @param stalenessThreshold_ Seconds after which a score is considered stale; 0 → DEFAULT_STALENESS.
+    /// @param stalenessThreshold_ Seconds after which a score is considered stale (Floor B);
+    ///        0 → DEFAULT_STALENESS (5 minutes). Off-chain tick is 3 minutes so a healthy
+    ///        keeper stays inside this window without re-running the agent.
     /// @param activityWindow_     Rolling window for operation-count and USD accumulators; 0 → DEFAULT_ACTIVITY_WINDOW.
     function initialize(
         ISanctionRegistry sanctionRegistry_,

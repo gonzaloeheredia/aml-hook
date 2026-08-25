@@ -13,9 +13,9 @@ import {
 type Props = {
   open: boolean;
   onClose: () => void;
-  /** Called when the user picks Wallet A–E */
+  /** Called when the user picks Wallet A–F */
   onConnect: (caseId: DemoCaseId) => void;
-  /** Live ledger — B/C/D stay green until contaminated; E stays unknown */
+  /** Live ledger — B/C/D stay green until contaminated; E stays unknown; F is OFAC SDN */
   wallets: Record<DemoCaseId, SimWallet>;
 };
 
@@ -27,8 +27,8 @@ function shorten(addr: string) {
 }
 
 /**
- * Connect modal — wallets A–E.
- * Row border: green clean / score 0 · yellow hop, latency, or unknown · red exploit.
+ * Connect modal — wallets A–F.
+ * Row border: green clean / score 0 · yellow hop, latency, or unknown · red exploit or OFAC SDN.
  */
 export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
   if (!open) return null;
