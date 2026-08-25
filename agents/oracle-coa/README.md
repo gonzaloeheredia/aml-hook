@@ -56,10 +56,12 @@ The agent never files with any authority.
 
 Skill: `task-regulatory-report`. Mock builder: `buildOpinionFromScore()`.
 
-### 3. Normative consultation (future live runtime)
+### 3. Normative consultation
 
-Answer from a session-loaded corpus via `search_regulations`; declare coverage
-gaps. Never answer from training memory in that module.
+Answer from the git-versioned corpus at `corpus/` via `search_regulations`
+(`apps/api/src/oracle/corpus.ts`). Cite `id`, `publicationDate`, and
+`retrievedAt` on the Opinion. Declare a coverage gap when the manifest has no
+in-force document. Never answer from training memory in that module.
 
 ---
 
@@ -217,12 +219,12 @@ FULL_FLOW = [
   task-swap-intake, originator-attribution, ofac-screening,
   task-onchain-evidence, wallet-screening, swap-behavior-analysis,
   typology-detection, cross-pool-intelligence, fact-scoring,
-  task-swap-decision, task-regulatory-report,
+  task-swap-decision, search_regulations, task-regulatory-report,
 ]
 
 INCREMENTAL_FLOW = [
   task-swap-intake, swap-behavior-analysis, fact-scoring,
-  task-swap-decision, task-regulatory-report,
+  task-swap-decision, search_regulations, task-regulatory-report,
 ]
 ```
 

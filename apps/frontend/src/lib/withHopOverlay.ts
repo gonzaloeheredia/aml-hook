@@ -147,6 +147,7 @@ function buildLiveTechnicalOpinion(
                 : "Monitor for inbound P2P from Wallet A (or contaminated B/D). If received, expect N-hop decay fees."
               : "Keep ordinary monitoring. Re-open enhanced narrative if an inbound tainted transfer raises score into FEE_OVERRIDE or REVERT.",
     traceability: `auditHash ${auditHash} · retention 5 years (FATF Rec. 11 · BSA). Support draft — not submitted.`,
+    normativeCitations: [],
   };
 }
 

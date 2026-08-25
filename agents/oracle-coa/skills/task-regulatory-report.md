@@ -269,6 +269,7 @@ material. It does not draft or send the response.
 - SAR annex status remains support-draft
 - Evaluated subject was not tipped off
 - No skill filenames in Opinion / annex sources
+- Every corpus cite is a `normativeCitations[]` row with `id`, `publicationDate`, `retrievedAt` (from `search_regulations`); never from training memory
 
 ---
 
@@ -292,7 +293,18 @@ material. It does not draft or send the response.
     "decisionExecuted": "<HOW>",
     "legalBasis": "...",
     "recommendations": "...",
-    "traceability": "auditHash … · calculated … · retention 5 years"
+    "traceability": "auditHash … · calculated … · retention 5 years",
+    "normativeCitations": [
+      {
+        "id": "<corpus id>",
+        "title": "...",
+        "framework": "FATF | OFAC | MICA | TFR | FINCEN | TREASURY | WOLFSBERG",
+        "series": "...",
+        "publicationDate": "YYYY-MM-DD",
+        "retrievedAt": "<ISO 8601>",
+        "sha256": "<pdf sha256>"
+      }
+    ]
   },
   "sarAnnex": { },
   "decisionRecord": {

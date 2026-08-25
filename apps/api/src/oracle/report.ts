@@ -7,7 +7,26 @@
  */
 
 import type { Wallet } from "../types.js";
+import type { NormativeCitation } from "./corpus.js";
 import type { AgentRun, OracleOpinion, ScoreResult } from "./types.js";
+
+function withCorpusBasis(basis: string, citations: NormativeCitation[]): string {
+  if (!citations.length) {
+    return `${basis} Normative corpus: no in-force documents loaded for this evaluation; coverage gap declared.`;
+  }
+  const cites = citations
+    .map(
+      (c) =>
+        `${c.id} (${c.publicationDate}, retrieved ${c.retrievedAt})`,
+    )
+    .join("; ");
+  return `${basis} Corpus citations: ${cites}.`;
+}
+
+function corpusTrace(trace: string, citations: NormativeCitation[]): string {
+  if (!citations.length) return trace;
+  return `${trace} Corpus ${citations.map((c) => c.id).join(", ")}.`;
+}
 
 /**
  * Builds the Opinion-module payload from an oracle ScoreResult.
@@ -78,6 +97,8 @@ export function buildOpinionFromScore(
     `Recommended next review: ${score.validity.nextReview}.`,
     "Individual dated transfers and SwapObserved / WalletBlocked emits are retained in the operator ledger; this narrative summarizes the period under review without embedding tables.",
   ].join(" ");
+
+  const citations = agentRun?.normativeCitations ?? [];
 
   const connectedSources = agentRun?.sourcesConsulted?.length
     ? agentRun.sourcesConsulted
@@ -158,7 +179,7 @@ export function buildOpinionFromScore(
         : []),
     ],
     decisionExecuted: how,
-    legalBasis:
+    legalBasis: withCorpusBasis(
       decision === "block"
         ? wallet.exploitConfirmed
           ? "Fail-closed RWA pool policy on confirmed exploit / REVERT-band score (71–100). Narrative organization follows FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How) as an internal model only."
@@ -166,10 +187,16 @@ export function buildOpinionFromScore(
         : decision === "fee_override"
           ? "FATF Rec. 1 & 10 (EBR / EDD). Narrative organization follows FinCEN SAR Narrative Guidance as an internal support-draft model — not a FinCEN filing."
           : "FATF Rec. 1 & 10. Verification narrative follows FinCEN SAR Narrative Guidance structure for consistency of operator records.",
+      citations,
+    ),
     recommendations: humanReview
       ? `For the pool Compliance Officer only: ${score.regulatoryFlags.map((f) => f.recommendation).join(" ") || "Human review of elevated path."} Next review ${score.validity.nextReview}. Do not tip off the subject. Agent never files with FinCEN or any authority.`
       : `Continue ordinary monitoring. Next review ${score.validity.nextReview}. Re-open enhanced narrative if inbound tainted P2P or anomalous afterSwap series appears.`,
-    traceability: `auditHash ${score.auditHash} · calculated ${score.validity.calculatedAt} · retention 5 years (FATF Rec. 11 · BSA). Support draft — not submitted.`,
+    traceability: corpusTrace(
+      `auditHash ${score.auditHash} · calculated ${score.validity.calculatedAt} · retention 5 years (FATF Rec. 11 · BSA). Support draft — not submitted.`,
+      citations,
+    ),
+    normativeCitations: citations,
   };
 
   const sarAnnex =

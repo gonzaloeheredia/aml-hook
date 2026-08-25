@@ -23,6 +23,7 @@ Supporting notes:
 | [`apps/api/README.md`](apps/api/README.md) | Anvil adapter and keeper |
 | [`apps/frontend/README.md`](apps/frontend/README.md) | Guided UI |
 | [`agents/oracle-coa/`](agents/oracle-coa/) | COA skill specs |
+| [`corpus/README.md`](corpus/README.md) | Versioned FATF / FinCEN / Treasury / Wolfsberg corpus |
 
 ## Decision surface
 

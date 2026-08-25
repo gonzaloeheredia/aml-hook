@@ -12,6 +12,7 @@ The TypeScript runner lives in `apps/api/src/oracle/`:
 | `agent.ts` | Skill flow FULL / INCREMENTAL + publish after score |
 | `factScoring.ts` | `fact-scoring.md` over Anvil wallets, P2P, and swap events |
 | `report.ts` | `task-regulatory-report` → Opinion UI pack |
+| `corpus.ts` | Git corpus: `searchRegulations` · `getActiveVersionAt` |
 | `store.ts` | In-memory cache for Opinion UI only. Quotes do not read this |
 | `onchainPublisher.ts` | Keeper → `ComplianceOracle.updateScore` (signed RPC, or fail). The attestor must sign `attestationHash(wallet, score, hopDistance, origin, feeBps, updatedAt, chainid)`. A score-only or empty signature is rejected. |
 | `types.ts` | `ScoreResult` · `OracleOpinion` · `ScorePublishResult` |
@@ -100,4 +101,5 @@ Opinion (`LegalOpinion`) consumes `compliance.agent.*`. The oracle fills those
 fields using the FinCEN SAR Narrative Guidance model
 (Who / What / When / Where / Why / How) as structure only — not a filing.
 Agent skill filenames are never listed in the Opinion. SAR annex opens when
-`hookOutput` is not `ALLOW`.
+`hookOutput` is not `ALLOW`. Corpus documents used at calculation time appear
+under Opinion **Normative basis** (`technicalOpinion.normativeCitations`).

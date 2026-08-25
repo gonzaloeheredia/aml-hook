@@ -29,4 +29,14 @@ export type {
   ScorePublishResult,
   ScoreResult,
 } from "./types.js";
+export type {
+  CorpusDocument,
+  NormativeCitation,
+} from "./corpus.js";
+export {
+  consultCorpusForWallet,
+  getActiveVersionAt,
+  searchRegulations,
+  validateCorpus,
+} from "./corpus.js";
 export type { AgentSkillStep } from "./virtualAgent.js";

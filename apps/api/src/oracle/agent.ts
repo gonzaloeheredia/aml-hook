@@ -51,6 +51,7 @@ const FULL_FLOW = [
   "cross-pool-intelligence",
   "fact-scoring",
   "task-swap-decision",
+  "search_regulations",
   "task-regulatory-report",
 ] as const;
 
@@ -59,6 +60,7 @@ const INCREMENTAL_FLOW = [
   "swap-behavior-analysis",
   "fact-scoring",
   "task-swap-decision",
+  "search_regulations",
   "task-regulatory-report",
 ] as const;
 

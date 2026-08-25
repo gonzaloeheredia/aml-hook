@@ -7,6 +7,11 @@
 
 import { createHash } from "node:crypto";
 import type { Wallet } from "../types.js";
+import {
+  consultCorpusForWallet,
+  type CorpusConsult,
+  type NormativeCitation,
+} from "./corpus.js";
 import type { OracleTrigger } from "./types.js";
 
 export type AgentSkillStep = {
@@ -29,6 +34,10 @@ export type AgentRun = {
   durationMs: number;
   skills: AgentSkillStep[];
   sourcesConsulted: string[];
+  /** In-force corpus documents cited by search_regulations. */
+  normativeCitations: NormativeCitation[];
+  /** True when search_regulations found no in-force documents. */
+  corpusCoverageGap: boolean;
   status: "completed";
 };
 
@@ -118,6 +127,11 @@ const SKILL_CATALOG: Record<
             ? "Decision draft: FEE_OVERRIDE (proportional differential → FeeEscrow)."
             : "Decision draft: ALLOW (standard fee).",
   },
+  "search_regulations": {
+    sources: ["git corpus via search_regulations"],
+    finding: () =>
+      "Normative consultation against the git-versioned corpus (see pipeline).",
+  },
   "task-regulatory-report": {
     sources: [
       "FinCEN SAR Narrative Guidance model",
@@ -127,6 +141,25 @@ const SKILL_CATALOG: Record<
       "Opinion + SAR-support annex drafted for Compliance Officer (not filed).",
   },
 };
+
+function corpusStep(consult: CorpusConsult): {
+  sources: string[];
+  finding: string;
+} {
+  if (consult.coverageGap) {
+    return {
+      sources: ["git corpus (no in-force documents loaded)"],
+      finding:
+        "Coverage gap: search_regulations returned no in-force corpus documents. No training-memory cite.",
+    };
+  }
+  return {
+    sources: consult.citations.map(
+      (c) => `${c.framework} · ${c.title} (${c.id}, ${c.publicationDate})`,
+    ),
+    finding: `search_regulations indexed ${consult.citations.length} in-force document(s): ${consult.citations.map((c) => c.id).join(", ")}.`,
+  };
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -156,21 +189,31 @@ export async function runVirtualAgentPipeline(params: {
   const startedAt = new Date(started).toISOString();
   const steps: AgentSkillStep[] = [];
   const sourceSet = new Set<string>();
+  const consult = consultCorpusForWallet(wallet);
 
   for (const skill of skills) {
-    const meta = SKILL_CATALOG[skill] ?? {
+    const durationMs = stepDurationMs(skill, wallet);
+    if (theater) await sleep(durationMs);
+
+    const fromCatalog = SKILL_CATALOG[skill] ?? {
       sources: ["Internal COA skill bus"],
       finding: () => `Skill ${skill} completed.`,
     };
-    const durationMs = stepDurationMs(skill, wallet);
-    if (theater) await sleep(durationMs);
-    for (const s of meta.sources) sourceSet.add(s);
+    const step =
+      skill === "search_regulations"
+        ? corpusStep(consult)
+        : {
+            sources: fromCatalog.sources,
+            finding: fromCatalog.finding(wallet, trigger),
+          };
+
+    for (const s of step.sources) sourceSet.add(s);
     steps.push({
       skill,
       status: "ok",
       durationMs,
-      sources: meta.sources,
-      finding: meta.finding(wallet, trigger),
+      sources: step.sources,
+      finding: step.finding,
     });
   }
 
@@ -192,6 +235,8 @@ export async function runVirtualAgentPipeline(params: {
     durationMs: finished - started,
     skills: steps,
     sourcesConsulted: [...sourceSet],
+    normativeCitations: consult.citations,
+    corpusCoverageGap: consult.coverageGap,
     status: "completed",
   };
 }

@@ -2,7 +2,7 @@
 
 TypeScript API that talks to the local stack. It does not own the ledger. Balances, scores, quotes, and FeeEscrow rows live on Anvil. Without `npm run deploy:local` every chain route returns `503` `{ error: "deploy_local" }`.
 
-**Oracle COA (MOCK_MODE):** scores and Opinion are produced by `apps/api/src/oracle/` using the skill pack in [`agents/oracle-coa/`](../../agents/oracle-coa/). Facts come from Anvil wallets, P2P ERC-20 transfers, and `SwapObserved` / `WalletBlocked`. There are **no live calls** to Anthropic, OpenSanctions, Etherscan, GoPlus, Chainalysis, TRM, or OFAC APIs.
+**Oracle COA (MOCK_MODE):** scores and Opinion are produced by `apps/api/src/oracle/` using the skill pack in [`agents/oracle-coa/`](../../agents/oracle-coa/). Facts come from Anvil wallets, P2P ERC-20 transfers, and `SwapObserved` / `WalletBlocked`. Normative cites come from the git corpus at [`corpus/`](../../corpus/). There are **no live calls** to Anthropic, OpenSanctions, Etherscan, GoPlus, Chainalysis, TRM, or OFAC APIs.
 
 **Quotes:** `GET /wallets/:id/quote` and swap settlement call `AmlHook.previewSwap` — the same L1→L3 path `beforeSwap` uses. There is no TypeScript policy fallback.
 

@@ -89,6 +89,18 @@ export type TechnicalOpinion = {
   legalBasis: string;
   recommendations: string;
   traceability: string;
+  normativeCitations?: NormativeCitation[];
+};
+
+/** Corpus document cited on an Opinion at calculation time. */
+export type NormativeCitation = {
+  id: string;
+  title: string;
+  framework: "FATF" | "OFAC" | "MICA" | "TFR" | "FINCEN" | "TREASURY" | "WOLFSBERG";
+  series: string;
+  publicationDate: string;
+  retrievedAt: string;
+  sha256: string;
 };
 
 /** Optional SAR-support annex, or null when not required. */

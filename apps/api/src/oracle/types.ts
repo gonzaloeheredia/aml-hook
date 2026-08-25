@@ -4,7 +4,10 @@
  */
 
 import type { HookOutput, WalletId } from "../types.js";
+import type { NormativeCitation } from "./corpus.js";
 import type { AgentRun } from "./virtualAgent.js";
+
+export type { NormativeCitation } from "./corpus.js";
 
 export type { AgentRun, AgentSkillStep } from "./virtualAgent.js";
 
@@ -84,6 +87,8 @@ export type OracleOpinion = {
     legalBasis: string;
     recommendations: string;
     traceability: string;
+    /** Corpus documents actually used at calculation time (point-in-time). */
+    normativeCitations: NormativeCitation[];
   };
   sarAnnex: {
     produced: boolean;
