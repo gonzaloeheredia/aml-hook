@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {AccessManager} from "@openzeppelin/contracts/access/manager/AccessManager.sol";
+import {IAccessManaged} from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 import {BalanceDelta, toBalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
@@ -302,6 +303,33 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
 
         vm.prank(walletB);
         vm.expectRevert(AmlHookSettlement.NoFailedDeposit.selector);
+        hook.claimFailedDeposit(address(feeToken));
+    }
+
+    function test_ApproveFailedDepositRefund_RevertsForStranger() external {
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger)
+        );
+        vm.prank(stranger);
+        hook.approveFailedDepositRefund(walletB, address(feeToken), true);
+    }
+
+    function test_ApproveFailedDepositRefund_RevokesClearsApproval() external {
+        _revokeHookDepositor();
+        _feeOverrideSwapThatFailsDeposit();
+
+        vm.prank(hookGovernor);
+        hook.approveFailedDepositRefund(walletB, address(feeToken), true);
+        assertEq(hook.failedDepositRefundApproved(walletB, address(feeToken)), true);
+
+        // Governor revokes before the subject claims.
+        vm.prank(hookGovernor);
+        hook.approveFailedDepositRefund(walletB, address(feeToken), false);
+        assertEq(hook.failedDepositRefundApproved(walletB, address(feeToken)), false);
+
+        // Subject can no longer claim.
+        vm.prank(walletB);
+        vm.expectRevert(AmlHookSettlement.RefundNotApproved.selector);
         hook.claimFailedDeposit(address(feeToken));
     }
 
