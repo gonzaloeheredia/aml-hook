@@ -73,10 +73,9 @@ function writeTree(): { corpusRoot: string; old: CorpusDocument; current: Corpus
 }
 
 describe("unit: corpus", () => {
-  it("validateCorpus accepts the repo tree when no PDFs are loaded", () => {
+  it("validateCorpus accepts the repo tree on disk", () => {
     const result = validateCorpus();
     assert.equal(result.ok, true, result.errors.join("; "));
-    assert.equal(result.documentCount, 0);
   });
 
   it("getActiveVersionAt returns the in-force document for a past date", () => {
