@@ -138,9 +138,11 @@ contract UnitLibrariesTest is Test {
         basisAmount = bound(basisAmount, 0, type(uint128).max);
         uint256 slice = FeeBps.differentialAmount(basisAmount, feeBps);
         uint256 bps = FeeBps.differentialBps(feeBps);
-        if (feeBps <= FeeBps.STANDARD || basisAmount == 0) {
+        if (feeBps <= FeeBps.STANDARD) {
             assertEq(slice, 0);
             assertEq(bps, 0);
+        } else if (basisAmount == 0) {
+            assertEq(slice, 0);
         } else {
             assertEq(bps, uint256(feeBps) - uint256(FeeBps.STANDARD));
             assertEq(slice, (basisAmount * bps) / 10_000);

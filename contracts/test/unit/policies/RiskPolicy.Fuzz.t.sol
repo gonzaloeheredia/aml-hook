@@ -32,9 +32,15 @@ contract UnitRiskPolicyFuzzTest is Helpers {
             assertGt(fee, 0);
             assertLe(fee, riskPolicy.MAX_OVERRIDE_FEE_BPS());
         } else {
-            // 5-arg form has no USD; B/D cannot elevate.
-            assertEq(uint8(d), uint8(HookDecision.ALLOW));
-            assertEq(fee, 0);
+            // H-01: stale+opCount==0 pays proportional even without USD amounts.
+            if (isStale && operationCount == 0) {
+                assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+                assertEq(fee, riskPolicy.PROPORTIONAL_FEE_BPS());
+            } else {
+                // 5-arg form has no USD; B/D cannot elevate.
+                assertEq(uint8(d), uint8(HookDecision.ALLOW));
+                assertEq(fee, 0);
+            }
         }
     }
 
@@ -119,8 +125,13 @@ contract UnitRiskPolicyFuzzTest is Helpers {
             assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
             assertEq(fee, pun);
         } else if (assessedUsd >= FEE_FLOOR) {
-            assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
-            assertEq(fee, prop);
+            if (prop == 0) {
+                assertEq(uint8(d), uint8(HookDecision.ALLOW));
+                assertEq(fee, 0);
+            } else {
+                assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+                assertEq(fee, prop);
+            }
         } else {
             assertEq(uint8(d), uint8(HookDecision.ALLOW));
             assertEq(fee, 0);

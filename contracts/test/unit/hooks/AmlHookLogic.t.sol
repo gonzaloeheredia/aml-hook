@@ -87,13 +87,14 @@ contract UnitAmlHookLogicTest is Helpers {
         assertEq(fee, 0);
     }
 
-    function test_StaleWithoutPoolActivity_StillAllows() external {
+    function test_StaleWithoutPoolActivity_ChargesProportional() external {
         vm.prank(keeper);
         complianceOracle.updateScore(walletA, 0, 0, address(0), 0, _scoreSig(walletA, 0, 0));
-        // Age past stalenessThreshold but wallet never swapped in this pool → no elevation.
+        // H-01: stale score at opCount==0 (window boundary) now charges proportional, not ALLOW.
         vm.warp(block.timestamp + 101);
-        (HookDecision d,,) = harness.evaluate(walletA);
-        assertEq(uint8(d), uint8(HookDecision.ALLOW));
+        (HookDecision d, uint24 fee,) = harness.evaluate(walletA);
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, 300);
     }
 
     function test_StaleWithPoolActivity_DustAllows() external {
@@ -170,10 +171,11 @@ contract UnitAmlHookLogicTest is Helpers {
         harness.recordActivity(walletA);
         harness.recordActivity(walletA);
 
-        vm.warp(block.timestamp + 1001); // past activityWindow=1000
-        (HookDecision d,,) = harness.evaluate(walletA);
-        // Window expired → operationCount 0; stale alone does not elevate → ALLOW
-        assertEq(uint8(d), uint8(HookDecision.ALLOW));
+        vm.warp(block.timestamp + 1001); // past activityWindow=1000 and stalenessThreshold=100
+        (HookDecision d, uint24 fee,) = harness.evaluate(walletA);
+        // H-01: window expired → operationCount 0; stale + opCount==0 → FEE_OVERRIDE/proportional
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, 300);
     }
 
     function test_RevertBand_NotSoftenedByMitigations() external {
@@ -666,5 +668,95 @@ contract UnitAmlHookLogicTest is Helpers {
         (, uint32 ops,) = harness.poolActivity(walletA);
         assertEq(ops, 1);
         assertEq(harness.lastKnownBalance(walletA, address(token)), 1_000 ether);
+    }
+
+    // ── M-01: observeSwap must not inflate Floor C daily USD accumulator ──────
+
+    function test_ObserveSwap_DoesNotInflateDailyUsd() external {
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, _scoreSig(walletA, 0, 0));
+        token.mint(walletA, 20_000 ether);
+        feed.setRound(int256(USD_1), block.timestamp);
+
+        vm.startPrank(hookGovernor);
+        harness.syncBaseline(walletA, address(token));
+        // 20k USD via observeSwap — must not count toward Floor C.
+        harness.observeSwap(walletA, address(token), 20_000 ether);
+        vm.stopPrank();
+
+        // A subsequent real-path evaluate should ALLOW (daily accumulator is zero).
+        (HookDecision d,,) = harness.evaluate(walletA, address(token), 1 ether);
+        assertEq(uint8(d), uint8(HookDecision.ALLOW));
+    }
+
+    // ── H-01: Floor B extra gate — stale wallet should be escalated even on opCount==0 ──
+
+    function test_StalePoolImpact_ElevatesOnWindowBoundary_OpCountZero() external {
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletA, 10, 0, address(0), 0, _scoreSig(walletA, 10, 0));
+        // Let staleness threshold elapse without any activity.
+        vm.warp(block.timestamp + 200);
+        feed.setRound(int256(USD_1), block.timestamp);
+
+        // No activity recorded → operationCount == 0, but score is stale and pool impact high.
+        // H-01 gives FEE_OVERRIDE/300 from RiskPolicy; Floor B extra (stale + poolImpact > threshold)
+        // then hardens it to punitiveFeeBps=800.
+        (HookDecision d, uint24 fee,) = harness.evaluate(walletA, address(token), 500 ether, 2_001);
+        assertEq(uint8(d), uint8(HookDecision.FEE_OVERRIDE));
+        assertEq(fee, 800); // punitiveFeeBps (Floor B extra: stale + poolImpactBps 2001 > threshold 2000).
+    }
+
+    // ── H-04: syncBaseline must revert when inflow outpaces oracle ────────────
+
+    function test_SyncBaseline_RevertsWhenInflowAheadOfOracle() external {
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, _scoreSig(walletA, 0, 0));
+
+        token.mint(walletA, 100 ether);
+
+        // Seed baseline at T0 — oracle updatedAt == block.timestamp > 0.
+        vm.prank(hookGovernor);
+        harness.syncBaseline(walletA, address(token));
+
+        // Inflow arrives after the baseline was written.
+        vm.warp(block.timestamp + 2 hours);
+        token.mint(walletA, 500 ether); // balance: 600 ether, oracle still at old timestamp.
+
+        // Oracle has not been updated since baseline was written → should revert.
+        // Capture view values before vm.prank so external calls don't consume the prank.
+        uint64 oracleUpdatedAt = complianceOracle.getRisk(walletA).updatedAt;
+        uint256 lastKnownTs = harness.lastKnownBalanceTimestamp(walletA, address(token));
+        vm.prank(hookGovernor);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                AmlHookLogic.BaselineAheadOfOracle.selector,
+                walletA,
+                address(token),
+                oracleUpdatedAt,
+                lastKnownTs
+            )
+        );
+        harness.syncBaseline(walletA, address(token));
+    }
+
+    function test_SyncBaseline_AllowsAfterOracleRefresh() external {
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletA, 0, 0, address(0), 0, _scoreSig(walletA, 0, 0));
+
+        token.mint(walletA, 100 ether);
+        vm.prank(hookGovernor);
+        harness.syncBaseline(walletA, address(token));
+
+        vm.warp(block.timestamp + 2 hours);
+        token.mint(walletA, 500 ether);
+
+        // Keeper re-scores after inflow — oracle.updatedAt > lastKnownBalanceTimestamp.
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletA, 5, 0, address(0), 0, _scoreSigN(walletA, 5, 0, address(0), 0, 1));
+
+        // Now syncBaseline should succeed.
+        vm.prank(hookGovernor);
+        harness.syncBaseline(walletA, address(token));
+        assertEq(harness.lastKnownBalance(walletA, address(token)), 600 ether);
     }
 }

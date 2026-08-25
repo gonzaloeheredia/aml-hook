@@ -201,8 +201,7 @@ contract UnitAmlHookLogicFuzzTest is Helpers {
         vm.prank(keeper);
         complianceOracle.updateScore(walletC, 0, 0, address(0), 0, _scoreSig(walletC, 0, 0));
 
-        vm.prank(hookGovernor);
-        harness.observeSwap(walletC, address(token), first);
+        harness.recordActivity(walletC, address(token), first);
 
         uint256 prior = harness.dailyVolumeUsd(walletC);
         uint256 swapUsd = second / 1e10;
