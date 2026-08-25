@@ -6,8 +6,8 @@ import {FeeBps} from "./FeeBps.sol";
 import {HookDecision} from "./HookDecision.sol";
 
 /// @title RiskPolicyLib — pure compliance decision engine (Layer 3)
-/// @notice Maps score + floor signals A–D to ALLOW / FEE_OVERRIDE / REVERT.
-/// @dev Pure: one memory pointer in, one result out. No storage, no external calls, no packing.
+/// @notice Maps a published COA score + floor signals A–D to ALLOW / FEE_OVERRIDE / REVERT.
+/// @dev Pure: one memory pointer in, one result out. No storage, no external calls, no agent.
 library RiskPolicyLib {
     /// @notice Apply the full ternary decision tree to a pre-gathered signal set.
     /// @dev Call order: score band → never-scored / allow-band → stale-pool-impact → daily gate.
@@ -138,7 +138,7 @@ library RiskPolicyLib {
         return 0;
     }
 
-    /// @dev Prefer keeper `recommendedFeeBps` when 0 < fee ≤ `MAX_OVERRIDE`; else punitive (≥ 55) or proportional.
+    /// @dev Prefer COA `recommendedFeeBps` published by the keeper when 0 < fee ≤ `MAX_OVERRIDE`; else punitive (≥ 55) or proportional.
     function _resolveOverrideFee(IRiskPolicy.DecisionInput memory in_) private pure returns (uint24) {
         if (in_.recommendedFeeBps > 0 && in_.recommendedFeeBps <= FeeBps.MAX_OVERRIDE) {
             return in_.recommendedFeeBps;

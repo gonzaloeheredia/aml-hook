@@ -12,7 +12,8 @@ import {OracleQuote} from "../../libraries/OracleQuote.sol";
 import {WalletSubject} from "../../libraries/WalletSubject.sol";
 
 /// @title AmlHookLogic — beforeSwap / afterSwap compliance evaluation
-/// @notice Resolves the swap subject, gathers risk signals, and delegates to `riskPolicy.decide`.
+/// @notice Resolves the swap subject, reads the published COA row, gathers floor
+///         signals, and delegates to `riskPolicy.decide`. Never calls the agent.
 ///         All state mutations (activity, baseline) happen in `_endSwap` after the decision.
 abstract contract AmlHookLogic is AmlHookActivity {
     /// @notice Wallet is in the REVERT score band (71–100) or exceeds the unscored magnitude floor.
@@ -34,10 +35,10 @@ abstract contract AmlHookLogic is AmlHookActivity {
 
     /// @notice Emitted once per swap with the final compliance outcome.
     /// @param wallet      Resolved compliance subject.
-    /// @param score       Behavioral score at evaluation time (0–100).
+    /// @param score       Published COA score at evaluation time (0–100).
     /// @param decision    ALLOW / FEE_OVERRIDE / REVERT.
     /// @param feeBps      Override fee in bps (0 on ALLOW / REVERT).
-    /// @param hopDistance N-hop distance from the contamination origin (0 = direct / unknown).
+    /// @param hopDistance N-hop distance from the contamination origin as published by the COA (0 = direct / unknown).
     /// @param origin      Contamination origin wallet (`address(0)` when clean).
     event SwapObserved(
         address indexed wallet, uint8 score, HookDecision decision, uint24 feeBps, uint8 hopDistance, address origin
@@ -136,7 +137,8 @@ abstract contract AmlHookLogic is AmlHookActivity {
     }
 
     /// @notice Off-chain preview of the compliance decision for a given wallet, token, and amount.
-    /// @dev Read-only: does not record activity, update baselines, or commit FX cache.
+    /// @dev Same L1→L3 path as `beforeSwap`. Reads the published COA row; does not call the agent.
+    ///      Does not record activity, update baselines, or commit FX cache.
     ///      Uses `poolImpactBps = 0` and `volumeToken = token`.
     /// @param wallet  Compliance subject to evaluate.
     /// @param token   Token being swapped (used as both input and volume token).
@@ -215,6 +217,7 @@ abstract contract AmlHookLogic is AmlHookActivity {
         _emitMitigations(frame, wallet, poolImpactBps);
     }
 
+    /// @dev Reads `ComplianceOracle` only. The agent is never invoked on this path.
     function _evaluateCore(
         address wallet,
         address token,

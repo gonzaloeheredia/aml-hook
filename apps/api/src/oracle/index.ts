@@ -13,6 +13,7 @@ export {
   seedOracleAll,
   walletKeeperPending,
 } from "./agent.js";
+export { keeperTickMs, startKeeperTicker, stopKeeperTicker } from "./keeper.js";
 export {
   getPublisherStatus,
   listScorePublishes,
@@ -39,4 +40,7 @@ export {
   searchRegulations,
   validateCorpus,
 } from "./corpus.js";
+export { anthropicModel, isLiveCoaEnabled } from "./liveOpinion.js";
+export { scoreResultFromAgentDraft } from "./liveScore.js";
+export { consultSkill, listSkillNames } from "./skills.js";
 export type { AgentSkillStep } from "./virtualAgent.js";

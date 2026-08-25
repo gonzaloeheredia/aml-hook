@@ -44,6 +44,10 @@ registered forwarders reverts most flow. The model is viable on restricted /
 RWA pools where flow arrives via known integrators. `protocol-obligations`
 must warn when configuring the pool.
 
+**Demo runtime:** the UHI10 Anvil walkthrough attributes wallets A–E through
+the trusted router / known demo identities. It does not exercise a live
+signed-`hookData` path.
+
 ---
 
 ## Expected inputs

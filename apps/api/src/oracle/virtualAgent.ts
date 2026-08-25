@@ -107,6 +107,19 @@ const SKILL_CATALOG: Record<
     finding: () =>
       "Cross-pool intelligence query completed; no contradictory clean attestations.",
   },
+  "uhi10-use-case": {
+    sources: ["UHI10 A–E use-case skill"],
+    finding: (w) =>
+      w.neverScored
+        ? "Use-case: Wallet E is unpublished — do not write a COA score."
+        : w.exploitConfirmed
+          ? "Use-case: Wallet A exploit score 100, not OFAC, REVERT WalletBlocked."
+          : w.hopDistance === 1
+            ? "Use-case: 1-hop → ~65 / 800 bps FEE_OVERRIDE; one afterSwap must stay ≤70."
+            : w.hopDistance === 2
+              ? "Use-case: 2-hop → ~42 / 300 bps FEE_OVERRIDE."
+              : "Use-case: published-clean path; Floors A–D stay on the hook.",
+  },
   "fact-scoring": {
     sources: ["COA fact-scoring model v1", "N-hop decay policy"],
     finding: (w) =>

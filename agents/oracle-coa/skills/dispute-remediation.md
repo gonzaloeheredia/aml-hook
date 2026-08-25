@@ -15,6 +15,10 @@ This skill closes the loop. Without it the pack produces irreversible
 decisions on participants with no correction path — a source of claims, an
 adoption obstacle, and a supervisory finding (how are errors corrected?).
 
+**Demo runtime:** no live LP-report challenge UI. This skill is the product
+spec for a later operator loop. Score changes in UHI10 come from new Anvil
+facts (P2P, `SwapObserved`, `WalletBlocked`), not from a dispute ticket.
+
 ---
 
 ## Expected inputs

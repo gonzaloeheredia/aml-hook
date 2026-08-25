@@ -278,11 +278,16 @@ Yields of 8%–12% versus 4%–5% on Treasuries pay for the control. A pool that
 
 ## 7. Compliance Officer Agent
 
-This section is the **product idea** for a live officer. The in-repo code does not run that officer. Scores, typologies, and the Opinion / STR-shaped file are a **deterministic mock** (`apps/api/src/oracle/`: `virtualAgent.ts`, `factScoring.ts`, `report.ts`). There are no live LLM calls and no vendor APIs (OFAC SDN, Chainalysis, TRM, Elliptic, Forta, EAS, Hypernative).
+This section is the Compliance Officer Agent. In the UHI10 demo, when
+`ANTHROPIC_API_KEY` is set, Claude emits `finalScore`, `recommendedFeeBps`,
+typologies, and the Opinion / STR-shaped file. The keeper publishes the score
+and fee to `ComplianceOracle`. `beforeSwap` never calls the model — it reads
+that row. A–E constraints live in skill `uhi10-use-case` (`consult_skill`).
+Without a key, or under `COA_LIVE=0` / tests, a skill interpreter
+(`factScoring.ts`) applies the same skills. There are still no live vendor KYT APIs
+(OFAC SDN HTTP, Chainalysis, TRM, Elliptic, Forta, EAS, Hypernative).
 
 The hook number is the on-chain decision. The agent writes the file the operator keeps: why this swap was allowed, charged, or reverted.
-
-The demo ships that file as the Opinion / suspicious-operation pack with the same sections a live LLM officer would fill later.
 
 A supervisor asks why transactions were blocked and wants a reasoned file. A raw count of reverts never answers that. The agent copies a human officer's process: observe, gather source-of-funds context, apply FATF / FinCEN typologies, test the legitimate hypothesis, conclude with a confidence, and write it down.
 
@@ -559,7 +564,7 @@ The hook touches two of those ten steps: 5 and 7. The rest is a normal Uniswap v
 
 ### 8.6 Tooling
 
-Section 7 is the product idea for the officer. This subsection lists the **intended** production sources. The UHI10 code path does not call them: the COA is the deterministic mock in `apps/api/src/oracle/`. Layer 1 at execution is `SanctionRegistry` (keeper-written). Layer 2 is `ComplianceOracle` (keeper + attestor). USD magnitude uses Chainlink (or `MockUsdFeed` on Anvil).
+Section 7 is the officer that writes the score and the Opinion file. This subsection lists **intended** production KYT sources. The UHI10 demo does not call those HTTP/vendor feeds: Claude (or the skill interpreter when the key is off) scores from the Anvil ledger plus `SanctionRegistry` and the git corpus (`search_regulations`). Layer 1 at execution is `SanctionRegistry` (keeper-written). Layer 2 is `ComplianceOracle` (keeper + attestor, agent-published score and fee). USD magnitude uses Chainlink (or `MockUsdFeed` on Anvil).
 
 #### 8.6.1 Signals
 

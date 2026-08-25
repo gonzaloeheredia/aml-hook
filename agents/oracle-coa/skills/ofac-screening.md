@@ -16,8 +16,10 @@ Layer 1 of the hook architecture: fast, low gas, no external dependency at
 swap runtime. On-chain designated-address mapping is consulted directly in
 `beforeSwap`.
 
-**Mock:** no live list calls; exploit-confirmed wallet A is treated as the
-fail-closed / REVERT path analogous to a designation override for the demo.
+**Demo runtime:** no OFAC SDN HTTP. Layer 1 at swap time is
+`SanctionRegistry`. Wallet A is **not** listed; the agent writes score 100
+from the exploit finding (`WalletBlocked`). A listed subject, P2P
+counterparty, or listed contract the wallet used in the pool is score 100.
 
 ---
 

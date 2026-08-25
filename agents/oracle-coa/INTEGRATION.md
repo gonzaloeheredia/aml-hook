@@ -3,23 +3,36 @@
 This folder is the Compliance Officer Agent package (prompts + skills) used as
 the **off-chain scoring oracle** for the UHI10 demo.
 
-## Runtime today (MOCK_MODE)
+## Runtime
 
-The TypeScript runner lives in `apps/api/src/oracle/`:
+The TypeScript runner lives in `apps/api/src/oracle/`. With `ANTHROPIC_API_KEY`,
+Claude emits score, fee, and Opinion (`liveScore.ts`). Tools:
+`consult_skill` (call `uhi10-use-case` before scoring A–E),
+`search_regulations`, `get_active_version_at`. The keeper publishes
+`finalScore` + `recommendedFeeBps` to `ComplianceOracle`. Quotes use
+`AmlHook.previewSwap`. A 3-minute tick stamps `updatedAt` without calling
+Claude. Without a key, `COA_LIVE=0`, or `npm test`, `factScoring.ts`
+interprets the skills.
 
 | Module | Role |
 |---|---|
-| `agent.ts` | Skill flow FULL / INCREMENTAL + publish after score |
-| `factScoring.ts` | `fact-scoring.md` over Anvil wallets, P2P, and swap events |
-| `report.ts` | `task-regulatory-report` → Opinion UI pack |
-| `corpus.ts` | Git corpus: `searchRegulations` · `getActiveVersionAt` |
-| `store.ts` | In-memory cache for Opinion UI only. Quotes do not read this |
+| `agent.ts` | Skill flow FULL / INCREMENTAL + publish |
+| `liveScore.ts` | Claude score + fee + Opinion |
+| `liveOpinion.ts` | Anthropic loop + corpus / skill tools |
+| `keeper.ts` | Heartbeat `updateScore` (no Claude) |
+| `skills.ts` | Load `agents/oracle-coa/skills/*.md` |
+| `factScoring.ts` | Interpreter for tests / no key |
+| `report.ts` | Opinion schema (`task-regulatory-report`) |
+| `corpus.ts` | `searchRegulations` · `getActiveVersionAt` |
+| `store.ts` | In-memory cache. Quotes do not read this |
 | `onchainPublisher.ts` | Keeper → `ComplianceOracle.updateScore` (signed RPC, or fail). The attestor must sign `attestationHash(wallet, score, hopDistance, origin, feeBps, updatedAt, chainid)`. A score-only or empty signature is rejected. |
 | `types.ts` | `ScoreResult` · `OracleOpinion` · `ScorePublishResult` |
 
-No live Anthropic / OpenSanctions / Etherscan calls. Facts are derived from
-Anvil wallets, P2P ERC-20 transfers, and `SwapObserved` / `WalletBlocked` events. N-hop
-decay (`100 × 0.65^hops`) stays the demo backbone so A/B/C/D remain demonstrable.
+No live OpenSanctions / Etherscan / Chainalysis calls. Facts come from Anvil
+wallets, P2P ERC-20 transfers, `SwapObserved` / `WalletBlocked`, and
+`SanctionRegistry`. N-hop decay (`100 × 0.65^hops`) is the A–E backbone in
+skill `uhi10-use-case`; the agent applies it — TypeScript does not precompute
+65/42 when live.
 
 ## FEE_OVERRIDE vs FeeEscrow (aligned with contracts)
 
@@ -36,19 +49,21 @@ Opinion copy must describe **standard pool fee + escrowed differential**, not
 ## Triggers
 
 ```
-POST /transfers  → reevaluate(from) + reevaluate(to)   // before next swap
+POST /transfers  → wait for agent → reevaluate(from) + reevaluate(to)
                  → exception: to=D defers keeper (stale score 0 for inflow demo)
-POST /swaps      → afterSwap SwapObserved → reevaluate(wallet)
-                 → or WalletBlocked → reevaluate(wallet)
+POST /swaps      → afterSwap SwapObserved → wait for agent → reevaluate(wallet)
+                 → or WalletBlocked → wait for agent → reevaluate(wallet)
                  → if D keeperPending: catch-up publish (~65) after latency swap
 POST /oracle/:id/catch-up → manual deferred publish (Wallet D)
-POST /reset      → clear + seed oracle for A–D (E has no row until first seen)
+POST /reset      → clear + seed oracle for A–D (Claude wait when key set; E unpublished)
+keeper tick 3m   → republish last agent score (no Claude)
 ```
 
 Quotes and swaps call `AmlHook.previewSwap` (same L1→L3 as `beforeSwap`). They
 do not apply TypeScript floors on the COA cache. The keeper writes when the
-decision tier or fee band changes, or when the last write is at least as old
-as Floor B (5 minutes). The publisher is signed RPC or it fails.
+decision tier or fee band changes, **or** on a 3-minute heartbeat (same score,
+new `updatedAt`), **or** when the last write is at least as old as Floor B
+(5 minutes). The publisher is signed RPC or it fails.
 That freshness stamp stops a stable clean wallet from looking stale. Floor B
 charges 3% on the first stale swap of the hour, then pass / 3% / 8% by swap+window
 USD if the keeper is late and the wallet already swapped in that hour.

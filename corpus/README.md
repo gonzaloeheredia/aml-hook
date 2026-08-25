@@ -67,7 +67,8 @@ Opinion.
 5. Commit the PDF, `.txt`, sidecar (if any), and `manifest.json` **in one
    commit**.
 
-Then restart the API or `POST /reset` so cached Opinions pick up the new cites.
+Then restart the API or `POST /reset` so live Claude Opinions (and score
+justifications) pick up the new cites.
 
 ## Point-in-time reconstruction
 

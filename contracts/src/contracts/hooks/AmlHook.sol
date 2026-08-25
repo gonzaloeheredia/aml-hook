@@ -23,7 +23,8 @@ import {ModifyLiquidityParams, SwapParams} from "v4-core/src/types/PoolOperation
 
 /// @title AmlHook — Uniswap v4 AML hook entry-point
 /// @notice Uniswap v4 callback shell that wires settlement, governance, and compliance logic.
-///         Risk evaluation lives in `AmlHookLogic` / `RiskPolicyLib`; fee custody in `AmlHookSettlement`.
+///         Risk evaluation reads the published COA row (`AmlHookLogic` / `RiskPolicyLib`);
+///         fee custody lives in `AmlHookSettlement`. The hook never calls the agent.
 contract AmlHook is AmlHookSettlement, AmlHookLogic {
     using PoolIdLibrary for PoolKey;
 
@@ -42,7 +43,7 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
 
     /// @notice One-time wiring of compliance dependencies. Must be called immediately after CREATE2 deploy.
     /// @param sanctionRegistry_   Layer 1 sanctions list (fail-closed screen).
-    /// @param complianceOracle_   Layer 2 behavioral-score store written by the Oracle Keeper.
+    /// @param complianceOracle_   Layer 2 store of COA scores published by the oracle keeper.
     /// @param riskPolicy_         Layer 3 pure decision contract (preview / off-chain use).
     /// @param feeEscrow_          48-hour escrow for FEE_OVERRIDE differentials; `address(0)` disables.
     /// @param stalenessThreshold_ Seconds after which a score is considered stale; 0 → DEFAULT_STALENESS.
@@ -117,8 +118,9 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         return this.beforeRemoveLiquidity.selector;
     }
 
-    /// @dev Resolves the compliance subject, runs the risk evaluation, and stores the result in
-    ///      transient storage so `_afterSwap` can read it without rerunning the oracle.
+    /// @dev Resolves the compliance subject, reads the published COA row, runs L1→L3, and
+    ///      stores the result in transient storage so `_afterSwap` can settle without
+    ///      re-reading the oracle. The hook never calls the agent.
     function _beforeSwap(address sender, PoolKey calldata key, SwapParams calldata params, bytes calldata)
         internal
         override

@@ -16,9 +16,9 @@ distribution. Evaluates deviation from expected behavior, not identity.
 
 **Mandatory** before emitting a score in the block band (71–100).
 
-**Demo / mock:** incremental path after `SwapObserved` re-runs this skill with
-`fact-scoring`. Clean paths may emit mitigants; hop-contaminated wallets carry
-NW facts from the ledger graph.
+**Demo runtime:** incremental path after `SwapObserved` re-runs this skill with
+`uhi10-use-case` then `fact-scoring`. Clean paths may emit mitigants;
+hop-contaminated wallets carry NW facts from the Anvil ledger graph.
 
 ---
 

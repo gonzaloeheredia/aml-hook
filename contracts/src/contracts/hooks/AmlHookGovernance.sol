@@ -22,7 +22,7 @@ import {MultisigAggregation, MultisigType, TrustedMultisig} from "../../librarie
 abstract contract AmlHookGovernance is AccessManaged, Pausable {
     /// @notice Layer 1 sanctions list. Checked before the score in every swap (fail-closed).
     ISanctionRegistry public sanctionRegistry;
-    /// @notice Layer 2 behavioral-score store. Read at beforeSwap; never written by the hook.
+    /// @notice Layer 2 COA-score store. Read at beforeSwap; never written by the hook.
     IComplianceOracle public complianceOracle;
     /// @notice Layer 3 pure decision contract. Hot-path `decide` plus off-chain preview.
     IRiskPolicy public riskPolicy;

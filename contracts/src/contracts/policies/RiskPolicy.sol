@@ -6,7 +6,7 @@ import {RiskPolicyLib} from "../../libraries/RiskPolicyLib.sol";
 import {FeeBps} from "../../libraries/FeeBps.sol";
 
 /// @title Layer 3 — ternary decision + latency floors A–D. Wrapper over RiskPolicyLib.
-/// @dev Pure; no storage, no quotes. Hook and off-chain preview both CALL `decide`.
+/// @dev Pure; no storage, no quotes, no agent call. Hook and off-chain preview both CALL `decide`.
 contract RiskPolicy is IRiskPolicy {
     uint24 public constant STANDARD_FEE_BPS = FeeBps.STANDARD;
     uint24 public constant PUNITIVE_FEE_BPS = FeeBps.PUNITIVE;

@@ -16,8 +16,8 @@ interface IRiskPolicy {
 
     /// @notice Packed signal set passed from `AmlHookLogic` to `RiskPolicyLib.decide`.
     struct DecisionInput {
-        uint8 score;                    // 0–100 behavioral score (0 = never written when neverScored = true)
-        uint24 recommendedFeeBps;       // keeper-recommended fee for score 31–70 (capped at MAX_OVERRIDE)
+        uint8 score;                    // 0–100 COA score published on-chain (0 = never written when neverScored = true)
+        uint24 recommendedFeeBps;       // COA fee published by the keeper (31–70; capped at MAX_OVERRIDE)
         bool isStale;                   // true when score age exceeds `stalenessThreshold`
         uint32 operationCount;          // swaps in the current `activityWindow`
         bool neverScored;               // true when oracle `updatedAt == 0`
@@ -42,5 +42,6 @@ interface IRiskPolicy {
 
     /// @notice Evaluate the full signal set and return the compliance decision.
     /// @dev Off-chain preview and hook hot path. Both CALL this wrapper over `RiskPolicyLib`.
+    ///      Does not call the Compliance Officer Agent.
     function decide(DecisionInput calldata input) external pure returns (DecisionResult memory);
 }

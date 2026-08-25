@@ -16,7 +16,8 @@ export type OracleTrigger =
   | "transfer"
   | "afterSwap"
   | "blocked"
-  | "manual";
+  | "manual"
+  | "tick";
 
 export type FactConfidence = "HIGH" | "MEDIUM" | "LOW";
 
@@ -135,4 +136,8 @@ export type OracleEvaluation = {
   agentRun: AgentRun;
   /** Keeper → ComplianceOracle.updateScore (virtual receipt or rpc tx). */
   onChainPublish?: ScorePublishResult;
+  /** Who drafted the Opinion narrative. */
+  opinionSource?: "mock" | "anthropic";
+  /** Who produced finalScore. Tick republishes the last agent score. */
+  scoreSource?: "skill" | "anthropic";
 };

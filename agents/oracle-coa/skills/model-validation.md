@@ -18,6 +18,9 @@ founded.
 Also the material used to answer due diligence from a protocol evaluating hook
 integration.
 
+**Demo runtime:** no accredited backtest pack is produced. Limitations: Anvil
+ledger facts + git corpus; Claude or interpreter; no live KYT vendor APIs.
+
 ---
 
 ## Expected inputs
@@ -102,7 +105,8 @@ the new calibration as production-stable.
 
 Produce a package for third-party / audit review: threshold justifications,
 backtest methodology and temporal reconstruction, metrics, sensitivity,
-drift, dispute outcomes, known limitations (including mock vs live gaps).
+drift, dispute outcomes, known limitations (including interpreter vs live
+Claude, and no vendor KYT feeds).
 
 Never publish effective secret threshold values in public materials; ranges of
 `hookOutput` bands are public.
@@ -124,7 +128,7 @@ Never publish effective secret threshold values in public materials; ranges of
   "driftFlags": [],
   "sensitivityFindings": [],
   "limitations": [
-    "Demo mock uses deterministic N-hop ledger facts without live vendor APIs"
+    "Demo uses Anvil ledger facts + git corpus; no live KYT vendor APIs"
   ],
   "auditHash": "...",
   "recommendation": "retain | recalibrate | escalate"

@@ -2,10 +2,10 @@
  * N-hop decay scoring and fee helpers for the AML Hook.
  * Same rules as the frontend / use-case doc (decay 0.65, ternary bands).
  *
- * Score / fee sources (hybrid beforeSwap path for the demo):
- * 1. REAL on-chain — ComplianceOracle.getRisk (score + feeBps) when SCORE_SOURCE=onchain
- * 2. MOCK memory — COA ScoreResult (finalScore + recommendedFeeBps)
- * 3. Formula fallback — hopScore() / feeBpsFromHop()
+ * Score / fee sources:
+ * 1. On-chain ComplianceOracle.getRisk (agent-published score + feeBps)
+ * 2. Memory COA ScoreResult after the keeper write
+ * 3. hopScore() only when the live agent is off (tests / no key)
  */
 
 import {
@@ -19,6 +19,7 @@ import {
   readRiskFromChain,
   type ScoreSource,
 } from "./oracle/onchainReader.js";
+import { isLiveCoaEnabled } from "./oracle/liveOpinion.js";
 import { getOracleFeeBps, getOracleScore } from "./oracle/store.js";
 import type {
   Decision,
@@ -72,11 +73,12 @@ export function hopScore(wallet: Wallet): number {
 
 /**
  * Sync score for paths that cannot await (prefer memory COA, else hop).
- * Prefer `resolveWalletScore` for beforeSwap / quotes when on-chain is enabled.
+ * When the live agent is on, never invent a hop formula score.
  */
 export function walletScore(wallet: Wallet): number {
   const oracle = getOracleScore(wallet.id);
   if (oracle != null) return oracle;
+  if (isLiveCoaEnabled()) return 0;
   return hopScore(wallet);
 }
 
@@ -106,8 +108,7 @@ export async function resolveWalletRisk(wallet: Wallet): Promise<{
     const risk = await readRiskFromChain(wallet.address);
     if (risk != null && risk.updatedAt > 0) {
       const score = risk.score;
-      const feeBps =
-        risk.feeBps > 0 ? risk.feeBps : feeBpsFromHop(score, wallet.hopDistance);
+      const feeBps = risk.feeBps;
       return { score, feeBps, source: "onchain" };
     }
   }
@@ -116,12 +117,12 @@ export async function resolveWalletRisk(wallet: Wallet): Promise<{
   if (memoryScore != null) {
     return {
       score: memoryScore,
-      feeBps:
-        memoryFee != null
-          ? memoryFee
-          : feeBpsFromHop(memoryScore, wallet.hopDistance),
+      feeBps: memoryFee != null ? memoryFee : 0,
       source: "memory",
     };
+  }
+  if (isLiveCoaEnabled()) {
+    return { score: 0, feeBps: 0, source: "unscored" };
   }
   const score = hopScore(wallet);
   return {
@@ -189,8 +190,11 @@ export function shouldPublishScore(input: {
   lastScoreAt: number | null;
   now: number;
   stalenessMs: number;
+  /** Keeper heartbeat: always write so on-chain updatedAt stays fresh. */
+  force?: boolean;
 }): boolean {
   if (input.neverScored) return false;
+  if (input.force) return true;
   if (input.priorScore == null || input.lastScoreAt == null) return true;
   if (input.now - input.lastScoreAt >= input.stalenessMs) return true;
   return (

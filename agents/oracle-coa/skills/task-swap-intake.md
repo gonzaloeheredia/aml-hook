@@ -10,6 +10,10 @@ description: "Receive and classify a swap event or wallet evaluation request bef
 Entry point of the agent. Structures the received event, determines evaluation
 mode, and defines the workflow. Does not analyze substance: classifies and routes.
 
+**Demo runtime:** FULL on seed and new contamination; INCREMENTAL after
+`SwapObserved`. Live Claude waits on `POST /transfers` and `POST /swaps`.
+`COA_LIVE=0` / tests use the skill interpreter.
+
 ---
 
 ## Evaluation modes
@@ -103,14 +107,16 @@ After attribution, `ofac-screening` before any other domain skill. A direct
 match stops the flow and routes to `task-blocking-protocol`.
 
 **Conditional skip.** In `POST_SWAP` with a valid score and no new S/MX/GEO
-facts, reduce to `swap-behavior-analysis` + incremental `fact-scoring`
-(+ decision + report in the mock).
+facts, reduce to `swap-behavior-analysis` + `uhi10-use-case` + incremental
+`fact-scoring` (+ decision + report).
 
-Mock flows:
+Skill flows (`agent.ts`):
 
 - **FULL:** intake → attribution → ofac → evidence → wallet → behavior →
-  typology → cross-pool → fact-scoring → decision → report
-- **INCREMENTAL:** intake → behavior → fact-scoring → decision → report
+  typology → cross-pool → uhi10-use-case → fact-scoring → decision →
+  search_regulations → report
+- **INCREMENTAL:** intake → behavior → uhi10-use-case → fact-scoring →
+  decision → search_regulations → report
 
 ---
 

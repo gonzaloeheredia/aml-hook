@@ -1,6 +1,6 @@
 ---
 name: task-regulatory-report
-description: "Draft the evidence pack the pool operator delivers to its own Compliance Officer: technical Opinion with justified scoring, SAR-support annex for a possible FinCEN filing, decision record, and pool aggregate report. Use after task-swap-decision when reasonable suspicion is reached, when a block executed, or when the operator requests a period pack. The agent never files with any authority. Spec implemented by apps/api/src/oracle/report.ts (MOCK_MODE)."
+description: "Draft the evidence pack the pool operator delivers to its own Compliance Officer: technical Opinion with justified scoring, SAR-support annex for a possible FinCEN filing, decision record, and pool aggregate report. Use after task-swap-decision when reasonable suspicion is reached, when a block executed, or when the operator requests a period pack. The agent never files with any authority. Live: Claude. Schema: apps/api/src/oracle/report.ts."
 ---
 
 # Task: Regulatory Report — Evidence / Opinion Pack
@@ -18,7 +18,9 @@ authority, or any supervisor. Filing requires human review and signature.
 had a reasonable monitoring system, each decision had normative basis, and the
 chain from conclusion to on-chain evidence is reconstructible.
 
-**Mock:** `buildOpinionFromScore()` in `apps/api/src/oracle/report.ts` maps
+**Live:** Claude drafts the Opinion after the score (corpus via
+`search_regulations`). **Interpreter** (`COA_LIVE=0` / tests):
+`buildOpinionFromScore()` in `apps/api/src/oracle/report.ts` maps
 `ScoreResult` → `OracleOpinion` for the frontend Opinion UI.
 
 ---
@@ -122,7 +124,7 @@ Retention: 5 years (FATF Rec. 11; BSA)
 
 Produced when reasonable suspicion was reached **and** (live) 
 `protocol-obligations` assessed the operator as a likely BSA obligated person.
-In the demo mock, annex opens whenever `hookOutput !== ALLOW`.
+In the UHI10 demo, annex opens whenever `hookOutput !== ALLOW`.
 
 **Nature.** Support annex, not a submitted form. The obligated person files
 electronically with FinCEN through their own access. The agent supplies

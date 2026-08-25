@@ -267,6 +267,11 @@ export function fetchHealth() {
     mode: string;
     chain?: { ok: boolean; hook: string | null; reason?: string };
     policy?: ApiPolicyKnobs;
+    agent?: {
+      live?: boolean;
+      model?: string | null;
+      opinion?: string;
+    };
   }>(`/health`);
 }
 

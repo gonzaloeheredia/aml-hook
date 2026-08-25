@@ -6,15 +6,16 @@ import {AccessManaged} from "@openzeppelin/contracts/access/manager/AccessManage
 import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol";
 
 /// @title Layer 2 — ComplianceOracle (REAL on-chain storage)
-/// @notice On-chain behavioral score store (whitepaper §3.2 Layer 2 / §3.5 / §3.8).
+/// @notice On-chain store of Compliance Officer Agent scores (whitepaper §3.2 Layer 2 / §3.5 / §3.8).
 ///
 /// @dev ═══════════════════════════════════════════════════════════════════════
 ///      WHY THIS STORE EXISTS
 ///      ═══════════════════════════════════════════════════════════════════════
 ///
-///      beforeSwap must finish in one transaction. It cannot run the off-chain graph
-///      (N-hop decay, exploit feeds, typology). So the Oracle Keeper / COA computes
-///      off-chain and *publishes* here via `updateScore`. AMLHook only reads.
+///      beforeSwap must finish in one transaction. It cannot run the off-chain agent
+///      (N-hop decay, exploit facts, typology, Opinion). The Compliance Officer Agent
+///      emits `finalScore` + `recommendedFeeBps` off-chain. `_ORACLE_KEEPER` *publishes*
+///      that row here via `updateScore`. AMLHook only reads. The hook never calls the agent.
 ///
 ///      Auth: `_ORACLE_KEEPER` submits the tx; a distinct `attestor` ECDSA-signs the
 ///      payload (C-01). `_HOOK_GOVERNOR` rotates the attestor.
@@ -87,8 +88,8 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
     }
 
     /// @inheritdoc IComplianceOracle
-    /// @notice Keeper publication of a pre-calculated risk profile (§3.8).
-    /// @dev Off-chain engine owns N-hop decay / typology; this call only persists results.
+    /// @notice Keeper publication of a COA-emitted risk profile (§3.8).
+    /// @dev The agent owns N-hop decay / typology / fee. This call only persists results.
     ///      Setting score 0 with a fresh `updatedAt` marks confirmed-clean (Mitigation A).
     ///      `signature` must be ECDSA from `attestor` over `attestationHash` (wallet, score,
     ///      hopDistance, origin, feeBps, updatedAt=block.timestamp, chainid). Restricted to
