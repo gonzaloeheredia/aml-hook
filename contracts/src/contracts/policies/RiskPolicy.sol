@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {IRiskPolicy} from "../../interfaces/policies/IRiskPolicy.sol";
+import {DecisionPack} from "../../libraries/DecisionPack.sol";
 import {FeeBps} from "../../libraries/FeeBps.sol";
 import {HookDecision} from "../../libraries/HookDecision.sol";
 
@@ -14,7 +15,38 @@ contract RiskPolicy is IRiskPolicy {
     uint24 public constant MAX_OVERRIDE_FEE_BPS = FeeBps.MAX_OVERRIDE;
 
     /// @inheritdoc IRiskPolicy
-    function decide(DecisionInput calldata in_) external pure returns (DecisionResult memory r) {
+    function decide(DecisionInput calldata in_) external pure returns (DecisionResult memory) {
+        return _decide(_copy(in_));
+    }
+
+    /// @inheritdoc IRiskPolicy
+    function decidePacked(
+        uint256 packed,
+        uint256 assessedUsd,
+        uint256 inflowUsd,
+        uint256 unscoredFeeThreshold,
+        uint256 unscoredRevertThreshold,
+        uint256 poolImpactBps,
+        uint256 poolImpactThresholdBps,
+        uint256 priorDailyUsd,
+        uint256 swapUsd
+    ) external pure returns (DecisionResult memory) {
+        return _decide(
+            _fromPacked(
+                packed,
+                assessedUsd,
+                inflowUsd,
+                unscoredFeeThreshold,
+                unscoredRevertThreshold,
+                poolImpactBps,
+                poolImpactThresholdBps,
+                priorDailyUsd,
+                swapUsd
+            )
+        );
+    }
+
+    function _decide(DecisionInput memory in_) private pure returns (DecisionResult memory r) {
         if (in_.score >= 71) {
             return DecisionResult(HookDecision.REVERT, 0, RevertKind.ScoreBand);
         }
@@ -35,7 +67,55 @@ contract RiskPolicy is IRiskPolicy {
         }
     }
 
-    function _neverScored(DecisionInput calldata in_) private pure returns (DecisionResult memory r) {
+    function _fromPacked(
+        uint256 packed,
+        uint256 assessedUsd,
+        uint256 inflowUsd,
+        uint256 unscoredFeeThreshold,
+        uint256 unscoredRevertThreshold,
+        uint256 poolImpactBps,
+        uint256 poolImpactThresholdBps,
+        uint256 priorDailyUsd,
+        uint256 swapUsd
+    ) private pure returns (DecisionInput memory i) {
+        (
+            i.score,
+            i.recommendedFeeBps,
+            i.isStale,
+            i.operationCount,
+            i.neverScored,
+            i.proportionalFeeBps,
+            i.punitiveFeeBps
+        ) = DecisionPack.unpackSmall(packed);
+        i.assessedUsd = assessedUsd;
+        i.inflowUsd = inflowUsd;
+        i.unscoredFeeThreshold = unscoredFeeThreshold;
+        i.unscoredRevertThreshold = unscoredRevertThreshold;
+        i.poolImpactBps = poolImpactBps;
+        i.poolImpactThresholdBps = poolImpactThresholdBps;
+        i.priorDailyUsd = priorDailyUsd;
+        i.swapUsd = swapUsd;
+    }
+
+    function _copy(DecisionInput calldata in_) private pure returns (DecisionInput memory i) {
+        i.score = in_.score;
+        i.recommendedFeeBps = in_.recommendedFeeBps;
+        i.isStale = in_.isStale;
+        i.operationCount = in_.operationCount;
+        i.neverScored = in_.neverScored;
+        i.assessedUsd = in_.assessedUsd;
+        i.inflowUsd = in_.inflowUsd;
+        i.unscoredFeeThreshold = in_.unscoredFeeThreshold;
+        i.unscoredRevertThreshold = in_.unscoredRevertThreshold;
+        i.proportionalFeeBps = in_.proportionalFeeBps;
+        i.punitiveFeeBps = in_.punitiveFeeBps;
+        i.poolImpactBps = in_.poolImpactBps;
+        i.poolImpactThresholdBps = in_.poolImpactThresholdBps;
+        i.priorDailyUsd = in_.priorDailyUsd;
+        i.swapUsd = in_.swapUsd;
+    }
+
+    function _neverScored(DecisionInput memory in_) private pure returns (DecisionResult memory r) {
         if (in_.unscoredRevertThreshold != 0 && in_.assessedUsd >= in_.unscoredRevertThreshold) {
             return DecisionResult(HookDecision.REVERT, 0, RevertKind.UnscoredMagnitude);
         }
@@ -56,7 +136,7 @@ contract RiskPolicy is IRiskPolicy {
         }
     }
 
-    function _allowBand(DecisionInput calldata in_) private pure returns (DecisionResult memory r) {
+    function _allowBand(DecisionInput memory in_) private pure returns (DecisionResult memory r) {
         uint24 bFee;
         if (in_.isStale) {
             bFee = in_.operationCount > 0
@@ -77,7 +157,7 @@ contract RiskPolicy is IRiskPolicy {
     }
 
     /// @dev Floor B extra: stale + pool drain hardens pass→mid, mid→high. Never REVERT. No ops gate (H-01).
-    function _applyStalePoolImpact(DecisionInput calldata in_, DecisionResult memory r)
+    function _applyStalePoolImpact(DecisionInput memory in_, DecisionResult memory r)
         private
         pure
         returns (DecisionResult memory)
@@ -94,7 +174,7 @@ contract RiskPolicy is IRiskPolicy {
         return r;
     }
 
-    function _dailyBlocked(DecisionInput calldata in_) private pure returns (bool) {
+    function _dailyBlocked(DecisionInput memory in_) private pure returns (bool) {
         if (in_.unscoredRevertThreshold == 0 || in_.priorDailyUsd == 0) return false;
         return in_.priorDailyUsd + in_.swapUsd >= in_.unscoredRevertThreshold;
     }
@@ -111,7 +191,7 @@ contract RiskPolicy is IRiskPolicy {
         return 0;
     }
 
-    function _resolveOverrideFee(DecisionInput calldata in_) private pure returns (uint24) {
+    function _resolveOverrideFee(DecisionInput memory in_) private pure returns (uint24) {
         if (in_.recommendedFeeBps > 0 && in_.recommendedFeeBps <= FeeBps.MAX_OVERRIDE) {
             return in_.recommendedFeeBps;
         }

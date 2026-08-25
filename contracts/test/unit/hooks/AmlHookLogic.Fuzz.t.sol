@@ -195,7 +195,7 @@ contract UnitAmlHookLogicFuzzTest is Helpers {
         );
         i.priorDailyUsd = prior;
         i.swapUsd = swapUsd;
-        IRiskPolicy.DecisionResult memory policy = riskPolicy.decide(i);
+        IRiskPolicy.DecisionResult memory policy = _policy(i);
 
         if (prior + swapUsd >= high) {
             assertEq(uint8(policy.decision), uint8(HookDecision.REVERT));

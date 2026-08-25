@@ -271,7 +271,7 @@ contract IntegrationAmlStackRelationsTest is Helpers {
         complianceOracle.updateScore(walletC, 0, 0, address(0), 0, _scoreSig(walletC, 0, 0));
 
         vm.prank(hookGovernor);
-        harness.observeSwap(walletC, address(token), 10_000 ether);
+        harness.recordActivity(walletC, address(token), 10_000 ether);
 
         IRiskPolicy.DecisionInput memory i = _fees(
             _usd(0, 0, false, 0, false, 0, 0, harness.unscoredFeeThreshold(), harness.unscoredRevertThreshold()),
@@ -280,7 +280,7 @@ contract IntegrationAmlStackRelationsTest is Helpers {
         );
         i.priorDailyUsd = 10_000e8;
         i.swapUsd = 5_000e8;
-        IRiskPolicy.DecisionResult memory policy = riskPolicy.decide(i);
+        IRiskPolicy.DecisionResult memory policy = _policy(i);
         assertEq(uint8(policy.decision), uint8(HookDecision.REVERT));
         assertEq(uint8(policy.revertKind), uint8(IRiskPolicy.RevertKind.DailyAggregation));
 

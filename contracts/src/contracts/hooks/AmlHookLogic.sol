@@ -9,6 +9,7 @@ import {IERC20Minimal} from "../../interfaces/external/IERC20Minimal.sol";
 import {HookDecision} from "../../libraries/HookDecision.sol";
 import {Inflow} from "../../libraries/Inflow.sol";
 import {OracleQuote} from "../../libraries/OracleQuote.sol";
+import {DecisionPack} from "../../libraries/DecisionPack.sol";
 import {WalletSubject} from "../../libraries/WalletSubject.sol";
 
 /// @title beforeSwap / afterSwap compliance: resolve subject, gather signals, call RiskPolicy.
@@ -73,7 +74,7 @@ abstract contract AmlHookLogic is AmlHookActivity {
     function _endSwap(SwapEvaluation memory eval, address volumeToken, uint256 settledAmount) internal {
         _recordActivity(eval.wallet, volumeToken, settledAmount);
         _updateKnownBalance(eval.wallet, eval.token, eval.inflowTriggered);
-        emit SwapObserved(eval.wallet, eval.risk.score, eval.decision, eval.feeBps, eval.risk.hopDistance, eval.risk.origin);
+        _emitSwapObserved(eval.wallet, eval.decision, eval.feeBps, eval.risk);
     }
 
     function previewSwap(address wallet, address token, uint256 amount)
@@ -161,7 +162,7 @@ abstract contract AmlHookLogic is AmlHookActivity {
         _requireNotSanctioned(wallet);
         risk = complianceOracle.getRisk(wallet);
         signals = _gather(wallet, token, volumeToken, amount, risk);
-        IRiskPolicy.DecisionResult memory result = riskPolicy.decide(_toInput(risk, signals, poolImpactBps));
+        IRiskPolicy.DecisionResult memory result = _callPolicy(_toInput(risk, signals, poolImpactBps));
         _revertBlocked(wallet, risk, signals, poolImpactBps, result);
         return (result.decision, result.feeBps, risk, signals);
     }
@@ -225,11 +226,27 @@ abstract contract AmlHookLogic is AmlHookActivity {
         view
         returns (IRiskPolicy.DecisionInput memory i)
     {
+        i = _scoreInput(risk, signals);
+        _fillFloors(i, signals, poolImpactBps);
+    }
+
+    function _scoreInput(IComplianceOracle.WalletRisk memory risk, EvalSignals memory signals)
+        private
+        pure
+        returns (IRiskPolicy.DecisionInput memory i)
+    {
         i.score = risk.score;
         i.recommendedFeeBps = risk.feeBps;
         i.isStale = signals.isStale;
         i.operationCount = signals.operationCount;
         i.neverScored = signals.neverScored;
+    }
+
+    function _fillFloors(
+        IRiskPolicy.DecisionInput memory i,
+        EvalSignals memory signals,
+        uint256 poolImpactBps
+    ) private view {
         i.assessedUsd = signals.assessedUsd;
         i.inflowUsd = signals.inflowUsd;
         i.unscoredFeeThreshold = unscoredFeeThreshold;
@@ -240,6 +257,48 @@ abstract contract AmlHookLogic is AmlHookActivity {
         i.poolImpactThresholdBps = poolImpactThresholdBps;
         i.priorDailyUsd = signals.priorDailyUsd;
         i.swapUsd = signals.swapUsd;
+    }
+
+    function _callPolicy(IRiskPolicy.DecisionInput memory input)
+        private
+        view
+        returns (IRiskPolicy.DecisionResult memory)
+    {
+        return _callPacked(
+            DecisionPack.pack(input),
+            input.assessedUsd,
+            input.inflowUsd,
+            input.unscoredFeeThreshold,
+            input.unscoredRevertThreshold,
+            input.poolImpactBps,
+            input.poolImpactThresholdBps,
+            input.priorDailyUsd,
+            input.swapUsd
+        );
+    }
+
+    function _callPacked(
+        uint256 packed,
+        uint256 assessedUsd,
+        uint256 inflowUsd,
+        uint256 unscoredFeeThreshold,
+        uint256 unscoredRevertThreshold,
+        uint256 poolImpactBps,
+        uint256 poolImpactThresholdBps,
+        uint256 priorDailyUsd,
+        uint256 swapUsd
+    ) private view returns (IRiskPolicy.DecisionResult memory) {
+        return riskPolicy.decidePacked(
+            packed,
+            assessedUsd,
+            inflowUsd,
+            unscoredFeeThreshold,
+            unscoredRevertThreshold,
+            poolImpactBps,
+            poolImpactThresholdBps,
+            priorDailyUsd,
+            swapUsd
+        );
     }
 
     function _revertBlocked(
@@ -259,7 +318,11 @@ abstract contract AmlHookLogic is AmlHookActivity {
         if (result.revertKind == IRiskPolicy.RevertKind.DailyAggregation) {
             revert DailyAggregationBlocked(wallet, signals.priorDailyUsd + signals.swapUsd, unscoredRevertThreshold);
         }
-        revert WalletBlocked(wallet, risk.score, "SCORE_REVERT_BAND");
+        _revertScoreBand(wallet, risk.score);
+    }
+
+    function _revertScoreBand(address wallet, uint8 score) private pure {
+        revert WalletBlocked(wallet, score, "SCORE_REVERT_BAND");
     }
 
     function _emitMitigations(

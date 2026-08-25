@@ -176,11 +176,12 @@ abstract contract AmlHookGovernance is AccessManaged, Pausable {
         _requireComplianceOfficer();
         _propose(_ID_IMPACT, poolImpactThresholdBps_, 0, poolImpactThresholdBps, 0);
         _emitProposed(PARAM_POOL_IMPACT_THRESHOLD_BPS, poolImpactThresholdBps, poolImpactThresholdBps_);
+        _emitScheduled(PARAM_POOL_IMPACT_THRESHOLD_BPS, poolImpactThresholdBps, poolImpactThresholdBps_);
     }
 
     function applyPoolImpactThresholdBps(uint256 poolImpactThresholdBps_) external restricted {
         Pending memory p = _consume(_ID_IMPACT, poolImpactThresholdBps_, 0, PARAM_POOL_IMPACT_THRESHOLD_BPS);
-        emit PolicyParamConfirmed(PARAM_POOL_IMPACT_THRESHOLD_BPS, p.prevA, poolImpactThresholdBps_, p.proposer);
+        _emitConfirmed(PARAM_POOL_IMPACT_THRESHOLD_BPS, p.prevA, poolImpactThresholdBps_, p.proposer);
         emit PoolImpactThresholdUpdated(p.prevA, poolImpactThresholdBps_);
         poolImpactThresholdBps = poolImpactThresholdBps_;
     }
@@ -191,13 +192,15 @@ abstract contract AmlHookGovernance is AccessManaged, Pausable {
         _propose(_ID_UNSCORED, feeThreshold, revertThreshold, unscoredFeeThreshold, unscoredRevertThreshold);
         _emitProposed(PARAM_UNSCORED_FEE_THRESHOLD, unscoredFeeThreshold, feeThreshold);
         _emitProposed(PARAM_UNSCORED_REVERT_THRESHOLD, unscoredRevertThreshold, revertThreshold);
+        _emitScheduled(PARAM_UNSCORED_FEE_THRESHOLD, unscoredFeeThreshold, feeThreshold);
+        _emitScheduled(PARAM_UNSCORED_REVERT_THRESHOLD, unscoredRevertThreshold, revertThreshold);
     }
 
     function applyUnscoredThresholds(uint256 feeThreshold, uint256 revertThreshold) external restricted {
         Pending memory p = _consume(_ID_UNSCORED, feeThreshold, revertThreshold, PARAM_UNSCORED_FEE_THRESHOLD);
         _validateUnscoredThresholds(feeThreshold, revertThreshold);
-        emit PolicyParamConfirmed(PARAM_UNSCORED_FEE_THRESHOLD, p.prevA, feeThreshold, p.proposer);
-        emit PolicyParamConfirmed(PARAM_UNSCORED_REVERT_THRESHOLD, p.prevB, revertThreshold, p.proposer);
+        _emitConfirmed(PARAM_UNSCORED_FEE_THRESHOLD, p.prevA, feeThreshold, p.proposer);
+        _emitConfirmed(PARAM_UNSCORED_REVERT_THRESHOLD, p.prevB, revertThreshold, p.proposer);
         emit UnscoredThresholdsUpdated(p.prevA, p.prevB, feeThreshold, revertThreshold);
         unscoredFeeThreshold = feeThreshold;
         unscoredRevertThreshold = revertThreshold;
@@ -209,13 +212,15 @@ abstract contract AmlHookGovernance is AccessManaged, Pausable {
         _propose(_ID_FEES, proportionalFeeBps_, punitiveFeeBps_, proportionalFeeBps, punitiveFeeBps);
         _emitProposed(PARAM_PROPORTIONAL_FEE_BPS, proportionalFeeBps, proportionalFeeBps_);
         _emitProposed(PARAM_PUNITIVE_FEE_BPS, punitiveFeeBps, punitiveFeeBps_);
+        _emitScheduled(PARAM_PROPORTIONAL_FEE_BPS, proportionalFeeBps, proportionalFeeBps_);
+        _emitScheduled(PARAM_PUNITIVE_FEE_BPS, punitiveFeeBps, punitiveFeeBps_);
     }
 
     function applyFloorFees(uint24 proportionalFeeBps_, uint24 punitiveFeeBps_) external restricted {
         Pending memory p = _consume(_ID_FEES, proportionalFeeBps_, punitiveFeeBps_, PARAM_PROPORTIONAL_FEE_BPS);
         _validateFloorFees(proportionalFeeBps_, punitiveFeeBps_);
-        emit PolicyParamConfirmed(PARAM_PROPORTIONAL_FEE_BPS, p.prevA, proportionalFeeBps_, p.proposer);
-        emit PolicyParamConfirmed(PARAM_PUNITIVE_FEE_BPS, p.prevB, punitiveFeeBps_, p.proposer);
+        _emitConfirmed(PARAM_PROPORTIONAL_FEE_BPS, p.prevA, proportionalFeeBps_, p.proposer);
+        _emitConfirmed(PARAM_PUNITIVE_FEE_BPS, p.prevB, punitiveFeeBps_, p.proposer);
         proportionalFeeBps = proportionalFeeBps_;
         punitiveFeeBps = punitiveFeeBps_;
     }
@@ -268,8 +273,15 @@ abstract contract AmlHookGovernance is AccessManaged, Pausable {
 
     function _emitProposed(string memory name, uint256 previousValue, uint256 newValue) private {
         emit PolicyParamProposed(name, previousValue, newValue, msg.sender);
+    }
+
+    function _emitScheduled(string memory name, uint256 previousValue, uint256 newValue) private {
         (, uint32 delay) = IAccessManager(authority()).hasRole(Roles._COMPLIANCE_OFFICER, msg.sender);
         emit PolicyParamScheduled(name, previousValue, newValue, msg.sender, uint48(block.timestamp) + delay);
+    }
+
+    function _emitConfirmed(string memory name, uint256 previousValue, uint256 newValue, address actor) private {
+        emit PolicyParamConfirmed(name, previousValue, newValue, actor);
     }
 
     function _propose(bytes32 id, uint256 a, uint256 b, uint256 prevA, uint256 prevB) private {

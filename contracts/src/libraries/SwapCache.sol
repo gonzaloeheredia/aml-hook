@@ -42,11 +42,7 @@ library SwapCache {
         _tstore(_slot(_WALLET, poolId), uint256(uint160(wallet)));
         _tstore(_slot(_TOKEN, poolId), uint256(uint160(token)));
         _tstore(_slot(_ORIGIN, poolId), uint256(uint160(risk.origin)));
-        uint256 packed = uint256(uint8(decision)) | (uint256(feeBps) << _FEE_SHIFT)
-            | (uint256(risk.score) << _SCORE_SHIFT) | (uint256(risk.hopDistance) << _HOP_SHIFT)
-            | (uint256(risk.updatedAt) << _UPDATED_SHIFT) | (uint256(risk.feeBps) << _ORACLE_FEE_SHIFT)
-            | (uint256(inflowTriggered ? 1 : 0) << _INFLOW_SHIFT);
-        _tstore(_slot(_PACKED, poolId), packed);
+        _tstore(_slot(_PACKED, poolId), _pack(decision, feeBps, risk, inflowTriggered));
     }
 
     /// @notice Read the transient snapshot written by `store` for this `poolId`.
@@ -82,6 +78,18 @@ library SwapCache {
         _tstore(_slot(_ORIGIN, poolId), 0);
         _tstore(_slot(_PACKED, poolId), 0);
         _tstore(_nonceSlot(poolId), _tload(_nonceSlot(poolId)) + 1);
+    }
+
+    function _pack(
+        HookDecision decision,
+        uint24 feeBps,
+        IComplianceOracle.WalletRisk memory risk,
+        bool inflowTriggered
+    ) private pure returns (uint256 packed) {
+        packed = uint256(uint8(decision)) | (uint256(feeBps) << _FEE_SHIFT)
+            | (uint256(risk.score) << _SCORE_SHIFT) | (uint256(risk.hopDistance) << _HOP_SHIFT)
+            | (uint256(risk.updatedAt) << _UPDATED_SHIFT) | (uint256(risk.feeBps) << _ORACLE_FEE_SHIFT)
+            | (uint256(inflowTriggered ? 1 : 0) << _INFLOW_SHIFT);
     }
 
     /// @dev Transient slot tagged with pool id and the current nonce.

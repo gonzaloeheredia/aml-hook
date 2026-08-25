@@ -72,6 +72,8 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
 
     /// @dev Take differential risk fee from the swap and deposit into FeeEscrow.
     ///      Follows Uniswap v4 afterSwap custom-accounting guide (unspecified currency).
+    ///      Currency/basis math, string events, and the failed-deposit write live in helpers so
+    ///      this frame stays within the 16-slot limit during `forge coverage` (no via_ir).
     function _escrowRiskFee(
         address wallet,
         PoolKey calldata key,
@@ -79,28 +81,12 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
         BalanceDelta delta,
         uint24 feeBps
     ) internal returns (int128 hookDelta) {
-        uint256 dBps = FeeBps.differentialBps(feeBps);
-        if (dBps == 0) return 0;
+        if (FeeBps.differentialBps(feeBps) == 0) return 0;
 
-        bool isExactIn = params.amountSpecified < 0;
-        bool outputIsToken0 = !params.zeroForOne;
-
-        // Fee is charged on the unspecified currency (guide): output for exactIn, input for exactOut.
-        Currency feeCurrency;
-        int256 basisAmount;
-        if (isExactIn) {
-            feeCurrency = outputIsToken0 ? key.currency0 : key.currency1;
-            basisAmount = outputIsToken0 ? delta.amount0() : delta.amount1();
-        } else {
-            bool inputIsToken0 = params.zeroForOne;
-            feeCurrency = inputIsToken0 ? key.currency0 : key.currency1;
-            int256 inputDelta = inputIsToken0 ? delta.amount0() : delta.amount1();
-            basisAmount = inputDelta < 0 ? -inputDelta : int256(0);
-        }
-
+        (Currency feeCurrency, int256 basisAmount) = _feeBasis(key, params, delta);
         address token = Currency.unwrap(feeCurrency);
         if (basisAmount <= 0) {
-            emit RiskFeeSkipped(wallet, token, feeBps, "ZERO_BASIS");
+            _emitRiskFeeSkipped(wallet, token, feeBps, "ZERO_BASIS");
             return 0;
         }
 
@@ -110,7 +96,7 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
 
         // Effects complete. Interactions last (H-06): take → approve → deposit.
         if (!feeEscrow.allowedFeeTokens(token)) {
-            emit RiskFeeSkipped(wallet, token, feeBps, "FEE_TOKEN_NOT_ALLOWED");
+            _emitRiskFeeSkipped(wallet, token, feeBps, "FEE_TOKEN_NOT_ALLOWED");
             return 0;
         }
 
@@ -122,11 +108,41 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
         try feeEscrow.deposit(wallet, token, swapFingerprint, feeAmount) returns (uint256 escrowId) {
             emit RiskFeeEscrowed(wallet, token, feeAmount, escrowId, feeBps);
         } catch {
-            failedDeposits[wallet][token] += feeAmount;
-            emit FailedDepositRecorded(wallet, token, feeAmount);
-            emit RiskFeeSkipped(wallet, token, feeBps, "DEPOSIT_FAILED");
+            _recordFailedDeposit(wallet, token, feeAmount, feeBps);
         }
         return int128(int256(feeAmount));
+    }
+
+    /// @dev Unspecified-currency basis for the differential take (exactIn output / exactOut input).
+    function _feeBasis(PoolKey calldata key, SwapParams calldata params, BalanceDelta delta)
+        private
+        pure
+        returns (Currency feeCurrency, int256 basisAmount)
+    {
+        if (params.amountSpecified < 0) {
+            bool outputIsToken0 = !params.zeroForOne;
+            feeCurrency = outputIsToken0 ? key.currency0 : key.currency1;
+            basisAmount = outputIsToken0 ? delta.amount0() : delta.amount1();
+            return (feeCurrency, basisAmount);
+        }
+        bool inputIsToken0 = params.zeroForOne;
+        feeCurrency = inputIsToken0 ? key.currency0 : key.currency1;
+        int256 inputDelta = inputIsToken0 ? delta.amount0() : delta.amount1();
+        basisAmount = inputDelta < 0 ? -inputDelta : int256(0);
+    }
+
+    function _emitRiskFeeSkipped(address wallet, address token, uint24 feeBps, string memory reason)
+        private
+    {
+        emit RiskFeeSkipped(wallet, token, feeBps, reason);
+    }
+
+    function _recordFailedDeposit(address wallet, address token, uint256 feeAmount, uint24 feeBps)
+        private
+    {
+        failedDeposits[wallet][token] += feeAmount;
+        emit FailedDepositRecorded(wallet, token, feeAmount);
+        _emitRiskFeeSkipped(wallet, token, feeBps, "DEPOSIT_FAILED");
     }
 
     /// @notice Grant or revoke a subject's right to reclaim their failed deposit for `token`.
@@ -187,8 +203,12 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
             emit RiskFeeEscrowed(wallet, token, amount, escrowId, 0);
             emit FailedDepositRetried(wallet, token, amount, escrowId);
         } catch {
-            failedDeposits[wallet][token] = amount;
-            revert RetryEscrowFailed();
+            _restoreFailedDeposit(wallet, token, amount);
         }
+    }
+
+    function _restoreFailedDeposit(address wallet, address token, uint256 amount) private {
+        failedDeposits[wallet][token] = amount;
+        revert RetryEscrowFailed();
     }
 }

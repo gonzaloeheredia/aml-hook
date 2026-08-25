@@ -88,14 +88,8 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         override
         returns (bytes4, BeforeSwapDelta, uint24)
     {
-        SwapEvaluation memory ev = _beginSwap(
-            sender,
-            SwapCurrencies.inputToken(key, params),
-            SwapCurrencies.specifiedToken(key, params),
-            SwapCurrencies.abs(params.amountSpecified),
-            SwapCurrencies.poolImpactBps(poolManager, key, params)
-        );
-        SwapCache.store(key.toId(), ev.wallet, ev.token, ev.decision, ev.feeBps, ev.risk, ev.inflowTriggered);
+        SwapEvaluation memory ev = _beginSwapFromKey(sender, key, params);
+        _cacheStore(key, ev);
         return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
@@ -106,16 +100,50 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         BalanceDelta delta,
         bytes calldata
     ) internal override nonReentrant returns (bytes4, int128) {
-        SwapEvaluation memory ev;
-        (ev.wallet, ev.token, ev.decision, ev.feeBps, ev.risk, ev.inflowTriggered) = SwapCache.load(key.toId());
+        SwapEvaluation memory ev = _cacheLoad(key);
         SwapCache.clear(key.toId());
+        _finishSwap(ev, key, params, delta);
+        return (this.afterSwap.selector, _maybeEscrow(ev, key, params, delta));
+    }
 
+    function _beginSwapFromKey(address sender, PoolKey calldata key, SwapParams calldata params)
+        private
+        returns (SwapEvaluation memory)
+    {
+        return _beginSwap(
+            sender,
+            SwapCurrencies.inputToken(key, params),
+            SwapCurrencies.specifiedToken(key, params),
+            SwapCurrencies.abs(params.amountSpecified),
+            SwapCurrencies.poolImpactBps(poolManager, key, params)
+        );
+    }
+
+    function _finishSwap(
+        SwapEvaluation memory ev,
+        PoolKey calldata key,
+        SwapParams calldata params,
+        BalanceDelta delta
+    ) private {
         _endSwap(ev, SwapCurrencies.specifiedToken(key, params), SwapCurrencies.settledSpecified(key, params, delta));
+    }
 
-        int128 hookDelta = 0;
+    function _cacheStore(PoolKey calldata key, SwapEvaluation memory ev) private {
+        SwapCache.store(key.toId(), ev.wallet, ev.token, ev.decision, ev.feeBps, ev.risk, ev.inflowTriggered);
+    }
+
+    function _cacheLoad(PoolKey calldata key) private view returns (SwapEvaluation memory ev) {
+        (ev.wallet, ev.token, ev.decision, ev.feeBps, ev.risk, ev.inflowTriggered) = SwapCache.load(key.toId());
+    }
+
+    function _maybeEscrow(
+        SwapEvaluation memory ev,
+        PoolKey calldata key,
+        SwapParams calldata params,
+        BalanceDelta delta
+    ) private returns (int128 hookDelta) {
         if (ev.decision == HookDecision.FEE_OVERRIDE && address(feeEscrow) != address(0) && ev.feeBps > 0) {
             hookDelta = _escrowRiskFee(ev.wallet, key, params, delta, ev.feeBps);
         }
-        return (this.afterSwap.selector, hookDelta);
     }
 }

@@ -334,7 +334,22 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         )
     {
         if (escrowId == 0 || escrowId >= nextEscrowId) revert UnknownEscrow();
-        EscrowRecord storage rec = _escrows[escrowId];
+        return _publicView(_escrows[escrowId]);
+    }
+
+    function _publicView(EscrowRecord storage rec)
+        private
+        view
+        returns (
+            bytes32 walletHash,
+            address token,
+            uint256 amount,
+            uint64 depositedAt,
+            bytes32 swapFingerprint,
+            EscrowStatus status,
+            uint64 blockedAt
+        )
+    {
         return (
             keccak256(abi.encodePacked(rec.wallet)),
             rec.token,

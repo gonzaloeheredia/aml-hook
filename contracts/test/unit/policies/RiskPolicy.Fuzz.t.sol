@@ -172,7 +172,7 @@ contract UnitRiskPolicyFuzzTest is Helpers {
         i.unscoredRevertThreshold = HIGH_FLOOR;
         i.priorDailyUsd = prior;
         i.swapUsd = swapUsd;
-        IRiskPolicy.DecisionResult memory r = riskPolicy.decide(i);
+        IRiskPolicy.DecisionResult memory r = _policy(i);
         if (prior + swapUsd >= HIGH_FLOOR) {
             assertEq(uint8(r.decision), uint8(HookDecision.REVERT));
             assertEq(uint8(r.revertKind), uint8(IRiskPolicy.RevertKind.DailyAggregation));

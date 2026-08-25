@@ -22,18 +22,8 @@ library OracleQuote {
         IAggregatorV3 feed = priceFeeds[token];
         if (address(feed) == address(0)) return (0, NO_FEED);
 
-        uint80 roundId;
-        int256 price;
-        uint256 updatedAt;
-        uint80 answeredInRound;
-        try feed.latestRoundData() returns (uint80 rid, int256 p, uint256, uint256 u, uint80 air) {
-            roundId = rid;
-            price = p;
-            updatedAt = u;
-            answeredInRound = air;
-        } catch {
-            return (0, BAD_PRICE);
-        }
+        (uint80 roundId, int256 price, uint256 updatedAt, uint80 answeredInRound, bool ok) = _latestRound(feed);
+        if (!ok) return (0, BAD_PRICE);
 
         if (price <= 0 || updatedAt == 0 || answeredInRound < roundId) return (0, BAD_PRICE);
         if (block.timestamp > updatedAt + priceStalenessThreshold) return (0, STALE_FEED);
@@ -50,6 +40,19 @@ library OracleQuote {
         if (!decOk) return (0, BAD_PRICE);
 
         usd = UsdQuote.toUsd8(amount, tokenDecimals, uint256(price), feedDecimals);
+    }
+
+    /// @dev Isolated so `latestRoundData`'s 5-value ABI decode does not share a frame with quote math.
+    function _latestRound(IAggregatorV3 feed)
+        private
+        view
+        returns (uint80 roundId, int256 price, uint256 updatedAt, uint80 answeredInRound, bool ok)
+    {
+        try feed.latestRoundData() returns (uint80 rid, int256 p, uint256, uint256 u, uint80 air) {
+            return (rid, p, u, air, true);
+        } catch {
+            return (0, 0, 0, 0, false);
+        }
     }
 
     /// @dev Native ETH and no-code currencies are 18 decimals. ERC-20 `decimals()` fail-closed if missing or > 36.
