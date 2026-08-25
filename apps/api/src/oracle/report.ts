@@ -8,6 +8,8 @@
 
 import type { Wallet } from "../types.js";
 import type { NormativeCitation } from "./corpus.js";
+import type { OfacScreenResult } from "./ofacScreen.js";
+import { ofacFindingText, ofacSourceLine } from "./ofacScreen.js";
 import type { AgentRun, OracleOpinion, ScoreResult } from "./types.js";
 
 function withCorpusBasis(basis: string, citations: NormativeCitation[]): string {
@@ -35,6 +37,7 @@ export function buildOpinionFromScore(
   wallet: Wallet,
   score: ScoreResult,
   agentRun?: AgentRun,
+  ofac?: OfacScreenResult,
 ): OracleOpinion {
   const decision =
     score.hookOutput === "REVERT"
@@ -61,11 +64,16 @@ export function buildOpinionFromScore(
   const hop =
     wallet.hopDistance == null ? "none" : String(wallet.hopDistance);
 
+  const ofacLine = ofac ? ofacFindingText(ofac) : null;
+  const ofacMatch = Boolean(ofac?.subject.match);
+
   const who = [
     `Subject: ${wallet.accountLabel} (${wallet.address}).`,
-    wallet.exploitConfirmed
-      ? "Role: confirmed exploit origin (score 100). Not on SanctionRegistry. Contamination source. Do not fund E from A."
-      : hop !== "none"
+    wallet.exploitConfirmed && !ofacMatch
+      ? "Role: confirmed exploit origin (score 100). Not an OFAC SDN exact-address match. Contamination source. Do not fund E from A."
+      : ofacMatch
+        ? "Role: OFAC SDN exact-address match. Layer 1 mapping written by the COA; next swap fail-closes SanctionHit."
+        : hop !== "none"
         ? `Role: intermediary wallet with ${hop}-hop exposure from origin ${origin}.`
         : "Role: pool participant with no inbound contamination from exploit origin A.",
     origin !== "—" && hop !== "none"
@@ -82,9 +90,11 @@ export function buildOpinionFromScore(
         : "Elevated behavioral / hop-derived risk without a single dominant typology label.",
     `Hook instruments involved: score oracle read at beforeSwap; ${
       decision === "block"
-        ? wallet.exploitConfirmed
+        ? wallet.exploitConfirmed && !ofacMatch
           ? "WalletBlocked (score 100 · SCORE_REVERT_BAND; not a list hit)."
-          : "WalletBlocked (no settlement)."
+          : ofacMatch
+            ? "SanctionHit / WalletBlocked (OFAC SDN exact-address match written to SanctionRegistry)."
+            : "WalletBlocked (no settlement)."
         : decision === "fee_override"
           ? `FEE_OVERRIDE: pool standard fee retained; risk differential (~${feePct}% total intended friction) taken in afterSwap into FeeEscrow (48h COA path).`
           : "standard pool fee 0.30%."
@@ -94,6 +104,7 @@ export function buildOpinionFromScore(
   const when = [
     `Oracle evaluation time: ${score.validity.calculatedAt}.`,
     `Trigger: ${score.validity.trigger} (seed | transfer | afterSwap | blocked).`,
+    ofacLine ? `OFAC SDN: ${ofacLine}` : "OFAC SDN: not screened this run.",
     `Recommended next review: ${score.validity.nextReview}.`,
     "Individual dated transfers and SwapObserved / WalletBlocked emits are retained in the operator ledger; this narrative summarizes the period under review without embedding tables.",
   ].join(" ");
@@ -103,7 +114,7 @@ export function buildOpinionFromScore(
   const connectedSources = agentRun?.sourcesConsulted?.length
     ? agentRun.sourcesConsulted
     : [
-        "OFAC SDN API",
+        ofac ? ofacSourceLine(ofac) : "OFAC SDN ETH list (not yet screened this run)",
         "UN Consolidated Sanctions List",
         "Etherscan account API",
         "Uniswap v4 PoolManager logs",
@@ -124,7 +135,9 @@ export function buildOpinionFromScore(
     decision === "allow"
       ? [
           `Why not treated as suspicious for enhanced action: oracle score ${score.finalScore}/100 (${score.riskLevel}) sits in the ALLOW band (0–30).`,
-          "Activity is consistent with a clean participant profile for this demo pool; Layer-1 sanctions screen clear (simulated).",
+          ofacLine
+            ? `Layer-1 sanctions screen: ${ofacLine}`
+            : "Activity is consistent with a clean participant profile for this demo pool; Layer-1 sanctions screen pending.",
           "This documentation records the verification that no SAR-support annex was opened.",
         ].join(" ")
       : [
@@ -147,14 +160,18 @@ export function buildOpinionFromScore(
 
   const how = [
     decision === "block"
-      ? wallet.exploitConfirmed
-        ? "Method of operation / control response: beforeSwap WalletBlocked (SCORE_REVERT_BAND); L1 sanctions screen clear; afterSwap not reached. Subject may still move USDC off-pool via P2P, which updates downstream oracle scores."
+      ? ofacMatch
+        ? "Method of operation / control response: COA SDN match written to SanctionRegistry; beforeSwap fail-closes SanctionHit (mapping read). afterSwap not reached."
+        : wallet.exploitConfirmed
+        ? "Method of operation / control response: beforeSwap WalletBlocked (SCORE_REVERT_BAND); live OFAC SDN exact-address screen clear; afterSwap not reached. Subject may still move USDC off-pool via P2P, which updates downstream oracle scores."
         : "Method of operation / control response: beforeSwap fail-closed REVERT; afterSwap not reached; WalletBlocked recorded. Subject may still move USDC off-pool via P2P, which updates downstream oracle scores."
       : decision === "fee_override"
         ? `Method of operation / control response: swap allowed with economic friction (recommendedFeeBps ${feeBps}; pool standard fee + FeeEscrow differential). afterSwap SwapObserved emitted; oracle reevaluated for the next beforeSwap.`
         : "Method of operation / control response: swap allowed at standard fee; afterSwap SwapObserved emitted; oracle score remains in ALLOW band for subsequent swaps.",
     `Modus summary: ${
-      wallet.exploitConfirmed
+      ofacMatch
+        ? "OFAC SDN exact-address match; COA is the registry writer; the swap reads the mapping."
+        : wallet.exploitConfirmed
         ? "Confirmed exploit cash-out; keeper wrote score 100; pool path is WalletBlocked."
         : hop !== "none"
           ? `${hop}-hop propagation of contaminated funds into a pool swap attempt.`
@@ -172,6 +189,9 @@ export function buildOpinionFromScore(
     sourcesConsulted: [
       where,
       ...connectedSources,
+      ...(ofacLine && !connectedSources.some((s) => s.includes("OFAC SDN"))
+        ? [ofacLine]
+        : []),
       ...(agentRun
         ? [
             `COA run ${agentRun.runId} · ${agentRun.skills.length} skills · ${agentRun.durationMs}ms`,

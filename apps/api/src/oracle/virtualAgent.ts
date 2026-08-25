@@ -13,6 +13,8 @@ import {
   type NormativeCitation,
 } from "./corpus.js";
 import type { OracleTrigger } from "./types.js";
+import type { OfacScreenResult } from "./ofacScreen.js";
+import { ofacFindingText, ofacSourceLine } from "./ofacScreen.js";
 
 export type AgentSkillStep = {
   skill: string;
@@ -59,14 +61,12 @@ const SKILL_CATALOG: Record<
   },
   "ofac-screening": {
     sources: [
-      "OFAC SDN API",
+      "OFAC SDN (Treasury sanctions list service)",
       "UN Consolidated Sanctions List",
       "EU Consolidated Financial Sanctions",
     ],
-    finding: (w) =>
-      w.exploitConfirmed
-        ? "Clear on OFAC / UN / EU list screens. Designation has not been written to SanctionRegistry."
-        : "Clear on OFAC / UN / EU list screens (live query path).",
+    finding: () =>
+      "OFAC SDN exact-address screen pending (injected by the live pipeline).",
   },
   "task-onchain-evidence": {
     sources: [
@@ -196,8 +196,9 @@ export async function runVirtualAgentPipeline(params: {
   skills: string[];
   flow: "FULL" | "INCREMENTAL";
   theater?: boolean;
+  ofac?: OfacScreenResult;
 }): Promise<AgentRun> {
-  const { wallet, trigger, skills, flow, theater = false } = params;
+  const { wallet, trigger, skills, flow, theater = false, ofac } = params;
   const started = Date.now();
   const startedAt = new Date(started).toISOString();
   const steps: AgentSkillStep[] = [];
@@ -215,10 +216,15 @@ export async function runVirtualAgentPipeline(params: {
     const step =
       skill === "search_regulations"
         ? corpusStep(consult)
-        : {
-            sources: fromCatalog.sources,
-            finding: fromCatalog.finding(wallet, trigger),
-          };
+        : skill === "ofac-screening" && ofac
+          ? {
+              sources: [ofacSourceLine(ofac)],
+              finding: ofacFindingText(ofac),
+            }
+          : {
+              sources: fromCatalog.sources,
+              finding: fromCatalog.finding(wallet, trigger),
+            };
 
     for (const s of step.sources) sourceSet.add(s);
     steps.push({
@@ -227,6 +233,18 @@ export async function runVirtualAgentPipeline(params: {
       durationMs,
       sources: step.sources,
       finding: step.finding,
+    });
+  }
+
+  if (ofac && !skills.includes("ofac-screening")) {
+    const sources = [ofacSourceLine(ofac)];
+    for (const s of sources) sourceSet.add(s);
+    steps.push({
+      skill: "ofac-screening",
+      status: "ok",
+      durationMs: 1,
+      sources,
+      finding: ofacFindingText(ofac),
     });
   }
 

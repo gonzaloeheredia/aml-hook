@@ -5,6 +5,7 @@
 
 import type { HookOutput, WalletId } from "../types.js";
 import type { NormativeCitation } from "./corpus.js";
+import type { OfacScreenResult } from "./ofacScreen.js";
 import type { AgentRun } from "./virtualAgent.js";
 
 export type { NormativeCitation } from "./corpus.js";
@@ -140,4 +141,6 @@ export type OracleEvaluation = {
   opinionSource?: "mock" | "anthropic";
   /** Who produced finalScore. Tick republishes the last agent score. */
   scoreSource?: "skill" | "anthropic";
+  /** Live OFAC SDN screen that wrote SanctionRegistry on a direct match. */
+  ofacScreen?: OfacScreenResult;
 };

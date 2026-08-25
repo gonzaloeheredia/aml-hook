@@ -16,10 +16,13 @@ Layer 1 of the hook architecture: fast, low gas, no external dependency at
 swap runtime. On-chain designated-address mapping is consulted directly in
 `beforeSwap`.
 
-**Demo runtime:** no OFAC SDN HTTP. Layer 1 at swap time is
-`SanctionRegistry`. Wallet A is **not** listed; the agent writes score 100
-from the exploit finding (`WalletBlocked`). A listed subject, P2P
-counterparty, or listed contract the wallet used in the pool is score 100.
+**Demo runtime:** the COA downloads the public OFAC SDN dump (ETH/EVM
+addresses), screens the subject on every evaluation / Opinion, and on a
+direct match writes `SanctionRegistry.setSanctioned`. Layer 1 at swap time
+is still the mapping — `beforeSwap` does not call Treasury. Wallet A is
+**not** on SDN; the agent writes score 100 from the exploit finding
+(`WalletBlocked`). A listed subject, P2P counterparty, or listed contract
+the wallet used in the pool is score 100.
 
 ---
 

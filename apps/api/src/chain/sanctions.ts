@@ -1,14 +1,24 @@
 /**
- * SanctionRegistry reads for oracle scoring.
+ * SanctionRegistry reads/writes for the COA.
  * Fail-open to "not listed" when Anvil is down — Layer 1 on the hook still fail-closes.
+ * Writes use `_REGISTRY_KEEPER` (local Anvil #0 = same key as the oracle keeper).
  */
 
-import type { Address } from "viem";
-import { publicClient } from "./clients.js";
+import type { Address, Hex } from "viem";
+import { keeperWallet, publicClient } from "./clients.js";
 import { getChainConfig } from "./config.js";
 import { registryAbi } from "./abi.js";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
+
+export type SanctionWriteResult = {
+  ok: boolean;
+  skipped: boolean;
+  listedBefore: boolean;
+  listedAfter: boolean;
+  txHash?: Hex;
+  error?: string;
+};
 
 /**
  * True when SanctionRegistry lists `address`. False if the stack is unavailable.
@@ -27,6 +37,62 @@ export async function isSanctionedAddress(address: string): Promise<boolean> {
     );
   } catch {
     return false;
+  }
+}
+
+/**
+ * Immediate `setSanctioned` when the mapping does not already match `sanctioned`.
+ * OFAC SDN is a public list — commit-reveal is for unpublished designations, not this sync.
+ */
+export async function writeSanction(
+  address: string,
+  sanctioned: boolean,
+): Promise<SanctionWriteResult> {
+  const listedBefore = await isSanctionedAddress(address);
+  if (listedBefore === sanctioned) {
+    return {
+      ok: true,
+      skipped: true,
+      listedBefore,
+      listedAfter: listedBefore,
+    };
+  }
+  try {
+    const cfg = getChainConfig();
+    if (!cfg.sanctionRegistry || cfg.sanctionRegistry === ZERO) {
+      return {
+        ok: false,
+        skipped: false,
+        listedBefore,
+        listedAfter: listedBefore,
+        error: "SanctionRegistry missing",
+      };
+    }
+    const { account, client } = keeperWallet();
+    const hash = await client.writeContract({
+      address: cfg.sanctionRegistry,
+      abi: registryAbi,
+      functionName: "setSanctioned",
+      args: [address as Address, sanctioned],
+      account,
+      chain: client.chain,
+    });
+    await publicClient().waitForTransactionReceipt({ hash });
+    return {
+      ok: true,
+      skipped: false,
+      listedBefore,
+      listedAfter: sanctioned,
+      txHash: hash,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      skipped: false,
+      listedBefore,
+      listedAfter: listedBefore,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 

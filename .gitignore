@@ -18,6 +18,7 @@ out/
 dist/
 coverage/
 *.tsbuildinfo
+apps/api/.cache/
 
 # Python (corpus extract)
 __pycache__/
