@@ -3,7 +3,33 @@ pragma solidity ^0.8.26;
 
 import {FeeEscrow} from "contracts/escrow/FeeEscrow.sol";
 import {IFeeEscrow} from "interfaces/escrow/IFeeEscrow.sol";
+import {ISanctionRegistry} from "interfaces/registries/ISanctionRegistry.sol";
+import {IComplianceOracle} from "interfaces/oracles/IComplianceOracle.sol";
 import {HelpersCore} from "test/utils/HelpersCore.t.sol";
+
+contract EscrowListMock is ISanctionRegistry {
+    mapping(address => bool) public listed;
+
+    function isSanctioned(address account) external view returns (bool) {
+        return listed[account];
+    }
+
+    function setSanctioned(address account, bool sanctioned) external {
+        listed[account] = sanctioned;
+    }
+}
+
+contract EscrowOracleMock {
+    mapping(address => uint8) public scoreOf;
+
+    function getScore(address account) external view returns (uint8) {
+        return scoreOf[account];
+    }
+
+    function setScore(address account, uint8 score) external {
+        scoreOf[account] = score;
+    }
+}
 
 /// @dev Transferable mintable ERC-20 for FeeEscrow custody tests.
 contract FeeToken {
@@ -43,6 +69,8 @@ contract FeeToken {
 contract UnitFeeEscrowTest is HelpersCore {
     FeeEscrow escrow;
     FeeToken token;
+    EscrowListMock list;
+    EscrowOracleMock oracle;
 
     address depositor = address(0xDE90);
     address pool = address(0x1001);
@@ -68,9 +96,12 @@ contract UnitFeeEscrowTest is HelpersCore {
 
     function setUp() public {
         token = new FeeToken();
+        list = new EscrowListMock();
+        oracle = new EscrowOracleMock();
         escrow = new FeeEscrow(owner, address(token), fund, reserve, owner);
 
         vm.startPrank(owner);
+        escrow.setComplianceSources(ISanctionRegistry(address(list)), IComplianceOracle(address(oracle)));
         escrow.setKeeper(keeper, true);
         escrow.setAuditor(address(this), true);
         escrow.setDepositor(depositor, true);
@@ -87,6 +118,15 @@ contract UnitFeeEscrowTest is HelpersCore {
     function _deposit(uint256 amount) internal returns (uint256 id) {
         vm.prank(depositor);
         id = escrow.deposit(walletA, address(token), ORIGIN_TX, amount);
+    }
+
+    function _depositFor(address wallet, uint256 amount) internal returns (uint256 id) {
+        vm.prank(depositor);
+        id = escrow.deposit(wallet, address(token), ORIGIN_TX, amount);
+    }
+
+    function _markIllicit(address wallet) internal {
+        list.setSanctioned(wallet, true);
     }
 
     function test_ConstructorSetsRolesAndRecipients() external view {
@@ -167,12 +207,13 @@ contract UnitFeeEscrowTest is HelpersCore {
         uint256 amount = 75 ether;
         uint256 id = _deposit(amount);
         vm.warp(block.timestamp + 48 hours);
+        _markIllicit(walletA);
 
         vm.expectEmit(true, true, false, true, address(escrow));
         emit FeeBlocked(id, walletA, amount);
 
         vm.prank(keeper);
-        escrow.resolveCheckpoint2(id, true);
+        escrow.resolveCheckpoint2(id);
 
         IFeeEscrow.EscrowRecord memory rec = escrow.getEscrow(id);
         assertEq(uint8(rec.status), uint8(IFeeEscrow.EscrowStatus.Blocked));
@@ -186,8 +227,9 @@ contract UnitFeeEscrowTest is HelpersCore {
     function test_ResolveCheckpoint2_BlockedCannotBeReleasedLater() external {
         uint256 id = _deposit(10 ether);
         vm.warp(block.timestamp + 48 hours);
+        _markIllicit(walletA);
         vm.prank(keeper);
-        escrow.resolveCheckpoint2(id, true);
+        escrow.resolveCheckpoint2(id);
 
         vm.prank(keeper);
         vm.expectRevert(FeeEscrow.NotActive.selector);
@@ -195,7 +237,7 @@ contract UnitFeeEscrowTest is HelpersCore {
 
         vm.prank(keeper);
         vm.expectRevert(FeeEscrow.NotActive.selector);
-        escrow.resolveCheckpoint2(id, false);
+        escrow.resolveCheckpoint2(id);
     }
 
     function test_ResolveCheckpoint2_CleanReleasesToLpFund_NotPool() external {
@@ -207,7 +249,7 @@ contract UnitFeeEscrowTest is HelpersCore {
         emit FeeReleasedDefault(id, walletA, amount, fund);
 
         vm.prank(keeper);
-        escrow.resolveCheckpoint2(id, false);
+        escrow.resolveCheckpoint2(id);
 
         IFeeEscrow.EscrowRecord memory rec = escrow.getEscrow(id);
         assertEq(uint8(rec.status), uint8(IFeeEscrow.EscrowStatus.ReleasedDefault));
@@ -240,7 +282,7 @@ contract UnitFeeEscrowTest is HelpersCore {
 
         vm.prank(keeper);
         vm.expectRevert(FeeEscrow.EscrowWindowOpen.selector);
-        escrow.resolveCheckpoint2(id, true);
+        escrow.resolveCheckpoint2(id);
     }
 
     function test_ReleaseDefault_RevertsWhileWindowOpen() external {
@@ -267,7 +309,7 @@ contract UnitFeeEscrowTest is HelpersCore {
 
         vm.prank(stranger);
         vm.expectRevert(FeeEscrow.NotKeeper.selector);
-        escrow.resolveCheckpoint2(id, true);
+        escrow.resolveCheckpoint2(id);
     }
 
     function test_NonKeeperCannotReleaseDefault() external {
@@ -297,7 +339,7 @@ contract UnitFeeEscrowTest is HelpersCore {
         vm.warp(block.timestamp + 24 hours);
         vm.prank(keeper);
         vm.expectRevert(FeeEscrow.NotActive.selector);
-        escrow.resolveCheckpoint2(id, true);
+        escrow.resolveCheckpoint2(id);
     }
 
     function test_ReleaseEarlyNeverSendsToPool() external {
@@ -562,34 +604,23 @@ contract UnitFeeEscrowTest is HelpersCore {
     }
 
     function test_BatchResolveCheckpoint2() external {
-        uint256 cleanId = _deposit(5 ether);
-        uint256 illicitId = _deposit(7 ether);
+        uint256 cleanId = _depositFor(walletC, 5 ether);
+        uint256 illicitId = _depositFor(walletA, 7 ether);
+        _markIllicit(walletA);
         vm.warp(block.timestamp + 48 hours);
 
         uint256[] memory ids = new uint256[](2);
         ids[0] = cleanId;
         ids[1] = illicitId;
-        bool[] memory flags = new bool[](2);
-        flags[0] = false;
-        flags[1] = true;
 
         vm.prank(keeper);
-        escrow.batchResolveCheckpoint2(ids, flags);
+        escrow.batchResolveCheckpoint2(ids);
 
         assertEq(token.balanceOf(pool), 0);
         assertEq(token.balanceOf(fund), 5 ether);
         assertEq(token.balanceOf(address(escrow)), 7 ether);
         assertEq(uint8(escrow.getEscrow(cleanId).status), uint8(IFeeEscrow.EscrowStatus.ReleasedDefault));
         assertEq(uint8(escrow.getEscrow(illicitId).status), uint8(IFeeEscrow.EscrowStatus.Blocked));
-    }
-
-    function test_BatchResolveCheckpoint2_RevertsOnLengthMismatch() external {
-        uint256[] memory ids = new uint256[](1);
-        ids[0] = 1;
-        bool[] memory flags = new bool[](2);
-        vm.prank(keeper);
-        vm.expectRevert(FeeEscrow.LengthMismatch.selector);
-        escrow.batchResolveCheckpoint2(ids, flags);
     }
 
     function test_BatchReleaseDefault() external {
@@ -649,8 +680,9 @@ contract UnitFeeEscrowTest is HelpersCore {
     function _blockedEscrow(uint256 amount) internal returns (uint256 id) {
         id = _deposit(amount);
         vm.warp(block.timestamp + 48 hours);
+        _markIllicit(walletA);
         vm.prank(keeper);
-        escrow.resolveCheckpoint2(id, true);
+        escrow.resolveCheckpoint2(id);
     }
 
     event FeeRecovered(
@@ -742,11 +774,10 @@ contract UnitFeeEscrowTest is HelpersCore {
 
     function test_BatchResolveCheckpoint2_RevertsAboveMaxBatchSize() external {
         uint256[] memory ids = new uint256[](101);
-        bool[] memory flags = new bool[](101);
 
         vm.prank(keeper);
         vm.expectRevert(FeeEscrow.BatchTooLarge.selector);
-        escrow.batchResolveCheckpoint2(ids, flags);
+        escrow.batchResolveCheckpoint2(ids);
     }
 
     function test_BatchReleaseDefault_RevertsAboveMaxBatchSize() external {
@@ -846,9 +877,10 @@ contract UnitFeeEscrowTest is HelpersCore {
         uint256 expiredId = _deposit(expiredAmount);
 
         vm.warp(block.timestamp + 48 hours);
+        _markIllicit(walletA);
         vm.startPrank(keeper);
-        escrow.resolveCheckpoint2(ownerId, true);
-        escrow.resolveCheckpoint2(expiredId, true);
+        escrow.resolveCheckpoint2(ownerId);
+        escrow.resolveCheckpoint2(expiredId);
         vm.stopPrank();
 
         vm.prank(owner);
@@ -895,7 +927,7 @@ contract UnitFeeEscrowTest is HelpersCore {
 
     function test_GetEscrowPublic_HashesWallet() external {
         uint256 id = _deposit(2 ether);
-        (bytes32 walletHash, address recToken, uint256 amount, uint64 depositedAt, bytes32 fingerprint, IFeeEscrow.EscrowStatus status,)
+        (bytes32 walletHash, address recToken, uint256 amount, uint64 depositedAt, bytes32 fingerprint, IFeeEscrow.EscrowStatus status,,)
             = escrow.getEscrowPublic(id);
 
         assertEq(walletHash, keccak256(abi.encodePacked(walletA)));
@@ -1011,8 +1043,9 @@ contract UnitFeeEscrowTest is HelpersCore {
         uint256 id = _deposit(amount);
 
         vm.warp(block.timestamp + escrow.ESCROW_WINDOW());
+        _markIllicit(walletA);
         vm.prank(keeper);
-        escrow.resolveCheckpoint2(id, true);
+        escrow.resolveCheckpoint2(id);
 
         vm.warp(block.timestamp + escrow.blockedRecoveryDelay());
         vm.prank(owner);
@@ -1029,8 +1062,38 @@ contract UnitFeeEscrowTest is HelpersCore {
         vm.prank(depositor);
         uint256 id = escrow.deposit(wallet, address(token), fingerprint, amount);
 
-        (bytes32 walletHash,,,,,,) = escrow.getEscrowPublic(id);
+        (bytes32 walletHash,,,,,,,) = escrow.getEscrowPublic(id);
         assertEq(walletHash, keccak256(abi.encodePacked(wallet)));
         assertEq(escrow.getEscrow(id).wallet, wallet);
+    }
+
+    function test_PrincipalKind_CleanCheckpointPaysWallet() external {
+        uint256 amount = 5 ether;
+        vm.prank(depositor);
+        uint256 id = escrow.deposit(walletA, address(token), ORIGIN_TX, amount, IFeeEscrow.EscrowKind.LpPrincipal);
+        vm.warp(block.timestamp + 48 hours);
+        uint256 before = token.balanceOf(walletA);
+        vm.prank(keeper);
+        escrow.resolveCheckpoint2(id);
+        assertEq(token.balanceOf(walletA), before + amount);
+        assertEq(token.balanceOf(fund), 0);
+        assertEq(uint8(escrow.getEscrow(id).status), uint8(IFeeEscrow.EscrowStatus.ReleasedDefault));
+    }
+
+    function test_PrincipalKind_IllicitRecoverPaysReserveNotFund() external {
+        uint256 amount = 5 ether;
+        vm.prank(depositor);
+        uint256 id = escrow.deposit(walletA, address(token), ORIGIN_TX, amount, IFeeEscrow.EscrowKind.LpPrincipal);
+        vm.warp(block.timestamp + 48 hours);
+        _markIllicit(walletA);
+        vm.prank(keeper);
+        escrow.resolveCheckpoint2(id);
+        vm.warp(block.timestamp + escrow.blockedRecoveryDelay());
+        vm.prank(owner);
+        escrow.recoverBlocked(id);
+        assertEq(token.balanceOf(reserve), amount);
+        assertEq(token.balanceOf(fund), 0);
+        assertEq(token.balanceOf(walletA), 0);
+        assertEq(uint8(escrow.getEscrow(id).status), uint8(IFeeEscrow.EscrowStatus.Recovered));
     }
 }

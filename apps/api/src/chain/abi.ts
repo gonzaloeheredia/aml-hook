@@ -325,6 +325,7 @@ export const escrowAbi = [
           { name: "swapFingerprint", type: "bytes32" },
           { name: "status", type: "uint8" },
           { name: "blockedAt", type: "uint64" },
+          { name: "kind", type: "uint8" },
         ],
       },
     ],
@@ -333,10 +334,7 @@ export const escrowAbi = [
     type: "function",
     name: "resolveCheckpoint2",
     stateMutability: "nonpayable",
-    inputs: [
-      { name: "escrowId", type: "uint256" },
-      { name: "illicitConfirmed", type: "bool" },
-    ],
+    inputs: [{ name: "escrowId", type: "uint256" }],
     outputs: [],
   },
   {

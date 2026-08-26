@@ -6,15 +6,18 @@ import {AmlHookActivity} from "./AmlHookActivity.sol";
 import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol";
 import {IRiskPolicy} from "../../interfaces/policies/IRiskPolicy.sol";
 import {IERC20Minimal} from "../../interfaces/external/IERC20Minimal.sol";
+import {ComplianceBand} from "../../libraries/ComplianceBand.sol";
 import {HookDecision} from "../../libraries/HookDecision.sol";
 import {Inflow} from "../../libraries/Inflow.sol";
+import {LpPolicyLib} from "../../libraries/LpPolicyLib.sol";
 import {OracleQuote} from "../../libraries/OracleQuote.sol";
 import {WalletSubject} from "../../libraries/WalletSubject.sol";
 
-/// @title AmlHookLogic — beforeSwap / afterSwap compliance evaluation
-/// @notice Resolves the swap subject, reads the published COA row, gathers floor
-///         signals, and delegates to `riskPolicy.decide`. Never calls the agent.
-///         All state mutations (activity, baseline) happen in `_endSwap` after the decision.
+/// @title AmlHookLogic — swap and liquidity compliance evaluation
+/// @notice Resolves the subject, reads the published COA row, gathers floor signals,
+///         and delegates to `RiskPolicyLib` (swaps) or `LpPolicyLib` (LP adds). Never
+///         calls the agent. Swap state mutations happen in `_endSwap`. LP never-scored
+///         A/C/D run in `_evaluateNeverScoredAdd` (afterAdd, when token deltas exist).
 abstract contract AmlHookLogic is AmlHookActivity {
     /// @notice Wallet is in the REVERT score band (71–100) or exceeds the unscored magnitude floor.
     error WalletBlocked(address wallet, uint8 score, string reason);
@@ -57,6 +60,16 @@ abstract contract AmlHookLogic is AmlHookActivity {
     /// @param deltaBps  Inflow share in bps relative to current balance.
     /// @param timestamp Block timestamp at detection.
     event InflowHeuristicTriggered(address indexed wallet, uint256 deltaBps, uint256 timestamp);
+    /// @notice LP subject after router `msgSender()` or the direct sender.
+    event LiquiditySubjectResolved(address indexed sender, address indexed subject, bool viaTrustedRouter);
+    /// @notice L1→L3 outcome on add or remove. `seized` is only meaningful on remove.
+    event LiquidityObserved(
+        address indexed wallet,
+        uint8 score,
+        HookDecision decision,
+        bool seized,
+        bool viaTrustedRouter
+    );
 
     /// @dev USD quote pair for the volume token and the input token (may share an instance when equal).
     struct QuoteCtx {
@@ -199,6 +212,138 @@ abstract contract AmlHookLogic is AmlHookActivity {
 
     function _requireNotSanctioned(address wallet) internal view {
         if (sanctionRegistry.isSanctioned(wallet)) revert SanctionHit(wallet);
+    }
+
+    /// @dev Trusted router → `msgSender()`. Direct caller → `sender`. Emits `LiquiditySubjectResolved`.
+    function _resolveLp(address sender) internal returns (address wallet, bool viaTrustedRouter) {
+        (wallet, viaTrustedRouter) =
+            WalletSubject.resolveLp(sender, trustedRouters, trustedMultisigs, sanctionRegistry, multisigAggregation);
+        emit LiquiditySubjectResolved(sender, wallet, viaTrustedRouter);
+    }
+
+    /// @dev Add path: L1 always reverts. Pause does not freeze a clean mint. Score ≥ 71 reverts.
+    ///      Known 31–70 → FEE_OVERRIDE (score). Never-scored → Floor A/C/D in `afterAddLiquidity`.
+    function _guardAddLiquidity(address sender)
+        internal
+        returns (
+            address wallet,
+            bool viaRouter,
+            bool neverScored,
+            HookDecision decision,
+            uint24 feeBps,
+            uint8 score
+        )
+    {
+        (wallet, viaRouter) = _resolveLp(sender);
+        address hit = WalletSubject.layer1Hit(wallet, trustedMultisigs, sanctionRegistry, multisigAggregation);
+        if (hit != address(0)) revert SanctionHit(hit);
+        IComplianceOracle.WalletRisk memory risk = complianceOracle.getRisk(wallet);
+        score = risk.score;
+        neverScored = risk.updatedAt == 0;
+        if (ComplianceBand.isIllicitScore(score)) {
+            revert WalletBlocked(wallet, score, "SCORE_REVERT_BAND");
+        }
+        if (neverScored) {
+            return (wallet, viaRouter, true, HookDecision.ALLOW, 0, score);
+        }
+        IRiskPolicy.DecisionInput memory in_;
+        in_.score = score;
+        in_.recommendedFeeBps = risk.feeBps;
+        IRiskPolicy.DecisionResult memory result = LpPolicyLib.decide(in_);
+        decision = result.decision;
+        feeBps = result.feeBps;
+        emit LiquidityObserved(wallet, score, decision, false, viaRouter);
+    }
+
+    /// @dev Never-scored add: same A/C/D + pool-impact tree as a never-scored swap (`LpPolicyLib` → `RiskPolicyLib`).
+    function _evaluateNeverScoredAdd(
+        address wallet,
+        bool viaRouter,
+        address token0,
+        address token1,
+        uint256 amt0,
+        uint256 amt1,
+        uint256 poolImpactBps
+    ) internal returns (HookDecision decision, uint24 feeBps) {
+        IComplianceOracle.WalletRisk memory risk = complianceOracle.getRisk(wallet);
+        EvalFrame memory frame;
+        frame.risk = risk;
+        frame.signals.neverScored = true;
+        frame.signals.priorDailyUsd = _usdInLpDailyWindow(wallet);
+        if (frame.signals.priorDailyUsd == type(uint256).max) {
+            revert MagnitudeQuoteFailed(token0, QUOTE_WINDOW_FAILED);
+        }
+
+        (frame.q.volume, frame.q.volumeErr) =
+            OracleQuote.resolve(priceFeeds, lastFx, priceStalenessThreshold, MAX_PRICE_STALENESS, token0);
+        OracleQuote.Fx memory fx1;
+        bytes32 err1;
+        if (token1 != token0) {
+            (fx1, err1) =
+                OracleQuote.resolve(priceFeeds, lastFx, priceStalenessThreshold, MAX_PRICE_STALENESS, token1);
+        } else {
+            fx1 = frame.q.volume;
+            err1 = frame.q.volumeErr;
+        }
+        if (amt0 > 0) _requireFx(token0, frame.q.volume, frame.q.volumeErr);
+        if (amt1 > 0) _requireFx(token1, fx1, err1);
+        uint256 usd0 = amt0 == 0 ? 0 : OracleQuote.toUsd(frame.q.volume, amt0);
+        uint256 usd1 = amt1 == 0 ? 0 : OracleQuote.toUsd(fx1, amt1);
+        frame.signals.assessedUsd = usd0 + usd1;
+        frame.signals.swapUsd = frame.signals.assessedUsd;
+        frame.signals.inflowUsd = _lpInflowUsd(wallet, token0, token1, risk.updatedAt, frame.q.volume, fx1);
+
+        IRiskPolicy.DecisionResult memory result = LpPolicyLib.decide(_toInput(frame, poolImpactBps));
+        _revertBlocked(frame, wallet, poolImpactBps, result);
+        _commitQuotes(token0, token0, frame.q);
+        if (token1 != token0 && fx1.price != 0) {
+            OracleQuote.commit(lastFx, token1, fx1);
+            _emitPriceFallback(token1, fx1);
+        }
+        decision = result.decision;
+        feeBps = result.feeBps;
+        emit LiquidityObserved(wallet, risk.score, decision, false, viaRouter);
+        _recordLpDailyUsd(wallet, frame.signals.swapUsd);
+    }
+
+    /// @dev Mitigation D analog: max inbound USD of the two tokens being deposited (same `Inflow` as swaps).
+    function _lpInflowUsd(
+        address wallet,
+        address token0,
+        address token1,
+        uint64 updatedAt,
+        OracleQuote.Fx memory fx0,
+        OracleQuote.Fx memory fx1
+    ) private view returns (uint256 inflowUsd) {
+        inflowUsd = _oneTokenInflowUsd(wallet, token0, updatedAt, fx0);
+        uint256 other = _oneTokenInflowUsd(wallet, token1, updatedAt, fx1);
+        if (other > inflowUsd) inflowUsd = other;
+    }
+
+    function _oneTokenInflowUsd(address wallet, address token, uint64 updatedAt, OracleQuote.Fx memory fx)
+        private
+        view
+        returns (uint256)
+    {
+        (, , uint256 delta) =
+            Inflow.signal(wallet, token, updatedAt, lastKnownBalance, lastKnownBalanceTimestamp, inflowThresholdBps);
+        if (delta == 0 || fx.price == 0) return 0;
+        return OracleQuote.toUsd(fx, delta);
+    }
+
+    /// @dev Remove path: no pause. L1 or score ≥ 71 → seize (do not revert). Clean LP exits even while paused.
+    function _evaluateRemoveLiquidity(address sender)
+        internal
+        returns (address wallet, bool seize, uint8 score, bool viaRouter)
+    {
+        (wallet, viaRouter) = _resolveLp(sender);
+        address hit = WalletSubject.layer1Hit(wallet, trustedMultisigs, sanctionRegistry, multisigAggregation);
+        IComplianceOracle.WalletRisk memory risk = complianceOracle.getRisk(wallet);
+        score = risk.score;
+        seize = hit != address(0) || ComplianceBand.isIllicitScore(score);
+        emit LiquidityObserved(
+            wallet, score, seize ? HookDecision.REVERT : HookDecision.ALLOW, seize, viaRouter
+        );
     }
 
     function _evaluate(address wallet, address token, address volumeToken, uint256 amount, uint256 poolImpactBps)

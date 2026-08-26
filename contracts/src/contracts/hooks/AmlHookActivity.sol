@@ -7,6 +7,7 @@ import {OracleQuote} from "../../libraries/OracleQuote.sol";
 
 /// @title AmlHookActivity — rolling-window accumulators for Floor B/C and Mitigation D baseline
 /// @notice Tracks per-wallet operation counts, USD volume, and token balances.
+///         Swap Floor C uses `_daily`. LP Floor C uses `_lpDaily` (adds only; never mixed).
 ///         No compliance decisions here — all reads are consumed by `AmlHookLogic`.
 abstract contract AmlHookActivity is AmlHookGovernance {
     /// @dev Rolling `activityWindow` accumulator per wallet.
@@ -32,8 +33,10 @@ abstract contract AmlHookActivity is AmlHookGovernance {
 
     /// @dev Rolling activity snapshot per wallet (operation count, volume, timestamps).
     mapping(address => PoolActivity) internal _activity;
-    /// @dev Daily USD accumulator per wallet.
+    /// @dev Daily USD accumulator per wallet (swaps — Floor C).
     mapping(address => DailyActivity) internal _daily;
+    /// @dev Daily USD of LP adds per wallet (LP Floor C analog). Never mixed with swap C.
+    mapping(address => DailyActivity) internal _lpDaily;
     /// @dev Native-unit volume per wallet per token in the current epoch window.
     mapping(address => mapping(address => TokenVolume)) internal _windowVolume;
 
@@ -66,6 +69,11 @@ abstract contract AmlHookActivity is AmlHookGovernance {
     ///         Returns `type(uint256).max` when the window had a price-quote failure.
     function dailyVolumeUsd(address wallet) external view returns (uint256) {
         return _usdInDailyWindow(wallet);
+    }
+
+    /// @notice 8-decimal USD of LP adds in the current daily window (LP Floor C).
+    function lpDailyVolumeUsd(address wallet) external view returns (uint256) {
+        return _usdInLpDailyWindow(wallet);
     }
 
     function _recordActivity(address wallet) internal {
@@ -161,6 +169,27 @@ abstract contract AmlHookActivity is AmlHookGovernance {
         } else if (daily.volumeUsd != type(uint256).max) {
             daily.volumeUsd += usd;
         }
+    }
+
+    /// @dev LP Floor C: record this add's USD into a dedicated daily window.
+    function _recordLpDailyUsd(address wallet, uint256 usd) internal {
+        DailyActivity storage daily = _lpDaily[wallet];
+        if (daily.windowStart == 0 || block.timestamp >= uint256(daily.windowStart) + uint256(dailyWindow)) {
+            daily.windowStart = uint64(block.timestamp);
+            daily.volumeUsd = 0;
+        }
+        if (usd == type(uint256).max) {
+            daily.volumeUsd = type(uint256).max;
+        } else if (daily.volumeUsd != type(uint256).max) {
+            daily.volumeUsd += usd;
+        }
+    }
+
+    function _usdInLpDailyWindow(address wallet) internal view returns (uint256) {
+        DailyActivity storage daily = _lpDaily[wallet];
+        if (daily.windowStart == 0) return 0;
+        if (block.timestamp >= uint256(daily.windowStart) + uint256(dailyWindow)) return 0;
+        return daily.volumeUsd;
     }
 
     function _volumeInCurrentWindow(address wallet, address token) private view returns (uint256) {

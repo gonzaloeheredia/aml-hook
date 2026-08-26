@@ -18,7 +18,7 @@ import {HookDecision} from "libraries/HookDecision.sol";
 import {Roles} from "libraries/Roles.sol";
 import {Helpers, HookPoolManagerStub} from "test/utils/Helpers.t.sol";
 
-/// @notice AmlHook lifecycle: permissions, beforeSwap / afterSwap decision paths.
+/// @notice AmlHook lifecycle: permissions (incl. afterAdd + return-delta), beforeSwap / afterSwap decision paths.
 contract UnitAmlHookTest is Helpers {
     PoolKey key;
     SwapParams params;
@@ -64,8 +64,10 @@ contract UnitAmlHookTest is Helpers {
         assertTrue(p.afterSwapReturnDelta);
         assertTrue(p.beforeAddLiquidity);
         assertTrue(p.beforeRemoveLiquidity);
-        assertFalse(p.afterAddLiquidity);
-        assertFalse(p.afterRemoveLiquidity);
+        assertTrue(p.afterRemoveLiquidity);
+        assertTrue(p.afterRemoveLiquidityReturnDelta);
+        assertTrue(p.afterAddLiquidity);
+        assertTrue(p.afterAddLiquidityReturnDelta);
         assertFalse(p.beforeInitialize);
         assertEq(hook.STANDARD_FEE_BPS(), 30);
         assertEq(address(hook.feeEscrow()), address(0));

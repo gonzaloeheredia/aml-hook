@@ -228,7 +228,7 @@ contract UnitDeployTest is Helpers {
 
         assertEq(escrow.owner(), owner);
         assertEq(escrow.lpCompensationFund(), owner);
-        assertEq(escrow.complianceReserve(), deployment.LOCAL_COMPLIANCE_RESERVE());
+        assertEq(escrow.complianceReserve(), address(deployment.complianceTreasury()));
         assertTrue(escrow.complianceReserve() != escrow.lpCompensationFund());
         assertEq(escrow.bootstrapper(), address(0));
         assertFalse(escrow.keepers(configurer));

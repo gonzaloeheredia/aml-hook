@@ -42,6 +42,8 @@ skip = [
     "**\\SwapCurrencies.sol",
     "**/SwapCache.sol",
     "**\\SwapCache.sol",
+    "**/LiquidityCache.sol",
+    "**\\LiquidityCache.sol",
     "**/SwapCache.t.sol",
     "**\\SwapCache.t.sol",
     "**/Helpers.t.sol",

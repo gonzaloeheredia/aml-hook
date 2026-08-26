@@ -109,7 +109,7 @@ is still Active in `FeeEscrow`:
 | Score reduced to ALLOW band | Keeper may `releaseEarly` to `lpCompensationFund` (never the pool; never refund to the swap subject as default) |
 | Score remains ELEVATED on other sustained facts | Escrow follows Checkpoint 1/2 rules |
 | Challenge frivolous | Escrow continues; optional challenger cost |
-| Later illicit confirmation at Checkpoint 2 | `resolveCheckpoint2(true)` → Blocked; later recover* → `complianceReserve` only |
+| Later illicit confirmation at Checkpoint 2 | Publish list/score ≥ 71, then `resolveCheckpoint2` → Blocked; later recover* → ComplianceTreasury `ILLICIT_RISK_FEE` (risk fee) or `LP_PRINCIPAL` (seized capital) |
 
 Every remediation records original and new `auditHash`. The COA recommends;
 only the FeeEscrow keeper writes.

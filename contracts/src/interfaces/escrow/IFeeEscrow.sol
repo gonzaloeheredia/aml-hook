@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-/// @title Fee escrow for the extra risk fee on a fee-override (whitepaper §8.3)
-/// @notice Holds only the extra slice for 48 hours. The Compliance Officer Agent cannot write here.
+/// @title Fee escrow for extra risk fees and seized LP principal (whitepaper §8.3)
+/// @notice Holds the extra slice, LP-add risk fee, and seized LP capital for 48 hours.
+///         The Compliance Officer Agent cannot write here.
 interface IFeeEscrow {
-    /// @notice Lifecycle of one escrowed differential-fee deposit.
+    /// @notice Lifecycle of one escrowed differential-fee or LP-principal deposit.
     enum EscrowStatus {
         Active,
         ReleasedEarly,
@@ -13,7 +14,15 @@ interface IFeeEscrow {
         Recovered
     }
 
-    /// @notice One extra slice from a fee-override swap.
+    /// @notice Risk-fee slice (swap or LP add / remove feesAccrued) vs seized LP principal.
+    /// @dev Clean risk fee → LP compensation fund. Clean principal → the LP wallet.
+    ///      Illicit recover: fee → `ILLICIT_RISK_FEE`; principal → `LP_PRINCIPAL`.
+    enum EscrowKind {
+        RiskFee,
+        LpPrincipal
+    }
+
+    /// @notice One extra slice from a fee-override swap, LP add, or seized LP exit.
     struct EscrowRecord {
         address wallet;
         address token;
@@ -22,6 +31,7 @@ interface IFeeEscrow {
         bytes32 swapFingerprint;
         EscrowStatus status;
         uint64 blockedAt;
+        EscrowKind kind;
     }
 
     /// @notice Default / constructor ERC-20. Additional tokens may be enabled via `allowedFeeTokens`.
@@ -37,26 +47,35 @@ interface IFeeEscrow {
     function nextEscrowId() external view returns (uint256);
 
     /// @notice Deposit the extra slice for 48 hours. Only the hook (the depositor) may call this.
+    ///         Defaults to `EscrowKind.RiskFee`.
     function deposit(address wallet, address token, bytes32 swapFingerprint, uint256 amount)
         external
         returns (uint256 escrowId);
 
-    /// @notice 24–48h: early release to the LP compensation fund. Never blocks. Never the pool.
+    /// @notice Deposit with an explicit kind (`RiskFee` or `LpPrincipal`).
+    function deposit(address wallet, address token, bytes32 swapFingerprint, uint256 amount, EscrowKind kind)
+        external
+        returns (uint256 escrowId);
+
+    /// @notice 24–48h: early release. Risk fee → LP compensation fund. Principal → the LP wallet.
+    ///         Never blocks. Never the pool.
     function releaseEarly(uint256 escrowId) external;
 
-    /// @notice At 48h: illicit stays blocked for the file; clean goes to the LP compensation fund.
-    /// @param illicitConfirmed True if the review confirmed a sanction or illicit typology.
-    function resolveCheckpoint2(uint256 escrowId, bool illicitConfirmed) external;
+    /// @notice At 48h: destination is read from SanctionRegistry / ComplianceOracle, not a keeper bool.
+    ///         List hit or score ≥ 71 → Blocked. Otherwise risk fee → LP compensation fund;
+    ///         principal → the LP wallet.
+    function resolveCheckpoint2(uint256 escrowId) external;
 
-    /// @notice Nobody resolved by 48h: credit the LP compensation fund, same as a clean checkpoint.
+    /// @notice Nobody resolved by 48h: credit the clean destination (risk fee → LP fund;
+    ///         principal → LP wallet). If the oracle/list already marks the wallet illicit,
+    ///         the row is Blocked instead.
     function releaseDefault(uint256 escrowId) external;
 
     /// @notice Checkpoint 1 for many escrow ids (same rules as `releaseEarly`).
     function batchReleaseEarly(uint256[] calldata escrowIds) external;
 
-    /// @notice Checkpoint 2 for many escrow ids. `illicitConfirmed` must match `escrowIds` 1:1.
-    function batchResolveCheckpoint2(uint256[] calldata escrowIds, bool[] calldata illicitConfirmed)
-        external;
+    /// @notice Checkpoint 2 for many escrow ids (same on-chain illicit read as `resolveCheckpoint2`).
+    function batchResolveCheckpoint2(uint256[] calldata escrowIds) external;
 
     /// @notice Default release for many escrow ids (same rules as `releaseDefault`).
     function batchReleaseDefault(uint256[] calldata escrowIds) external;
@@ -82,6 +101,7 @@ interface IFeeEscrow {
             uint64 depositedAt,
             bytes32 swapFingerprint,
             EscrowStatus status,
-            uint64 blockedAt
+            uint64 blockedAt,
+            EscrowKind kind
         );
 }

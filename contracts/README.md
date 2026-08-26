@@ -10,12 +10,12 @@ contracts/
 │   ├── contracts/            Implementations by role
 │   │   ├── hooks/            AmlHook · AmlHookLogic · AmlHookSettlement
 │   │   ├── oracles/          ComplianceOracle          (Layer 2)
-│   │   ├── policies/         RiskPolicy                (Layer 3)
+│   │   ├── policies/         RiskPolicy · LpPolicy     (Layer 3 swap / LP)
 │   │   ├── registries/       SanctionRegistry          (Layer 1)
 │   │   ├── escrow/           FeeEscrow
-│   │   └── external/         (third-party adapters live under lib/; no local BaseHook)
+│   │   └── treasury/         ComplianceTreasury
 │   ├── interfaces/           Same role subfolders (hooks/oracles/… + external/)
-│   └── libraries/            RiskPolicyLib · HookDecision · Roles · FeeBps · UsdQuote · ChainlinkFeeds
+│   └── libraries/            RiskPolicyLib · LpPolicyLib · HookDecision · Roles · FeeBps · UsdQuote · ChainlinkFeeds · LiquidityCache
 ├── test/
 │   ├── unit/<role>/          Mirrors src/contracts (+ by function when needed)
 │   ├── unit/script/          Deploy.t.sol (AccessManager wiring)
@@ -37,7 +37,7 @@ User → Router → PoolManager → AmlHook          (Uniswap callbacks only)
                                  ├─ AmlHookSettlement  take / approve / FeeEscrow.deposit
                                  ├─ SanctionRegistry (L1)
                                  ├─ ComplianceOracle (L2)  ← updateScore (oracle keeper + attestor sig)
-                                 └─ RiskPolicy (L3)        ← CALL decide: score + floors A–D. RiskPolicyLib is the pure body.
+                                 └─ RiskPolicy (L3 swap) / LpPolicyLib (L3 LP)
 ```
 
 | Contract | Role |
@@ -46,14 +46,17 @@ User → Router → PoolManager → AmlHook          (Uniswap callbacks only)
 | **SanctionRegistry** | Sanctions hit → REVERT before score. New hits: `commitSanction` + `revealSanction`. `setSanctioned` remains for emergencies. |
 | **ComplianceOracle** | Score / hop / origin / `feeBps` / `updatedAt`. `_ORACLE_KEEPER` submits `updateScore`; a distinct **attestor** ECDSA-signs `attestationHash` (wallet, score, hop, origin, feeBps, updatedAt, chainid). Missing hop/origin in the sig is rejected. |
 | **RiskPolicy** | Layer 3 deploy artifact. Hook hot path **calls** `decide` (external). Off-chain preview uses the same contract. Both run `RiskPolicyLib` (one memory pointer, no further CALL from inside the policy). Same mapping: ternary bands + §8.4 floors + never-scored USD bands (3% / 8% / REVERT at $1,000 / $15,000). Pure — no Chainlink call. |
-| **AmlHook** | Uniswap callbacks only. Must call `_beginSwap` then `_endSwap` in that order. Liquidity add: pause + sanctions. Liquidity remove: sanctions only (listed cannot exit; pause does not trap a clean LP). |
-| **AmlHookLogic** | Subject resolve, L1→L3, mitigations A–D, Chainlink USD-8 quotes (`priceFeeds`). `_HOOK_GOVERNOR` retunes operational knobs, feeds, Floor B (`setActivityWindow` / `setStalenessThreshold`), and Floor C (`setDailyWindow`). `_COMPLIANCE_OFFICER` proposes / confirms USD floors, floor fees, and the pool-impact cut (48h delay). Neither invents scores. |
-| **AmlHookSettlement** | Differential take + escrow deposit / `failedDeposits` / claim / retry. Does not decide risk. |
-| **FeeEscrow** | 48h hold of the FEE_OVERRIDE differential only. Own owner / keepers / depositors (not AccessManager). Owner is `ADMIN` / `FEE_ESCROW_OWNER` from genesis (Safe in prod), not the deploying EOA. Hook is wired as depositor via one-shot `bootstrapDepositor` (no 24h wait). Later depositor changes: 24h. Add keeper: 24h; revoke keeper: immediate. Clean / early / default → `lpCompensationFund`. Sanction confirmed → Blocked; owner `recoverBlocked` waits `min(blockedRecoveryDelay, 7 days)` and pays `complianceReserve` only. Never the LP fund. Never the pool. |
+| **LpPolicy** | Liquidity Layer 3. Known score ignores Floor B. Never-scored reuses swap A/C/D via `LpPolicyLib`. |
+| **AmlHook** | Uniswap callbacks only. Must call `_beginSwap` then `_endSwap` in that order. Liquidity add: L1 + `LpPolicyLib` (never-scored A/C/D in afterAdd). Liquidity remove: no pause; L1 or score ≥ 71 seizes the exit into FeeEscrow 48h. Trusted router `msgSender()` is the LP subject when the caller is trusted. |
+| **AmlHookLogic** | Subject resolve, L1→L3, mitigations A–D, Chainlink USD-8 quotes (`priceFeeds`). LP adds use `LpPolicyLib`. `_HOOK_GOVERNOR` retunes operational knobs, feeds, Floor B (`setActivityWindow` / `setStalenessThreshold`), and Floor C (`setDailyWindow`). `_COMPLIANCE_OFFICER` proposes / confirms USD floors, floor fees, and the pool-impact cut (48h delay). Neither invents scores. |
+| **AmlHookSettlement** | Differential take + escrow deposit / `failedDeposits` / claim / retry. Seized LP principal and fees → FeeEscrow (kinds `LpPrincipal` / `RiskFee`). Does not decide risk. |
+| **FeeEscrow** | 48h hold of the FEE_OVERRIDE differential, LP-add risk fee, and seized LP principal/fees. Own owner / keepers / depositors (not AccessManager). Checkpoint 2 reads `SanctionRegistry` / `ComplianceOracle` (no keeper bool). Clean risk fee → `lpCompensationFund`. Clean principal → the LP wallet. List or score ≥ 71 → Blocked; recover books ComplianceTreasury `ILLICIT_RISK_FEE` or `LP_PRINCIPAL` by kind. Never the pool. |
+| **ComplianceTreasury** | Two accounts: `LP_PRINCIPAL` (recovered seized capital) and `ILLICIT_RISK_FEE` (recovered risk fee). Events `PrincipalPosted` / `ComplianceCredited`. |
 
 Subject resolution (§3.5): trusted routers (`hookGovernor` `setTrustedRouter`) report the end-user via
-`IMsgSender.msgSender()` as the **only** subject (`TrustedRouterSubjectFailed` if the call reverts or
-returns zero). Uniswap `hookData` is ignored. Untrusted initiators revert `MissingSwapSubject`.
+`IMsgSender.msgSender()` as the **only** swap subject (`TrustedRouterSubjectFailed` if the call reverts or
+returns zero). Uniswap `hookData` is ignored. Untrusted swap initiators revert `MissingSwapSubject`.
+LP actions reuse the same `msgSender()` when the caller is a trusted router; a direct LP is `sender`.
 `Deploy` registers the canonical **Universal Router** (and 2.1.1) for the current chain so swaps from
 `app.uniswap.org` resolve the wallet without frontend `hookData`. Anvil has no UR, so it seeds
 `MockTrustedRouter`. `TRUSTED_ROUTER` adds another router on top.
@@ -67,6 +70,8 @@ returns zero). Uniswap `hookData` is ignored. Untrusted initiators revert `Missi
 | 55–70 | FEE_OVERRIDE | Pool base + differential; keeper `feeBps` or 8% fallback |
 | 71–100 | REVERT | — |
 | `updatedAt == 0` and assessed USD-8 ≥ `unscoredRevertThreshold` (default $15,000) | REVERT | Distinct error `UnscoredMagnitudeBlocked` (USD amount in the error). No live Chainlink round and no `lastFx` within 24h → `MagnitudeQuoteFailed` |
+
+LP **add** in the 31–70 band (and never-scored 3%/8%) takes the **full** override into FeeEscrow, not the swap differential (`feeBps − 30`). A published 0–30 LP pays 0 extra even if the oracle row is stale (Floor B does not arm). Never-scored adds reuse Floor A / C / D; LP Floor C sums **adds** in `_lpDaily`, never mixed with swap `_daily`.
 
 ### Roles
 
@@ -107,7 +112,7 @@ Mitigations A–D elevate **ALLOW → FEE_OVERRIDE** (never soften an existing R
 | A fail-closed | Never-scored and no live price and no `lastFx` within 24h | **REVERT** (`MagnitudeQuoteFailed`) |
 | B first | Score older than `stalenessThreshold` (default 5 minutes), **0** settled swaps in the 1-hour window | FEE_OVERRIDE **3%**. Pool-drain extra → **8%**. Never REVERT |
 | B | Same stale clock + ≥1 settled swap already in the 1-hour window | Swap + hour USD: under $1,000 → ALLOW; $1,000–$14,999 → 3%; ≥ $15,000 → 8%. Pool-drain extra: pass → 3%, 3% → 8% (ceiling; never REVERT) |
-| C | Prior 24h USD > 0 and prior + this swap ≥ $15,000 (any wallet) | **REVERT** (`DailyAggregationBlocked`) |
+| C | Prior 24h USD > 0 and prior + this swap ≥ $15,000 (any wallet) | **REVERT** (`DailyAggregationBlocked`). LP never-scored uses the same cut on the 24h **sum of adds** (`lpDailyVolumeUsd`). |
 | D | Inbound vs `lastKnownBalance` while oracle predates baseline, quoted to USD-8 | Under $1,000 → ALLOW (or ignored on never-scored, where A already charges); $1,000–$14,999 → 3%; ≥ $15,000 → 8%. Does **not** revert. On never-scored wallets the bag is the inbound (baseline 0). **Skipped** only when a published score has no baseline yet |
 
 Defaults: `unscoredFeeThreshold = 1_000e8` ($1,000); `unscoredRevertThreshold = 15_000e8` ($15,000); `proportionalFeeBps = 300`; `punitiveFeeBps = 800`; `stalenessThreshold = 5 minutes`; `priceStalenessThreshold = 3600`; `FX_HOT_TTL = 30 minutes`; `activityWindow = 1 hour` (Floor B); `dailyWindow = 24 hours` (Floor C). Those USD floors are **8 decimals** (Chainlink). Deploy binds official ETH/USD (native + WETH) and USDC/USD on live chains; Anvil uses `MockUsdFeed`. `_HOOK_GOVERNOR` binds extra tokens via `setPriceFeed`, retunes Floor B via `setStalenessThreshold` / `setActivityWindow`, and retunes Floor C via `setDailyWindow`. `_COMPLIANCE_OFFICER` proposes then confirms (48h) the USD floors, floor fees, and `poolImpactThresholdBps`. The fee floor cannot go below $1,000; the revert floor must stay strictly above it. If `lastFx` is younger than 30 minutes the swap does **not** call Chainlink. Otherwise it reads the feed **once per token**; a missing or unusable live round uses `lastFx` (max 24h). Only with no live round and no cache within 24h does the hook fail-close (`MagnitudeQuoteFailed`).
@@ -176,7 +181,7 @@ Deployer = Anvil account #0 (local defaults for admin / registry keeper / oracle
 | `ATTESTOR` | Required. Distinct ECDSA attestor. No default — missing value fails the script. |
 | `ADMIN` or `FEE_ESCROW_OWNER` | FeeEscrow + AccessManager admin from genesis (Safe). Not the configurer EOA. |
 | `LP_COMPENSATION_FUND` | Clean / early / default escrow destination. Defaults to the fee-escrow owner, not the deployer. |
-| `COMPLIANCE_RESERVE` | Recovered Blocked (confirmed-illicit) destination. Production MUST set the authority wallet. Local default is a labeled placeholder, never the LP fund. |
+| `COMPLIANCE_RESERVE` | Unused. Recovered Blocked (confirmed-illicit) destination is `ComplianceTreasury` (wired as `FeeEscrow.complianceReserve`), never the LP fund. |
 | `MAX_SCORE_AGE` | Floor B `stalenessThreshold` at deploy. Script default is 5 minutes. If this is 0, the hook constructor falls back to `DEFAULT_STALENESS` (5 minutes). |
 | `REGISTRY_KEEPER` / `ORACLE_KEEPER` / `HOOK_GOVERNOR` / `COMPLIANCE_OFFICER` | Split keys. Deploy verifies they do not overlap. Officer grant is 48h. |
 | `ETH_USD_FEED` / `TOKEN_USD_FEED` | Optional overrides for Chainlink AggregatorV3. Unset → official ETH/USD, USDC/USD, and WETH bindings for the chain. |
@@ -189,7 +194,7 @@ On other chains Deploy binds official Chainlink Data Feeds: ETH/USD on `address(
 
 Writes `contracts/deployments/31337.json` and copies to `packages/sdk/deployments/`.
 
-The CREATE2 address mined by `Deploy.sol` changed versus earlier deploys: the flag bitmask now includes `BEFORE_ADD_LIQUIDITY_FLAG` and `BEFORE_REMOVE_LIQUIDITY_FLAG` in addition to the swap flags. An address mined with the previous bitmask will not match the hook's current permissions.
+The CREATE2 address mined by `Deploy.sol` changed versus earlier deploys: the flag bitmask now includes `BEFORE_ADD_LIQUIDITY_FLAG`, `AFTER_ADD_LIQUIDITY_FLAG`, `AFTER_ADD_LIQUIDITY_RETURNS_DELTA_FLAG`, `BEFORE_REMOVE_LIQUIDITY_FLAG`, `AFTER_REMOVE_LIQUIDITY_FLAG`, and `AFTER_REMOVE_LIQUIDITY_RETURNS_DELTA_FLAG` in addition to the swap flags. An address mined with the previous bitmask will not match the hook's current permissions.
 
 ## Boundary
 

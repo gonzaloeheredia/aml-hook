@@ -21,6 +21,12 @@ export type ChainDeployment = {
   hookGovernor?: Address;
   attestor?: Address;
   FeeEscrow?: Address;
+  /** Authority ledger: LP principal (immediate) and recovered illicit risk fees. */
+  ComplianceTreasury?: Address;
+  /** Clean / early / default FeeEscrow destination (never the reserve). */
+  lpCompensationFund?: Address;
+  /** Confirmed-illicit recover destination. Local deploy wires ComplianceTreasury. */
+  complianceReserve?: Address;
   feeToken?: Address;
   usdFeed?: Address;
   ethUsdFeed?: Address;

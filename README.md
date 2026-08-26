@@ -2,7 +2,7 @@
 
 Uniswap v4 hook that evaluates the swap subject at execution and returns a ternary decision: **ALLOW**, **FEE_OVERRIDE**, or **REVERT**.
 
-The hook does not compute risk on-chain. The Compliance Officer Agent emits a score; an off-chain keeper writes it into `ComplianceOracle`. `beforeSwap` reads that row, applies sanctions and latency floors, and either lets the swap through, takes a risk differential into `FeeEscrow`, or reverts. Liquidity add and remove are a sanctions-only gate (`SanctionRegistry`). They do not read the score. A listed wallet cannot add or remove liquidity. An emergency pause stops swaps and new LP deposits; a clean LP can still withdraw.
+The hook does not compute risk on-chain. The Compliance Officer Agent emits a score; an off-chain keeper writes it into `ComplianceOracle`. `beforeSwap` reads that row, applies sanctions and latency floors, and either lets the swap through, takes a risk differential into `FeeEscrow`, or reverts. Liquidity add and remove resolve the LP via a trusted router’s `msgSender()` (or the direct sender). Listed or score ≥ 71 cannot add. Known 31–70 pays a 3%/8% mint fee; never-scored adds reuse Floor A/C/D. On a blocked remove the LP receives nothing in-tx: principal and fees wait 48h in `FeeEscrow` (clean principal returns to the LP). Pause stops swaps, not a clean mint or exit.
 
 Built for UHI10.
 

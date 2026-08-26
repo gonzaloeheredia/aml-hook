@@ -36,6 +36,7 @@ type DeploymentJson = {
   usdFeed?: string;
   ethUsdFeed?: string;
   complianceReserve?: string;
+  ComplianceTreasury?: string;
   lpCompensationFund?: string;
 };
 
@@ -100,7 +101,7 @@ export function getChainConfig(): ChainConfig {
       ("0x0000000000000000000000000000000000000000" as Address),
     keeperKey,
     attestorKey,
-    complianceReserve: addr("COMPLIANCE_RESERVE", d?.complianceReserve) ??
+    complianceReserve: addr("COMPLIANCE_RESERVE", d?.ComplianceTreasury ?? d?.complianceReserve) ??
       ("0x0000000000000000000000000000000000000000" as Address),
     lpCompensationFund: addr("LP_COMPENSATION_FUND", d?.lpCompensationFund) ??
       ("0x0000000000000000000000000000000000000000" as Address),

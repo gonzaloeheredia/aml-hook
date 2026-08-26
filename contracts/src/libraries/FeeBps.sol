@@ -50,4 +50,10 @@ library FeeBps {
         if (bps == 0 || basisAmount == 0) return 0;
         return (basisAmount * bps) / 10_000;
     }
+
+    /// @notice Full override charged on an LP add (`basis * feeBps / 10_000`). No pool 0.30% to subtract.
+    function overrideAmount(uint256 basisAmount, uint24 feeBps) internal pure returns (uint256) {
+        if (feeBps == 0 || basisAmount == 0) return 0;
+        return (uint256(feeBps) * basisAmount) / 10_000;
+    }
 }

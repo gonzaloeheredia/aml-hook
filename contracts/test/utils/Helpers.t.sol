@@ -19,6 +19,7 @@ import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
 import {SanctionRegistry} from "contracts/registries/SanctionRegistry.sol";
 import {IFeeEscrow} from "interfaces/escrow/IFeeEscrow.sol";
+import {IComplianceTreasury} from "interfaces/treasury/IComplianceTreasury.sol";
 import {Roles} from "libraries/Roles.sol";
 import {MockTrustedRouter} from "../../script/mocks/MockTrustedRouter.sol";
 import {MockAggregatorV3} from "test/mocks/MockAggregatorV3.sol";
@@ -82,6 +83,30 @@ contract HookPoolManagerStub {
         bytes calldata hookData
     ) external returns (bytes4) {
         return hook.beforeRemoveLiquidity(sender, key, params, hookData);
+    }
+
+    function callAfterRemoveLiquidity(
+        IHooks hook,
+        address sender,
+        PoolKey calldata key,
+        ModifyLiquidityParams calldata params,
+        BalanceDelta delta,
+        BalanceDelta feesAccrued,
+        bytes calldata hookData
+    ) external returns (bytes4, BalanceDelta) {
+        return hook.afterRemoveLiquidity(sender, key, params, delta, feesAccrued, hookData);
+    }
+
+    function callAfterAddLiquidity(
+        IHooks hook,
+        address sender,
+        PoolKey calldata key,
+        ModifyLiquidityParams calldata params,
+        BalanceDelta delta,
+        BalanceDelta feesAccrued,
+        bytes calldata hookData
+    ) external returns (bytes4, BalanceDelta) {
+        return hook.afterAddLiquidity(sender, key, params, delta, feesAccrued, hookData);
     }
 }
 
@@ -157,12 +182,15 @@ contract Helpers is HelpersCore {
         SanctionRegistry _registry,
         ComplianceOracle _oracle,
         RiskPolicy _riskPolicy,
-        IFeeEscrow _feeEscrow
+        IFeeEscrow _feeEscrow,
+        IComplianceTreasury _treasury
     ) internal returns (AmlHook _hook) {
         address flags = address(
             uint160(
                 Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
-                    | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+                    | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.AFTER_ADD_LIQUIDITY_FLAG
+                    | Hooks.AFTER_ADD_LIQUIDITY_RETURNS_DELTA_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+                    | Hooks.AFTER_REMOVE_LIQUIDITY_FLAG | Hooks.AFTER_REMOVE_LIQUIDITY_RETURNS_DELTA_FLAG
             )
         );
         deployCodeTo(
@@ -171,7 +199,17 @@ contract Helpers is HelpersCore {
             flags
         );
         _hook = AmlHook(flags);
-        _hook.initialize(_registry, _oracle, _riskPolicy, _feeEscrow, uint256(300), uint64(3600));
+        _hook.initialize(_registry, _oracle, _riskPolicy, _feeEscrow, _treasury, uint256(300), uint64(3600));
+    }
+
+    function _deployHook(
+        AccessManager _accessManager,
+        SanctionRegistry _registry,
+        ComplianceOracle _oracle,
+        RiskPolicy _riskPolicy,
+        IFeeEscrow _feeEscrow
+    ) internal returns (AmlHook _hook) {
+        return _deployHook(_accessManager, _registry, _oracle, _riskPolicy, _feeEscrow, IComplianceTreasury(address(0)));
     }
 
     /// @dev Convenience: deploy hook with FeeEscrow disabled.

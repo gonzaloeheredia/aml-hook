@@ -11,10 +11,12 @@ import {SanctionRegistry} from "../src/contracts/registries/SanctionRegistry.sol
 import {ComplianceOracle} from "../src/contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "../src/contracts/policies/RiskPolicy.sol";
 import {FeeEscrow} from "../src/contracts/escrow/FeeEscrow.sol";
+import {ComplianceTreasury} from "../src/contracts/treasury/ComplianceTreasury.sol";
 import {AmlHook} from "../src/contracts/hooks/AmlHook.sol";
 import {AmlHookGovernance} from "../src/contracts/hooks/AmlHookGovernance.sol";
 import {AmlHookLogic} from "../src/contracts/hooks/AmlHookLogic.sol";
 import {IFeeEscrow} from "../src/interfaces/escrow/IFeeEscrow.sol";
+import {IComplianceTreasury} from "../src/interfaces/treasury/IComplianceTreasury.sol";
 import {Roles} from "../src/libraries/Roles.sol";
 import {ChainlinkFeeds} from "../src/libraries/ChainlinkFeeds.sol";
 import {UniversalRouters} from "../src/libraries/UniversalRouters.sol";
@@ -36,8 +38,11 @@ import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
 ///
 ///      What is real vs mock in this script:
 ///      - REAL: AccessManager, SanctionRegistry, ComplianceOracle, RiskPolicy, FeeEscrow, AmlHook (CREATE2).
-///        AmlHook also gates beforeAddLiquidity / beforeRemoveLiquidity: a sanctioned wallet
-///        cannot enter or exit as a liquidity provider (sanctions only, no RiskPolicy consulted).
+///        AmlHook also gates add/remove liquidity via `LpPolicyLib` (not swap `RiskPolicy`):
+///        L1 or score ≥ 71 cannot add. Known 31–70 pays a 3%/8% risk fee on the deposit.
+///        Never-scored adds reuse swap Floor A/C/D. On a blocked remove the LP receives
+///        nothing in-tx: principal and feesAccrued sit in FeeEscrow 48h (clean principal
+///        returns to the LP; illicit recover books tesorería `LP_PRINCIPAL` vs `ILLICIT_RISK_FEE`).
 ///      - MOCK: PoolManager defaults to MockPoolManager (no live Uniswap swaps).
 ///      - MOCK: MockTrustedRouter only when the chain has no canonical Universal Router
 ///        (Anvil). On Uniswap-supported chains, Deploy registers the app.uniswap.org
@@ -50,8 +55,8 @@ import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
     ///      - FEE_TOKEN: FeeEscrow custody asset (else MockFeeToken)
     ///      - LP_COMPENSATION_FUND: where a clean extra fee goes (early / clean / default). Defaults
     ///        to FEE_ESCROW_OWNER / ADMIN, never to the deploying key when those differ.
-    ///      - COMPLIANCE_RESERVE: where a confirmed-illicit extra fee goes after recovery. Production
-    ///        must set the authority wallet. Local Anvil uses a labeled placeholder, never the LP fund.
+    ///      Recovered illicit fees go to ComplianceTreasury (wired as FeeEscrow.complianceReserve),
+    ///      never to the LP compensation fund.
     ///      - FEE_ESCROW_OWNER: FeeEscrow `owner` from genesis (defaults to ADMIN). Production MUST
     ///        be a Gnosis Safe; the deployer is only a one-shot `bootstrapper` for the hook depositor.
     ///      - ETH_USD_FEED / TOKEN_USD_FEED (alias USD_FEED): override Chainlink AggregatorV3
@@ -143,6 +148,9 @@ contract Deploy is Script {
     /// @notice 48-hour hold of the extra risk fee (whitepaper §8.3)
     FeeEscrow public feeEscrow;
 
+    /// @notice Ledged compliance fund (LP_PRINCIPAL + ILLICIT_RISK_FEE). Also FeeEscrow.complianceReserve.
+    ComplianceTreasury public complianceTreasury;
+
     /// @notice PoolManager used by the hook (real or MockPoolManager)
     address public poolManager;
 
@@ -167,10 +175,6 @@ contract Deploy is Script {
     /// @notice Key that proposes / confirms policy knobs (USD floors, floor fees, pool-impact).
     /// @dev Granted `_COMPLIANCE_OFFICER` with a 48-hour execution delay.
     address public complianceOfficer;
-
-    /// @notice Local Anvil stand-in for the compliance reserve. Production sets COMPLIANCE_RESERVE to the authority wallet.
-    address public constant LOCAL_COMPLIANCE_RESERVE =
-        address(uint160(uint256(keccak256("aml-hook.local.complianceReserve"))));
 
     /// @notice Broadcast entry: read env keys, deploy the stack, write `deployments/<chainId>.json`.
     /// @dev Production must set `ATTESTOR` and `ADMIN` / `FEE_ESCROW_OWNER`. Local Anvil may default
@@ -294,17 +298,20 @@ contract Deploy is Script {
         address lpFund = vm.envOr("LP_COMPENSATION_FUND", address(0));
         if (lpFund == address(0)) lpFund = feeEscrowOwner;
         if (lpFund == configurer && configurer != feeEscrowOwner) revert Deploy_LpFundIsConfigurer(configurer);
-        address reserve = vm.envOr("COMPLIANCE_RESERVE", address(0));
-        if (reserve == address(0)) reserve = LOCAL_COMPLIANCE_RESERVE;
+        complianceTreasury = new ComplianceTreasury(feeEscrowOwner, configurer);
+        address reserve = address(complianceTreasury);
         if (reserve == configurer && configurer != feeEscrowOwner) {
             revert Deploy_ComplianceReserveIsConfigurer(configurer);
         }
         if (reserve == lpFund) revert Deploy_DestinationsMustDiffer(reserve);
         feeEscrow = new FeeEscrow(feeEscrowOwner, feeTokenAddr, lpFund, reserve, configurer);
+        feeEscrow.setComplianceSources(sanctionRegistry, complianceOracle);
 
         uint160 flags = uint160(
             Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
-                | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+                | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.AFTER_ADD_LIQUIDITY_FLAG
+                | Hooks.AFTER_ADD_LIQUIDITY_RETURNS_DELTA_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+                | Hooks.AFTER_REMOVE_LIQUIDITY_FLAG | Hooks.AFTER_REMOVE_LIQUIDITY_RETURNS_DELTA_FLAG
         );
         // Only poolManager + accessManager go into the initcode hash — the salt can be pre-mined
         // per (network, accessManager) pair without knowing the downstream dependency addresses.
@@ -319,9 +326,19 @@ contract Deploy is Script {
         hook = new AmlHook{salt: salt}(IPoolManager(poolManagerAddr), address(accessManager));
         require(address(hook) == hookAddr, "hook address mismatch");
 
-        hook.initialize(sanctionRegistry, complianceOracle, riskPolicy, IFeeEscrow(address(feeEscrow)), stalenessThreshold, activityWindow);
+        hook.initialize(
+            sanctionRegistry,
+            complianceOracle,
+            riskPolicy,
+            IFeeEscrow(address(feeEscrow)),
+            IComplianceTreasury(address(complianceTreasury)),
+            stalenessThreshold,
+            activityWindow
+        );
 
         feeEscrow.bootstrapDepositor(address(hook));
+        complianceTreasury.setHook(address(hook));
+        complianceTreasury.setEscrow(address(feeEscrow));
     }
 
     /// @dev Wire selectors to roles, grant keepers / governor / compliance officer (48h),
@@ -399,6 +416,7 @@ contract Deploy is Script {
         console2.log("FeeEscrow", address(feeEscrow));
         console2.log("FeeEscrowOwner", feeEscrowOwner);
         console2.log("LpCompensationFund", feeEscrow.lpCompensationFund());
+        console2.log("ComplianceTreasury", address(complianceTreasury));
         console2.log("ComplianceReserve", feeEscrow.complianceReserve());
         console2.log("AmlHook", address(hook));
         console2.log("Attestor", oracleAttestor);
@@ -672,6 +690,9 @@ contract Deploy is Script {
             '",\n',
             '  "complianceReserve": "',
             vm.toString(feeEscrow.complianceReserve()),
+            '",\n',
+            '  "ComplianceTreasury": "',
+            vm.toString(address(complianceTreasury)),
             '",\n',
             '  "AmlHook": "',
             vm.toString(address(hook)),

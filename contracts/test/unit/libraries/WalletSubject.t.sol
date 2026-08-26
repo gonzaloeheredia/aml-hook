@@ -78,6 +78,22 @@ contract WalletSubjectHarness {
     ) external view {
         WalletSubject.requireOwnersClean(wallet, kind, registry, aggregation);
     }
+
+    function resolveLp(address sender, ISanctionRegistry registry, MultisigAggregation aggregation)
+        external
+        view
+        returns (address wallet, bool viaTrustedRouter)
+    {
+        return WalletSubject.resolveLp(sender, trustedRouters, trustedMultisigs, registry, aggregation);
+    }
+
+    function layer1Hit(address wallet, ISanctionRegistry registry, MultisigAggregation aggregation)
+        external
+        view
+        returns (address)
+    {
+        return WalletSubject.layer1Hit(wallet, trustedMultisigs, registry, aggregation);
+    }
 }
 
 /// @notice Direct unit coverage for `WalletSubject` (router / Safe / subject). No v4-core.
@@ -211,6 +227,32 @@ contract UnitWalletSubjectTest is Test {
         MockGnosisSafe safe = _safe(ownerA, ownerB);
         registry.setSanctioned(ownerA, true);
         subject.requireOwnersClean(address(safe), MultisigType.GNOSIS_SAFE, registry, MultisigAggregation.ANY_CLEAN);
+    }
+
+    function test_ResolveLp_DirectSender_IsSubject() external view {
+        (address wallet, bool viaRouter) = subject.resolveLp(eoa, registry, MultisigAggregation.ALL_CLEAN);
+        assertEq(wallet, eoa);
+        assertFalse(viaRouter);
+    }
+
+    function test_ResolveLp_TrustedRouter_UsesMsgSender() external {
+        router.setMsgSender(eoa);
+        (address wallet, bool viaRouter) =
+            subject.resolveLp(address(router), registry, MultisigAggregation.ALL_CLEAN);
+        assertEq(wallet, eoa);
+        assertTrue(viaRouter);
+    }
+
+    function test_Layer1Hit_ListedSubject() external {
+        registry.setSanctioned(eoa, true);
+        assertEq(subject.layer1Hit(eoa, registry, MultisigAggregation.ALL_CLEAN), eoa);
+    }
+
+    function test_Layer1Hit_ListedSafeOwner() external {
+        MockGnosisSafe safe = _safe(ownerA, ownerB);
+        subject.setTrustedMultisig(address(safe), MultisigType.GNOSIS_SAFE, true);
+        registry.setSanctioned(ownerB, true);
+        assertEq(subject.layer1Hit(address(safe), registry, MultisigAggregation.ALL_CLEAN), ownerB);
     }
 
     function _safe(address a, address b) internal returns (MockGnosisSafe) {

@@ -5,12 +5,14 @@ import {BaseHook} from "v4-periphery/src/utils/BaseHook.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {IFeeEscrow} from "../../interfaces/escrow/IFeeEscrow.sol";
+import {IComplianceTreasury} from "../../interfaces/treasury/IComplianceTreasury.sol";
 import {FeeBps} from "../../libraries/FeeBps.sol";
 
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
-import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
-import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
+import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
+import {BalanceDelta, toBalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
+import {ModifyLiquidityParams, SwapParams} from "v4-core/src/types/PoolOperation.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 
 /// @dev Minimal ERC-20 surface for approving FeeEscrow.deposit's transferFrom.
@@ -19,16 +21,23 @@ interface IERC20Approve {
     function transfer(address to, uint256 amount) external returns (bool);
 }
 
-/// @title FEE_OVERRIDE differential take + FeeEscrow deposit (§3.7)
+/// @title FEE_OVERRIDE take + LP seize into FeeEscrow (§3.7 / §8.3)
 /// @notice Pool-accounting half of the hook: Uniswap `take` / approve / `deposit`.
 /// @dev Compliance decisions live in `AmlHookLogic`. Fee *math* lives in `FeeBps`.
-///      This contract only moves the already-decided differential into escrow.
+///      Swap FEE_OVERRIDE deposits the differential (`EscrowKind.RiskFee`). LP add
+///      deposits the full 3%/8% override. A blocked remove deposits principal
+///      (`LpPrincipal`) and `feesAccrued` (`RiskFee`) for 48h — not tesorería in-tx.
 abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
+    using PoolIdLibrary for PoolKey;
     /// @notice Pool base fee in bps (0.30%) — left to the PoolManager; not overridden.
     uint24 public constant STANDARD_FEE_BPS = FeeBps.STANDARD;
 
     /// @notice Escrow for FEE_OVERRIDE differential fees (§3.7). address(0) disables take/deposit.
     IFeeEscrow public feeEscrow;
+    /// @notice Ledged compliance fund. address(0) skips recover notify; seize still escrows the LP delta.
+    IComplianceTreasury public complianceTreasury;
+    /// @notice Next seize id assigned on a blocked LP exit (starts at 1).
+    uint256 public nextSeizeId = 1;
 
     /// @notice Emitted when the risk differential was taken and deposited into FeeEscrow.
     event RiskFeeEscrowed(
@@ -43,6 +52,17 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
     event FailedDepositClaimed(address indexed wallet, address indexed token, uint256 amount);
     event FailedDepositRetried(
         address indexed wallet, address indexed token, uint256 amount, uint256 escrowId
+    );
+    /// @notice Blocked LP exit: the LP received nothing in this tx. Principal and fees → FeeEscrow 48h.
+    event LpExitSeized(
+        uint256 indexed seizeId,
+        address indexed wallet,
+        bytes32 poolId,
+        bytes32 positionKey,
+        uint256 principal0,
+        uint256 principal1,
+        uint256 fee0,
+        uint256 fee1
     );
 
     error FeeTransferFailed();
@@ -67,9 +87,96 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
     /// @param poolManager_ Uniswap v4 PoolManager (BaseHook).
     constructor(IPoolManager poolManager_) BaseHook(poolManager_) {}
 
-    /// @dev Called once by AmlHook.initialize. Sets the FeeEscrow address.
-    function _initSettlement(IFeeEscrow feeEscrow_) internal {
+    /// @dev Called once by AmlHook.initialize. Sets FeeEscrow and the compliance treasury.
+    function _initSettlement(IFeeEscrow feeEscrow_, IComplianceTreasury treasury_) internal {
         feeEscrow = feeEscrow_;
+        complianceTreasury = treasury_;
+    }
+
+    /// @dev Take the full remove delta so the LP gets 0. Principal and feesAccrued → FeeEscrow (48h).
+    function _seizeLpExit(
+        address wallet,
+        PoolKey calldata key,
+        ModifyLiquidityParams calldata params,
+        BalanceDelta delta,
+        BalanceDelta feesAccrued
+    ) internal returns (BalanceDelta hookDelta) {
+        uint256 fee0 = _pos(feesAccrued.amount0());
+        uint256 fee1 = _pos(feesAccrued.amount1());
+        uint256 out0 = _pos(delta.amount0());
+        uint256 out1 = _pos(delta.amount1());
+        uint256 prin0 = out0 > fee0 ? out0 - fee0 : 0;
+        uint256 prin1 = out1 > fee1 ? out1 - fee1 : 0;
+
+        if (out0 > 0) poolManager.take(key.currency0, address(this), out0);
+        if (out1 > 0) poolManager.take(key.currency1, address(this), out1);
+
+        uint256 seizeId = nextSeizeId++;
+        bytes32 poolId = PoolId.unwrap(key.toId());
+        bytes32 positionKey = keccak256(abi.encode(params.tickLower, params.tickUpper, params.salt));
+        emit LpExitSeized(seizeId, wallet, poolId, positionKey, prin0, prin1, fee0, fee1);
+
+        bytes32 fingerprint = keccak256(abi.encode(seizeId, poolId, positionKey));
+        _escrowKind(wallet, Currency.unwrap(key.currency0), prin0, fingerprint, IFeeEscrow.EscrowKind.LpPrincipal);
+        _escrowKind(wallet, Currency.unwrap(key.currency1), prin1, fingerprint, IFeeEscrow.EscrowKind.LpPrincipal);
+        _escrowKind(wallet, Currency.unwrap(key.currency0), fee0, fingerprint, IFeeEscrow.EscrowKind.RiskFee);
+        _escrowKind(wallet, Currency.unwrap(key.currency1), fee1, fingerprint, IFeeEscrow.EscrowKind.RiskFee);
+        hookDelta = delta;
+    }
+
+    /// @dev Take `feeBps` of each token the LP just deposited (full override, not swap differential).
+    function _escrowAddRiskFee(address wallet, PoolKey calldata key, BalanceDelta delta, uint24 feeBps)
+        internal
+        returns (BalanceDelta hookDelta)
+    {
+        uint256 a0 = _absInt(delta.amount0());
+        uint256 a1 = _absInt(delta.amount1());
+        uint256 f0 = FeeBps.overrideAmount(a0, feeBps);
+        uint256 f1 = FeeBps.overrideAmount(a1, feeBps);
+        if (f0 > 0) {
+            poolManager.take(key.currency0, address(this), f0);
+            _escrowKind(wallet, Currency.unwrap(key.currency0), f0, _buildFingerprint(wallet, Currency.unwrap(key.currency0), f0), IFeeEscrow.EscrowKind.RiskFee);
+        }
+        if (f1 > 0) {
+            poolManager.take(key.currency1, address(this), f1);
+            _escrowKind(wallet, Currency.unwrap(key.currency1), f1, _buildFingerprint(wallet, Currency.unwrap(key.currency1), f1), IFeeEscrow.EscrowKind.RiskFee);
+        }
+        if (f0 > uint256(uint128(type(int128).max)) || f1 > uint256(uint128(type(int128).max))) revert FeeTransferFailed();
+        hookDelta = toBalanceDelta(int128(uint128(f0)), int128(uint128(f1)));
+    }
+
+    function _escrowKind(
+        address wallet,
+        address token,
+        uint256 amount,
+        bytes32 fingerprint,
+        IFeeEscrow.EscrowKind kind
+    ) private {
+        if (amount == 0 || token == address(0) || address(feeEscrow) == address(0)) return;
+        if (!feeEscrow.allowedFeeTokens(token)) {
+            _recordFailedDeposit(wallet, token, amount, 0);
+            return;
+        }
+        _approve(token, address(feeEscrow), amount);
+        try feeEscrow.deposit(wallet, token, fingerprint, amount, kind) returns (uint256 escrowId) {
+            emit RiskFeeEscrowed(wallet, token, amount, escrowId, 0);
+        } catch {
+            _recordFailedDeposit(wallet, token, amount, 0);
+        }
+    }
+
+    function _absInt(int128 amount) private pure returns (uint256) {
+        if (amount >= 0) return uint256(uint128(amount));
+        return uint256(uint128(-amount));
+    }
+
+    function _pos(int128 amount) private pure returns (uint256) {
+        return amount > 0 ? uint256(uint128(amount)) : 0;
+    }
+
+    function _approve(address token, address spender, uint256 amount) private {
+        if (!IERC20Approve(token).approve(spender, 0)) revert FeeApproveFailed();
+        if (!IERC20Approve(token).approve(spender, amount)) revert FeeApproveFailed();
     }
 
     /// @dev Take differential risk fee from the swap and deposit into FeeEscrow.

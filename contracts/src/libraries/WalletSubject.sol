@@ -107,4 +107,76 @@ library WalletSubject {
             revert SanctionHit(firstSanctionedOwner);
         }
     }
+
+    /// @notice Resolve the LP subject. A trusted router reports `msgSender()`; a direct caller is the LP.
+    /// @dev Does not require a trusted router (unlike swaps). Does not revert on a list hit — the
+    ///      caller decides add-revert vs remove-seize. A trusted router that fails `msgSender()`
+    ///      still reverts. Hook data is never read.
+    function resolveLp(
+        address sender,
+        mapping(address => bool) storage trustedRouters,
+        mapping(address => TrustedMultisig) storage,
+        ISanctionRegistry,
+        MultisigAggregation
+    ) internal view returns (address wallet, bool viaTrustedRouter) {
+        if (trustedRouters[sender]) {
+            wallet = _routerSubject(sender);
+            return (wallet, true);
+        }
+        if (sender == address(0)) revert MissingSwapSubject();
+        return (sender, false);
+    }
+
+    /// @notice Layer 1 hit on the LP subject or, if it is a registered Safe, on its owners.
+    /// @return hit The sanctioned wallet (`subject` or the first matching owner). `address(0)` if clean.
+    function layer1Hit(
+        address subject,
+        mapping(address => TrustedMultisig) storage trustedMultisigs,
+        ISanctionRegistry sanctionRegistry,
+        MultisigAggregation aggregation
+    ) internal view returns (address hit) {
+        if (sanctionRegistry.isSanctioned(subject)) return subject;
+        TrustedMultisig memory ms = trustedMultisigs[subject];
+        if (!ms.trusted) return address(0);
+        return _ownerLayer1Hit(subject, ms.kind, sanctionRegistry, aggregation);
+    }
+
+    function _routerSubject(address router) private view returns (address wallet) {
+        try IMsgSender(router).msgSender() returns (address subject) {
+            wallet = subject;
+        } catch {
+            revert TrustedRouterSubjectFailed(router);
+        }
+        if (wallet == address(0)) revert TrustedRouterSubjectFailed(router);
+    }
+
+    function _ownerLayer1Hit(
+        address wallet,
+        MultisigType kind,
+        ISanctionRegistry sanctionRegistry,
+        MultisigAggregation aggregation
+    ) private view returns (address hit) {
+        address[] memory owners;
+        if (kind != MultisigType.GNOSIS_SAFE) return address(0);
+        try IGnosisSafeOwners(wallet).getOwners() returns (address[] memory ownerList) {
+            owners = ownerList;
+        } catch {
+            return address(0);
+        }
+        if (owners.length == 0) return address(0);
+
+        bool anyOwnerClean;
+        address firstSanctionedOwner;
+        for (uint256 i; i < owners.length; ++i) {
+            if (!sanctionRegistry.isSanctioned(owners[i])) {
+                anyOwnerClean = true;
+            } else if (firstSanctionedOwner == address(0)) {
+                firstSanctionedOwner = owners[i];
+                if (aggregation == MultisigAggregation.ALL_CLEAN) return owners[i];
+            }
+        }
+        if (aggregation == MultisigAggregation.ANY_CLEAN && !anyOwnerClean) {
+            return firstSanctionedOwner;
+        }
+    }
 }

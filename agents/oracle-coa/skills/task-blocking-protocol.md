@@ -30,10 +30,12 @@ no asset to segregate. Operator-level blocked-property duties, if they apply,
 sit with the operator — not with a hook custody contract.
 
 FeeEscrow is unrelated to that OFAC path. It holds the extra risk slice
-for 48 hours (whitepaper §8.3). The COA never writes FeeEscrow. The
-FeeEscrow keeper submits the on-chain call after a sanity check. A clean
-exit goes to the LP compensation fund. A confirmed-illicit row is recovered
-to the compliance reserve only.
+(and, on a blocked LP exit, seized principal) for 48 hours (whitepaper §8.3).
+The COA never writes FeeEscrow. The FeeEscrow keeper submits the on-chain
+call after a sanity check. A clean risk-fee exit goes to the LP compensation
+fund. A clean principal row returns to the LP wallet. A confirmed-illicit
+row is recovered to ComplianceTreasury (`ILLICIT_RISK_FEE` or `LP_PRINCIPAL`
+by kind).
 
 **Scope warning.** Applicability of blocking obligations to a pool operator
 depends on regulatory qualification and jurisdictional nexus — preliminarily
@@ -91,8 +93,7 @@ block, `tx_hash` if any, list and entry supporting the denial, `auditHash` of
 differential, origin `tx_hash`, `FeeDeposited`. Later `FeeReleasedEarly` /
 `FeeBlocked` / `FeeReleasedDefault` / `FeeRecovered` complete the trail. A
 confirmed sanction blocks the fee in escrow; later recovery pays
-`complianceReserve` only (`FeeRecovered`: destination, token, amount,
-`swapFingerprint`). Fees not confirmed high-risk or sanctioned go to
+ComplianceTreasury `ILLICIT_RISK_FEE` (`FeeRecovered` then `ComplianceCredited`). Fees not confirmed high-risk or sanctioned go to
 `lpCompensationFund` (Checkpoint 2 clean and `releaseDefault`), never as OFAC
 blocked property, never to LPs after a confirmed sanction, and never back to
 the pool.

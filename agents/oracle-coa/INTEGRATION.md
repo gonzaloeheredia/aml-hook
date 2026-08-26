@@ -39,12 +39,19 @@ skill `uhi10-use-case`; the agent applies it — TypeScript does not precompute
 
 ## FEE_OVERRIDE vs FeeEscrow (aligned with contracts)
 
+| Moment | What happens |
+|---|---|
+| `afterSwap` on `FEE_OVERRIDE` | Hook takes differential (`feeBps − 30`) → `FeeEscrow.deposit` (`RiskFee`) |
+| `afterAddLiquidity` on 31–70 / never-scored 3%/8% | Hook takes the **full** override → `FeeEscrow.deposit` (`RiskFee`) |
+| Blocked LP remove | Principal → `LpPrincipal`; `feesAccrued` → `RiskFee`. Both 48h. |
+| FeeEscrow keeper | Checkpoint 1/2 / default after COA off-chain review (COA never writes escrow) |
+| Clean Checkpoint 2 | Risk fee → LP compensation fund. Principal → LP wallet. |
+| Illicit recover | `ILLICIT_RISK_FEE` vs `LP_PRINCIPAL` by kind |
+
 | Layer | Behavior |
 |---|---|
 | COA / oracle | Publishes `finalScore` + `recommendedFeeBps` (total friction, e.g. 800 / 300) |
 | `beforeSwap` | Ternary decision; does **not** set punitive `lpFeeOverride` — pool keeps standard fee |
-| `afterSwap` on `FEE_OVERRIDE` | Hook takes differential (`feeBps − 30`) → `FeeEscrow.deposit` |
-| FeeEscrow keeper | Checkpoint 1/2 / default after COA off-chain review (COA never writes escrow) |
 
 Opinion copy must describe **standard pool fee + escrowed differential**, not
 `lpFeeOverride` as the settlement path.

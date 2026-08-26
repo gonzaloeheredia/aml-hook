@@ -106,7 +106,7 @@ AML Hook is a modular compliance layer that runs as a Uniswap v4 hook. It checks
 
 On swaps it intercepts two moments: before the swap and after the swap. It screens the resolved end-user, reads a behavioral score, and decides whether the swap executes, pays an extra fee into escrow, or reverts. A reporting path then turns those decisions into an audit trail.
 
-Independently, it also intercepts liquidity add and remove. Those calls check the sanctions list only. A wallet on the OFAC / Layer 1 list cannot add or remove liquidity. The behavioral score and the risk policy are not consulted on that path. The liquidity gate exists so LPs (liquidity providers) cannot use the pool to place or extract tainted capital. An emergency pause stops swap evaluation and new LP deposits; it leaves withdrawals open for a **clean** LP, so a pool-wide incident switch does not freeze every position. A listed wallet still cannot withdraw while the hit stands. When the sanction is lifted, the same withdrawal succeeds.
+Independently, it also intercepts liquidity add and remove. Those calls resolve the LP the same way a swap does when the caller is a trusted router (`IMsgSender.msgSender()`); a direct caller is the LP. Liquidity uses its own Layer 3 (`LpPolicyLib`), not the swapper `RiskPolicy`. A wallet on the OFAC / Layer 1 list, or with a published score of 71–100, cannot add. A published score 31–70 pays a 3% / 8% risk fee on the deposit (score band, not USD). A never-scored add reuses swap Floor A / C / D (including $15,000 revert). On a blocked remove the LP receives nothing in that transaction: principal and `feesAccrued` sit in FeeEscrow for 48 hours. Checkpoint 2 reads the list and the oracle — if nothing is confirmed the principal returns to the LP and the fee goes to the LP compensation fund; if a later oracle write or list hit confirms a sanction, recover books ComplianceTreasury `LP_PRINCIPAL` and `ILLICIT_RISK_FEE` separately. An emergency pause stops swap evaluation; it does not freeze a **clean** LP mint or exit. A listed wallet still cannot add. When the sanction is lifted and the score is out of the revert band, the same withdrawal succeeds.
 
 ### 2.2 Objectives
 
@@ -116,7 +116,7 @@ Independently, it also intercepts liquidity add and remove. Those calls check th
 
 **Open the pool to institutional LPs.** Funds that cannot sit in anonymous pools get a venue where counterparties are evaluated on every swap. This matters most for RWA pools, where the underlying asset already carries transfer restrictions.
 
-**Keep LPs off the laundering path.** Two controls. A wallet on the sanctions list cannot add or remove liquidity, so the LP book itself is not a placement or extraction channel. Pause is a different switch: it stops swaps and new deposits, and still lets a clean LP exit. The extra risk fee never lands in the pool as live LP yield. Paying LPs that slice on the same swap would pay them with funds that may still be illicit and would make those LPs instruments of money launderers. If Checkpoint 2 later confirms a sanction or illicit typology, that slice is recovered to a dedicated compliance reserve — never to the LP compensation fund, at any point.
+**Keep LPs off the laundering path.** A listed or 71–100 wallet cannot add. Known 31–70 pays a risk fee on the mint (3% / 8% by score). Never-scored adds use the same USD floors as a never-scored swap (Floor A / C / D). On a blocked remove the LP does not receive principal or fees in-tx: both legs sit in FeeEscrow 48 hours. If Checkpoint 2 does not confirm, principal returns to the LP and the fee goes to the LP compensation fund. If the list or oracle (≥ 71) confirms, recover books `LP_PRINCIPAL` and `ILLICIT_RISK_FEE` separately — never the LP fund. Pause stops swaps; it does not freeze a clean mint or exit.
 
 **Price intermediate risk and create a new revenue line.** The hook prices residual risk that the pool would otherwise absorb for free. The pool keeps its standard LP fee on every swap that executes. On a fee-override, only the extra risk slice goes to FeeEscrow (section 8.3). That differential is revenue for assuming the risk of letting a medium-risk swap settle. If the wallet is later confirmed clean, the slice is released as retroactive LP compensation. If a sanction or illicit typology is confirmed, the slice stays blocked in escrow for the audit file and is then recovered to the compliance reserve — never to LPs. Clean wallets pay the standard fee.
 
@@ -139,7 +139,7 @@ If Layer 1 hits, the swap (or LP add/remove) reverts and Layers 2–3 are not re
 | --- | --- | --- |
 | 1 | Static sanctions | Is this address on OFAC or another list? Match → immediate block. No external call at execution. |
 | 2 | Behavioral score | Off-chain engine. Graph, frequency, mixers, structuring, layering. The score is pre-computed. The hook only reads it. |
-| 3 | Decision | Maps layers 1 and 2 (plus the latency floors in section 8.4) to allow, extra fee, or revert. |
+| 3 | Decision | Swaps: `RiskPolicyLib`. LP adds: `LpPolicyLib` (known score ignores Floor B; never-scored reuses A/C/D). Maps layers 1 and 2 (plus the latency floors in section 8.4) to allow, extra fee, or revert. |
 | 4 | Profile update | After the swap, emit what happened so the off-chain engine can update the wallet before the next swap. |
 
 ### 3.3 Three outputs
@@ -157,7 +157,7 @@ Medium risk is the product difference. Regulatory practice for that band is moni
 
 **Score 31–70.** No legal duty to block. The duty is to monitor and report. Banks apply the same FATF risk-based approach: enhanced due diligence, automatic rejection only when the law requires it.
 
-**Sanctioned or score 71–100.** Unconditional block **on swaps**. Same outcome as a binary competitor. Liquidity is list-only: a 71–100 wallet that is not on Layer 1 can still add and remove.
+**Sanctioned or score 71–100.** Unconditional block **on swaps**. Liquidity: cannot add. On remove that wallet receives nothing in-tx — principal and fees wait 48h in FeeEscrow; illicit recover splits tesorería accounts; clean principal returns to the LP.
 
 When the keeper has not written, the score is stale, or a large inflow is still unpublished, those three bands are not enough. Section 8.4 lists the extra floors and every numeric threshold.
 
@@ -312,7 +312,7 @@ User → Router → PoolManager → AML Hook
                                  └─ Sanctions registry (liquidity path too)
 ```
 
-The hook is the Uniswap callback. On swaps it **calls** `RiskPolicy.decide` (Layers 1–3: sanctions in the hook, then score + floors in the policy). On add liquidity it checks pause and the sanctions list. On remove liquidity it checks the sanctions list only: a listed wallet cannot extract LP capital; pause does not freeze a clean LP.
+The hook is the Uniswap callback. On swaps it **calls** `RiskPolicy.decide`. On add liquidity it resolves the LP, then `LpPolicyLib` (known score → 0 / 3% / 8% with no Floor B; never-scored → the same A/C/D tree as a swap). Pause does not block a clean mint. On remove, pause does not run: a clean LP can still exit. A listed or 71–100 wallet does not revert the remove; the hook takes the full delta. Principal and `feesAccrued` are deposited to FeeEscrow (Active, kinds `LpPrincipal` / `RiskFee`). Checkpoint 2 reads the list and the oracle — no keeper bool.
 
 **Who may write what**
 
@@ -326,8 +326,8 @@ Two authority boxes. Sanctions, the score store, and hook settings sit on a shar
 | Attestor | Sign the score payload (wallet, score, hop, origin, fee, time, chain) | Submit the transaction alone |
 | Hook governor | Operational thresholds (staleness, activity, daily window, inflow share), price feeds, trusted routers and multisigs, pause, attestor rotation, rate limit, reveal delay | Write scores, sanctions, or policy knobs (USD floors / floor fees / pool-impact) |
 | Compliance officer | Propose then confirm USD floors, floor fees, and the pool-impact cut (48-hour delay). The $1,000 fee floor cannot be lowered. Related pairs keep the upper value strictly above the lower | Write scores, sanctions, trusted routers, or score cuts (31 / 55 / 71 stay fixed) |
-| Escrow owner | Appoint keepers, the LP fund, and the compliance reserve; recover blocked fees after 7 days, only to the compliance reserve | Deposit the swap differential |
-| Escrow depositor (the hook) | Deposit the extra fee | Release or block fees |
+| Escrow owner | Appoint keepers, the LP fund, and the compliance reserve; recover blocked rows after 7 days, only to tesorería (by kind) | Deposit fees or principal |
+| Escrow depositor (the hook) | Deposit the extra fee, LP-add risk fee, and seized LP principal | Release or block rows |
 | Escrow keeper | Release or block after off-chain review | Change owner or write scores |
 | Auditor | Read the full escrow row | Move tokens |
 
@@ -341,14 +341,16 @@ A new sanction uses commit-reveal (`MIN_REVEAL_DELAY` = 10 blocks) so the addres
 | --- | --- | --- |
 | AML Hook | Uniswap callbacks only | Decide risk or hold lists |
 | Decision logic | Read sanctions, score, policy, and USD prices; emit swap events; apply latency floors | Compute the behavioral score off-chain; take tokens |
-| Settlement | Take the extra fee and deposit it | Decide allow / fee / revert |
+| Settlement | Take the extra fee and seize a blocked LP exit | Decide allow / fee / revert |
 | Sanctions registry | Layer 1 list | Score wallets |
 | Compliance oracle | Store the keeper-written score, hop, origin, fee, and timestamp | Decide the swap |
-| Risk policy | Map score + floors + USD size → allow / fee / revert | Store anything |
-| FeeEscrow | Hold the extra fee for 48 hours | Hold the full swap; change the pool LP fee |
+| Risk policy | Map swap score + floors + USD size → allow / fee / revert | Store anything |
+| LP policy | Map LP score (no Floor B) or never-scored A/C/D → allow / fee / revert | Decide swaps |
+| FeeEscrow | Hold the extra fee and seized LP principal for 48 hours | Change the pool LP fee |
+| ComplianceTreasury | Two ledgers: `LP_PRINCIPAL` (recovered seized capital) and `ILLICIT_RISK_FEE` (recovered risk fee) | Mix the two accounts; pay the LP fund |
 | Oracle keeper / COA | Off-chain analyst and publisher | Write FeeEscrow or run inside the swap |
 
-FeeEscrow destinations are two distinct addresses. The extra fee never returns to the pool as swap yield. Sending it to LPs on the same swap would make them take proceeds of a still-suspect flow. Every clean exit — early release, clean checkpoint, or default after 48 hours — goes to the LP compensation fund. A confirmed-illicit row stays blocked in escrow while the operator produces the file, then owner recovery (7-day floor) or permissionless recovery (default 90 days) sends it to the compliance reserve. Those two destinations cannot be the same address. Ownership is two-step and starts as the admin or a dedicated escrow owner, not the deploying key. The hook is registered as depositor once at deploy, then that bootstrap key is cleared.
+FeeEscrow destinations are two distinct addresses. The extra fee never returns to the pool as swap yield. Sending it to LPs on the same swap would make them take proceeds of a still-suspect flow. Every clean **risk-fee** exit — early release, clean checkpoint, or default after 48 hours — goes to the LP compensation fund. A clean **LP-principal** row pays the LP wallet. Checkpoint 2 does not take a keeper bool: it reads `SanctionRegistry` and `ComplianceOracle` (list hit or score ≥ 71). A confirmed-illicit row stays blocked in escrow while the operator produces the file, then owner recovery (7-day floor) or permissionless recovery (default 90 days) sends it to ComplianceTreasury: `ILLICIT_RISK_FEE` for risk-fee rows, `LP_PRINCIPAL` for seized capital. Seized LP principal enters FeeEscrow for those 48 hours (it is not posted to tesorería in the remove tx). Those two treasury accounts cannot be mixed. The LP fund and the treasury cannot be the same address. Ownership is two-step and starts as the admin or a dedicated escrow owner, not the deploying key. The hook is registered as depositor once at deploy, then that bootstrap key is cleared.
 
 **Read path before the swap.** Before the swap executes, the hook runs this sequence:
 
@@ -385,21 +387,21 @@ On fee-override the pool keeps its standard LP fee. After the swap, only the ext
 
 That slice is a new revenue line. The hook let a medium-risk swap settle. The protocol assumed the residual risk. The differential is the price of that assumption. It belongs in FeeEscrow, not in the pool.
 
-Sending the extra fee to LPs on the same swap would pay them with funds that may still be illicit. LPs would then earn from the flow they were meant to stay clear of. That would make them instruments of money launderers. The liquidity path carries the same objective from the other side: a sanctioned wallet cannot add or remove liquidity, so LPs cannot place or extract tainted capital through the book.
+Sending the extra fee to LPs on the same swap would pay them with funds that may still be illicit. LPs would then earn from the flow they were meant to stay clear of. That would make them instruments of money launderers. The liquidity path carries the same objective from the other side: a sanctioned or 71–100 wallet cannot add, and on a blocked remove it cannot take principal or fees in that transaction.
 
 The Compliance Officer Agent reviews the case off-chain. It cannot write escrow. A dedicated escrow keeper submits the on-chain call after a sanity check on the agent output.
 
-| Moment | Action | Destination |
-| --- | --- | --- |
-| 0–24h | Optional review | Still held |
-| 24–48h | Early release | LP compensation fund |
-| At 48h, illicit confirmed | Block | Stays in escrow for audit; after the recovery delay → compliance reserve |
-| At 48h, not illicit | Release | LP compensation fund |
-| Nobody resolved by 48h | Default release | LP compensation fund |
+| Moment | Action | RiskFee destination | LpPrincipal destination |
+| --- | --- | --- | --- |
+| 0–24h | Optional review | Still held | Still held |
+| 24–48h | Early release | LP compensation fund | LP wallet |
+| At 48h, list or oracle score ≥ 71 | Block | Stays in escrow for audit; after the recovery delay → ComplianceTreasury `ILLICIT_RISK_FEE` | Same hold; recover books `LP_PRINCIPAL` |
+| At 48h, not illicit | Release | LP compensation fund | LP wallet |
+| Nobody resolved by 48h (and still not illicit on-chain) | Default release | LP compensation fund | LP wallet |
 
-When the review confirms a sanction or an illicit typology, the escrowed slice stays blocked for audit. It does not become LP yield. Tokens remain in FeeEscrow so the operator can produce the file. The escrow owner (a Safe in production) is the authority that may later recover a blocked row: `recoverBlocked` waits at least 7 days and can go only to the compliance reserve. After the full configured delay (default 90 days), anyone may call `recoverExpiredBlocked` to the same reserve. Still never the LP fund and never the pool. `FeeRecovered` records destination, token, amount, wallet, and the originating `swapFingerprint` so the movement is auditable against the fee-override transaction.
+When the list or a later oracle write confirms a sanction or an illicit typology, the escrowed slice stays blocked for audit. It does not become LP yield. Tokens remain in FeeEscrow so the operator can produce the file. The escrow owner (a Safe in production) is the authority that may later recover a blocked row: `recoverBlocked` waits at least 7 days and can go only to ComplianceTreasury, which books `ILLICIT_RISK_FEE` (`ComplianceCredited`). After the full configured delay (default 90 days), anyone may call `recoverExpiredBlocked` to the same account. Still never the LP fund and never the pool. `FeeRecovered` records destination, token, amount, wallet, and the originating fingerprint so the movement is auditable against the fee-override swap or the seized LP exit.
 
-Early release never blocks.
+Early release refuses if the oracle or list already marks the wallet illicit (`IllicitOnChain`). Default release does the same: it blocks instead of paying the LP fund.
 
 If the deposit fails, the swap still settles. The extra tokens are tracked so the subject can claim them or anyone can retry the deposit. Other skip reasons emit a skip event and take nothing.
 
@@ -432,7 +434,7 @@ A single table replaces every condition that determines a swap's outcome: the pu
 
 | Condition | Layer / floor | Outcome | Fee |
 | --- | --- | --- | --- |
-| Address on the sanctions list | Layer 1 | REVERT | `SanctionHit` (swaps, LP add, and LP remove) |
+| Address on the sanctions list | Layer 1 | REVERT add / seize remove | `SanctionHit` on add; remove escrows principal + fees 48h |
 | Published score 0–30, fresh, no active floor | Score band | ALLOW | Pool standard, 0.30% |
 | Published score 31–54 (keeper omitted an explicit fee) | Score band | FEE_OVERRIDE | 3% (~2 hops) |
 | Published score 55–70 (keeper omitted an explicit fee) | Score band | FEE_OVERRIDE | 8% (~1 hop) |
@@ -455,6 +457,7 @@ Notes on reading the table:
 - A published score of 0 (Wallet D in the use case) and a wallet that was never written (Wallet E) are different rows. Floor A no longer applies once a score exists, even if that score is 0. Floor D **does** apply to a never-written wallet: with no baseline the current input-token bag is inbound (pass / 3% / 8%). The stricter of A (swap size) and D (bag) wins. A may still revert on swap size or on a high pool-impact mid-band swap. Demo E starts empty; clean C funds it (no hop). Do not fund E from A (exploit origin / score 100) or from F (OFAC SDN).
 - Layer 1 `SanctionHit` (Wallet F, live SDN mapping) is not a score-band revert. Wallet A (`WalletBlocked`, score 100, mapping clear) is the contrast.
 - Floor B and Floor D never revert. Floor A large reverts on this swap. Floor C reverts when several swaps in 24 hours cross $15,000. B and D use the same USD cuts as A ($1,000 / $15,000) but map them to pass / 3% / 8%. B's 20% pool-impact extra hardens the fee band and stops at 8%. D has no pool-impact extra.
+- **Liquidity never-scored** reuses this same Floor A / C / D table. Floor A is this deposit vs $1,000 / $15,000 (3% / 8% / revert), including the 20% pool-impact extra. Floor C is the 24-hour **sum of adds** (`_lpDaily`), never mixed with swap C. Floor D uses the same `Inflow` baseline as a swapper (max USD of token0 / token1). Floor B does **not** arm a never-scored add, and a **published** LP score ignores Floor B: 0–30 stays 0 extra even if stale; 31–70 pays 3% / 8% by score, not USD.
 - None of these floors soften a score-band revert, or a fee-override already set by the score.
 - A working price feed is not needed when the wallet is published-clean, has no new inflow to quantify, and Floor B is not sizing a window (the first stale swap of the hour charges 3% without a quote). When a quote is required, the hook uses `lastFx` if that round is younger than 30 minutes (`FX_HOT_TTL`) and does not call Chainlink. Otherwise it reads the feed once per token and reuses that price for every amount in the swap (ticket, inbound, bag, settled size, window add). A heartbeat-stale live round is still a price: it is used and stored. An unbound or reverting feed uses `lastFx` until 24 hours. `PriceFallbackUsed` records heartbeat-stale live rounds and the 24-hour cache path, not the 30-minute hot cache.
 
@@ -565,7 +568,7 @@ Uniswap v4 puts every pool in one PoolManager. That single execution point is wh
 1. **Sign.** The user signs. The transaction goes to a router. No compliance yet.
 2. **Lock.** The router unlocks the PoolManager.
 3. **Swap call.** Inside the lock the router calls swap. Direction and size matter for later USD quotes. Hook data is ignored as identity.
-4. **Hook bits.** The pool key carries the hook address. AML Hook needs before-swap, after-swap, after-swap return-delta (so it can take the extra fee without rewriting the LP fee), and the two liquidity gates.
+4. **Hook bits.** The pool key carries the hook address. AML Hook needs before-swap, after-swap, after-swap return-delta (so it can take the extra fee without rewriting the LP fee), before-add, after-add, after-add return-delta (so a never-scored or 31–70 mint can take the full 3%/8% into FeeEscrow), before-remove, after-remove, and after-remove return-delta (so a blocked LP exit can take principal and fees without crediting the LP).
 5. **Before the swap.** Resolve the end-user from a trusted router. Sanction match → revert. Else read the score, derive latency signals, quote USD (`lastFx` if younger than 30 minutes, else Chainlink once per token), decide via `RiskPolicy.decide`. Unknown wallet: 3% / 8% / revert by this swap. Published clean with inbound, a stale first swap of the hour (3%), or a stale score plus prior activity: pass / 3% / 8% by USD (B and D do not revert). High score → revert. Floor C (24-hour sum crossing $15,000) → revert. Medium score → continue at the standard pool fee and remember the override. Low score, fresh write, no floor → continue at 0.30%.
 6. **Pool math.** Ticks, price, output. Tokens have not moved yet.
 7. **After the swap.** Update activity and the USD window, refresh the last balance, emit the audit event. On fee-override, take the extra slice into escrow. A failed deposit does not unwind the swap.
