@@ -44,19 +44,19 @@ interface IFeeEscrow {
     /// @notice 24–48h: early release to the LP compensation fund. Never blocks. Never the pool.
     function releaseEarly(uint256 escrowId) external;
 
-    /// @notice At 48h: illicit stays blocked for the file; clean goes to the LP compensation fund.
-    /// @param illicitConfirmed True if the review confirmed a sanction or illicit typology.
-    function resolveCheckpoint2(uint256 escrowId, bool illicitConfirmed) external;
+    /// @notice At 48h: destination is read from SanctionRegistry / ComplianceOracle, not a keeper bool.
+    ///         List hit or score ≥ 71 → Blocked. Otherwise → LP compensation fund.
+    function resolveCheckpoint2(uint256 escrowId) external;
 
     /// @notice Nobody resolved by 48h: credit the LP compensation fund, same as a clean checkpoint.
+    ///         If the oracle/list already marks the wallet illicit, the row is Blocked instead.
     function releaseDefault(uint256 escrowId) external;
 
     /// @notice Checkpoint 1 for many escrow ids (same rules as `releaseEarly`).
     function batchReleaseEarly(uint256[] calldata escrowIds) external;
 
-    /// @notice Checkpoint 2 for many escrow ids. `illicitConfirmed` must match `escrowIds` 1:1.
-    function batchResolveCheckpoint2(uint256[] calldata escrowIds, bool[] calldata illicitConfirmed)
-        external;
+    /// @notice Checkpoint 2 for many escrow ids (same on-chain illicit read as `resolveCheckpoint2`).
+    function batchResolveCheckpoint2(uint256[] calldata escrowIds) external;
 
     /// @notice Default release for many escrow ids (same rules as `releaseDefault`).
     function batchReleaseDefault(uint256[] calldata escrowIds) external;

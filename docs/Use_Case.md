@@ -6,7 +6,7 @@ The Compliance Officer Agent emits `finalScore` and `recommendedFeeBps` (Claude 
 
 The pool is a Uniswap v4 RWA (Real World Asset) pool with AML Hook attached. Swaps go through `beforeSwap` and `afterSwap`. Peer-to-peer USDC transfers happen off-pool. Those transfers are what move risk. Pool swaps never raise a score.
 
-A wallet on the sanctions list that tries to add or remove liquidity is reverted at the liquidity boundary (`SanctionHit`). That path reads the list only — not the score. Wallet A (score 100, not OFAC-listed) can still add and remove. Pause still lets a **clean** LP withdraw; it does not lift a list hit. This walkthrough is swap-only.
+A wallet on the sanctions list, or with a published score of 71–100, cannot add liquidity (`SanctionHit` / `WalletBlocked`). On remove that wallet receives nothing: principal is booked on ComplianceTreasury `LP_PRINCIPAL`, accrued fees go to FeeEscrow. Checkpoint 2 reads the list and the oracle — if nothing is confirmed the fee goes to the LP compensation fund; if a later oracle write confirms a sanction it is recovered to `ILLICIT_RISK_FEE`. Pause still lets a **clean** LP withdraw; it does not lift a list or high-score hit. This walkthrough is swap-only.
 
 ## 1. Sequence at a glance
 
@@ -59,7 +59,7 @@ Same order as the whitepaper (§3.3 / §8.4) and `RiskPolicy.decide`. Floor C (2
 | 55–70 (keeper omitted fee) | FEE_OVERRIDE | 8% |
 | 1-hop (~65) / 2-hop (~42) with keeper fee | FEE_OVERRIDE | 8% / 3% |
 | 71–100 | REVERT | `WalletBlocked` |
-| On the sanctions list | REVERT | `SanctionHit` (swap, LP add, LP remove) |
+| On the sanctions list | REVERT add / seize remove | `SanctionHit` on swap and LP add; LP remove posts principal to treasury |
 | Published 0, inbound USD under $1,000, score still older than the baseline | ALLOW (D dust) | Pool 0.30% |
 | Published 0, inbound USD $1,000–$14,999, score still older than the baseline | FEE_OVERRIDE (D mid) | 3% |
 | Published, inbound USD ≥ $15,000, score still older than the baseline | FEE_OVERRIDE (D large) | 8% |
@@ -263,15 +263,15 @@ Who retunes: the compliance officer proposes then confirms USD floors, floor fee
 
 ### Step 12 — FeeEscrow (FEE_OVERRIDE only)
 
-On B (3% or 8%), D floors (3% or 8%), and E (3% or 8%), the pool keeps 0.30%. Floor C is a REVERT, so it does not hit escrow. The extra slice is deposited on Anvil into `FeeEscrow`. Open **Fees**: the panel lists those rows. Warp **48h** → **Checkpoint 2 · illicit** (Blocked) → Warp **7d** → **Recover → reserve**. The recovered amount goes to the compliance reserve, never the LP fund. The two destinations cannot be the same address. `GET /escrow`, `POST /escrow/:id/checkpoint2`, and `POST /escrow/:id/recover` are the same path without the UI.
+On B (3% or 8%), D floors (3% or 8%), and E (3% or 8%), the pool keeps 0.30%. Floor C is a REVERT, so it does not hit escrow. The extra slice is deposited on Anvil into `FeeEscrow`. Open **Fees**: the panel lists those rows. Publish a list hit or oracle score ≥ 71 on that wallet, then warp **48h** → **Checkpoint 2** (the contract reads the oracle/list — no keeper bool) → Warp **7d** → **Recover**. The recovered amount is booked on ComplianceTreasury `ILLICIT_RISK_FEE`, never the LP fund. Seized LP principal is a separate account (`LP_PRINCIPAL`). The two destinations cannot be the same address. `GET /escrow`, `POST /escrow/:id/checkpoint2`, and `POST /escrow/:id/recover` are the same path without the UI.
 
 | Window | What happens | Where the fee goes |
 | --- | --- | --- |
 | 0–24h | Optional review | Still in escrow |
-| 24–48h | Early release | LP compensation fund |
-| At 48h, illicit | Block, then recover | Compliance reserve (never the LP fund) |
+| 24–48h | Early release (refused if already illicit on-chain) | LP compensation fund |
+| At 48h, list or score ≥ 71 | Block, then recover | ComplianceTreasury `ILLICIT_RISK_FEE` |
 | At 48h, not illicit | Release | LP compensation fund |
-| Nobody resolved | Default release | LP compensation fund |
+| Nobody resolved (and still not illicit) | Default release | LP compensation fund |
 
 Owner recovery waits at least 7 days and can go only to the compliance reserve. After the full delay (default 90 days) anyone may send an expired blocked row to that same reserve. `FeeRecovered` records destination, token, amount, wallet, and the swap fingerprint. The fee never returns to the pool. User swap output settles in the same block.
 

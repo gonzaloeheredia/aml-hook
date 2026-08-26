@@ -15,8 +15,8 @@ type Props = {
 };
 
 /**
- * Step 12: live FeeEscrow rows from Anvil. Checkpoint 2 illicit → Blocked,
- * then recover to the compliance reserve.
+ * Step 12: live FeeEscrow rows from Anvil. Checkpoint 2 reads the oracle/list,
+ * then recover books ComplianceTreasury ILLICIT_RISK_FEE.
  */
 export function EscrowPanel({ apiOnline, tick }: Props) {
   const [rows, setRows] = useState<ApiEscrowRow[]>([]);
@@ -55,7 +55,7 @@ export function EscrowPanel({ apiOnline, tick }: Props) {
         </button>
       </div>
       <p className="mt-1 text-xs text-uni-muted">
-        Extra slice only. Warp 48h before Checkpoint 2, then 7d before recover. Destination is the compliance reserve — never the LP fund.
+        Extra slice only. Warp 48h before Checkpoint 2, then 7d before recover. Checkpoint 2 reads the list and the oracle (score ≥ 71). Recover books ComplianceTreasury ILLICIT_RISK_FEE — never the LP fund.
       </p>
       <div className="mt-2 flex gap-2">
         <button
@@ -128,7 +128,7 @@ export function EscrowPanel({ apiOnline, tick }: Props) {
                       }
                     }}
                   >
-                    Checkpoint 2 · illicit
+                    Checkpoint 2
                   </button>
                 )}
                 {row.status === "Blocked" && (
@@ -148,7 +148,7 @@ export function EscrowPanel({ apiOnline, tick }: Props) {
                       }
                     }}
                   >
-                    Recover → reserve
+                    Recover → treasury
                   </button>
                 )}
               </div>

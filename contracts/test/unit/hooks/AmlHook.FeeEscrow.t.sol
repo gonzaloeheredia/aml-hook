@@ -49,6 +49,7 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
         vm.startPrank(owner);
         escrow.bootstrapDepositor(address(hook));
         escrow.setAuditor(address(this), true);
+        escrow.setComplianceSources(sanctionRegistry, complianceOracle);
         vm.stopPrank();
 
         bytes4[] memory oracleSelectors = new bytes4[](1);
@@ -385,7 +386,9 @@ contract UnitAmlHookFeeEscrowTest is Helpers {
 
         vm.warp(block.timestamp + 48 hours);
         vm.prank(keeper);
-        escrow.resolveCheckpoint2(1, true);
+        complianceOracle.updateScore(walletB, 71, 1, walletA, 800, _scoreSigN(walletB, 71, 1, walletA, 800, 1));
+        vm.prank(keeper);
+        escrow.resolveCheckpoint2(1);
         assertEq(uint8(escrow.getEscrow(1).status), uint8(IFeeEscrow.EscrowStatus.Blocked));
 
         uint256 ownerDelay = uint256(escrow.blockedRecoveryDelay()) > uint256(escrow.OWNER_BLOCKED_RECOVERY_MIN_AGE())

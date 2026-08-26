@@ -91,8 +91,7 @@ block, `tx_hash` if any, list and entry supporting the denial, `auditHash` of
 differential, origin `tx_hash`, `FeeDeposited`. Later `FeeReleasedEarly` /
 `FeeBlocked` / `FeeReleasedDefault` / `FeeRecovered` complete the trail. A
 confirmed sanction blocks the fee in escrow; later recovery pays
-`complianceReserve` only (`FeeRecovered`: destination, token, amount,
-`swapFingerprint`). Fees not confirmed high-risk or sanctioned go to
+ComplianceTreasury `ILLICIT_RISK_FEE` (`FeeRecovered` then `ComplianceCredited`). Fees not confirmed high-risk or sanctioned go to
 `lpCompensationFund` (Checkpoint 2 clean and `releaseDefault`), never as OFAC
 blocked property, never to LPs after a confirmed sanction, and never back to
 the pool.

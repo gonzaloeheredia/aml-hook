@@ -117,8 +117,8 @@ the FeeEscrow keeper alone submits transfers after an off-chain sanity check.
 |---|---|---|
 | 0–24h | (optional COA; no write) | Still held |
 | Checkpoint 1 (≥24h, <48h | `releaseEarly` | `lpCompensationFund` only (never pool; never blocks) |
-| Checkpoint 2 ≥48h, illicit | `resolveCheckpoint2(true)` | Blocked in escrow; later `recoverBlocked` / `recoverExpiredBlocked` → `complianceReserve` only |
-| Checkpoint 2 ≥48h, clean | `resolveCheckpoint2(false)` | `lpCompensationFund` only (never pool) |
+| Checkpoint 2 ≥48h, list or oracle score ≥ 71 | `resolveCheckpoint2` (no bool) | Blocked in escrow; later `recoverBlocked` / `recoverExpiredBlocked` → ComplianceTreasury `ILLICIT_RISK_FEE` |
+| Checkpoint 2 ≥48h, clean on-chain | `resolveCheckpoint2` | `lpCompensationFund` only (never pool) |
 | No resolution after window | `releaseDefault` | `lpCompensationFund` only (never pool) |
 
 Every escrow deposit should be linkable to the supporting `ScoreResult`

@@ -333,10 +333,7 @@ export const escrowAbi = [
     type: "function",
     name: "resolveCheckpoint2",
     stateMutability: "nonpayable",
-    inputs: [
-      { name: "escrowId", type: "uint256" },
-      { name: "illicitConfirmed", type: "bool" },
-    ],
+    inputs: [{ name: "escrowId", type: "uint256" }],
     outputs: [],
   },
   {

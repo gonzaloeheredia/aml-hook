@@ -46,14 +46,16 @@ User → Router → PoolManager → AmlHook          (Uniswap callbacks only)
 | **SanctionRegistry** | Sanctions hit → REVERT before score. New hits: `commitSanction` + `revealSanction`. `setSanctioned` remains for emergencies. |
 | **ComplianceOracle** | Score / hop / origin / `feeBps` / `updatedAt`. `_ORACLE_KEEPER` submits `updateScore`; a distinct **attestor** ECDSA-signs `attestationHash` (wallet, score, hop, origin, feeBps, updatedAt, chainid). Missing hop/origin in the sig is rejected. |
 | **RiskPolicy** | Layer 3 deploy artifact. Hook hot path **calls** `decide` (external). Off-chain preview uses the same contract. Both run `RiskPolicyLib` (one memory pointer, no further CALL from inside the policy). Same mapping: ternary bands + §8.4 floors + never-scored USD bands (3% / 8% / REVERT at $1,000 / $15,000). Pure — no Chainlink call. |
-| **AmlHook** | Uniswap callbacks only. Must call `_beginSwap` then `_endSwap` in that order. Liquidity add: pause + sanctions. Liquidity remove: sanctions only (listed cannot exit; pause does not trap a clean LP). |
+| **AmlHook** | Uniswap callbacks only. Must call `_beginSwap` then `_endSwap` in that order. Liquidity add: pause + L1 + score ≥ 71. Liquidity remove: no pause; L1 or score ≥ 71 seizes the exit (LP receives 0). Trusted router `msgSender()` is the LP subject when the caller is trusted. |
 | **AmlHookLogic** | Subject resolve, L1→L3, mitigations A–D, Chainlink USD-8 quotes (`priceFeeds`). `_HOOK_GOVERNOR` retunes operational knobs, feeds, Floor B (`setActivityWindow` / `setStalenessThreshold`), and Floor C (`setDailyWindow`). `_COMPLIANCE_OFFICER` proposes / confirms USD floors, floor fees, and the pool-impact cut (48h delay). Neither invents scores. |
-| **AmlHookSettlement** | Differential take + escrow deposit / `failedDeposits` / claim / retry. Does not decide risk. |
-| **FeeEscrow** | 48h hold of the FEE_OVERRIDE differential only. Own owner / keepers / depositors (not AccessManager). Owner is `ADMIN` / `FEE_ESCROW_OWNER` from genesis (Safe in prod), not the deploying EOA. Hook is wired as depositor via one-shot `bootstrapDepositor` (no 24h wait). Later depositor changes: 24h. Add keeper: 24h; revoke keeper: immediate. Clean / early / default → `lpCompensationFund`. Sanction confirmed → Blocked; owner `recoverBlocked` waits `min(blockedRecoveryDelay, 7 days)` and pays `complianceReserve` only. Never the LP fund. Never the pool. |
+| **AmlHookSettlement** | Differential take + escrow deposit / `failedDeposits` / claim / retry. Seized LP principal → ComplianceTreasury; seized LP fees → FeeEscrow. Does not decide risk. |
+| **FeeEscrow** | 48h hold of the FEE_OVERRIDE differential and of seized LP fees. Own owner / keepers / depositors (not AccessManager). Checkpoint 2 reads `SanctionRegistry` / `ComplianceOracle` (no keeper bool). Clean / early / default → `lpCompensationFund`. List or score ≥ 71 → Blocked; owner `recoverBlocked` waits `min(blockedRecoveryDelay, 7 days)` and pays ComplianceTreasury `ILLICIT_RISK_FEE` only. Never the LP fund. Never the pool. |
+| **ComplianceTreasury** | Two accounts: `LP_PRINCIPAL` (blocked LP capital) and `ILLICIT_RISK_FEE` (recovered escrow). Events `PrincipalPosted` / `ComplianceCredited`. |
 
 Subject resolution (§3.5): trusted routers (`hookGovernor` `setTrustedRouter`) report the end-user via
-`IMsgSender.msgSender()` as the **only** subject (`TrustedRouterSubjectFailed` if the call reverts or
-returns zero). Uniswap `hookData` is ignored. Untrusted initiators revert `MissingSwapSubject`.
+`IMsgSender.msgSender()` as the **only** swap subject (`TrustedRouterSubjectFailed` if the call reverts or
+returns zero). Uniswap `hookData` is ignored. Untrusted swap initiators revert `MissingSwapSubject`.
+LP actions reuse the same `msgSender()` when the caller is a trusted router; a direct LP is `sender`.
 `Deploy` registers the canonical **Universal Router** (and 2.1.1) for the current chain so swaps from
 `app.uniswap.org` resolve the wallet without frontend `hookData`. Anvil has no UR, so it seeds
 `MockTrustedRouter`. `TRUSTED_ROUTER` adds another router on top.
@@ -176,7 +178,7 @@ Deployer = Anvil account #0 (local defaults for admin / registry keeper / oracle
 | `ATTESTOR` | Required. Distinct ECDSA attestor. No default — missing value fails the script. |
 | `ADMIN` or `FEE_ESCROW_OWNER` | FeeEscrow + AccessManager admin from genesis (Safe). Not the configurer EOA. |
 | `LP_COMPENSATION_FUND` | Clean / early / default escrow destination. Defaults to the fee-escrow owner, not the deployer. |
-| `COMPLIANCE_RESERVE` | Recovered Blocked (confirmed-illicit) destination. Production MUST set the authority wallet. Local default is a labeled placeholder, never the LP fund. |
+| `COMPLIANCE_RESERVE` | Unused. Recovered Blocked (confirmed-illicit) destination is `ComplianceTreasury` (wired as `FeeEscrow.complianceReserve`), never the LP fund. |
 | `MAX_SCORE_AGE` | Floor B `stalenessThreshold` at deploy. Script default is 5 minutes. If this is 0, the hook constructor falls back to `DEFAULT_STALENESS` (5 minutes). |
 | `REGISTRY_KEEPER` / `ORACLE_KEEPER` / `HOOK_GOVERNOR` / `COMPLIANCE_OFFICER` | Split keys. Deploy verifies they do not overlap. Officer grant is 48h. |
 | `ETH_USD_FEED` / `TOKEN_USD_FEED` | Optional overrides for Chainlink AggregatorV3. Unset → official ETH/USD, USDC/USD, and WETH bindings for the chain. |
@@ -189,7 +191,7 @@ On other chains Deploy binds official Chainlink Data Feeds: ETH/USD on `address(
 
 Writes `contracts/deployments/31337.json` and copies to `packages/sdk/deployments/`.
 
-The CREATE2 address mined by `Deploy.sol` changed versus earlier deploys: the flag bitmask now includes `BEFORE_ADD_LIQUIDITY_FLAG` and `BEFORE_REMOVE_LIQUIDITY_FLAG` in addition to the swap flags. An address mined with the previous bitmask will not match the hook's current permissions.
+The CREATE2 address mined by `Deploy.sol` changed versus earlier deploys: the flag bitmask now includes `BEFORE_ADD_LIQUIDITY_FLAG`, `BEFORE_REMOVE_LIQUIDITY_FLAG`, `AFTER_REMOVE_LIQUIDITY_FLAG`, and `AFTER_REMOVE_LIQUIDITY_RETURNS_DELTA_FLAG` in addition to the swap flags. An address mined with the previous bitmask will not match the hook's current permissions.
 
 ## Boundary
 

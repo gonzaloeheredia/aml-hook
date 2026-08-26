@@ -8,7 +8,9 @@ import {ISanctionRegistry} from "../../interfaces/registries/ISanctionRegistry.s
 import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol";
 import {IRiskPolicy} from "../../interfaces/policies/IRiskPolicy.sol";
 import {IFeeEscrow} from "../../interfaces/escrow/IFeeEscrow.sol";
+import {IComplianceTreasury} from "../../interfaces/treasury/IComplianceTreasury.sol";
 import {HookDecision} from "../../libraries/HookDecision.sol";
+import {LiquidityCache} from "../../libraries/LiquidityCache.sol";
 import {SwapCache} from "../../libraries/SwapCache.sol";
 import {SwapCurrencies} from "../../libraries/SwapCurrencies.sol";
 import {OracleQuote} from "../../libraries/OracleQuote.sol";
@@ -46,6 +48,7 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
     /// @param complianceOracle_   Layer 2 store of COA scores published by the oracle keeper.
     /// @param riskPolicy_         Layer 3 pure decision contract (preview / off-chain use).
     /// @param feeEscrow_          48-hour escrow for FEE_OVERRIDE differentials; `address(0)` disables.
+    /// @param complianceTreasury_ Ledged compliance fund; `address(0)` skips principal credit.
     /// @param stalenessThreshold_ Seconds after which a score is considered stale (Floor B);
     ///        0 → DEFAULT_STALENESS (5 minutes). Off-chain tick is 3 minutes so a healthy
     ///        keeper stays inside this window without re-running the agent.
@@ -55,12 +58,13 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
         IComplianceOracle complianceOracle_,
         IRiskPolicy riskPolicy_,
         IFeeEscrow feeEscrow_,
+        IComplianceTreasury complianceTreasury_,
         uint256 stalenessThreshold_,
         uint64 activityWindow_
     ) external {
         if (_initialized) revert AlreadyInitialized();
         _initialized = true;
-        _initSettlement(feeEscrow_);
+        _initSettlement(feeEscrow_, complianceTreasury_);
         _initGovernance(sanctionRegistry_, complianceOracle_, riskPolicy_, stalenessThreshold_, activityWindow_);
     }
 
@@ -74,8 +78,8 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
     }
 
     /// @notice Returns the Uniswap v4 hook permission bitmap for this hook.
-    /// @dev Enables beforeAddLiquidity, beforeRemoveLiquidity, beforeSwap, afterSwap,
-    ///      afterSwapReturnDelta. All other flags are false.
+    /// @dev Enables beforeAddLiquidity, beforeRemoveLiquidity, afterRemoveLiquidity,
+    ///      afterRemoveLiquidityReturnDelta, beforeSwap, afterSwap, afterSwapReturnDelta.
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: false,
@@ -83,7 +87,7 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
             beforeAddLiquidity: true,
             afterAddLiquidity: false,
             beforeRemoveLiquidity: true,
-            afterRemoveLiquidity: false,
+            afterRemoveLiquidity: true,
             beforeSwap: true,
             afterSwap: true,
             beforeDonate: false,
@@ -91,33 +95,45 @@ contract AmlHook is AmlHookSettlement, AmlHookLogic {
             beforeSwapReturnDelta: false,
             afterSwapReturnDelta: true,
             afterAddLiquidityReturnDelta: false,
-            afterRemoveLiquidityReturnDelta: false
+            afterRemoveLiquidityReturnDelta: true
         });
     }
 
-    /// @dev Rejects paused hook and sanctioned senders. Liquidity providers are not scored.
-    ///      The LP subject is `sender` (no trusted-router lookup).
+    /// @dev L1 + score ≥ 71 block a new deposit. A trusted router reports `msgSender()` as the LP.
     function _beforeAddLiquidity(address sender, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
         internal
-        view
         override
         returns (bytes4)
     {
-        _requireNotPaused();
-        _requireNotSanctioned(sender);
+        _guardAddLiquidity(sender);
         return this.beforeAddLiquidity.selector;
     }
 
-    /// @dev Layer 1 only: a listed wallet cannot extract LP capital (`SanctionHit`).
-    ///      Pause does not run here — a clean LP must still be able to exit (H-1).
-    function _beforeRemoveLiquidity(address sender, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
-        internal
-        view
-        override
-        returns (bytes4)
-    {
-        _requireNotSanctioned(sender);
+    /// @dev L1 or score ≥ 71 → seize after the remove (LP receives 0). Pause does not run (H-1).
+    function _beforeRemoveLiquidity(
+        address sender,
+        PoolKey calldata key,
+        ModifyLiquidityParams calldata,
+        bytes calldata
+    ) internal override returns (bytes4) {
+        (address wallet, bool seize, uint8 score, bool viaRouter) = _evaluateRemoveLiquidity(sender);
+        LiquidityCache.store(key.toId(), wallet, seize, score, viaRouter);
         return this.beforeRemoveLiquidity.selector;
+    }
+
+    /// @dev If the cache says seize, take the full delta: principal → treasury, fees → FeeEscrow.
+    function _afterRemoveLiquidity(
+        address,
+        PoolKey calldata key,
+        ModifyLiquidityParams calldata params,
+        BalanceDelta delta,
+        BalanceDelta feesAccrued,
+        bytes calldata
+    ) internal override nonReentrant returns (bytes4, BalanceDelta) {
+        (address wallet, bool seize,,) = LiquidityCache.load(key.toId());
+        LiquidityCache.clear(key.toId());
+        if (!seize) return (this.afterRemoveLiquidity.selector, BalanceDelta.wrap(0));
+        return (this.afterRemoveLiquidity.selector, _seizeLpExit(wallet, key, params, delta, feesAccrued));
     }
 
     /// @dev Resolves the compliance subject, reads the published COA row, runs L1→L3, and

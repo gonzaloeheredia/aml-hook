@@ -2,6 +2,10 @@
 pragma solidity ^0.8.26;
 
 import {IFeeEscrow} from "../../interfaces/escrow/IFeeEscrow.sol";
+import {ISanctionRegistry} from "../../interfaces/registries/ISanctionRegistry.sol";
+import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol";
+import {IComplianceTreasury} from "../../interfaces/treasury/IComplianceTreasury.sol";
+import {ComplianceBand} from "../../libraries/ComplianceBand.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @dev Minimal ERC-20 surface for fee custody (transfer / transferFrom only).
@@ -76,8 +80,12 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     ///         Compensation for risk already taken on a swap that turned out clean. Never the pool.
     address public lpCompensationFund;
     /// @notice Compliance reserve (whitepaper §2.2 / §8.3). Only destination for a fee confirmed illicit.
-    ///         Never the LP compensation fund, at any point. Production: the authority-controlled wallet.
+    ///         Never the LP compensation fund, at any point. Production: ComplianceTreasury.
     address public complianceReserve;
+    /// @notice Layer 1 list read by Checkpoint 2 / early-release gate. Optional until `setComplianceSources`.
+    ISanctionRegistry public sanctionRegistry;
+    /// @notice Layer 2 store read by Checkpoint 2 / early-release gate. Optional until `setComplianceSources`.
+    IComplianceOracle public complianceOracle;
 
     /// @dev Keepers alone call releaseEarly / resolveCheckpoint2 / releaseDefault.
     mapping(address => bool) public keepers;
@@ -124,6 +132,8 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     error BlockedRecoveryTooEarly();
     error InvalidBlockedRecoveryDelay();
     error DestinationsMustDiffer();
+    /// @notice Early release refused: the wallet is listed or the oracle score is in the REVERT band.
+    error IllicitOnChain(address wallet);
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
@@ -136,6 +146,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     event BlockedRecoveryDelayUpdated(uint64 previous, uint64 current);
     event LpCompensationFundUpdated(address indexed lpCompensationFund);
     event ComplianceReserveUpdated(address indexed complianceReserve);
+    event ComplianceSourcesUpdated(address indexed sanctionRegistry, address indexed complianceOracle);
 
     /// @notice Extra slice deposited for 48 hours (whitepaper §8.3). `swapFingerprint` ties the row to the swap.
     event FeeDeposited(
@@ -273,24 +284,18 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     }
 
     /// @inheritdoc IFeeEscrow
-    /// @notice At 48h: second review. Illicit stays blocked for the file. Clean goes to the LP compensation fund.
-    /// @param illicitConfirmed True when the keeper, after the agent review, confirms a sanction or illicit typology.
-    function resolveCheckpoint2(uint256 escrowId, bool illicitConfirmed) external onlyKeeper nonReentrant {
-        _resolveCheckpoint2(escrowId, illicitConfirmed);
+    /// @notice At 48h: second review. Destination is the on-chain list / oracle row, not a keeper argument.
+    function resolveCheckpoint2(uint256 escrowId) external onlyKeeper nonReentrant {
+        _resolveCheckpoint2(escrowId);
     }
 
     /// @inheritdoc IFeeEscrow
-    /// @notice Checkpoint 2 for many ids; `illicitConfirmed` is parallel to `escrowIds`.
-    function batchResolveCheckpoint2(uint256[] calldata escrowIds, bool[] calldata illicitConfirmed)
-        external
-        onlyKeeper
-        nonReentrant
-    {
+    /// @notice Checkpoint 2 for many ids (same on-chain illicit read).
+    function batchResolveCheckpoint2(uint256[] calldata escrowIds) external onlyKeeper nonReentrant {
         uint256 n = escrowIds.length;
-        if (n != illicitConfirmed.length) revert LengthMismatch();
         if (n > MAX_BATCH_SIZE) revert BatchTooLarge();
         for (uint256 i; i < n; ++i) {
-            _resolveCheckpoint2(escrowIds[i], illicitConfirmed[i]);
+            _resolveCheckpoint2(escrowIds[i]);
         }
     }
 
@@ -512,12 +517,13 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         emit OwnershipTransferred(previous, msg.sender);
     }
 
-    /// @dev 24–48h: LP compensation fund. Early release never blocks.
+    /// @dev 24–48h: LP compensation fund. Refuses if the oracle/list already marks the wallet illicit.
     function _releaseEarly(uint256 escrowId) private {
         EscrowRecord storage rec = _requireActive(escrowId);
         uint256 age = block.timestamp - uint256(rec.depositedAt);
         if (age < uint256(CHECKPOINT1_MIN_AGE)) revert Checkpoint1TooEarly();
         if (age >= uint256(ESCROW_WINDOW)) revert Checkpoint1WindowClosed();
+        if (_isIllicit(rec.wallet)) revert IllicitOnChain(rec.wallet);
 
         rec.status = EscrowStatus.ReleasedEarly;
         address to = lpCompensationFund;
@@ -528,12 +534,12 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         emit FeeReleasedEarly(escrowId, wallet, amount, to);
     }
 
-    /// @dev At 48h: illicit stays here for the file; clean pays the LP compensation fund.
-    function _resolveCheckpoint2(uint256 escrowId, bool illicitConfirmed) private {
+    /// @dev At 48h: on-chain illicit stays here for the file; clean pays the LP compensation fund.
+    function _resolveCheckpoint2(uint256 escrowId) private {
         EscrowRecord storage rec = _requireActive(escrowId);
         _requireWindowElapsed(rec);
 
-        if (illicitConfirmed) {
+        if (_isIllicit(rec.wallet)) {
             rec.status = EscrowStatus.Blocked;
             rec.blockedAt = uint64(block.timestamp);
             emit FeeBlocked(escrowId, rec.wallet, rec.amount);
@@ -542,11 +548,34 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         }
     }
 
-    /// @dev Nobody resolved by 48h: same destination as a clean checkpoint.
+    /// @dev Nobody resolved by 48h. If the oracle/list already marks illicit, block instead of paying LPs.
     function _releaseDefault(uint256 escrowId) private {
         EscrowRecord storage rec = _requireActive(escrowId);
         _requireWindowElapsed(rec);
+        if (_isIllicit(rec.wallet)) {
+            rec.status = EscrowStatus.Blocked;
+            rec.blockedAt = uint64(block.timestamp);
+            emit FeeBlocked(escrowId, rec.wallet, rec.amount);
+            return;
+        }
         _releaseToLpFund(escrowId, rec);
+    }
+
+    /// @dev Layer 1 list or published score ≥ 71. Missing sources → not illicit (clean / default path).
+    function _isIllicit(address wallet) private view returns (bool) {
+        if (address(sanctionRegistry) != address(0) && sanctionRegistry.isSanctioned(wallet)) return true;
+        if (address(complianceOracle) != address(0) && ComplianceBand.isIllicitScore(complianceOracle.getScore(wallet))) {
+            return true;
+        }
+        return false;
+    }
+
+    /// @notice Owner or the one-shot bootstrapper wires the sources Checkpoint 2 reads.
+    function setComplianceSources(ISanctionRegistry registry_, IComplianceOracle oracle_) external {
+        if (msg.sender != owner && msg.sender != bootstrapper) revert NotOwner();
+        sanctionRegistry = registry_;
+        complianceOracle = oracle_;
+        emit ComplianceSourcesUpdated(address(registry_), address(oracle_));
     }
 
     /// @dev Reverts if the 48-hour escrow window has not elapsed for this record.
@@ -577,6 +606,9 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         bytes32 swapFingerprint = rec.swapFingerprint;
         address to = complianceReserve;
         _debitAndTransfer(rec, to, amount);
+        if (to.code.length != 0) {
+            IComplianceTreasury(to).recordIllicitFee(wallet, token, amount, escrowId, swapFingerprint);
+        }
         emit FeeRecovered(escrowId, wallet, to, token, amount, swapFingerprint);
     }
 

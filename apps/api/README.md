@@ -6,7 +6,7 @@ TypeScript API that talks to the local stack. It does not own the ledger. Balanc
 
 **Quotes:** `GET /wallets/:id/quote` and swap settlement call `AmlHook.previewSwap` — the same L1→L3 path `beforeSwap` uses. There is no TypeScript policy fallback.
 
-**FEE_OVERRIDE settlement:** the COA publishes `recommendedFeeBps` as total intended friction. A demo swap is `previewSwap` + `observeSwap` (activity / baseline / `SwapObserved`). On FEE_OVERRIDE the API mints the extra slice and calls `FeeEscrow.deposit`. That is not a live Uniswap `PoolManager` fill. A later clean exit goes to the LP compensation fund. A confirmed-illicit row is recovered to the compliance reserve only (whitepaper §8.3).
+**FEE_OVERRIDE settlement:** the COA publishes `recommendedFeeBps` as total intended friction. A demo swap is `previewSwap` + `observeSwap` (activity / baseline / `SwapObserved`). On FEE_OVERRIDE the API mints the extra slice and calls `FeeEscrow.deposit`. That is not a live Uniswap `PoolManager` fill. A later clean exit goes to the LP compensation fund. Checkpoint 2 reads the on-chain list and oracle (score ≥ 71). A confirmed-illicit row is recovered to ComplianceTreasury `ILLICIT_RISK_FEE` only (whitepaper §8.3).
 
 The keeper writes when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band changes, **or** on a 3-minute heartbeat (same score, new `updatedAt`), **or** when the last write is at least as old as Floor B (`STALENESS_MS` = 5 minutes). That freshness stamp stops a stable clean wallet from looking stale. Floor B: stale + no swap yet this hour → 3%; stale + prior activity → pass / 3% / 8% by swap+window USD. `updateScore` is signed by Anvil **#9** (attestor) over `attestationHash`. An empty signature is rejected.
 
@@ -52,7 +52,7 @@ Restart the API after every `deploy:local` so it loads `.env.local`.
 | `POST` | `/demo/elapse` | `evm_increaseTime` + `evm_mine` (`{ seconds: 301 }` → Floor B) |
 | `POST` | `/demo/price-feed` | Bind / unbind USDC/USD (`{ bound: false }` → silent `lastFx` if quoted in the last 30 min; `PriceFallbackUsed` until 24h after that; else `MagnitudeQuoteFailed`) |
 | `GET` | `/escrow` | Live FeeEscrow rows |
-| `POST` | `/escrow/:id/checkpoint2` | Checkpoint 2 illicit → Blocked |
+| `POST` | `/escrow/:id/checkpoint2` | Checkpoint 2 reads oracle/list (no keeper bool) |
 | `POST` | `/escrow/:id/recover` | Recover Blocked → compliance reserve |
 | `GET` | `/transfers` | Transfer history |
 | `GET` | `/events` | Hook trail (`SwapObserved` / blocked) |
@@ -134,7 +134,7 @@ cd apps/api
 npm run dev
 ```
 
-`.env.local` (from `scripts/sync-deployment.mjs`) sets RPC, hook, oracle, FeeEscrow, fee token, feeds, `KEEPER_PRIVATE_KEY` (Anvil **#0**), and `ATTESTOR_PRIVATE_KEY` (Anvil **#9**).
+`.env.local` (from `scripts/sync-deployment.mjs`) sets RPC, hook, oracle, FeeEscrow, fee token, feeds, `COMPLIANCE_TREASURY_ADDRESS` / `COMPLIANCE_RESERVE` / `LP_COMPENSATION_FUND`, `KEEPER_PRIVATE_KEY` (Anvil **#0**), and `ATTESTOR_PRIVATE_KEY` (Anvil **#9**).
 
 | Account | Role |
 |---|---|

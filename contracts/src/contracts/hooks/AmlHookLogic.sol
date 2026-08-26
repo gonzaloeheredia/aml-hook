@@ -6,6 +6,7 @@ import {AmlHookActivity} from "./AmlHookActivity.sol";
 import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol";
 import {IRiskPolicy} from "../../interfaces/policies/IRiskPolicy.sol";
 import {IERC20Minimal} from "../../interfaces/external/IERC20Minimal.sol";
+import {ComplianceBand} from "../../libraries/ComplianceBand.sol";
 import {HookDecision} from "../../libraries/HookDecision.sol";
 import {Inflow} from "../../libraries/Inflow.sol";
 import {OracleQuote} from "../../libraries/OracleQuote.sol";
@@ -57,6 +58,16 @@ abstract contract AmlHookLogic is AmlHookActivity {
     /// @param deltaBps  Inflow share in bps relative to current balance.
     /// @param timestamp Block timestamp at detection.
     event InflowHeuristicTriggered(address indexed wallet, uint256 deltaBps, uint256 timestamp);
+    /// @notice LP subject after router `msgSender()` or the direct sender.
+    event LiquiditySubjectResolved(address indexed sender, address indexed subject, bool viaTrustedRouter);
+    /// @notice L1→L3 outcome on add or remove. `seized` is only meaningful on remove.
+    event LiquidityObserved(
+        address indexed wallet,
+        uint8 score,
+        HookDecision decision,
+        bool seized,
+        bool viaTrustedRouter
+    );
 
     /// @dev USD quote pair for the volume token and the input token (may share an instance when equal).
     struct QuoteCtx {
@@ -199,6 +210,41 @@ abstract contract AmlHookLogic is AmlHookActivity {
 
     function _requireNotSanctioned(address wallet) internal view {
         if (sanctionRegistry.isSanctioned(wallet)) revert SanctionHit(wallet);
+    }
+
+    /// @dev Trusted router → `msgSender()`. Direct caller → `sender`. Emits `LiquiditySubjectResolved`.
+    function _resolveLp(address sender) internal returns (address wallet, bool viaTrustedRouter) {
+        (wallet, viaTrustedRouter) =
+            WalletSubject.resolveLp(sender, trustedRouters, trustedMultisigs, sanctionRegistry, multisigAggregation);
+        emit LiquiditySubjectResolved(sender, wallet, viaTrustedRouter);
+    }
+
+    /// @dev Add path: pause + L1 (subject or Safe owners) + score ≥ 71. FEE_OVERRIDE still allows the mint.
+    function _guardAddLiquidity(address sender) internal {
+        _requireNotPaused();
+        (address wallet, bool viaRouter) = _resolveLp(sender);
+        address hit = WalletSubject.layer1Hit(wallet, trustedMultisigs, sanctionRegistry, multisigAggregation);
+        if (hit != address(0)) revert SanctionHit(hit);
+        IComplianceOracle.WalletRisk memory risk = complianceOracle.getRisk(wallet);
+        if (ComplianceBand.isIllicitScore(risk.score)) {
+            revert WalletBlocked(wallet, risk.score, "SCORE_REVERT_BAND");
+        }
+        emit LiquidityObserved(wallet, risk.score, HookDecision.ALLOW, false, viaRouter);
+    }
+
+    /// @dev Remove path: no pause. L1 or score ≥ 71 → seize (do not revert). Floors do not freeze an exit.
+    function _evaluateRemoveLiquidity(address sender)
+        internal
+        returns (address wallet, bool seize, uint8 score, bool viaRouter)
+    {
+        (wallet, viaRouter) = _resolveLp(sender);
+        address hit = WalletSubject.layer1Hit(wallet, trustedMultisigs, sanctionRegistry, multisigAggregation);
+        IComplianceOracle.WalletRisk memory risk = complianceOracle.getRisk(wallet);
+        score = risk.score;
+        seize = hit != address(0) || ComplianceBand.isIllicitScore(score);
+        emit LiquidityObserved(
+            wallet, score, seize ? HookDecision.REVERT : HookDecision.ALLOW, seize, viaRouter
+        );
     }
 
     function _evaluate(address wallet, address token, address volumeToken, uint256 amount, uint256 poolImpactBps)

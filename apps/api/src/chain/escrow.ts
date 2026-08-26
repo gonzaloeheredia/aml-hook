@@ -114,10 +114,7 @@ export async function listEscrows(): Promise<EscrowRow[]> {
   return rows;
 }
 
-export async function resolveCheckpoint2(
-  escrowId: number,
-  illicitConfirmed: boolean,
-): Promise<Hex> {
+export async function resolveCheckpoint2(escrowId: number): Promise<Hex> {
   await requireChain();
   const cfg = getChainConfig();
   const { account, client } = keeperWallet();
@@ -125,7 +122,7 @@ export async function resolveCheckpoint2(
     address: cfg.escrow,
     abi: escrowAbi,
     functionName: "resolveCheckpoint2",
-    args: [BigInt(escrowId), illicitConfirmed],
+    args: [BigInt(escrowId)],
     account,
     chain: client.chain,
   });

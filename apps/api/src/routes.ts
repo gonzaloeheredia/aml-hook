@@ -461,7 +461,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     async (req, reply) => {
       try {
         const id = Number(req.params.id);
-        const hash = await resolveCheckpoint2(id, req.body?.illicit !== false);
+        const hash = await resolveCheckpoint2(id);
         return { ok: true, txHash: hash, rows: await listEscrows() };
       } catch (err) {
         return sendChainError(reply, err);

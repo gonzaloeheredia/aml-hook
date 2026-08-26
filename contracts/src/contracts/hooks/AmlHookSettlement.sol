@@ -5,12 +5,14 @@ import {BaseHook} from "v4-periphery/src/utils/BaseHook.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {IFeeEscrow} from "../../interfaces/escrow/IFeeEscrow.sol";
+import {IComplianceTreasury} from "../../interfaces/treasury/IComplianceTreasury.sol";
 import {FeeBps} from "../../libraries/FeeBps.sol";
 
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
-import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
+import {ModifyLiquidityParams, SwapParams} from "v4-core/src/types/PoolOperation.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 
 /// @dev Minimal ERC-20 surface for approving FeeEscrow.deposit's transferFrom.
@@ -24,11 +26,16 @@ interface IERC20Approve {
 /// @dev Compliance decisions live in `AmlHookLogic`. Fee *math* lives in `FeeBps`.
 ///      This contract only moves the already-decided differential into escrow.
 abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
+    using PoolIdLibrary for PoolKey;
     /// @notice Pool base fee in bps (0.30%) — left to the PoolManager; not overridden.
     uint24 public constant STANDARD_FEE_BPS = FeeBps.STANDARD;
 
     /// @notice Escrow for FEE_OVERRIDE differential fees (§3.7). address(0) disables take/deposit.
     IFeeEscrow public feeEscrow;
+    /// @notice Ledged compliance fund. address(0) skips principal credit (seize still takes the LP delta).
+    IComplianceTreasury public complianceTreasury;
+    /// @notice Next seize id assigned on a blocked LP exit (starts at 1).
+    uint256 public nextSeizeId = 1;
 
     /// @notice Emitted when the risk differential was taken and deposited into FeeEscrow.
     event RiskFeeEscrowed(
@@ -43,6 +50,17 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
     event FailedDepositClaimed(address indexed wallet, address indexed token, uint256 amount);
     event FailedDepositRetried(
         address indexed wallet, address indexed token, uint256 amount, uint256 escrowId
+    );
+    /// @notice Blocked LP exit: the LP received nothing. Principal → treasury; fees → FeeEscrow.
+    event LpExitSeized(
+        uint256 indexed seizeId,
+        address indexed wallet,
+        bytes32 poolId,
+        bytes32 positionKey,
+        uint256 principal0,
+        uint256 principal1,
+        uint256 fee0,
+        uint256 fee1
     );
 
     error FeeTransferFailed();
@@ -67,9 +85,77 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
     /// @param poolManager_ Uniswap v4 PoolManager (BaseHook).
     constructor(IPoolManager poolManager_) BaseHook(poolManager_) {}
 
-    /// @dev Called once by AmlHook.initialize. Sets the FeeEscrow address.
-    function _initSettlement(IFeeEscrow feeEscrow_) internal {
+    /// @dev Called once by AmlHook.initialize. Sets FeeEscrow and the compliance treasury.
+    function _initSettlement(IFeeEscrow feeEscrow_, IComplianceTreasury treasury_) internal {
         feeEscrow = feeEscrow_;
+        complianceTreasury = treasury_;
+    }
+
+    /// @dev Take the full remove delta so the LP gets 0. Principal → treasury. Fees → FeeEscrow Active.
+    function _seizeLpExit(
+        address wallet,
+        PoolKey calldata key,
+        ModifyLiquidityParams calldata params,
+        BalanceDelta delta,
+        BalanceDelta feesAccrued
+    ) internal returns (BalanceDelta hookDelta) {
+        uint256 fee0 = _pos(feesAccrued.amount0());
+        uint256 fee1 = _pos(feesAccrued.amount1());
+        uint256 out0 = _pos(delta.amount0());
+        uint256 out1 = _pos(delta.amount1());
+        uint256 prin0 = out0 > fee0 ? out0 - fee0 : 0;
+        uint256 prin1 = out1 > fee1 ? out1 - fee1 : 0;
+
+        if (out0 > 0) poolManager.take(key.currency0, address(this), out0);
+        if (out1 > 0) poolManager.take(key.currency1, address(this), out1);
+
+        uint256 seizeId = nextSeizeId++;
+        bytes32 poolId = PoolId.unwrap(key.toId());
+        bytes32 positionKey = keccak256(abi.encode(params.tickLower, params.tickUpper, params.salt));
+        emit LpExitSeized(seizeId, wallet, poolId, positionKey, prin0, prin1, fee0, fee1);
+
+        _postPrincipal(wallet, Currency.unwrap(key.currency0), prin0, seizeId, poolId, positionKey);
+        _postPrincipal(wallet, Currency.unwrap(key.currency1), prin1, seizeId, poolId, positionKey);
+        _escrowSeizedFee(wallet, Currency.unwrap(key.currency0), fee0);
+        _escrowSeizedFee(wallet, Currency.unwrap(key.currency1), fee1);
+        hookDelta = delta;
+    }
+
+    function _postPrincipal(
+        address wallet,
+        address token,
+        uint256 amount,
+        uint256 seizeId,
+        bytes32 poolId,
+        bytes32 positionKey
+    ) private {
+        if (amount == 0 || token == address(0) || address(complianceTreasury) == address(0)) return;
+        _approve(token, address(complianceTreasury), amount);
+        complianceTreasury.creditPrincipal(wallet, token, amount, seizeId, poolId, positionKey);
+    }
+
+    function _escrowSeizedFee(address wallet, address token, uint256 amount) private {
+        if (amount == 0 || token == address(0) || address(feeEscrow) == address(0)) return;
+        if (!feeEscrow.allowedFeeTokens(token)) {
+            _recordFailedDeposit(wallet, token, amount, 0);
+            return;
+        }
+        bytes32 fingerprint = _buildFingerprint(wallet, token, amount);
+        _approve(token, address(feeEscrow), amount);
+        try feeEscrow.deposit(wallet, token, fingerprint, amount) returns (uint256 escrowId) {
+            emit RiskFeeEscrowed(wallet, token, amount, escrowId, 0);
+        } catch {
+            _recordFailedDeposit(wallet, token, amount, 0);
+        }
+    }
+
+    function _pos(int128 amount) private pure returns (uint256) {
+        return amount > 0 ? uint256(uint128(amount)) : 0;
+    }
+
+    function _approve(address token, address spender, uint256 amount) private {
+        if (!IERC20Approve(token).approve(spender, 0)) revert FeeApproveFailed();
+        if (!IERC20Approve(token).approve(spender, amount)) revert FeeApproveFailed();
     }
 
     /// @dev Take differential risk fee from the swap and deposit into FeeEscrow.

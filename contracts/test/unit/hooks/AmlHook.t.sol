@@ -64,8 +64,9 @@ contract UnitAmlHookTest is Helpers {
         assertTrue(p.afterSwapReturnDelta);
         assertTrue(p.beforeAddLiquidity);
         assertTrue(p.beforeRemoveLiquidity);
+        assertTrue(p.afterRemoveLiquidity);
+        assertTrue(p.afterRemoveLiquidityReturnDelta);
         assertFalse(p.afterAddLiquidity);
-        assertFalse(p.afterRemoveLiquidity);
         assertFalse(p.beforeInitialize);
         assertEq(hook.STANDARD_FEE_BPS(), 30);
         assertEq(address(hook.feeEscrow()), address(0));

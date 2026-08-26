@@ -5,6 +5,7 @@ Mirrors `src/` so each production surface has a matching unit folder:
 ```
 src/contracts/                  test/unit/
 ├── escrow/                     ├── escrow/
+├── treasury/                   ├── treasury/
 ├── external/                   ├── external/
 ├── hooks/                      ├── hooks/
 ├── oracles/                    ├── oracles/
@@ -17,7 +18,8 @@ script/                         test/unit/script/
 
 | Folder | Covers |
 |---|---|
-| `unit/escrow/` | `FeeEscrow` lifecycle + admin + fuzz (clean default → LP fund; blocked recover → reserve) |
+| `unit/escrow/` | `FeeEscrow` lifecycle + admin + fuzz (Checkpoint 2 reads oracle/list; clean default → LP fund; blocked recover → treasury `ILLICIT_RISK_FEE`) |
+| `unit/treasury/` | `ComplianceTreasury` two-account ledger (`LP_PRINCIPAL` vs `ILLICIT_RISK_FEE`) |
 | `unit/external/` | Official `v4-periphery` BaseHook gating / `HookNotImplemented` |
 | `unit/hooks/` | `AmlHook`, `AmlHookLogic` (incl. 30-minute hot `lastFx` skip, one Chainlink read per token when the cache is older, 24h fallback, missing-feed fail-closed, three never-scored bands), resolve-wallet, FeeEscrow take path, afterSwap cache. `AmlHookLogic.Admin` covers constructor defaults, pause, governor setters. `AmlHookLogic.Fuzz` matches `evaluate` to `RiskPolicy.decide` (published score, never-scored USD, Floor B/C). `AmlHookLogic.ComplianceParams` covers `_COMPLIANCE_OFFICER` propose / 48h confirm, FATF $1,000 floor, pair ordering, and live fees / USD / pool-impact flowing into `evaluate`. |
 | `unit/oracles/` | `ComplianceOracle` (fuzz + role isolation + attestation hash binding) |
@@ -25,7 +27,7 @@ script/                         test/unit/script/
 | `unit/registries/` | `SanctionRegistry` (fuzz + isolation + commit-reveal) |
 | `unit/libraries/` | `Roles` + `HookDecision` ordinals + `FeeBps` / `UsdQuote` / `PoolImpact` / `ChainlinkFeeds` / `UniversalRouters` (unit + fuzz). `SwapCache` EIP-1153 beforeSwap → afterSwap snapshot. `ChainlinkFeeds.t.sol` live quote if `MAINNET_RPC_URL` is set. |
 | `unit/script/` | `Deploy.sol` AccessManager wiring (four roles, officer 48h, Chainlink vs `MockUsdFeed`) |
-| `integration/` | Full stack evaluate path (A/B/C bands) plus compliance-officer retune of USD / floor fees. `AmlStack.Relations` covers L1→L2→L3→hook→FeeEscrow, role isolation, Floor B/C vs policy. Liquidity ignores the score; add and remove still screen `SanctionRegistry`. |
+| `integration/` | Full stack evaluate path (A/B/C bands) plus compliance-officer retune of USD / floor fees. `AmlStack.Relations` covers L1→L2→L3→hook→FeeEscrow, role isolation, Floor B/C vs policy. Liquidity add/remove screen L1 and score ≥ 71; a blocked remove seizes principal and fees. |
 | `utils/` | Shared fixtures (`Helpers`, `HookPoolManagerStub`) |
 | `mocks/` | Test-only ERC-20s + `MockAggregatorV3` (Chainlink stand-in) |
 
