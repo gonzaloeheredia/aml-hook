@@ -14,14 +14,18 @@ interface IERC20Fee {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
 }
 
-/// @title FeeEscrow — 48-hour hold of the extra risk fee (whitepaper §8.3)
-/// @notice Holds only the extra slice on a fee-override. Not the swap output. User capital settles in the same block.
+/// @title FeeEscrow — 48-hour hold of extra risk fees and seized LP principal (whitepaper §8.3)
+/// @notice Holds the extra slice on a fee-override, an LP-add risk fee, and seized LP
+///         principal / `feesAccrued`. Not the swap output. User capital on a swap settles
+///         in the same block. A blocked LP exit waits here 48 hours.
 ///
 /// @dev Whitepaper §2.2 and §8.3, in this contract.
 ///
 ///      On score 31–70 the pool keeps its standard LP fee. After the swap, only the extra
-///      slice is taken and deposited here for 48 hours. That slice is the price of letting
-///      a medium-risk swap settle. It belongs in FeeEscrow, not in the pool.
+///      slice is taken and deposited here for 48 hours (`EscrowKind.RiskFee`). An LP add
+///      in the 31–70 or never-scored fee band deposits the **full** 3%/8% override, not
+///      the swap differential. A blocked remove deposits principal (`LpPrincipal`) and
+///      fees (`RiskFee`) separately.
 ///
 ///      Sending the extra fee to LPs on the same swap would pay them with funds that may
 ///      still be illicit. That would make them instruments of money launderers.
@@ -30,24 +34,25 @@ interface IERC20Fee {
 ///      contract. A dedicated escrow keeper submits the on-chain call after a sanity
 ///      check on the agent output.
 ///
-///        Moment                         Action                         Destination
+///        Moment                         RiskFee                         LpPrincipal
 ///        ────────────────────────────   ────────────────────────────   ─────────────────────────
-///        0–24h                          Optional review                Still held
-///        24–48h                         Early release                  LP compensation fund
-///        At 48h, illicit confirmed      Block                          Stays here for the file;
-///                                                                      then compliance reserve
-///        At 48h, not illicit            Release                        LP compensation fund
-///        Nobody resolved by 48h         Default release                LP compensation fund
+///        0–24h                          Optional review                Same hold
+///        24–48h                         Early → LP compensation fund   Early → LP wallet
+///        At 48h, illicit confirmed      Block; later tesorería         Block; later tesorería
+///                                       `ILLICIT_RISK_FEE`             `LP_PRINCIPAL`
+///        At 48h, not illicit            LP compensation fund           LP wallet
+///        Nobody resolved by 48h         LP compensation fund           LP wallet
 ///
-///      Two destinations, and they cannot be the same address. Every clean exit — early
-///      release, clean checkpoint, or default — goes to the LP compensation fund. A
-///      confirmed-illicit row stays blocked while the operator produces the file. Then
-///      the escrow owner (a Safe in production) recovers it after at least 7 days, only
-///      to the compliance reserve. After the full delay (default 90 days) anyone may
-///      send an expired blocked row to that same reserve. Never the LP fund. Never the pool.
+///      Two destinations, and they cannot be the same address. Every clean **risk-fee**
+///      exit — early release, clean checkpoint, or default — goes to the LP compensation
+///      fund. A clean **principal** row pays the LP wallet. A confirmed-illicit row stays
+///      blocked while the operator produces the file. Then the escrow owner (a Safe in
+///      production) recovers it after at least 7 days, only to ComplianceTreasury, booked
+///      by kind. After the full delay (default 90 days) anyone may send an expired blocked
+///      row to that same reserve. Never the pool.
 ///
 ///      `FeeRecovered` records destination, token, amount, wallet, and the originating
-///      swap fingerprint so the movement is auditable against the fee-override transaction.
+///      fingerprint so the movement is auditable against the fee-override or seized exit.
 ///
 ///      FeeEscrow has its own owner, keeper, depositor, and auditor — not the shared
 ///      AccessManager. Ownership is two-step and starts as the admin or a dedicated
@@ -259,7 +264,38 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
             depositedAt: ts,
             swapFingerprint: swapFingerprint,
             status: EscrowStatus.Active,
-            blockedAt: 0
+            blockedAt: 0,
+            kind: EscrowKind.RiskFee
+        });
+        balances[wallet][token] += amount;
+
+        emit FeeDeposited(escrowId, wallet, amount, ts, swapFingerprint);
+    }
+
+    /// @inheritdoc IFeeEscrow
+    function deposit(address wallet, address token, bytes32 swapFingerprint, uint256 amount, EscrowKind kind)
+        external
+        onlyDepositor
+        nonReentrant
+        returns (uint256 escrowId)
+    {
+        if (wallet == address(0) || token == address(0)) revert ZeroAddress();
+        if (amount == 0) revert ZeroAmount();
+        if (!allowedFeeTokens[token]) revert FeeTokenNotAllowed();
+
+        if (!IERC20Fee(token).transferFrom(msg.sender, address(this), amount)) revert TransferFailed();
+
+        escrowId = nextEscrowId++;
+        uint64 ts = uint64(block.timestamp);
+        _escrows[escrowId] = EscrowRecord({
+            wallet: wallet,
+            token: token,
+            amount: amount,
+            depositedAt: ts,
+            swapFingerprint: swapFingerprint,
+            status: EscrowStatus.Active,
+            blockedAt: 0,
+            kind: kind
         });
         balances[wallet][token] += amount;
 
@@ -335,7 +371,8 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
             uint64 depositedAt,
             bytes32 swapFingerprint,
             EscrowStatus status,
-            uint64 blockedAt
+            uint64 blockedAt,
+            EscrowKind kind
         )
     {
         if (escrowId == 0 || escrowId >= nextEscrowId) revert UnknownEscrow();
@@ -352,7 +389,8 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
             uint64 depositedAt,
             bytes32 swapFingerprint,
             EscrowStatus status,
-            uint64 blockedAt
+            uint64 blockedAt,
+            EscrowKind kind
         )
     {
         return (
@@ -362,7 +400,8 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
             rec.depositedAt,
             rec.swapFingerprint,
             rec.status,
-            rec.blockedAt
+            rec.blockedAt,
+            rec.kind
         );
     }
 
@@ -526,7 +565,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         if (_isIllicit(rec.wallet)) revert IllicitOnChain(rec.wallet);
 
         rec.status = EscrowStatus.ReleasedEarly;
-        address to = lpCompensationFund;
+        address to = rec.kind == EscrowKind.LpPrincipal ? rec.wallet : lpCompensationFund;
         uint256 amount = rec.amount;
         address wallet = rec.wallet;
 
@@ -590,7 +629,7 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
     function _releaseToLpFund(uint256 escrowId, EscrowRecord storage rec) private {
         address wallet = rec.wallet;
         uint256 amount = rec.amount;
-        address to = lpCompensationFund;
+        address to = rec.kind == EscrowKind.LpPrincipal ? rec.wallet : lpCompensationFund;
         rec.status = EscrowStatus.ReleasedDefault;
         _debitAndTransfer(rec, to, amount);
         emit FeeReleasedDefault(escrowId, wallet, amount, to);
@@ -607,7 +646,11 @@ contract FeeEscrow is IFeeEscrow, ReentrancyGuard {
         address to = complianceReserve;
         _debitAndTransfer(rec, to, amount);
         if (to.code.length != 0) {
-            IComplianceTreasury(to).recordIllicitFee(wallet, token, amount, escrowId, swapFingerprint);
+            if (rec.kind == EscrowKind.LpPrincipal) {
+                IComplianceTreasury(to).recordSeizedPrincipal(wallet, token, amount, escrowId, swapFingerprint);
+            } else {
+                IComplianceTreasury(to).recordIllicitFee(wallet, token, amount, escrowId, swapFingerprint);
+            }
         }
         emit FeeRecovered(escrowId, wallet, to, token, amount, swapFingerprint);
     }

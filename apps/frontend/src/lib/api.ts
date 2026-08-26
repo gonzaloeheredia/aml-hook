@@ -289,6 +289,7 @@ export type ApiEscrowRow = {
   depositedAt: number;
   swapFingerprint: string;
   status: string;
+  kind?: "RiskFee" | "LpPrincipal";
   blockedAt: number;
 };
 

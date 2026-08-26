@@ -138,6 +138,11 @@ library RiskPolicyLib {
         return 0;
     }
 
+    /// @notice Published COA fee when usable; else 8% (≥ 55) or 3% (31–54). Used by swap L3 and the LP module.
+    function overrideFeeBps(IRiskPolicy.DecisionInput memory in_) internal pure returns (uint24) {
+        return _resolveOverrideFee(in_);
+    }
+
     /// @dev Prefer COA `recommendedFeeBps` published by the keeper when 0 < fee ≤ `MAX_OVERRIDE`; else punitive (≥ 55) or proportional.
     function _resolveOverrideFee(IRiskPolicy.DecisionInput memory in_) private pure returns (uint24) {
         if (in_.recommendedFeeBps > 0 && in_.recommendedFeeBps <= FeeBps.MAX_OVERRIDE) {

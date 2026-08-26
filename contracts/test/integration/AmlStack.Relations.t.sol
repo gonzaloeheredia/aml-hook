@@ -316,14 +316,16 @@ contract IntegrationAmlStackRelationsTest is Helpers {
         assertEq(fee, 300);
     }
 
-    function test_LiquidityGateIgnoresScore_OnlySanctions() external {
+    function test_LiquidityGateBlocksScoreRevertBandAndSanctions() external {
         vm.prank(oracleKeeper);
         complianceOracle.updateScore(walletA, 100, 0, walletA, 0, _scoreSig(walletA, 100, 0, walletA, 0));
 
-        bytes4 sel = manager.callBeforeAddLiquidity(
+        vm.expectRevert(
+            abi.encodeWithSelector(AmlHookLogic.WalletBlocked.selector, walletA, uint8(100), "SCORE_REVERT_BAND")
+        );
+        manager.callBeforeAddLiquidity(
             IHooks(address(hook)), walletA, key, _buildLiquidityParams(int256(1e18)), ""
         );
-        assertEq(sel, hook.beforeAddLiquidity.selector);
 
         vm.expectRevert(
             abi.encodeWithSelector(AmlHookLogic.WalletBlocked.selector, walletA, uint8(100), "SCORE_REVERT_BAND")

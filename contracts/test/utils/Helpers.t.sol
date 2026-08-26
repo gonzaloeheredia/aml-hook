@@ -96,6 +96,18 @@ contract HookPoolManagerStub {
     ) external returns (bytes4, BalanceDelta) {
         return hook.afterRemoveLiquidity(sender, key, params, delta, feesAccrued, hookData);
     }
+
+    function callAfterAddLiquidity(
+        IHooks hook,
+        address sender,
+        PoolKey calldata key,
+        ModifyLiquidityParams calldata params,
+        BalanceDelta delta,
+        BalanceDelta feesAccrued,
+        bytes calldata hookData
+    ) external returns (bytes4, BalanceDelta) {
+        return hook.afterAddLiquidity(sender, key, params, delta, feesAccrued, hookData);
+    }
 }
 
 /**
@@ -176,7 +188,8 @@ contract Helpers is HelpersCore {
         address flags = address(
             uint160(
                 Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
-                    | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+                    | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.AFTER_ADD_LIQUIDITY_FLAG
+                    | Hooks.AFTER_ADD_LIQUIDITY_RETURNS_DELTA_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
                     | Hooks.AFTER_REMOVE_LIQUIDITY_FLAG | Hooks.AFTER_REMOVE_LIQUIDITY_RETURNS_DELTA_FLAG
             )
         );

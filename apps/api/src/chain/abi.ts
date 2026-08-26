@@ -325,6 +325,7 @@ export const escrowAbi = [
           { name: "swapFingerprint", type: "bytes32" },
           { name: "status", type: "uint8" },
           { name: "blockedAt", type: "uint64" },
+          { name: "kind", type: "uint8" },
         ],
       },
     ],

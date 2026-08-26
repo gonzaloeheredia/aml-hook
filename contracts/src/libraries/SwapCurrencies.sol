@@ -54,6 +54,24 @@ library SwapCurrencies {
         return PoolImpact.impactBps(abs(params.amountSpecified), reserve);
     }
 
+    /// @notice Pool-impact of an LP add in bps: max(token0, token1) vs active-tick virtual reserve.
+    /// @dev Same Floor A extra as a never-scored swap. `delta` is the add delta (negative = tokens in).
+    function addImpactBps(IPoolManager poolManager, PoolKey calldata key, BalanceDelta delta)
+        internal
+        view
+        returns (uint256)
+    {
+        uint128 liquidity = StateLibrary.getLiquidity(poolManager, key.toId());
+        (uint160 sqrtPriceX96,,,) = StateLibrary.getSlot0(poolManager, key.toId());
+        uint256 i0 = PoolImpact.impactBps(
+            abs(int256(delta.amount0())), PoolImpact.virtualReserve(liquidity, sqrtPriceX96, true)
+        );
+        uint256 i1 = PoolImpact.impactBps(
+            abs(int256(delta.amount1())), PoolImpact.virtualReserve(liquidity, sqrtPriceX96, false)
+        );
+        return i0 > i1 ? i0 : i1;
+    }
+
     /// @notice Native-unit settled amount of the specified currency after the swap.
     /// @dev Read from `delta` in `afterSwap`; used to record the actual volume (not the requested amount).
     function settledSpecified(PoolKey calldata, SwapParams calldata params, BalanceDelta delta)

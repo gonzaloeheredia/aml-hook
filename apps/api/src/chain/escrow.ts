@@ -1,6 +1,7 @@
 /**
  * FeeEscrow adapter: deposit the extra slice, list rows, checkpoint 2, recover.
- * Confirmed-illicit recovery goes to complianceReserve only.
+ * Confirmed-illicit recovery goes to complianceReserve, booked by kind
+ * (ILLICIT_RISK_FEE vs LP_PRINCIPAL). Clean principal returns to the LP wallet.
  */
 
 import type { Address, Hex } from "viem";
@@ -19,6 +20,8 @@ const STATUS = [
   "Recovered",
 ] as const;
 
+const KIND = ["RiskFee", "LpPrincipal"] as const;
+
 export type EscrowRow = {
   id: number;
   wallet: Address;
@@ -29,6 +32,7 @@ export type EscrowRow = {
   depositedAt: number;
   swapFingerprint: Hex;
   status: (typeof STATUS)[number];
+  kind: (typeof KIND)[number];
   blockedAt: number;
 };
 
@@ -108,6 +112,7 @@ export async function listEscrows(): Promise<EscrowRow[]> {
       depositedAt: Number(rec.depositedAt),
       swapFingerprint: rec.swapFingerprint,
       status: STATUS[Number(rec.status)] ?? "Active",
+      kind: KIND[Number(rec.kind)] ?? "RiskFee",
       blockedAt: Number(rec.blockedAt),
     });
   }

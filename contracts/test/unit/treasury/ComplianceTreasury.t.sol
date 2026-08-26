@@ -67,4 +67,11 @@ contract UnitComplianceTreasuryTest is HelpersCore {
         vm.expectRevert(ComplianceTreasury.NotEscrow.selector);
         treasury.recordIllicitFee(walletA, address(token), 1, 1, bytes32(0));
     }
+
+    function test_RecordSeizedPrincipal_BooksLpPrincipalOnly() external {
+        token.mint(address(treasury), 3 ether);
+        treasury.recordSeizedPrincipal(walletA, address(token), 3 ether, 4, bytes32(uint256(5)));
+        assertEq(treasury.balances(IComplianceTreasury.Account.LP_PRINCIPAL, address(token)), 3 ether);
+        assertEq(treasury.balances(IComplianceTreasury.Account.ILLICIT_RISK_FEE, address(token)), 0);
+    }
 }

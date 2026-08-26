@@ -927,7 +927,7 @@ contract UnitFeeEscrowTest is HelpersCore {
 
     function test_GetEscrowPublic_HashesWallet() external {
         uint256 id = _deposit(2 ether);
-        (bytes32 walletHash, address recToken, uint256 amount, uint64 depositedAt, bytes32 fingerprint, IFeeEscrow.EscrowStatus status,)
+        (bytes32 walletHash, address recToken, uint256 amount, uint64 depositedAt, bytes32 fingerprint, IFeeEscrow.EscrowStatus status,,)
             = escrow.getEscrowPublic(id);
 
         assertEq(walletHash, keccak256(abi.encodePacked(walletA)));
@@ -1062,8 +1062,38 @@ contract UnitFeeEscrowTest is HelpersCore {
         vm.prank(depositor);
         uint256 id = escrow.deposit(wallet, address(token), fingerprint, amount);
 
-        (bytes32 walletHash,,,,,,) = escrow.getEscrowPublic(id);
+        (bytes32 walletHash,,,,,,,) = escrow.getEscrowPublic(id);
         assertEq(walletHash, keccak256(abi.encodePacked(wallet)));
         assertEq(escrow.getEscrow(id).wallet, wallet);
+    }
+
+    function test_PrincipalKind_CleanCheckpointPaysWallet() external {
+        uint256 amount = 5 ether;
+        vm.prank(depositor);
+        uint256 id = escrow.deposit(walletA, address(token), ORIGIN_TX, amount, IFeeEscrow.EscrowKind.LpPrincipal);
+        vm.warp(block.timestamp + 48 hours);
+        uint256 before = token.balanceOf(walletA);
+        vm.prank(keeper);
+        escrow.resolveCheckpoint2(id);
+        assertEq(token.balanceOf(walletA), before + amount);
+        assertEq(token.balanceOf(fund), 0);
+        assertEq(uint8(escrow.getEscrow(id).status), uint8(IFeeEscrow.EscrowStatus.ReleasedDefault));
+    }
+
+    function test_PrincipalKind_IllicitRecoverPaysReserveNotFund() external {
+        uint256 amount = 5 ether;
+        vm.prank(depositor);
+        uint256 id = escrow.deposit(walletA, address(token), ORIGIN_TX, amount, IFeeEscrow.EscrowKind.LpPrincipal);
+        vm.warp(block.timestamp + 48 hours);
+        _markIllicit(walletA);
+        vm.prank(keeper);
+        escrow.resolveCheckpoint2(id);
+        vm.warp(block.timestamp + escrow.blockedRecoveryDelay());
+        vm.prank(owner);
+        escrow.recoverBlocked(id);
+        assertEq(token.balanceOf(reserve), amount);
+        assertEq(token.balanceOf(fund), 0);
+        assertEq(token.balanceOf(walletA), 0);
+        assertEq(uint8(escrow.getEscrow(id).status), uint8(IFeeEscrow.EscrowStatus.Recovered));
     }
 }

@@ -2,7 +2,6 @@
 pragma solidity ^0.8.26;
 
 import {AccessManager} from "@openzeppelin/contracts/access/manager/AccessManager.sol";
-import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
@@ -25,7 +24,8 @@ import {HookDecision} from "libraries/HookDecision.sol";
 import {MockERC20} from "test/mocks/MockERC20.sol";
 import {Helpers, HookPoolManagerStub} from "test/utils/Helpers.t.sol";
 
-/// @notice LP gate: L1 + score ≥ 71 block add. Blocked remove seizes principal and fees.
+/// @notice LP gate: L1 + score ≥ 71 block add. Known 31–70 / never-scored A/C/D take in afterAdd.
+///         Blocked remove seizes principal and fees into FeeEscrow 48h.
 contract UnitAmlHookLiquidityTest is Helpers {
     PoolKey key;
     ModifyLiquidityParams addParams;
@@ -172,10 +172,14 @@ contract UnitAmlHookLiquidityTest is Helpers {
         assertTrue(BalanceDelta.unwrap(hookDelta) != 0);
         assertEq(token0.balanceOf(walletB), 0);
         assertEq(token1.balanceOf(walletB), 0);
-        assertEq(treasury.balances(IComplianceTreasury.Account.LP_PRINCIPAL, address(token0)), prin0);
-        assertEq(treasury.balances(IComplianceTreasury.Account.LP_PRINCIPAL, address(token1)), prin1);
-        assertEq(escrow.getEscrow(1).amount, fee0);
-        assertEq(escrow.getEscrow(2).amount, fee1);
+        assertEq(treasury.balances(IComplianceTreasury.Account.LP_PRINCIPAL, address(token0)), 0);
+        assertEq(treasury.balances(IComplianceTreasury.Account.LP_PRINCIPAL, address(token1)), 0);
+        assertEq(escrow.getEscrow(1).amount, prin0);
+        assertEq(uint8(escrow.getEscrow(1).kind), uint8(IFeeEscrow.EscrowKind.LpPrincipal));
+        assertEq(escrow.getEscrow(2).amount, prin1);
+        assertEq(uint8(escrow.getEscrow(3).kind), uint8(IFeeEscrow.EscrowKind.RiskFee));
+        assertEq(escrow.getEscrow(3).amount, fee0);
+        assertEq(escrow.getEscrow(4).amount, fee1);
         assertEq(uint8(escrow.getEscrow(1).status), uint8(IFeeEscrow.EscrowStatus.Active));
         assertEq(escrow.getEscrow(1).wallet, walletB);
     }
@@ -213,12 +217,21 @@ contract UnitAmlHookLiquidityTest is Helpers {
         assertEq(BalanceDelta.unwrap(hookDelta), 0);
     }
 
-    function test_PausedHookBlocksAddLiquidity() external {
+    function test_PausedHookAllowsCleanAddLiquidity() external {
         vm.prank(hookGovernor);
         hook.pause();
 
-        vm.expectRevert(Pausable.EnforcedPause.selector);
-        manager.callBeforeAddLiquidity(IHooks(address(hook)), walletC, key, addParams, "");
+        bytes4 sel = manager.callBeforeAddLiquidity(IHooks(address(hook)), walletC, key, addParams, "");
+        assertEq(sel, hook.beforeAddLiquidity.selector);
+    }
+
+    function test_PausedHookStillBlocksSanctionedAdd() external {
+        _sanction(sanctionRegistry, keeper, walletA);
+        vm.prank(hookGovernor);
+        hook.pause();
+
+        vm.expectRevert(abi.encodeWithSelector(AmlHookLogic.SanctionHit.selector, walletA));
+        manager.callBeforeAddLiquidity(IHooks(address(hook)), walletA, key, addParams, "");
     }
 
     function test_PausedHookStillAllowsCleanRemoveLiquidity() external {
@@ -248,5 +261,132 @@ contract UnitAmlHookLiquidityTest is Helpers {
 
         vm.expectRevert();
         manager.callBeforeSwap(IHooks(address(hook)), sender, key, _buildParams(), "");
+    }
+
+    function test_KnownMediumScoreAddEscrowsFullOverride() external {
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletC, 42, 1, walletA, 300, _scoreSig(walletC, 42, 1, walletA, 300));
+
+        manager.callBeforeAddLiquidity(IHooks(address(hook)), walletC, key, addParams, "");
+        uint256 paid = 1 ether;
+        token0.mint(address(manager), paid);
+        (, BalanceDelta hookDelta) = manager.callAfterAddLiquidity(
+            IHooks(address(hook)),
+            walletC,
+            key,
+            addParams,
+            toBalanceDelta(-int128(int256(paid)), 0),
+            toBalanceDelta(0, 0),
+            ""
+        );
+        assertTrue(BalanceDelta.unwrap(hookDelta) != 0);
+        assertEq(escrow.getEscrow(1).amount, (paid * 300) / 10_000);
+        assertEq(uint8(escrow.getEscrow(1).kind), uint8(IFeeEscrow.EscrowKind.RiskFee));
+        assertEq(escrow.getEscrow(1).wallet, walletC);
+    }
+
+    function test_NeverScoredLargeAddRevertsLikeFloorA() external {
+        _bindUsdFeeds();
+        vm.startPrank(hookGovernor);
+        hook.setPriceFeed(address(token0), address(usdFeed));
+        hook.setPriceFeed(address(token1), address(usdFeed));
+        vm.stopPrank();
+
+        manager.callBeforeAddLiquidity(IHooks(address(hook)), walletE, key, addParams, "");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                AmlHookLogic.UnscoredMagnitudeBlocked.selector, walletE, uint256(15_000e8), uint256(15_000e8)
+            )
+        );
+        manager.callAfterAddLiquidity(
+            IHooks(address(hook)),
+            walletE,
+            key,
+            addParams,
+            toBalanceDelta(-int128(int256(15_000 ether)), 0),
+            toBalanceDelta(0, 0),
+            ""
+        );
+    }
+
+    function test_KnownCleanAddTakesNoFeeEvenIfStale() external {
+        vm.prank(keeper);
+        complianceOracle.updateScore(walletC, 0, 0, address(0), 0, _scoreSig(walletC, 0, 0, address(0), 0));
+        vm.warp(block.timestamp + hook.stalenessThreshold() + 1);
+
+        manager.callBeforeAddLiquidity(IHooks(address(hook)), walletC, key, addParams, "");
+        token0.mint(address(manager), 1 ether);
+        (, BalanceDelta hookDelta) = manager.callAfterAddLiquidity(
+            IHooks(address(hook)),
+            walletC,
+            key,
+            addParams,
+            toBalanceDelta(-int128(1e18), 0),
+            toBalanceDelta(0, 0),
+            ""
+        );
+        assertEq(BalanceDelta.unwrap(hookDelta), 0);
+        assertEq(escrow.nextEscrowId(), 1);
+    }
+
+    function test_NeverScoredSmallAddTakesProportionalFee() external {
+        _bindUsdFeeds();
+        vm.startPrank(hookGovernor);
+        hook.setPriceFeed(address(token0), address(usdFeed));
+        hook.setPriceFeed(address(token1), address(usdFeed));
+        vm.stopPrank();
+
+        uint256 paid = 500 ether;
+        manager.callBeforeAddLiquidity(IHooks(address(hook)), walletE, key, addParams, "");
+        token0.mint(address(manager), paid);
+        (, BalanceDelta hookDelta) = manager.callAfterAddLiquidity(
+            IHooks(address(hook)),
+            walletE,
+            key,
+            addParams,
+            toBalanceDelta(-int128(int256(paid)), 0),
+            toBalanceDelta(0, 0),
+            ""
+        );
+        assertTrue(BalanceDelta.unwrap(hookDelta) != 0);
+        assertEq(escrow.getEscrow(1).amount, (paid * 300) / 10_000);
+        assertEq(uint8(escrow.getEscrow(1).kind), uint8(IFeeEscrow.EscrowKind.RiskFee));
+    }
+
+    function test_NeverScoredAddsCrossing15kRevertLikeFloorC() external {
+        _bindUsdFeeds();
+        vm.startPrank(hookGovernor);
+        hook.setPriceFeed(address(token0), address(usdFeed));
+        hook.setPriceFeed(address(token1), address(usdFeed));
+        vm.stopPrank();
+
+        uint256 first = 10_000 ether;
+        manager.callBeforeAddLiquidity(IHooks(address(hook)), walletE, key, addParams, "");
+        token0.mint(address(manager), first);
+        manager.callAfterAddLiquidity(
+            IHooks(address(hook)),
+            walletE,
+            key,
+            addParams,
+            toBalanceDelta(-int128(int256(first)), 0),
+            toBalanceDelta(0, 0),
+            ""
+        );
+
+        manager.callBeforeAddLiquidity(IHooks(address(hook)), walletE, key, addParams, "");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                AmlHookLogic.DailyAggregationBlocked.selector, walletE, uint256(15_000e8), uint256(15_000e8)
+            )
+        );
+        manager.callAfterAddLiquidity(
+            IHooks(address(hook)),
+            walletE,
+            key,
+            addParams,
+            toBalanceDelta(-int128(int256(5_000 ether)), 0),
+            toBalanceDelta(0, 0),
+            ""
+        );
     }
 }

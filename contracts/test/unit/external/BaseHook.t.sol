@@ -71,8 +71,6 @@ contract UnitBaseHookTest is Helpers {
         hook.beforeAddLiquidity(router, key, liqParams, "");
         hook.beforeRemoveLiquidity(router, key, liqParams, "");
         hook.afterRemoveLiquidity(router, key, liqParams, BalanceDelta.wrap(0), BalanceDelta.wrap(0), "");
-
-        vm.expectRevert(BaseHook.HookNotImplemented.selector);
         hook.afterAddLiquidity(router, key, liqParams, BalanceDelta.wrap(0), BalanceDelta.wrap(0), "");
 
         vm.expectRevert(BaseHook.HookNotImplemented.selector);

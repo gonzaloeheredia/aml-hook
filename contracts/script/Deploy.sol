@@ -38,9 +38,11 @@ import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
 ///
 ///      What is real vs mock in this script:
 ///      - REAL: AccessManager, SanctionRegistry, ComplianceOracle, RiskPolicy, FeeEscrow, AmlHook (CREATE2).
-///        AmlHook also gates beforeAddLiquidity / beforeRemoveLiquidity / afterRemoveLiquidity:
-///        L1 or score ≥ 71 cannot add. On a blocked remove the LP receives nothing:
-///        principal → ComplianceTreasury (LP_PRINCIPAL), risk fees → FeeEscrow.
+///        AmlHook also gates add/remove liquidity via `LpPolicyLib` (not swap `RiskPolicy`):
+///        L1 or score ≥ 71 cannot add. Known 31–70 pays a 3%/8% risk fee on the deposit.
+///        Never-scored adds reuse swap Floor A/C/D. On a blocked remove the LP receives
+///        nothing in-tx: principal and feesAccrued sit in FeeEscrow 48h (clean principal
+///        returns to the LP; illicit recover books tesorería `LP_PRINCIPAL` vs `ILLICIT_RISK_FEE`).
 ///      - MOCK: PoolManager defaults to MockPoolManager (no live Uniswap swaps).
 ///      - MOCK: MockTrustedRouter only when the chain has no canonical Universal Router
 ///        (Anvil). On Uniswap-supported chains, Deploy registers the app.uniswap.org
@@ -307,7 +309,8 @@ contract Deploy is Script {
 
         uint160 flags = uint160(
             Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
-                | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+                | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.AFTER_ADD_LIQUIDITY_FLAG
+                | Hooks.AFTER_ADD_LIQUIDITY_RETURNS_DELTA_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
                 | Hooks.AFTER_REMOVE_LIQUIDITY_FLAG | Hooks.AFTER_REMOVE_LIQUIDITY_RETURNS_DELTA_FLAG
         );
         // Only poolManager + accessManager go into the initcode hash — the salt can be pre-mined

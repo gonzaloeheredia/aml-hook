@@ -29,8 +29,8 @@ interface IRiskPolicy {
         uint24 punitiveFeeBps;          // live punitive floor fee
         uint256 poolImpactBps;          // this swap's pool impact in bps
         uint256 poolImpactThresholdBps; // threshold above which pool-drain hardening applies
-        uint256 priorDailyUsd;          // rolling daily USD before this swap
-        uint256 swapUsd;                // USD value of this swap alone (daily aggregation check)
+        uint256 priorDailyUsd;          // rolling daily USD before this swap (or LP add, via `_lpDaily`)
+        uint256 swapUsd;                // USD value of this swap/add alone (daily aggregation check)
     }
 
     /// @notice Decision output returned by `decide` / `RiskPolicyLib.decide`.

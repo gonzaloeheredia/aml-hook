@@ -9,8 +9,9 @@ interface IERC20Treasury {
 }
 
 /// @title ComplianceTreasury — authority fund with two ledgers
-/// @notice `LP_PRINCIPAL` is capital seized on a blocked LP exit. `ILLICIT_RISK_FEE` is a
-///         FeeEscrow recovery after Layer 1 or a later oracle illicit write. The two
+/// @notice `LP_PRINCIPAL` is seized LP capital after a confirmed-illicit FeeEscrow recover
+///         (the remove tx itself holds principal 48h in escrow). `ILLICIT_RISK_FEE` is a
+///         risk-fee recover after Layer 1 or a later oracle illicit write. The two
 ///         accounts never share a credit path. The LP compensation fund is not this contract.
 contract ComplianceTreasury is IComplianceTreasury {
     address public owner;
@@ -122,6 +123,23 @@ contract ComplianceTreasury is IComplianceTreasury {
         balances[Account.LP_PRINCIPAL][token] += amount;
         emit PrincipalPosted(seizeId, wallet, token, amount, poolId, positionKey);
         emit ComplianceCredited(Account.LP_PRINCIPAL, wallet, token, amount, seizeId, positionKey);
+    }
+
+    /// @inheritdoc IComplianceTreasury
+    /// @dev Tokens must already sit on this contract (FeeEscrow transferred first).
+    function recordSeizedPrincipal(
+        address wallet,
+        address token,
+        uint256 amount,
+        uint256 escrowId,
+        bytes32 fingerprint
+    ) external {
+        if (msg.sender != escrow) revert NotEscrow();
+        if (wallet == address(0) || token == address(0)) revert ZeroAddress();
+        if (amount == 0) revert ZeroAmount();
+        balances[Account.LP_PRINCIPAL][token] += amount;
+        emit PrincipalPosted(escrowId, wallet, token, amount, bytes32(0), fingerprint);
+        emit ComplianceCredited(Account.LP_PRINCIPAL, wallet, token, amount, escrowId, fingerprint);
     }
 
     /// @inheritdoc IComplianceTreasury

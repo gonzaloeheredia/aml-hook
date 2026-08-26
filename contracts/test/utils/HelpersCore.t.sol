@@ -30,6 +30,8 @@ abstract contract HelpersCore is Test {
     address public walletA = address(0xA11CE);
     address public walletB = address(0xB0B);
     address public walletC = address(0xC0FFEE);
+    address public walletD = address(0xD00D);
+    address public walletE = address(0xE0E);
 
     uint256 internal constant ATTESTOR_PK = uint256(keccak256("aml.oracle.attestor"));
 

@@ -15,8 +15,9 @@ type Props = {
 };
 
 /**
- * Step 12: live FeeEscrow rows from Anvil. Checkpoint 2 reads the oracle/list,
- * then recover books ComplianceTreasury ILLICIT_RISK_FEE.
+ * Step 12: live FeeEscrow rows from Anvil. Checkpoint 2 reads the oracle/list.
+ * Clean risk fee → LP fund; clean principal → LP wallet. Recover books
+ * ComplianceTreasury ILLICIT_RISK_FEE or LP_PRINCIPAL by kind.
  */
 export function EscrowPanel({ apiOnline, tick }: Props) {
   const [rows, setRows] = useState<ApiEscrowRow[]>([]);
@@ -55,7 +56,7 @@ export function EscrowPanel({ apiOnline, tick }: Props) {
         </button>
       </div>
       <p className="mt-1 text-xs text-uni-muted">
-        Extra slice only. Warp 48h before Checkpoint 2, then 7d before recover. Checkpoint 2 reads the list and the oracle (score ≥ 71). Recover books ComplianceTreasury ILLICIT_RISK_FEE — never the LP fund.
+        Extra slice (RiskFee) or seized LP principal (LpPrincipal). Warp 48h before Checkpoint 2, then 7d before recover. Checkpoint 2 reads the list and the oracle (score ≥ 71). Clean risk fee → LP fund; clean principal → the LP wallet. Recover books ComplianceTreasury ILLICIT_RISK_FEE or LP_PRINCIPAL by kind.
       </p>
       <div className="mt-2 flex gap-2">
         <button
@@ -95,7 +96,7 @@ export function EscrowPanel({ apiOnline, tick }: Props) {
       </div>
       {error && <p className="mt-2 text-uni-bad">{error}</p>}
       {rows.length === 0 ? (
-        <p className="mt-3 text-uni-muted">No rows yet. A FEE_OVERRIDE swap deposits one.</p>
+        <p className="mt-3 text-uni-muted">No rows yet. A FEE_OVERRIDE swap or an LP-add risk fee deposits one.</p>
       ) : (
         <ul className="mt-3 space-y-2">
           {rows.map((row) => (
@@ -106,6 +107,7 @@ export function EscrowPanel({ apiOnline, tick }: Props) {
               <div className="flex justify-between text-uni-pink">
                 <span>
                   #{row.id} · {row.walletId ?? row.wallet.slice(0, 8)} · {row.amountUsdc} USDC
+                  {row.kind ? ` · ${row.kind}` : ""}
                 </span>
                 <span className="text-uni-warn">{row.status}</span>
               </div>
