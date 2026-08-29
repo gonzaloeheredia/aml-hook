@@ -5,6 +5,7 @@ import {AccessManager} from "@openzeppelin/contracts/access/manager/AccessManage
 import {IAccessManaged} from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
 
 import {AmlHookGovernance} from "contracts/hooks/AmlHookGovernance.sol";
+import {AmlHookGovernanceBase} from "contracts/hooks/AmlHookGovernanceBase.sol";
 import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
@@ -205,7 +206,7 @@ contract UnitAmlHookLogicTest is HelpersCore {
 
     function test_SetStalenessThreshold_RevertsAboveMax() external {
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookGovernance.StalenessThresholdTooHigh.selector);
+        vm.expectRevert(AmlHookGovernanceBase.StalenessThresholdTooHigh.selector);
         harness.setStalenessThreshold(24 hours + 1);
     }
 
@@ -229,15 +230,15 @@ contract UnitAmlHookLogicTest is HelpersCore {
         harness.setInflowThresholdBps(1000);
 
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookGovernance.InflowThresholdOutOfRange.selector);
+        vm.expectRevert(AmlHookGovernanceBase.InflowThresholdOutOfRange.selector);
         harness.setInflowThresholdBps(0);
 
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookGovernance.InflowThresholdOutOfRange.selector);
+        vm.expectRevert(AmlHookGovernanceBase.InflowThresholdOutOfRange.selector);
         harness.setInflowThresholdBps(99);
 
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookGovernance.InflowThresholdOutOfRange.selector);
+        vm.expectRevert(AmlHookGovernanceBase.InflowThresholdOutOfRange.selector);
         harness.setInflowThresholdBps(10_001);
     }
 
@@ -635,9 +636,9 @@ contract UnitAmlHookLogicTest is HelpersCore {
         harness.setDailyWindow(24 hours);
 
         vm.startPrank(hookGovernor);
-        vm.expectRevert(AmlHookGovernance.DailyWindowInvalid.selector);
+        vm.expectRevert(AmlHookGovernanceBase.DailyWindowInvalid.selector);
         harness.setDailyWindow(1 hours - 1);
-        vm.expectRevert(AmlHookGovernance.DailyWindowInvalid.selector);
+        vm.expectRevert(AmlHookGovernanceBase.DailyWindowInvalid.selector);
         harness.setDailyWindow(uint64(7 days) + 1);
         vm.stopPrank();
     }
@@ -662,10 +663,10 @@ contract UnitAmlHookLogicTest is HelpersCore {
 
     function test_SetActivityWindow_RevertsOutOfRange() external {
         vm.startPrank(hookGovernor);
-        vm.expectRevert(AmlHookGovernance.ActivityWindowInvalid.selector);
+        vm.expectRevert(AmlHookGovernanceBase.ActivityWindowInvalid.selector);
         harness.setActivityWindow(59);
 
-        vm.expectRevert(AmlHookGovernance.ActivityWindowInvalid.selector);
+        vm.expectRevert(AmlHookGovernanceBase.ActivityWindowInvalid.selector);
         harness.setActivityWindow(uint64(7 days) + 1);
         vm.stopPrank();
     }

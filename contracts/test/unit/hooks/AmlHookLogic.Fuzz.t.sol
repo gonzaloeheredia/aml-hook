@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {AccessManager} from "@openzeppelin/contracts/access/manager/AccessManager.sol";
 
 import {AmlHookGovernance} from "contracts/hooks/AmlHookGovernance.sol";
+import {AmlHookGovernanceBase} from "contracts/hooks/AmlHookGovernanceBase.sol";
 import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
@@ -107,7 +108,7 @@ contract UnitAmlHookLogicFuzzTest is HelpersCore {
 
         if (inflow < 100 || inflow > 10_000) {
             vm.prank(hookGovernor);
-            vm.expectRevert(AmlHookGovernance.InflowThresholdOutOfRange.selector);
+            vm.expectRevert(AmlHookGovernanceBase.InflowThresholdOutOfRange.selector);
             harness.setInflowThresholdBps(inflow);
         } else {
             vm.prank(hookGovernor);

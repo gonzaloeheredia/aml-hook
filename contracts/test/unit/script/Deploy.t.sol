@@ -85,8 +85,8 @@ contract UnitDeployTest is Helpers {
         assertEq(hook.stalenessThreshold(), 300);
 
         vm.startPrank(hookGovernor);
-        hook.setStalenessThreshold(120);
-        hook.setActivityWindow(2 hours);
+        AmlHookGovernance(address(hook)).setStalenessThreshold(120);
+        AmlHookGovernance(address(hook)).setActivityWindow(2 hours);
         vm.stopPrank();
 
         // It grants each role exactly the writes it needs
@@ -108,7 +108,7 @@ contract UnitDeployTest is Helpers {
 
         vm.prank(oracleKeeper);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, oracleKeeper));
-        hook.setStalenessThreshold(1);
+        AmlHookGovernance(address(hook)).setStalenessThreshold(1);
     }
 
     /// @dev The admin governs roles and is granted none of them, so it cannot write any contract.
@@ -123,7 +123,7 @@ contract UnitDeployTest is Helpers {
 
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, owner));
-        hook.setStalenessThreshold(1);
+        AmlHookGovernance(address(hook)).setStalenessThreshold(1);
     }
 
     /// @dev The step that is easy to skip: without it the deploying key stays a permanent admin.
@@ -369,13 +369,13 @@ contract UnitDeployTest is Helpers {
     function test_GovernorCannotApplyPolicyParams() external {
         vm.prank(hookGovernor);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, hookGovernor));
-        hook.applyUnscoredThresholds(2_000e8, 50_000e8);
+        AmlHookGovernance(address(hook)).applyUnscoredThresholds(2_000e8, 50_000e8);
     }
 
     function test_ComplianceOfficerCannotRetuneGovernorKnobs() external {
         address officer = deployment.complianceOfficer();
         vm.prank(officer);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, officer));
-        hook.setStalenessThreshold(120);
+        AmlHookGovernance(address(hook)).setStalenessThreshold(120);
     }
 }

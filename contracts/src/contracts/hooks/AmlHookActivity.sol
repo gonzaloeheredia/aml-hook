@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {AmlHookGovernance} from "./AmlHookGovernance.sol";
+import {AmlHookGovernanceBase} from "./AmlHookGovernanceBase.sol";
 import {IERC20Minimal} from "../../interfaces/external/IERC20Minimal.sol";
 import {OracleQuote} from "../../libraries/OracleQuote.sol";
 
@@ -9,7 +9,7 @@ import {OracleQuote} from "../../libraries/OracleQuote.sol";
 /// @notice Tracks per-wallet operation counts, USD volume, and token balances.
 ///         Swap Floor C uses `_daily`. LP Floor C uses `_lpDaily` (adds only; never mixed).
 ///         No compliance decisions here — all reads are consumed by `AmlHookLogic`.
-abstract contract AmlHookActivity is AmlHookGovernance {
+abstract contract AmlHookActivity is AmlHookGovernanceBase {
     /// @dev Rolling `activityWindow` accumulator per wallet.
     struct PoolActivity {
         uint64 windowStart;  // timestamp when the current window opened

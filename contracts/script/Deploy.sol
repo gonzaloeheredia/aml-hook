@@ -15,6 +15,7 @@ import {ComplianceTreasury} from "../src/contracts/treasury/ComplianceTreasury.s
 import {AmlHook} from "../src/contracts/hooks/AmlHook.sol";
 import {AmlHookGovernance} from "../src/contracts/hooks/AmlHookGovernance.sol";
 import {AmlHookLogic} from "../src/contracts/hooks/AmlHookLogic.sol";
+import {AmlHookSatellite} from "../src/contracts/hooks/AmlHookSatellite.sol";
 import {IFeeEscrow} from "../src/interfaces/escrow/IFeeEscrow.sol";
 import {IComplianceTreasury} from "../src/interfaces/treasury/IComplianceTreasury.sol";
 import {Roles} from "../src/libraries/Roles.sol";
@@ -147,6 +148,8 @@ contract Deploy is Script {
 
     /// @notice The deployed hook
     AmlHook public hook;
+    /// @notice The deployed evaluation + governance satellite (DELEGATECALL target)
+    AmlHookSatellite public satellite;
 
     /// @notice 48-hour hold of the extra risk fee (whitepaper §8.3)
     FeeEscrow public feeEscrow;
@@ -344,10 +347,14 @@ contract Deploy is Script {
         (address hookAddr, bytes32 salt) =
             HookMiner.find(create2Origin, flags, type(AmlHook).creationCode, constructorArgs);
 
+        satellite = new AmlHookSatellite(IPoolManager(poolManagerAddr), address(accessManager));
+        console2.log("AmlHookSatellite", address(satellite));
+
         hook = new AmlHook{salt: salt}(IPoolManager(poolManagerAddr), address(accessManager));
         require(address(hook) == hookAddr, "hook address mismatch");
 
         hook.initialize(
+            address(satellite),
             sanctionRegistry,
             complianceOracle,
             riskPolicy,
@@ -406,18 +413,18 @@ contract Deploy is Script {
             trustedRouter = address(mockRouter);
             console2.log("MockTrustedRouter", trustedRouter);
         }
-        hook.setTrustedRouter(trustedRouter, true);
+        AmlHookGovernance(address(hook)).setTrustedRouter(trustedRouter, true);
 
         _bindPriceFeeds(feeToken);
         if (canonical != address(0) && canonical != trustedRouter) {
-            hook.setTrustedRouter(canonical, true);
+            AmlHookGovernance(address(hook)).setTrustedRouter(canonical, true);
             console2.log("UniversalRouter", canonical);
         } else if (canonical != address(0)) {
             console2.log("UniversalRouter", canonical);
         }
         address v211 = UniversalRouters.appRouterV211(block.chainid);
         if (v211 != address(0) && v211 != trustedRouter) {
-            hook.setTrustedRouter(v211, true);
+            AmlHookGovernance(address(hook)).setTrustedRouter(v211, true);
             console2.log("UniversalRouterV211", v211);
         }
 
@@ -607,11 +614,11 @@ contract Deploy is Script {
             console2.log("MockEthUsdFeed", ethUsd);
         }
         if (ethUsd != address(0)) {
-            hook.setPriceFeed(address(0), ethUsd);
+            AmlHookGovernance(address(hook)).setPriceFeed(address(0), ethUsd);
             address weth = ChainlinkFeeds.weth(block.chainid);
-            if (weth != address(0)) hook.setPriceFeed(weth, ethUsd);
+            if (weth != address(0)) AmlHookGovernance(address(hook)).setPriceFeed(weth, ethUsd);
             if (wethToken != address(0) && wethToken != weth) {
-                hook.setPriceFeed(wethToken, ethUsd);
+                AmlHookGovernance(address(hook)).setPriceFeed(wethToken, ethUsd);
                 console2.log("MockWethUsdFeed", ethUsd);
             }
             ethUsdFeed = ethUsd;
@@ -621,7 +628,7 @@ contract Deploy is Script {
         address usdc = ChainlinkFeeds.usdc(block.chainid);
         address usdcUsd = ChainlinkFeeds.usdcUsd(block.chainid);
         if (usdc != address(0) && usdcUsd != address(0)) {
-            hook.setPriceFeed(usdc, usdcUsd);
+            AmlHookGovernance(address(hook)).setPriceFeed(usdc, usdcUsd);
             console2.log("UsdcUsdFeed", usdcUsd);
         }
 
@@ -640,7 +647,7 @@ contract Deploy is Script {
             console2.log("MockUsdFeed", feeFeed);
         }
         if (feeFeed != address(0)) {
-            hook.setPriceFeed(feeTokenAddr, feeFeed);
+            AmlHookGovernance(address(hook)).setPriceFeed(feeTokenAddr, feeFeed);
             usdFeed = feeFeed;
             console2.log("FeeTokenUsdFeed", feeFeed);
         }

@@ -5,6 +5,7 @@ import {AccessManager} from "@openzeppelin/contracts/access/manager/AccessManage
 import {IAccessManaged} from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
 
 import {AmlHookGovernance} from "contracts/hooks/AmlHookGovernance.sol";
+import {AmlHookGovernanceBase} from "contracts/hooks/AmlHookGovernanceBase.sol";
 import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
@@ -176,7 +177,7 @@ contract UnitAmlHookLogicComplianceParamsTest is HelpersCore {
         vm.prank(complianceOfficer);
         vm.expectRevert(
             abi.encodeWithSelector(
-                AmlHookGovernance.UnscoredFeeThresholdBelowFatfMinimum.selector, 1_000e8 - 1, 1_000e8
+                AmlHookGovernanceBase.UnscoredFeeThresholdBelowFatfMinimum.selector, 1_000e8 - 1, 1_000e8
             )
         );
         harness.proposeUnscoredThresholds(1_000e8 - 1, 15_000e8);
@@ -185,12 +186,12 @@ contract UnitAmlHookLogicComplianceParamsTest is HelpersCore {
     function test_UnscoredRevertMustExceedFee() external {
         vm.startPrank(complianceOfficer);
         vm.expectRevert(
-            abi.encodeWithSelector(AmlHookGovernance.UnscoredRevertMustExceedFee.selector, 15_000e8, 15_000e8)
+            abi.encodeWithSelector(AmlHookGovernanceBase.UnscoredRevertMustExceedFee.selector, 15_000e8, 15_000e8)
         );
         harness.proposeUnscoredThresholds(15_000e8, 15_000e8);
 
         vm.expectRevert(
-            abi.encodeWithSelector(AmlHookGovernance.UnscoredRevertMustExceedFee.selector, 15_000e8, 14_999e8)
+            abi.encodeWithSelector(AmlHookGovernanceBase.UnscoredRevertMustExceedFee.selector, 15_000e8, 14_999e8)
         );
         harness.proposeUnscoredThresholds(15_000e8, 14_999e8);
         vm.stopPrank();
@@ -198,7 +199,7 @@ contract UnitAmlHookLogicComplianceParamsTest is HelpersCore {
 
     function test_UnscoredRevertZeroIsRejected() external {
         vm.prank(complianceOfficer);
-        vm.expectRevert(abi.encodeWithSelector(AmlHookGovernance.UnscoredRevertMustExceedFee.selector, 1_000e8, 0));
+        vm.expectRevert(abi.encodeWithSelector(AmlHookGovernanceBase.UnscoredRevertMustExceedFee.selector, 1_000e8, 0));
         harness.proposeUnscoredThresholds(1_000e8, 0);
     }
 
@@ -234,10 +235,10 @@ contract UnitAmlHookLogicComplianceParamsTest is HelpersCore {
 
     function test_FloorFeesRequirePunitiveGreaterThanProportional() external {
         vm.startPrank(complianceOfficer);
-        vm.expectRevert(abi.encodeWithSelector(AmlHookGovernance.PunitiveFeeMustExceedProportional.selector, 300, 300));
+        vm.expectRevert(abi.encodeWithSelector(AmlHookGovernanceBase.PunitiveFeeMustExceedProportional.selector, 300, 300));
         harness.proposeFloorFees(300, 300);
 
-        vm.expectRevert(abi.encodeWithSelector(AmlHookGovernance.PunitiveFeeMustExceedProportional.selector, 800, 300));
+        vm.expectRevert(abi.encodeWithSelector(AmlHookGovernanceBase.PunitiveFeeMustExceedProportional.selector, 800, 300));
         harness.proposeFloorFees(800, 300);
         vm.stopPrank();
     }
@@ -277,7 +278,7 @@ contract UnitAmlHookLogicComplianceParamsTest is HelpersCore {
         vm.startPrank(complianceOfficer);
         vm.expectRevert(
             abi.encodeWithSelector(
-                AmlHookGovernance.NoPendingPolicyParam.selector, harness.PARAM_PROPORTIONAL_FEE_BPS()
+                AmlHookGovernanceBase.NoPendingPolicyParam.selector, harness.PARAM_PROPORTIONAL_FEE_BPS()
             )
         );
         accessManager.execute(address(harness), data);
@@ -295,7 +296,7 @@ contract UnitAmlHookLogicComplianceParamsTest is HelpersCore {
         vm.startPrank(complianceOfficer);
         vm.expectRevert(
             abi.encodeWithSelector(
-                AmlHookGovernance.PendingPolicyParamMismatch.selector, harness.PARAM_PROPORTIONAL_FEE_BPS()
+                AmlHookGovernanceBase.PendingPolicyParamMismatch.selector, harness.PARAM_PROPORTIONAL_FEE_BPS()
             )
         );
         accessManager.execute(address(harness), data);
