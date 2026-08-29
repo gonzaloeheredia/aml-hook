@@ -730,7 +730,10 @@ contract Deploy is Script {
             '",\n',
             '  "feeToken": "',
             vm.toString(feeToken),
-            '",\n',
+            '",\n'
+        );
+        json = string.concat(
+            json,
             '  "wethToken": "',
             vm.toString(wethToken),
             '",\n',

@@ -169,7 +169,7 @@ Manual:
 anvil   # :8545
 cd contracts
 forge script script/Deploy.sol:Deploy \
-  --rpc-url http://127.0.0.1:8545 --broadcast
+  --rpc-url http://127.0.0.1:8545 --broadcast --disable-code-size-limit
 cd ..
 node scripts/sync-deployment.mjs
 ```
@@ -184,11 +184,13 @@ Deployer = Anvil account #0 (local defaults for admin / registry keeper / oracle
 | `COMPLIANCE_RESERVE` | Unused. Recovered Blocked (confirmed-illicit) destination is `ComplianceTreasury` (wired as `FeeEscrow.complianceReserve`), never the LP fund. |
 | `MAX_SCORE_AGE` | Floor B `stalenessThreshold` at deploy. Script default is 5 minutes. If this is 0, the hook constructor falls back to `DEFAULT_STALENESS` (5 minutes). |
 | `REGISTRY_KEEPER` / `ORACLE_KEEPER` / `HOOK_GOVERNOR` / `COMPLIANCE_OFFICER` | Split keys. Deploy verifies they do not overlap. Officer grant is 48h. |
+| `FEE_TOKEN` | FeeEscrow custody asset. Unset → mintable `MockUSDC` (6 decimals). |
+| `WETH_TOKEN` | Demo ETH token. Unset → mintable `MockWETH` (18 decimals), bound to the ETH/USD feed ($1,000 on Anvil). Not native gas. |
 | `ETH_USD_FEED` / `TOKEN_USD_FEED` | Optional overrides for Chainlink AggregatorV3. Unset → official ETH/USD, USDC/USD, and WETH bindings for the chain. |
 
 `bootstrapDepositor` runs in the same deploy tx so the first FEE_OVERRIDE `deposit` does not wait 24h.
 
-On chainid 31337 the script binds `MockUsdFeed` ($1 fee token, $1000 ETH) and labels wallets A–E as Anvil **#1–#5**. Wallet A is not listed; the COA publishes score 100 so pool swaps hit `WalletBlocked`. Wallet F is bound by the API to a live OFAC SDN ETH address (not Anvil #6); the COA writes `SanctionRegistry` so pool swaps hit `SanctionHit`. The API then mints balances (E starts at 0 USDC — fund from C; F starts with 10,000 USDC and has no demo key), calls `previewSwap` (same L1→L3 as `beforeSwap`), `observeSwap` (activity / baseline / `SwapObserved`), and `syncBaseline` on reset. That is still not a live `PoolManager` fill.
+On chainid 31337 the script deploys `MockUSDC` + `MockWETH` and binds `MockUsdFeed` ($1 USDC, $1000 ETH). Wallets A–E are Anvil **#1–#5**. Wallet A is not listed; the COA publishes score 100 so pool swaps hit `WalletBlocked`. Wallet F is bound by the API to a live OFAC SDN ETH address (not Anvil #6); the COA writes `SanctionRegistry` so pool swaps hit `SanctionHit`. The API then mints USDC and MockWETH balances (E starts at 0 USDC — fund from C or **Mint** in MetaMask; F starts with 10,000 USDC and has no demo key). `POST /demo/mint` and the MetaMask **Mint 10,000 USDC** / **Mint 1 ETH** buttons call `mint` on those tokens. That is still not a live `PoolManager` fill.
 
 On other chains Deploy binds official Chainlink Data Feeds: ETH/USD on `address(0)` and canonical WETH, USDC/USD on native USDC. Extra pool tokens still need `_HOOK_GOVERNOR` `setPriceFeed`. If `lastFx` is younger than 30 minutes (`FX_HOT_TTL`), the swap does not call Chainlink. Otherwise never-scored magnitude and Mitigation D quote to USD-8 from **one** `latestRoundData` per token; every amount in that swap uses that price. A usable round is stored in `lastFx`. Unbind or a dead aggregator falls back to that cache until `MAX_PRICE_STALENESS` (24h). No live round and no fresh cache → `MagnitudeQuoteFailed`. `PriceFallbackUsed` logs heartbeat-stale live rounds and the 24h cache path.
 

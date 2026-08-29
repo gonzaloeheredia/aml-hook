@@ -39,7 +39,7 @@ On-screen titles (serif, same size on every stage): **Swap**, **Hook execution**
 
 REVERT is `beforeSwap` only — no `afterSwap` emit for that attempt.
 
-**Navbar:** Uniswap logo, **MetaMask Simulator** text link, theme switch, **Connect** pill. Connect always shows that label (title has the address when a wallet is connected). Wallet D shows **Score 0** until contaminated; **Latency** while keeper-pending. Wallet E stays **Unknown** and starts empty. P2P USDC transfers run from the MetaMask simulator panel.
+**Navbar:** Uniswap logo, **MetaMask Simulator** text link, theme switch, **Connect** pill. Connect always shows that label (title has the address when a wallet is connected). Wallet D shows **Score 0** until contaminated; **Latency** while keeper-pending. Wallet E stays **Unknown** and starts empty. P2P USDC transfers and **Mint 10,000 USDC** / **Mint 1 ETH** (MockUSDC / MockWETH) run from the MetaMask simulator panel under Tokens. Wallet F cannot mint or send P2P.
 
 ### The six use-case wallets
 
@@ -77,7 +77,7 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 1. Connect **Wallet D** → swap → ALLOW 0.30% (published score 0)
 2. Connect **Wallet A** → swap → `WalletBlocked` (score 100, not listed)
 3. Connect **Wallet F** → swap → `SanctionHit` (live OFAC SDN; no P2P)
-4. Open **MetaMask Simulator** → Send USDC **A→B**, then **B→C**
+4. Open **MetaMask Simulator** → optional **Mint 10,000 USDC** / **Mint 1 ETH** on A–E → Send USDC **A→B**, then **B→C**
 5. Swap with **B** → FEE_OVERRIDE 8%; with **C** → FEE_OVERRIDE 3%
 6. On **D**, swap $1,000, then **Advance 5 min** with no keeper write → 3% on a $1,000 swap (Floor B mid). A healthy keeper stamps `updatedAt` every **3 minutes** without calling the agent; Floor B only arms at **5 minutes** if that stamp is late.
 7. Restart. Send **10,000** C→D (C still clean) → D swap → 3% (inflow, no hop). Restart. Send **15,000** C→D → D swap → 8%
