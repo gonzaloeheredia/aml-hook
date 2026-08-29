@@ -11,8 +11,21 @@ import { anvilRpc, keeperWallet, publicClient, requireChain, walletClient } from
 import { getChainConfig } from "./config.js";
 import { previewSwap, type PreviewResult } from "./evaluate.js";
 import { depositFee } from "./escrow.js";
-import { usdcToWei, weiToUsdc } from "./units.js";
+import { ethToWei, usdcToWei, weiToEth, weiToUsdc } from "./units.js";
 import type { WalletId } from "../types.js";
+
+const ZERO = "0x0000000000000000000000000000000000000000" as Address;
+
+function hasWeth(): boolean {
+  const token = getChainConfig().wethToken;
+  return Boolean(token) && token !== ZERO;
+}
+
+function walletIdFor(address: Address): WalletId | undefined {
+  return Object.entries(DEMO_WALLETS).find(
+    ([, w]) => w.address.toLowerCase() === address.toLowerCase(),
+  )?.[0] as WalletId | undefined;
+}
 
 const ethCredit: Record<WalletId, number> = {
   A: DEMO_WALLETS.A.eth,
@@ -23,7 +36,7 @@ const ethCredit: Record<WalletId, number> = {
   F: DEMO_WALLETS.F.eth,
 };
 
-export { usdcToWei, weiToUsdc };
+export { ethToWei, usdcToWei, weiToEth, weiToUsdc };
 
 export async function balanceUsdc(address: Address): Promise<number> {
   const cfg = getChainConfig();
@@ -38,6 +51,21 @@ export async function balanceUsdc(address: Address): Promise<number> {
 
 export function ethDisplay(id: WalletId): number {
   return ethCredit[id];
+}
+
+export async function balanceEth(address: Address): Promise<number> {
+  if (!hasWeth()) {
+    const id = walletIdFor(address);
+    return id ? ethCredit[id] : 0;
+  }
+  const cfg = getChainConfig();
+  const bal = await publicClient().readContract({
+    address: cfg.wethToken,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: [address],
+  });
+  return weiToEth(bal);
 }
 
 export function resetEthCredits(): void {
@@ -77,9 +105,7 @@ export async function setTokenBalance(address: Address, usdc: number): Promise<v
     return;
   }
   if (current > target) {
-    const id = Object.entries(DEMO_WALLETS).find(
-      ([, w]) => w.address.toLowerCase() === address.toLowerCase(),
-    )?.[0] as WalletId | undefined;
+    const id = walletIdFor(address);
     if (!id || !hasSigner(id)) return;
     const { account, client } = walletClient(DEMO_WALLETS[id].key!);
     const hash = await client.writeContract({
@@ -94,7 +120,53 @@ export async function setTokenBalance(address: Address, usdc: number): Promise<v
   }
 }
 
-const ZERO = "0x0000000000000000000000000000000000000000";
+export async function mintUsdc(address: Address, usdc: number): Promise<Hex> {
+  await requireChain();
+  const cfg = getChainConfig();
+  return writeAsKeeper(cfg.feeToken, erc20Abi, "mint", [address, usdcToWei(usdc)]);
+}
+
+export async function mintEth(address: Address, eth: number): Promise<Hex> {
+  await requireChain();
+  if (!hasWeth()) {
+    throw new Error("MockWETH is not deployed. Run npm run deploy:local and restart the API.");
+  }
+  const cfg = getChainConfig();
+  const hash = await writeAsKeeper(cfg.wethToken, erc20Abi, "mint", [address, ethToWei(eth)]);
+  const id = walletIdFor(address);
+  if (id) ethCredit[id] = Math.round((ethCredit[id] + eth) * 10_000) / 10_000;
+  return hash;
+}
+
+async function setEthBalance(address: Address, eth: number): Promise<void> {
+  if (!hasWeth()) return;
+  const cfg = getChainConfig();
+  const target = ethToWei(eth);
+  const current = await publicClient().readContract({
+    address: cfg.wethToken,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: [address],
+  });
+  if (current < target) {
+    await writeAsKeeper(cfg.wethToken, erc20Abi, "mint", [address, target - current]);
+    return;
+  }
+  if (current > target) {
+    const id = walletIdFor(address);
+    if (!id || !hasSigner(id)) return;
+    const { account, client } = walletClient(DEMO_WALLETS[id].key!);
+    const hash = await client.writeContract({
+      address: cfg.wethToken,
+      abi: erc20Abi,
+      functionName: "transfer",
+      args: [POOL_SINK, current - target],
+      account,
+      chain: client.chain,
+    });
+    await publicClient().waitForTransactionReceipt({ hash });
+  }
+}
 
 /** Demo Wallet A is score-100 exploit, not OFAC. Clear a leftover listing from older deploys. */
 async function clearWalletASanction(): Promise<void> {
@@ -120,6 +192,7 @@ export async function seedBalances(): Promise<void> {
   await clearWalletASanction();
   for (const id of WALLET_IDS) {
     await setTokenBalance(DEMO_WALLETS[id].address, DEMO_WALLETS[id].usdc);
+    await setEthBalance(DEMO_WALLETS[id].address, DEMO_WALLETS[id].eth);
   }
   const cfg = getChainConfig();
   const { account, client } = keeperWallet();
@@ -224,6 +297,12 @@ export async function settleObservedSwap(input: {
 
   const ethOut = usdc / 1000;
   ethCredit[walletId] = Math.round((ethCredit[walletId] + ethOut) * 10_000) / 10_000;
+  if (hasWeth() && ethOut > 0) {
+    await writeAsKeeper(getChainConfig().wethToken, erc20Abi, "mint", [
+      wallet,
+      ethToWei(ethOut),
+    ]);
+  }
 
   return { observeTx, spendTx, escrowTx, escrowId };
 }

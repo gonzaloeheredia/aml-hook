@@ -28,6 +28,8 @@ export type ChainDeployment = {
   /** Confirmed-illicit recover destination. Local deploy wires ComplianceTreasury. */
   complianceReserve?: Address;
   feeToken?: Address;
+  /** Mintable demo ETH (MockWETH). Priced by ethUsdFeed. */
+  wethToken?: Address;
   usdFeed?: Address;
   ethUsdFeed?: Address;
   poolManager?: Address;

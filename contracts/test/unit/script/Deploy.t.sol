@@ -12,6 +12,7 @@ import {SanctionRegistry} from "contracts/registries/SanctionRegistry.sol";
 import {Roles} from "libraries/Roles.sol";
 import {Deploy} from "script/Deploy.sol";
 import {MockUSDC} from "src/mocks/MockUSDC.sol";
+import {MockWETH} from "src/mocks/MockWETH.sol";
 import {UniversalRouters} from "libraries/UniversalRouters.sol";
 import {Helpers} from "test/utils/Helpers.t.sol";
 
@@ -199,12 +200,21 @@ contract UnitDeployTest is Helpers {
         assertEq(token.symbol(), "USDC");
     }
 
+    function test_DeployWhenRunOnAnvil_DeploysMockWethWithEighteenDecimals() external view {
+        MockWETH token = deployment.mockWeth();
+        assertTrue(address(token) != address(0));
+        assertEq(address(token), deployment.wethToken());
+        assertEq(token.decimals(), 18);
+        assertEq(token.symbol(), "ETH");
+    }
+
     function test_DeployWhenRunOnAnvil_BindsMockUsdFeeds() external view {
         assertTrue(deployment.ethUsdFeed() != address(0));
         assertTrue(deployment.usdFeed() != address(0));
         assertTrue(deployment.ethUsdFeed() != ChainlinkFeeds.ethUsd(1));
         assertEq(address(hook.priceFeeds(address(0))), deployment.ethUsdFeed());
         assertEq(address(hook.priceFeeds(deployment.feeToken())), deployment.usdFeed());
+        assertEq(address(hook.priceFeeds(deployment.wethToken())), deployment.ethUsdFeed());
     }
 
     function test_DeployWhenRunOnEthereum_BindsOfficialChainlinkFeeds() external {
@@ -219,6 +229,8 @@ contract UnitDeployTest is Helpers {
         assertEq(address(live.hook().priceFeeds(ChainlinkFeeds.usdc(1))), ChainlinkFeeds.usdcUsd(1));
         // Deployed MockUSDC is not canonical mainnet USDC — leave unbound unless TOKEN_USD_FEED.
         assertEq(address(live.hook().priceFeeds(live.feeToken())), address(0));
+        // MockWETH is the demo ETH token — bind official ETH/USD so magnitude quotes work.
+        assertEq(address(live.hook().priceFeeds(live.wethToken())), ethUsd);
     }
 
     function test_DeployWhenRunWiresFeeEscrowAsHookDepositor() external view {

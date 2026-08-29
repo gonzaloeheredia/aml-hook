@@ -31,7 +31,10 @@ export {
 export { hydrateWallets } from "./hydrate.js";
 export {
   balanceUsdc,
+  balanceEth,
   ethDisplay,
+  mintEth,
+  mintUsdc,
   resetEthCredits,
   seedBalances,
   transferUsdc,

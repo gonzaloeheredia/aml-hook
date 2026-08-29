@@ -13,6 +13,8 @@ import {
   isChainUnavailable,
   isPriceFeedBound,
   listEscrows,
+  mintEth,
+  mintUsdc,
   readPolicyKnobs,
   recoverBlocked,
   requireChain,
@@ -432,6 +434,50 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const seconds = Number(req.body?.seconds ?? 301);
       const now = await warpSeconds(Number.isFinite(seconds) ? seconds : 301);
       return { ok: true, now, elapsedSeconds: Number.isFinite(seconds) ? seconds : 301 };
+    } catch (err) {
+      return sendChainError(reply, err);
+    }
+  });
+
+  app.post<{
+    Body: { walletId?: string; token?: string; amount?: number };
+  }>("/demo/mint", async (req, reply) => {
+    const idRaw = String(req.body?.walletId ?? "").toUpperCase();
+    const token = String(req.body?.token ?? "").toLowerCase();
+    const amount = Number(req.body?.amount);
+    if (!isWalletId(idRaw)) {
+      return reply.code(400).send({ error: `walletId must be ${WALLET_IDS_HINT}` });
+    }
+    if (idRaw === "F") {
+      return reply.code(400).send({
+        error: "Wallet F is an OFAC SDN subject — mint is disabled.",
+      });
+    }
+    if (token !== "usdc" && token !== "eth") {
+      return reply.code(400).send({ error: "token must be usdc or eth" });
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return reply.code(400).send({ error: "amount must be a positive number" });
+    }
+    try {
+      await hydrateWallets();
+      const wallet = getWallet(idRaw);
+      if (!wallet) return reply.code(404).send({ error: "Wallet not found" });
+      const txHash =
+        token === "usdc"
+          ? await mintUsdc(wallet.address as `0x${string}`, amount)
+          : await mintEth(wallet.address as `0x${string}`, amount);
+      const wallets = await hydrateWallets();
+      return {
+        ok: true,
+        token,
+        amount,
+        txHash,
+        wallets: wallets.map((w) => ({
+          ...w,
+          score: walletScore(w),
+        })),
+      };
     } catch (err) {
       return sendChainError(reply, err);
     }

@@ -32,6 +32,12 @@ type Props = {
   ) => Promise<string | null>;
   /** Connects the active MetaMask account into the Uniswap demo */
   onUseInUniswap: (id: SimWalletId) => void;
+  /** Mints MockUSDC or MockWETH to the active demo wallet. */
+  onMint: (
+    id: SimWalletId,
+    token: "usdc" | "eth",
+    amount: number,
+  ) => Promise<string | null>;
   /** Optional API connectivity hint shown in the panel header */
   apiLabel?: string | null;
 };
@@ -75,6 +81,7 @@ export function MetaMaskPanel({
   onActiveChange,
   onSendTransfer,
   onUseInUniswap,
+  onMint,
   apiLabel,
 }: Props) {
   const [view, setView] = useState<View>("home");
@@ -82,6 +89,7 @@ export function MetaMaskPanel({
   const [amount, setAmount] = useState("10000");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [minting, setMinting] = useState<"usdc" | "eth" | null>(null);
   const [lastMove, setLastMove] = useState<{
     from: SimWalletId;
     to: SimWalletId;
@@ -148,6 +156,18 @@ export function MetaMaskPanel({
     setLastMove({ from: activeId, to: toId, amount: parsedAmount });
     setAmount("10000");
     setView("home");
+  };
+
+  const handleMint = async (token: "usdc" | "eth", amount: number) => {
+    if (active.ofacSubject || activeId === "F") {
+      setError("Wallet F is an OFAC SDN subject — mint is disabled.");
+      return;
+    }
+    setMinting(token);
+    setError(null);
+    const err = await onMint(activeId, token, amount);
+    setMinting(null);
+    if (err) setError(err);
   };
 
   return (
@@ -466,19 +486,46 @@ export function MetaMaskPanel({
                 <div className="space-y-1 rounded-2xl border border-white/10 bg-[#121214] p-1">
                   <TokenRow
                     symbol="USDC"
-                    name="USD Coin"
+                    name="Mock USDC"
                     amount={formatUsdc(active.usdc)}
                     usd={formatUsd(active.usdc)}
                     tone="#2775CA"
                   />
                   <TokenRow
                     symbol="ETH"
-                    name="Ethereum"
-                    amount={`${active.eth} ETH`}
+                    name="Mock ETH"
+                    amount={`${Number(active.eth.toFixed(4))} ETH`}
                     usd={formatUsd(active.eth * ETH_USD)}
                     tone="#627EEA"
                   />
                 </div>
+                {active.ofacSubject ? (
+                  <p className="mt-3 text-center text-[11px] text-white/40">
+                    Mint is disabled for Wallet F.
+                  </p>
+                ) : (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={minting !== null}
+                      onClick={() => void handleMint("usdc", 10_000)}
+                      className="rounded-2xl border border-white/10 bg-[#1A1A1C] px-3 py-2.5 text-xs font-semibold text-white hover:bg-[#242426] disabled:opacity-40"
+                    >
+                      {minting === "usdc" ? "Minting…" : "Mint 10,000 USDC"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={minting !== null}
+                      onClick={() => void handleMint("eth", 1)}
+                      className="rounded-2xl border border-white/10 bg-[#1A1A1C] px-3 py-2.5 text-xs font-semibold text-white hover:bg-[#242426] disabled:opacity-40"
+                    >
+                      {minting === "eth" ? "Minting…" : "Mint 1 ETH"}
+                    </button>
+                  </div>
+                )}
+                {error && view === "home" && (
+                  <p className="mt-2 text-center text-xs text-[#FF6B6B]">{error}</p>
+                )}
               </div>
 
               <div className="mt-auto border-t border-white/10 p-4">

@@ -391,6 +391,24 @@ export function postDemoElapse(seconds = 301) {
   );
 }
 
+/** POST /demo/mint — mint MockUSDC or MockWETH to a demo wallet. */
+export function postDemoMint(
+  walletId: SimWallet["id"],
+  token: "usdc" | "eth",
+  amount: number,
+) {
+  return request<{
+    ok: boolean;
+    token: "usdc" | "eth";
+    amount: number;
+    txHash: string;
+    wallets: ApiWallet[];
+  }>(`/demo/mint`, {
+    method: "POST",
+    body: JSON.stringify({ walletId, token, amount }),
+  });
+}
+
 /** POST /demo/price-feed — bind or unbind the demo USDC/USD feed. */
 export function postDemoPriceFeed(bound: boolean) {
   return request<{ ok: boolean; priceFeedBound: boolean }>(`/demo/price-feed`, {

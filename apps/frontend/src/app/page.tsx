@@ -28,6 +28,7 @@ import {
   postTransfer,
   postReset,
   postDemoElapse,
+  postDemoMint,
   walletsRecord,
   type ApiCompliancePack,
 } from "@/lib/api";
@@ -308,6 +309,29 @@ export default function HomePage() {
       return null;
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "Transfer failed";
+      setApiError(msg);
+      return msg;
+    }
+  };
+
+  const handleMint = async (
+    id: SimWalletId,
+    token: "usdc" | "eth",
+    amount: number,
+  ): Promise<string | null> => {
+    if (id === "F") {
+      return "Wallet F is an OFAC SDN subject — mint is disabled.";
+    }
+    if (apiStatus !== "online") {
+      return "Anvil is required. Run npm run deploy:local and start the API.";
+    }
+    try {
+      const res = await postDemoMint(id, token, amount);
+      setSimWallets(walletsRecord(res.wallets));
+      setApiError(null);
+      return null;
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Mint failed";
       setApiError(msg);
       return msg;
     }
@@ -992,6 +1016,7 @@ export default function HomePage() {
         activeId={simActiveId}
         onActiveChange={setSimActiveId}
         onSendTransfer={handleSendTransfer}
+        onMint={handleMint}
         onUseInUniswap={handleUseInUniswap}
         apiLabel={apiLabel}
       />

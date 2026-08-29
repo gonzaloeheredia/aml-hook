@@ -40,6 +40,7 @@ AML_HOOK_ADDRESS=${deployment.AmlHook ?? ""}
 SANCTION_REGISTRY_ADDRESS=${deployment.SanctionRegistry ?? ""}
 FEE_ESCROW_ADDRESS=${deployment.FeeEscrow ?? ""}
 FEE_TOKEN_ADDRESS=${deployment.feeToken ?? ""}
+WETH_TOKEN_ADDRESS=${deployment.wethToken ?? ""}
 USD_FEED_ADDRESS=${deployment.usdFeed ?? ""}
 ETH_USD_FEED_ADDRESS=${deployment.ethUsdFeed ?? ""}
 COMPLIANCE_TREASURY_ADDRESS=${deployment.ComplianceTreasury ?? ""}

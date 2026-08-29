@@ -12,3 +12,17 @@ export function usdcToWei(usdc: number): bigint {
 export function weiToUsdc(wei: bigint): number {
   return Number(wei / 10n ** 6n);
 }
+
+/**
+ * Converts a nominal ETH amount to MockWETH units (18 decimals).
+ */
+export function ethToWei(eth: number): bigint {
+  return BigInt(Math.round(eth * 1e6)) * 10n ** 12n;
+}
+
+/**
+ * Converts MockWETH units back to a nominal ETH amount (18 decimals).
+ */
+export function weiToEth(wei: bigint): number {
+  return Number(wei / 10n ** 12n) / 1e6;
+}

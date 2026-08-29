@@ -18,6 +18,7 @@ export type ChainConfig = {
   sanctionRegistry: Address;
   escrow: Address;
   feeToken: Address;
+  wethToken: Address;
   usdFeed: Address;
   ethUsdFeed: Address;
   keeperKey: Hex;
@@ -33,6 +34,7 @@ type DeploymentJson = {
   ComplianceOracle?: string;
   FeeEscrow?: string;
   feeToken?: string;
+  wethToken?: string;
   usdFeed?: string;
   ethUsdFeed?: string;
   complianceReserve?: string;
@@ -95,6 +97,8 @@ export function getChainConfig(): ChainConfig {
       ("0x0000000000000000000000000000000000000000" as Address),
     escrow,
     feeToken,
+    wethToken: addr("WETH_TOKEN_ADDRESS", d?.wethToken) ??
+      ("0x0000000000000000000000000000000000000000" as Address),
     usdFeed: addr("USD_FEED_ADDRESS", d?.usdFeed) ??
       ("0x0000000000000000000000000000000000000000" as Address),
     ethUsdFeed: addr("ETH_USD_FEED_ADDRESS", d?.ethUsdFeed) ??

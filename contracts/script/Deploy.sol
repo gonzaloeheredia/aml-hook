@@ -21,6 +21,7 @@ import {Roles} from "../src/libraries/Roles.sol";
 import {ChainlinkFeeds} from "../src/libraries/ChainlinkFeeds.sol";
 import {UniversalRouters} from "../src/libraries/UniversalRouters.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
+import {MockWETH} from "../src/mocks/MockWETH.sol";
 import {MockPoolManager} from "./mocks/MockPoolManager.sol";
 import {MockTrustedRouter} from "./mocks/MockTrustedRouter.sol";
 import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
@@ -48,11 +49,13 @@ import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
 ///        (Anvil). On Uniswap-supported chains, Deploy registers the app.uniswap.org
 ///        Universal Router (+ 2.1.1 when distinct) via setTrustedRouter.
     ///      - MOCK: MockUSDC (6 decimals) if FEE_TOKEN unset — pool / FeeEscrow custody asset.
+    ///      - MOCK: MockWETH (18 decimals, mintable “ETH”) if WETH_TOKEN unset. Bound to ETH/USD.
     ///      - REAL: Chainlink AggregatorV3 ETH/USD + USDC/USD + WETH on known chains.
     ///        MOCK: MockUsdFeed only on Anvil (31337) or when no official feed exists.
     ///      Optional env:
     ///      - POOL_MANAGER: real PoolManager address (else MockPoolManager)
     ///      - FEE_TOKEN: FeeEscrow custody asset (else MockUSDC, 6 decimals)
+    ///      - WETH_TOKEN: mintable demo ETH (else MockWETH, 18 decimals)
     ///      - LP_COMPENSATION_FUND: where a clean extra fee goes (early / clean / default). Defaults
     ///        to FEE_ESCROW_OWNER / ADMIN, never to the deploying key when those differ.
     ///      Recovered illicit fees go to ComplianceTreasury (wired as FeeEscrow.complianceReserve),
@@ -159,6 +162,12 @@ contract Deploy is Script {
 
     /// @notice MockUSDC deployed by this script, or zero when `FEE_TOKEN` was provided.
     MockUSDC public mockUsdc;
+
+    /// @notice Demo ETH (MockWETH locally). Priced by the ETH/USD feed — not native gas.
+    address public wethToken;
+
+    /// @notice MockWETH deployed by this script, or zero when `WETH_TOKEN` was provided.
+    MockWETH public mockWeth;
 
     /// @notice Bound USD feed for the fee token (Chainlink USDC/USD, env override, or Anvil mock).
     address public usdFeed;
@@ -287,6 +296,14 @@ contract Deploy is Script {
             console2.log("MockUSDC", feeTokenAddr);
         }
         feeToken = feeTokenAddr;
+
+        address wethTokenAddr = vm.envOr("WETH_TOKEN", address(0));
+        if (wethTokenAddr == address(0)) {
+            mockWeth = new MockWETH();
+            wethTokenAddr = address(mockWeth);
+            console2.log("MockWETH", wethTokenAddr);
+        }
+        wethToken = wethTokenAddr;
 
         accessManager = new AccessManager(configurer);
         sanctionRegistry = new SanctionRegistry(address(accessManager));
@@ -593,6 +610,10 @@ contract Deploy is Script {
             hook.setPriceFeed(address(0), ethUsd);
             address weth = ChainlinkFeeds.weth(block.chainid);
             if (weth != address(0)) hook.setPriceFeed(weth, ethUsd);
+            if (wethToken != address(0) && wethToken != weth) {
+                hook.setPriceFeed(wethToken, ethUsd);
+                console2.log("MockWethUsdFeed", ethUsd);
+            }
             ethUsdFeed = ethUsd;
             console2.log("EthUsdFeed", ethUsd);
         }
@@ -709,6 +730,9 @@ contract Deploy is Script {
             '",\n',
             '  "feeToken": "',
             vm.toString(feeToken),
+            '",\n',
+            '  "wethToken": "',
+            vm.toString(wethToken),
             '",\n',
             '  "usdFeed": "',
             vm.toString(usdFeed),
