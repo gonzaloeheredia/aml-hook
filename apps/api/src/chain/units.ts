@@ -1,16 +1,14 @@
 /**
- * Converts a nominal USDC amount to on-chain wei units using 18 decimals.
- * This matches MockFeeToken (18 dec) used in the demo — NOT real USDC (6 dec).
- * Any integration with real USDC must pass the actual token decimal count instead.
+ * Converts a nominal USDC amount to on-chain units using 6 decimals.
+ * Matches MockUSDC and Circle USDC.
  */
 export function usdcToWei(usdc: number): bigint {
-  return BigInt(Math.round(usdc)) * 10n ** 18n;
+  return BigInt(Math.round(usdc)) * 10n ** 6n;
 }
 
 /**
- * Converts on-chain wei units back to a nominal USDC amount assuming 18 decimals.
- * Matches MockFeeToken (18 dec) — NOT real USDC (6 dec).
+ * Converts on-chain USDC units back to a nominal amount assuming 6 decimals.
  */
 export function weiToUsdc(wei: bigint): number {
-  return Number(wei / 10n ** 18n);
+  return Number(wei / 10n ** 6n);
 }

@@ -20,9 +20,9 @@ import {IComplianceTreasury} from "../src/interfaces/treasury/IComplianceTreasur
 import {Roles} from "../src/libraries/Roles.sol";
 import {ChainlinkFeeds} from "../src/libraries/ChainlinkFeeds.sol";
 import {UniversalRouters} from "../src/libraries/UniversalRouters.sol";
+import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 import {MockPoolManager} from "./mocks/MockPoolManager.sol";
 import {MockTrustedRouter} from "./mocks/MockTrustedRouter.sol";
-import {MockFeeToken} from "./mocks/MockFeeToken.sol";
 import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
 
 /// @notice Deploys the REAL on-chain AML stack (manager, registry, oracle, policy, hook) and wires
@@ -47,12 +47,12 @@ import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
 ///      - MOCK: MockTrustedRouter only when the chain has no canonical Universal Router
 ///        (Anvil). On Uniswap-supported chains, Deploy registers the app.uniswap.org
 ///        Universal Router (+ 2.1.1 when distinct) via setTrustedRouter.
-    ///      - MOCK: MockFeeToken if FEE_TOKEN unset (FeeEscrow custody asset).
+    ///      - MOCK: MockUSDC (6 decimals) if FEE_TOKEN unset — pool / FeeEscrow custody asset.
     ///      - REAL: Chainlink AggregatorV3 ETH/USD + USDC/USD + WETH on known chains.
     ///        MOCK: MockUsdFeed only on Anvil (31337) or when no official feed exists.
     ///      Optional env:
     ///      - POOL_MANAGER: real PoolManager address (else MockPoolManager)
-    ///      - FEE_TOKEN: FeeEscrow custody asset (else MockFeeToken)
+    ///      - FEE_TOKEN: FeeEscrow custody asset (else MockUSDC, 6 decimals)
     ///      - LP_COMPENSATION_FUND: where a clean extra fee goes (early / clean / default). Defaults
     ///        to FEE_ESCROW_OWNER / ADMIN, never to the deploying key when those differ.
     ///      Recovered illicit fees go to ComplianceTreasury (wired as FeeEscrow.complianceReserve),
@@ -154,8 +154,11 @@ contract Deploy is Script {
     /// @notice PoolManager used by the hook (real or MockPoolManager)
     address public poolManager;
 
-    /// @notice FeeEscrow custody token (MockFeeToken locally). Also the demo USDC.
+    /// @notice FeeEscrow custody token (MockUSDC locally). Also the demo / pool USDC.
     address public feeToken;
+
+    /// @notice MockUSDC deployed by this script, or zero when `FEE_TOKEN` was provided.
+    MockUSDC public mockUsdc;
 
     /// @notice Bound USD feed for the fee token (Chainlink USDC/USD, env override, or Anvil mock).
     address public usdFeed;
@@ -277,6 +280,14 @@ contract Deploy is Script {
         uint64 activityWindow,
         address attestor
     ) private {
+        address feeTokenAddr = vm.envOr("FEE_TOKEN", address(0));
+        if (feeTokenAddr == address(0)) {
+            mockUsdc = new MockUSDC();
+            feeTokenAddr = address(mockUsdc);
+            console2.log("MockUSDC", feeTokenAddr);
+        }
+        feeToken = feeTokenAddr;
+
         accessManager = new AccessManager(configurer);
         sanctionRegistry = new SanctionRegistry(address(accessManager));
         complianceOracle = new ComplianceOracle(address(accessManager), attestor);
@@ -288,13 +299,6 @@ contract Deploy is Script {
             console2.log("MockPoolManager", poolManagerAddr);
         }
         poolManager = poolManagerAddr;
-
-        address feeTokenAddr = vm.envOr("FEE_TOKEN", address(0));
-        if (feeTokenAddr == address(0)) {
-            feeTokenAddr = address(new MockFeeToken());
-            console2.log("MockFeeToken", feeTokenAddr);
-        }
-        feeToken = feeTokenAddr;
         address lpFund = vm.envOr("LP_COMPENSATION_FUND", address(0));
         if (lpFund == address(0)) lpFund = feeEscrowOwner;
         if (lpFund == configurer && configurer != feeEscrowOwner) revert Deploy_LpFundIsConfigurer(configurer);

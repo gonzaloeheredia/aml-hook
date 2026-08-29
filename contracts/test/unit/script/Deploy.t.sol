@@ -11,6 +11,7 @@ import {FeeEscrow} from "contracts/escrow/FeeEscrow.sol";
 import {SanctionRegistry} from "contracts/registries/SanctionRegistry.sol";
 import {Roles} from "libraries/Roles.sol";
 import {Deploy} from "script/Deploy.sol";
+import {MockUSDC} from "src/mocks/MockUSDC.sol";
 import {UniversalRouters} from "libraries/UniversalRouters.sol";
 import {Helpers} from "test/utils/Helpers.t.sol";
 
@@ -190,6 +191,14 @@ contract UnitDeployTest is Helpers {
         assertFalse(sanctionRegistry.isSanctioned(demoA));
     }
 
+    function test_DeployWhenRunOnAnvil_DeploysMockUsdcWithSixDecimals() external view {
+        MockUSDC token = deployment.mockUsdc();
+        assertTrue(address(token) != address(0));
+        assertEq(address(token), deployment.feeToken());
+        assertEq(token.decimals(), 6);
+        assertEq(token.symbol(), "USDC");
+    }
+
     function test_DeployWhenRunOnAnvil_BindsMockUsdFeeds() external view {
         assertTrue(deployment.ethUsdFeed() != address(0));
         assertTrue(deployment.usdFeed() != address(0));
@@ -208,7 +217,7 @@ contract UnitDeployTest is Helpers {
         assertEq(address(live.hook().priceFeeds(address(0))), ethUsd);
         assertEq(address(live.hook().priceFeeds(ChainlinkFeeds.weth(1))), ethUsd);
         assertEq(address(live.hook().priceFeeds(ChainlinkFeeds.usdc(1))), ChainlinkFeeds.usdcUsd(1));
-        // MockFeeToken is not canonical USDC — leave unbound (fail-closed) unless TOKEN_USD_FEED.
+        // Deployed MockUSDC is not canonical mainnet USDC — leave unbound unless TOKEN_USD_FEED.
         assertEq(address(live.hook().priceFeeds(live.feeToken())), address(0));
     }
 

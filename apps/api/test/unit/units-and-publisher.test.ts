@@ -6,9 +6,9 @@ import { displayDeltaBps } from "../../src/compliance.js";
 import { capPublishedFeeBps } from "../../src/oracle/onchainPublisher.js";
 
 describe("unit: units + publisher cap + display delta", () => {
-  it("usdcToWei / weiToUsdc assume MockFeeToken 18 decimals", () => {
-    assert.equal(usdcToWei(1_000), 1000n * 10n ** 18n);
-    assert.equal(weiToUsdc(1000n * 10n ** 18n), 1_000);
+  it("usdcToWei / weiToUsdc assume MockUSDC 6 decimals", () => {
+    assert.equal(usdcToWei(1_000), 1000n * 10n ** 6n);
+    assert.equal(weiToUsdc(1000n * 10n ** 6n), 1_000);
   });
 
   it("tokenAmountToUsd uses the token decimal count", () => {
