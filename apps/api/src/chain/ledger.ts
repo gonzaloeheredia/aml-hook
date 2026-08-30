@@ -7,8 +7,8 @@
 import { keccak256, toBytes, type Address, type Hex } from "viem";
 import { DEMO_WALLETS, POOL_SINK, WALLET_IDS, bindOfacDemoWallet, hasSigner } from "./accounts.js";
 import { erc20Abi, hookAbi, registryAbi } from "./abi.js";
-import { anvilRpc, keeperWallet, publicClient, requireChain, walletClient } from "./clients.js";
-import { getChainConfig } from "./config.js";
+import { anvilRpc, governorWallet, keeperWallet, publicClient, requireChain, walletClient } from "./clients.js";
+import { getChainConfig, isLocalAnvil } from "./config.js";
 import { previewSwap, type PreviewResult } from "./evaluate.js";
 import { depositFee } from "./escrow.js";
 import { ethToWei, usdcToWei, weiToEth, weiToUsdc } from "./units.js";
@@ -78,7 +78,11 @@ async function writeAsKeeper(
   functionName: string,
   args: readonly unknown[],
 ): Promise<Hex> {
-  const { account, client } = keeperWallet();
+  const cfg = getChainConfig();
+  const { account, client } =
+    address.toLowerCase() === cfg.hook.toLowerCase()
+      ? governorWallet()
+      : keeperWallet();
   const hash = await client.writeContract({
     address,
     abi,
@@ -309,6 +313,9 @@ export async function settleObservedSwap(input: {
 
 export async function warpSeconds(seconds: number): Promise<number> {
   await requireChain();
+  if (!isLocalAnvil()) {
+    throw new Error("POST /demo/elapse is Anvil-only (evm_increaseTime).");
+  }
   const client = publicClient();
   await anvilRpc("evm_increaseTime", [Math.max(1, Math.round(seconds))]);
   await anvilRpc("evm_mine", []);

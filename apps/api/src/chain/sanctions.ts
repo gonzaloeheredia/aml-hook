@@ -1,11 +1,11 @@
 /**
  * SanctionRegistry reads/writes for the COA.
  * Fail-open to "not listed" when Anvil is down — Layer 1 on the hook still fail-closes.
- * Writes use `_REGISTRY_KEEPER` (local Anvil #0 = same key as the oracle keeper).
+ * Writes use `_REGISTRY_KEEPER` (Anvil #0 locally; REGISTRY_KEEPER_PRIVATE_KEY on Sepolia).
  */
 
 import type { Address, Hex } from "viem";
-import { keeperWallet, publicClient } from "./clients.js";
+import { publicClient, registryWallet } from "./clients.js";
 import { getChainConfig } from "./config.js";
 import { registryAbi } from "./abi.js";
 
@@ -68,7 +68,7 @@ export async function writeSanction(
         error: "SanctionRegistry missing",
       };
     }
-    const { account, client } = keeperWallet();
+    const { account, client } = registryWallet();
     const hash = await client.writeContract({
       address: cfg.sanctionRegistry,
       abi: registryAbi,

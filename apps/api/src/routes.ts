@@ -83,9 +83,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/health", async () => {
     const chain = await chainHealth();
     const policy = await readPolicyKnobs(true);
+    const chainId = Number(process.env.ORACLE_CHAIN_ID ?? 31337);
     return {
       ok: chain.ok,
-      mode: "anvil",
+      mode: chainId === 11155111 ? "sepolia" : "anvil",
+      chainId,
       oracle: "coa-agent",
       agent: {
         name: "Compliance Officer Agent",

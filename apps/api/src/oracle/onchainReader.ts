@@ -5,7 +5,8 @@
  */
 
 import { createPublicClient, http, type Address } from "viem";
-import { anvil } from "viem/chains";
+import { anvil, sepolia } from "viem/chains";
+import { SEPOLIA_CHAIN_ID } from "../chain/config.js";
 import { complianceOracleAbi } from "./abi.js";
 import { getPublishMode } from "./onchainPublisher.js";
 
@@ -17,9 +18,10 @@ function getClient() {
   if (client) return client;
   const rpc = process.env.ORACLE_RPC_URL?.trim();
   if (!rpc) return null;
+  const chainId = Number(process.env.ORACLE_CHAIN_ID ?? anvil.id);
   const chain = {
-    ...anvil,
-    id: Number(process.env.ORACLE_CHAIN_ID ?? anvil.id),
+    ...(chainId === SEPOLIA_CHAIN_ID ? sepolia : anvil),
+    id: chainId,
   };
   client = createPublicClient({ chain, transport: http(rpc) });
   return client;
