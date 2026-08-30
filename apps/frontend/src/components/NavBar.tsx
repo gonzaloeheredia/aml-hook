@@ -24,9 +24,9 @@ type Props = {
 };
 
 const VIEWS: { id: AppView; label: string }[] = [
-  { id: "hook", label: "HOOK" },
-  { id: "whitepaper", label: "WHITEPAPER" },
-  { id: "use-of-case", label: "USE OF CASE" },
+  { id: "hook", label: "Hook" },
+  { id: "whitepaper", label: "Whitepaper" },
+  { id: "use-of-case", label: "Use of case" },
 ];
 
 /**
@@ -72,7 +72,7 @@ export function NavBar({
           className="bg-transparent text-[15px] font-medium text-uni-muted transition hover:text-uni-pink"
           title="Open MetaMask transfer simulator"
         >
-          METAMASK SIMULATOR
+          MetaMask Simulator
         </button>
       </div>
 
