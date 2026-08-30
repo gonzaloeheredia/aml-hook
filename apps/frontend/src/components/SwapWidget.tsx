@@ -34,7 +34,7 @@ export function SwapWidget({
   const insufficient = connected && !blocked && walletUsdc < demoCase.activity.amountUsd;
 
   return (
-    <div className="mx-auto w-full max-w-[480px] md:ml-[8%] md:mr-auto">
+    <div className="w-full">
       <div className="surface radius-a border-l border-t hair p-4 md:p-5">
         <div className="border-b hair pb-4">
           <div className="mb-2 flex items-baseline justify-between">

@@ -204,7 +204,7 @@ export function UseOfCaseView() {
       <div className="mt-12 grid gap-x-10 gap-y-8 md:grid-cols-2">
         <DocStory
           question="Where do I click?"
-          answer="hook is the simulator. Connect opens A–E. MetaMask Simulator moves USDC off-pool and mints MockUSDC / MockWETH for those wallets. Sepolia faucet under the swap card funds a pasted address without connecting it. Advance 5 min and Unbind price feed live on the swap card."
+          answer="hook is the simulator. Connect opens A–E. MetaMask Simulator moves USDC off-pool and mints MockUSDC / MockWETH. Another address in Mint tokens funds a pasted Sepolia address without connecting it. Advance 5 min and Unbind price feed live on the swap card."
         />
         <DocStory
           question="What must already be running?"

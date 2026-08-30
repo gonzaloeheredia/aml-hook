@@ -49,8 +49,8 @@ export function StageRail({ stage, unlockedThrough, onSelect }: Props) {
     count <= 1 || activeIndex <= 0 ? 0 : (activeIndex / (count - 1)) * 100;
 
   return (
-    <nav aria-label="Demo stages" className="w-full md:-translate-x-4">
-      <ol className="relative mx-auto flex max-w-3xl flex-row items-start">
+    <nav aria-label="Demo stages" className="w-full">
+      <ol className="relative mx-auto flex w-full flex-row items-start">
         <span
           aria-hidden
           className="pointer-events-none absolute h-px"

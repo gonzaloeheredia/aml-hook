@@ -14,7 +14,6 @@ import { OnChainAccumulator } from "@/components/OnChainAccumulator";
 import { StageMorph } from "@/components/StageMorph";
 import { StageRail, type DemoStage } from "@/components/StageRail";
 import { StageSideNav } from "@/components/StageSideNav";
-import { SepoliaFaucet } from "@/components/SepoliaFaucet";
 import { SwapWidget } from "@/components/SwapWidget";
 import { walletTone } from "@/components/WalletTag";
 import { DEMO_CASES, type DemoCaseId } from "@/data/cases";
@@ -808,7 +807,7 @@ export default function HomePage() {
         />
 
         {appView === "hook" && apiStatus === "offline" && (
-          <div className="mb-2 border-l-[1.5px] border-uni-bad/50 px-4 py-2 text-sm text-uni-bad">
+          <div className="mx-auto mb-2 w-full max-w-[560px] border-l-[1.5px] border-uni-bad/50 px-4 py-2 text-sm text-uni-bad">
             {apiError ??
               `Run \`npm run deploy:local\`, then start apps/api (${API_BASE}).`}
           </div>
@@ -818,11 +817,7 @@ export default function HomePage() {
         {appView === "use-of-case" && <UseOfCaseView />}
         {appView !== "hook" ? null : (
 
-        <section
-          className={`relative pb-6 ${
-            stage === "swap" ? "pt-4 md:pt-5" : "pt-8 md:pt-12"
-          }`}
-        >
+        <section className="relative pb-6 pt-6 md:pt-8">
           <StageMorph
             stageKey={`title-${stage}`}
             direction={slideDir}
@@ -830,7 +825,7 @@ export default function HomePage() {
             swift={slideSwift}
           >
           {stage === "swap" && (
-            <div className="mb-10 text-center md:mb-14">
+            <div className="mb-6 text-center md:mb-8">
               <h1 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 Swap
               </h1>
@@ -838,7 +833,7 @@ export default function HomePage() {
           )}
 
           {stage === "hook" && (
-            <div className="mb-10 text-center md:mb-14">
+            <div className="mb-6 text-center md:mb-8">
               <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 Hook execution
               </h2>
@@ -846,7 +841,7 @@ export default function HomePage() {
           )}
 
           {stage === "fees" && (
-            <div className="mb-10 text-center md:mb-14">
+            <div className="mb-6 text-center md:mb-8">
               <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 Fee summary
               </h2>
@@ -854,7 +849,7 @@ export default function HomePage() {
           )}
 
           {stage === "stats" && (
-            <div className="mb-10 text-center md:mb-14">
+            <div className="mb-6 text-center md:mb-8">
               <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 AML stats
               </h2>
@@ -862,7 +857,7 @@ export default function HomePage() {
           )}
 
           {stage === "opinion" && (
-            <div className="mb-10 text-center md:mb-14">
+            <div className="mb-6 text-center md:mb-8">
               <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 AML Analysis
               </h2>
@@ -870,7 +865,7 @@ export default function HomePage() {
           )}
 
           {stage === "event" && (
-            <div className="mb-10 text-center md:mb-14">
+            <div className="mb-6 text-center md:mb-8">
               <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 Event
               </h2>
@@ -878,11 +873,7 @@ export default function HomePage() {
           )}
           </StageMorph>
 
-          <div
-            className={`relative z-20 w-full border-b hair ${
-              stage === "swap" ? "mb-14 pb-5 md:mb-16" : "mb-16 pb-6 md:mb-20"
-            }`}
-          >
+          <div className="relative z-20 mx-auto mb-8 w-full max-w-[560px] border-b hair pb-4 md:mb-10">
             <StageRail
               stage={stage}
               unlockedThrough={unlockedThrough}
@@ -897,7 +888,7 @@ export default function HomePage() {
             swift={slideSwift}
           >
               {stage === "swap" && (
-                  <div data-stage-module className="mx-auto w-full max-w-[480px] pb-8">
+                  <div data-stage-module className="mx-auto w-full max-w-[560px] pb-8">
                     <SwapWidget
                       demoCase={demoCase}
                       connected={connected}
@@ -910,7 +901,6 @@ export default function HomePage() {
                         void handleAdvanceClock();
                       }}
                     />
-                    <SepoliaFaucet onFaucet={handleFaucet} />
                   </div>
               )}
 
@@ -1027,6 +1017,7 @@ export default function HomePage() {
         onActiveChange={setSimActiveId}
         onSendTransfer={handleSendTransfer}
         onMint={handleMint}
+        onFaucet={handleFaucet}
         onUseInUniswap={handleUseInUniswap}
         apiLabel={apiLabel}
       />
