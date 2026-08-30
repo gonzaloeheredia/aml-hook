@@ -56,6 +56,12 @@ export const DEMO_WALLETS: Record<WalletId, DemoAccount> = {
     usdc: 0,
     eth: 1,
   },
+  N: {
+    address: "0x976EA74026E726554dB657fA54763abd0C3a0aa9",
+    key: "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6fd6d8e0468a9de6f4b",
+    usdc: 0,
+    eth: 0,
+  },
 };
 
 /** Where a demo "swap" sends USDC. Not a PoolManager. */

@@ -5,7 +5,7 @@
  */
 
 /** Demo wallet identifiers used across the use case. */
-export type WalletId = "A" | "B" | "C" | "D" | "E";
+export type WalletId = "A" | "B" | "C" | "D" | "E" | "N";
 
 /** §3.8 latency mitigation reason when ALLOW is elevated to FEE_OVERRIDE. */
 export type LatencyMitigation =

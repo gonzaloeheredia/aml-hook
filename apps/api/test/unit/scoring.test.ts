@@ -121,6 +121,7 @@ describe("unit: scoring", () => {
     assert.equal(feeBand(0), 0);
     assert.equal(isWalletId("A"), true);
     assert.equal(isWalletId("E"), true);
+    assert.equal(isWalletId("N"), true);
     assert.equal(isWalletId("F"), false);
     assert.equal(isWalletId("Z"), false);
     assert.equal(hopScore(demoWallet("A", { exploitConfirmed: true, hopDistance: 0 })), 100);

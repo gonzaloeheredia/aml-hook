@@ -77,6 +77,18 @@ function seedWallets(): Record<WalletId, Wallet> {
       exploitConfirmed: false,
       neverScored: true,
     },
+    N: {
+      id: "N",
+      accountLabel: "New wallet",
+      role: "Judge wallet — starts at 0 with unknown score. Mint on this account, then swap",
+      address: DEMO_WALLETS.N.address,
+      usdc: 0,
+      eth: 0,
+      hopDistance: null,
+      originId: null,
+      exploitConfirmed: false,
+      neverScored: true,
+    },
   };
 }
 
@@ -122,6 +134,7 @@ function seedLastKnown(wallets: Record<WalletId, Wallet>): Record<WalletId, numb
     C: wallets.C.usdc,
     D: wallets.D.usdc,
     E: wallets.E.usdc,
+    N: wallets.N.usdc,
   };
 }
 
@@ -132,6 +145,7 @@ function seedActivity(): Record<WalletId, WalletActivity> {
     C: { ...EMPTY_ACTIVITY },
     D: { ...EMPTY_ACTIVITY },
     E: { ...EMPTY_ACTIVITY },
+    N: { ...EMPTY_ACTIVITY },
   };
 }
 
@@ -142,6 +156,7 @@ function seedDaily(): Record<WalletId, DailyActivity> {
     C: { ...EMPTY_DAILY },
     D: { ...EMPTY_DAILY },
     E: { ...EMPTY_DAILY },
+    N: { ...EMPTY_DAILY },
   };
 }
 
@@ -152,7 +167,7 @@ function seedLastScoreAt(): Partial<Record<WalletId, number>> {
 
 function seedLastKnownAt(): Record<WalletId, number> {
   const t = Date.now();
-  return { A: t, B: t, C: t, D: t, E: t };
+  return { A: t, B: t, C: t, D: t, E: t, N: t };
 }
 
 /** Mutable singleton store for the demo API. */

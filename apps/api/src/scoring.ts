@@ -240,7 +240,8 @@ export function isWalletId(value: string): value is WalletId {
     value === "B" ||
     value === "C" ||
     value === "D" ||
-    value === "E"
+    value === "E" ||
+    value === "N"
   );
 }
 

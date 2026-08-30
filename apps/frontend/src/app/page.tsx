@@ -31,7 +31,6 @@ import {
   postReset,
   postDemoElapse,
   postDemoMint,
-  postDemoFaucet,
   walletsRecord,
   type ApiCompliancePack,
 } from "@/lib/api";
@@ -65,6 +64,7 @@ const EMPTY_STATS: Record<DemoCaseId, SwapStats> = {
   C: { count: 0, tradedUsd: 0, tradedEth: 0 },
   D: { count: 0, tradedUsd: 0, tradedEth: 0 },
   E: { count: 0, tradedUsd: 0, tradedEth: 0 },
+  N: { count: 0, tradedUsd: 0, tradedEth: 0 },
 };
 
 type ApiStatus = "connecting" | "online" | "offline";
@@ -331,25 +331,6 @@ export default function HomePage() {
       const msg = err instanceof ApiError ? err.message : "Mint failed";
       setApiError(msg);
       return msg;
-    }
-  };
-
-  const handleFaucet = async (address: string) => {
-    if (apiStatus !== "online") {
-      return { error: "API is offline. The faucet needs the Sepolia-backed API." };
-    }
-    try {
-      const res = await postDemoFaucet(address);
-      return {
-        error: null,
-        address: res.address,
-        usdcTx: res.usdcTx,
-        ethTx: res.ethTx,
-      };
-    } catch (err) {
-      return {
-        error: err instanceof ApiError ? err.message : "Faucet mint failed",
-      };
     }
   };
 
@@ -1017,7 +998,6 @@ export default function HomePage() {
         onActiveChange={setSimActiveId}
         onSendTransfer={handleSendTransfer}
         onMint={handleMint}
-        onFaucet={handleFaucet}
         onUseInUniswap={handleUseInUniswap}
         apiLabel={apiLabel}
       />
