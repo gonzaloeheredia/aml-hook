@@ -33,7 +33,6 @@ const ethCredit: Record<WalletId, number> = {
   C: DEMO_WALLETS.C.eth,
   D: DEMO_WALLETS.D.eth,
   E: DEMO_WALLETS.E.eth,
-  N: DEMO_WALLETS.N.eth,
 };
 
 export { ethToWei, usdcToWei, weiToEth, weiToUsdc };

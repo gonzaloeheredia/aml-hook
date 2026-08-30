@@ -7,15 +7,15 @@ Two environments:
 | | Guided demo (this file) | Live pool |
 | --- | --- | --- |
 | Chain | Anvil `31337` (local default) | Ethereum Sepolia `11155111` |
-| UI / API | Next.js + `apps/api` (MetaMask **simulator** — not the browser extension). Local: `deploy:local`. Hosted: `NEXT_PUBLIC_API_URL` → API with `ORACLE_CHAIN_ID=11155111` | Same UI/API: judge faucet + keeper/COA write this chain. SDK `getDeployment` is still 31337-only |
+| UI / API | Next.js + `apps/api` (MetaMask **simulator** — not the browser extension). Local: `deploy:local`. Hosted: `NEXT_PUBLIC_API_URL` → API with `ORACLE_CHAIN_ID=11155111` | Same UI/API: judge faucet is `POST /demo/mint` `{ address }` (not in the panel) + keeper/COA write this chain. SDK `getDeployment` is still 31337-only |
 | Pool | `previewSwap` + `observeSwap` + FeeEscrow. `MockPoolManager` | Official Uniswap v4 PoolManager + seeded liquidity (app.uniswap.org). The demo swap card is still preview, not a live fill |
 | Addresses | `contracts/deployments/31337.json` | [`Sepolia.md`](Sepolia.md) |
 
-A judge who connects a **new** EOA to the Sepolia pool (app.uniswap.org) is Wallet E: no oracle row → Floor A/C/D. The **Sepolia faucet** (paste address in the MetaMask panel, or `POST /demo/mint` `{ address }`) only mints 10,000 MockUSDC + 1 MockWETH. It does not publish a score. Elevated fee or revert by size is intentional until `_ORACLE_KEEPER` writes a clean row. The first Sepolia mint used Uniswap's `PoolModifyLiquidityTest` as the subject (untrusted router); it needed a published 0–30 score before add, because a never-scored mint on an empty pool is 100% impact and the 8% `take` reverts.
+A judge who connects a **new** EOA to the Sepolia pool (app.uniswap.org) is Wallet E: no oracle row → Floor A/C/D. The judge faucet is API-only (`POST /demo/mint` `{ address }`): 10,000 MockUSDC + 1 MockWETH. It is not in the MetaMask panel and does not publish a score. Elevated fee or revert by size is intentional until `_ORACLE_KEEPER` writes a clean row. The first Sepolia mint used Uniswap's `PoolModifyLiquidityTest` as the subject (untrusted router); it needed a published 0–30 score before add, because a never-scored mint on an empty pool is 100% impact and the 8% `take` reverts.
 
 The Compliance Officer Agent emits `finalScore` and `recommendedFeeBps` (Claude when `ANTHROPIC_API_KEY` is set; skill interpreter otherwise). N-hop math lives in skill `uhi10-use-case`. The keeper publishes that row to `ComplianceOracle`. `POST /transfers` and `POST /swaps` wait until the agent has written. The 3-minute keeper tick only stamps the last score. `beforeSwap` never calls the agent.
 
-The pool is a Uniswap v4 RWA (Real World Asset) pool with AML Hook attached. Swaps go through `beforeSwap` and `afterSwap`. Peer-to-peer USDC transfers happen off-pool. Those transfers are what move risk. Pool swaps never raise a score.
+The pool is a Uniswap v4 RWA (Real World Asset) pool with AML Hook attached. Swaps go through `beforeSwap` and `afterSwap`. Peer-to-peer USDC transfers happen off-pool. Those transfers are what move hop risk. Pool swaps do not create hops; `afterSwap` still records activity / USD windows and can reevaluate the COA.
 
 A wallet on the sanctions list, or with a published score of 71–100, cannot add liquidity (`SanctionHit` / `WalletBlocked`). Known 31–70 pays a 3%/8% risk fee on the mint. Never-scored adds reuse swap Floor A/C/D. On a blocked remove that wallet receives nothing in-tx: principal and fees sit in FeeEscrow 48h. Checkpoint 2 reads the list and the oracle — if nothing is confirmed the principal returns to the LP and the fee goes to the LP compensation fund; if a later oracle write confirms a sanction, recover books `LP_PRINCIPAL` vs `ILLICIT_RISK_FEE`. Pause still lets a **clean** LP mint and withdraw; it does not lift a list or high-score hit. This walkthrough is swap-only.
 
@@ -38,12 +38,12 @@ Use this table as the map while running the demo. Each row points to the matchin
 | 10a | C → E $500, then E $500 swap | — | FEE_OVERRIDE (A dust) | 3% |
 | 10b | C → E $10k, then E $1,000 | — | FEE_OVERRIDE (A mid) | 8% |
 | 10c | C → E $15k, then E $15,000 | — | REVERT | `UnscoredMagnitudeBlocked` |
-| 10d | E | Unbind price feed (after a prior quote) | — | FEE_OVERRIDE (last FX) | Same 3%/8% as with a live feed. Silent if `lastFx` &lt; 30 min; `PriceFallbackUsed` only after 30 min (cache until 24h). `MagnitudeQuoteFailed` if never quoted or `lastFx` &gt; 24h |
+| 10d | E | `POST /demo/price-feed` `{ bound: false }` (after a prior quote) | — | FEE_OVERRIDE (last FX) | Same 3%/8% as with a live feed. Silent if `lastFx` &lt; 30 min; `PriceFallbackUsed` only after 30 min (cache until 24h). `MagnitudeQuoteFailed` if never quoted or `lastFx` &gt; 24h |
 | 11 | — | Normative review of floors A–D (whitepaper §8.4) | — | Officer / governor | — |
 | 12 | FEE_OVERRIDE paths | Escrow hold 24h / 48h | — | On-chain FeeEscrow | Differential |
 | 13 | Operator | Opinion stage | — | COA (Compliance Officer Agent) file | — |
 
-How to run it: from the repo root, `npm run deploy:local`, then start the API and the frontend. Without Anvil the API returns `503` `{ error: "deploy_local" }`. Connect A–E from the wallet picker, move USDC in the MetaMask panel, or mint more MockUSDC / MockWETH with **Mint 10,000 USDC** / **Mint 1 ETH** (also `POST /demo/mint`). Use the size chips and the two swap-card controls, and swap. Local quotes use `MockUsdFeed` ($1 USDC, $1,000 ETH). Demo ETH is mintable MockWETH, not native gas. The API exposes the same Anvil ledger on `POST /transfers`, `POST /swaps`, `POST /demo/mint`, `POST /demo/elapse`, `POST /demo/price-feed`, and `GET /escrow`. A demo swap is `previewSwap` + `observeSwap` + a FeeEscrow deposit on FEE_OVERRIDE — not a live Uniswap `PoolManager` fill.
+How to run it: from the repo root, `npm run deploy:local`, then start the API and the frontend. Without Anvil the API returns `503` `{ error: "deploy_local" }`. Connect A–E from the wallet picker, move USDC in the MetaMask panel, or mint more MockUSDC / MockWETH with **Mint 1,000 USDC** / **Mint 1 ETH** (also `POST /demo/mint` `{ walletId, token, amount }`). Use the size chips and **Advance 5 min** on the swap card, and swap. Unbind the price feed is API-only (`POST /demo/price-feed`). Local quotes use `MockUsdFeed` ($1 USDC, $1,000 ETH). Demo ETH is mintable MockWETH, not native gas. The API exposes the same Anvil ledger on `POST /transfers`, `POST /swaps`, `POST /demo/mint`, `POST /demo/elapse`, `POST /demo/price-feed`, and `GET /escrow`. A demo swap is `previewSwap` + `observeSwap` + a FeeEscrow deposit on FEE_OVERRIDE — not a live Uniswap `PoolManager` fill. The Event stage reads the API event trail (`GET /events`), not a PoolManager log.
 
 Named-address OFAC (`SanctionHit` at Layer 1) is hook functionality, not a demo wallet. See whitepaper §3.3 / §8.6.
 
@@ -108,7 +108,7 @@ A second inbound from a closer source replaces the farther hop. Clean-to-clean P
 
 ## 4. Walkthrough
 
-Reference for executing the demo step by step. Anvil must already be running (`npm run deploy:local`). Use the frontend (Connect + MetaMask panel) or the API. Amounts match the Anvil A–E wallets (#1–#5). Extra MockUSDC / MockWETH: MetaMask **Mint** buttons or `POST /demo/mint`. On the swap card: **Advance 5 min** (Floor B) and **Unbind price feed** (uses `lastFx` after a prior quote: silent under 30 minutes, `PriceFallbackUsed` until 24h after that; `MagnitudeQuoteFailed` only if that token was never quoted or the cache is older than 24h). Restart data reseeds A–E on-chain.
+Reference for executing the demo step by step. Anvil must already be running (`npm run deploy:local`). Use the frontend (Connect + MetaMask panel) or the API. Amounts match the Anvil A–E wallets (#1–#5). Extra MockUSDC / MockWETH: MetaMask **Mint 1,000 USDC** / **Mint 1 ETH** or `POST /demo/mint`. On the swap card: **Advance 5 min** (Floor B). Unbind the price feed is `POST /demo/price-feed` `{ bound: false }` (uses `lastFx` after a prior quote: silent under 30 minutes, `PriceFallbackUsed` until 24h after that; `MagnitudeQuoteFailed` only if that token was never quoted or the cache is older than 24h). Restart data reseeds A–E on-chain.
 
 ### Step 0 — Clean swap (D, or B / C)
 
@@ -248,7 +248,7 @@ Floor A looks at **this swap**. Floor D looks at the **unpublished bag** C just 
 | C→E $15,000, E swaps $10,000 then $5,000 | REVERT | `DailyAggregationBlocked` |
 | C→E $15,000, E swaps $15,000 | REVERT | `UnscoredMagnitudeBlocked` |
 
-Press **Unbind price feed** after E (or D) has already been quoted at least once:
+Call `POST /demo/price-feed` `{ bound: false }` after E (or D) has already been quoted at least once (there is no Unbind control on the swap card):
 
 | Check | Result |
 | --- | --- |

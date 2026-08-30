@@ -525,22 +525,6 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
       opsInWindow: 0,
       windowUsd: 0,
     },
-    N: {
-      id: "N",
-      accountLabel: "New wallet",
-      role: "Judge wallet — starts at 0 with unknown score. Mint on this account, then swap",
-      address: "0x976EA74026E726554dB657fA54763abd0C3a0aa9",
-      usdc: 0,
-      eth: 0,
-      hopDistance: null,
-      originId: null,
-      exploitConfirmed: false,
-      neverScored: true,
-      lastKnownUsdc: 0,
-      lastKnownAt: t,
-      opsInWindow: 0,
-      windowUsd: 0,
-    },
   };
 }
 

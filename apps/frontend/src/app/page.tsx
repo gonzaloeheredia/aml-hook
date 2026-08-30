@@ -64,7 +64,6 @@ const EMPTY_STATS: Record<DemoCaseId, SwapStats> = {
   C: { count: 0, tradedUsd: 0, tradedEth: 0 },
   D: { count: 0, tradedUsd: 0, tradedEth: 0 },
   E: { count: 0, tradedUsd: 0, tradedEth: 0 },
-  N: { count: 0, tradedUsd: 0, tradedEth: 0 },
 };
 
 type ApiStatus = "connecting" | "online" | "offline";
@@ -151,14 +150,16 @@ export default function HomePage() {
 
   /**
    * Sets the slide direction from the current stage, then changes stage.
+   * First visit forward keeps the guided pace; back or a revisit is swift.
    */
   const pointStage = useCallback((next: DemoStage) => {
     const cur = stageRef.current;
     if (next !== cur) {
       const goingBack =
         STAGE_ORDER.indexOf(next) < STAGE_ORDER.indexOf(cur);
+      const revisit = visitedRef.current.has(next);
       setSlideDir(goingBack ? -1 : 1);
-      setSlideSwift(goingBack);
+      setSlideSwift(goingBack || revisit);
       visitedRef.current.add(next);
     }
     setStage(next);
@@ -277,6 +278,11 @@ export default function HomePage() {
     setRunning(false);
     setModalOpen(false);
     goToStage("swap");
+  };
+
+  const handleDisconnect = () => {
+    setConnected(false);
+    setRunning(false);
   };
 
   const handleUseInUniswap = (id: SimWalletId) => {
@@ -667,9 +673,10 @@ export default function HomePage() {
       const cur = stageRef.current;
       const idx = STAGE_ORDER.indexOf(cur);
       const next = STAGE_ORDER[idx + dir];
+      const revisit = Boolean(next && visitedRef.current.has(next));
       if (moveStageBy(dir)) {
         const hold =
-          dir < 0
+          dir < 0 || revisit
             ? SWIFT_MS + 80
             : next === "opinion"
               ? OPINION_SLIDE_MS + 150
@@ -777,6 +784,7 @@ export default function HomePage() {
             connected ? walletTone(simWallets[caseId]).border : undefined
           }
           onConnectClick={() => setModalOpen(true)}
+          onDisconnect={handleDisconnect}
           onMetaMaskClick={() => setMetaMaskOpen(true)}
         />
 

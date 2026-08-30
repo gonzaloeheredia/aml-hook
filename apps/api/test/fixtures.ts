@@ -31,6 +31,5 @@ export function seedDemoWallets(): Record<WalletId, Wallet> {
     C: demoWallet("C", { usdc: 50_000 }),
     D: demoWallet("D", { usdc: 5_000 }),
     E: demoWallet("E", { neverScored: true, usdc: 0 }),
-    N: demoWallet("N", { neverScored: true, usdc: 0, eth: 0 }),
   };
 }

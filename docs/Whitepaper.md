@@ -309,7 +309,7 @@ Two environments — do not grade one as if it were the other:
 | | Guided demo | Live pool |
 | --- | --- | --- |
 | Chain | Anvil `31337` (local default) | Ethereum Sepolia `11155111` |
-| UI / API | Next.js + `apps/api` (simulator, not MetaMask). Hosted API can set `ORACLE_CHAIN_ID=11155111` | Same API: faucet + keeper/COA write this chain. SDK `getDeployment` is still 31337-only |
+| UI / API | Next.js + `apps/api` (simulator, not the MetaMask extension). Swap card: **Advance 5 min**. Mint in the panel is 1,000 USDC / 1 ETH. Hosted API can set `ORACLE_CHAIN_ID=11155111` | Same API: judge faucet is `POST /demo/mint` `{ address }` (not a panel control) + keeper/COA write this chain. SDK `getDeployment` is still 31337-only |
 | PoolManager | `MockPoolManager` | Official Uniswap v4 PoolManager |
 | Quotes | `AmlHook.previewSwap` (demo swap card, either chain) | Real `PoolManager` fill (e.g. app.uniswap.org) |
 | Addresses | `contracts/deployments/31337.json` | [`docs/Sepolia.md`](Sepolia.md) |
