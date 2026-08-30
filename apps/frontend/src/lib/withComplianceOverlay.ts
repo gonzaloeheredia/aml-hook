@@ -71,7 +71,7 @@ export function withComplianceOverlay(
           : mitigation === "ACTIVITY_WINDOW_CAP" || mitigation === "DAILY_AGGREGATION"
             ? "24h aggregation"
             : unknown
-              ? "Unknown wallet"
+              ? "New Wallet"
               : mitigation === "INFLOW_HEURISTIC"
                 ? "Inflow heuristic"
                 : hopDistance == null
@@ -116,7 +116,7 @@ export function withComplianceOverlay(
             : mitigation === "ACTIVITY_WINDOW_CAP" || mitigation === "DAILY_AGGREGATION"
               ? "24h aggregation"
               : unknown
-                ? "Unknown wallet"
+                ? "New Wallet"
                 : mitigation === "INFLOW_HEURISTIC"
                   ? "Oracle latency · inflow"
                   : hopDistance

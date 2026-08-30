@@ -75,7 +75,7 @@ export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-semibold text-uni-pink">
-                    {`Wallet ${id} · ${tone.label}`}
+                    {id === "E" ? "E - New Wallet" : `Wallet ${id} · ${tone.label}`}
                   </span>
                   <span className="block truncate font-mono text-xs opacity-80">
                     {shorten(wallet.address)}
@@ -83,8 +83,8 @@ export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
                   <span className="mt-0.5 block text-[11px] opacity-80">
                     {wallet.neverScored
                       ? wallet.usdc <= 0
-                          ? "Unknown · empty — fund from clean C (no hop)"
-                          : `Unknown · bag $${wallet.usdc.toLocaleString("en-US")} · Floor A/D on next swap`
+                          ? "New Wallet · empty — fund from clean C (no hop)"
+                          : `New Wallet · bag $${wallet.usdc.toLocaleString("en-US")} · Floor A/D on next swap`
                       : wallet.keeperPending
                         ? `Keeper pending · next swap uses inflow ${formatFeePct(getPolicyKnobs().proportionalFeeBps)} / ${formatFeePct(getPolicyKnobs().punitiveFeeBps)} by inbound USD`
                         : wallet.hopDistance != null

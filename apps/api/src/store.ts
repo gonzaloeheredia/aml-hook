@@ -67,8 +67,8 @@ function seedWallets(): Record<WalletId, Wallet> {
     },
     E: {
       id: "E",
-      accountLabel: "Account E · Unknown",
-      role: "Unknown wallet — starts empty. Fund from clean C (no hop). Floor A/D by bag and swap size",
+      accountLabel: "E - New Wallet",
+      role: "New wallet — starts empty. Fund from clean C (no hop). Floor A/D by bag and swap size",
       address: DEMO_WALLETS.E.address,
       usdc: 0,
       eth: 1,

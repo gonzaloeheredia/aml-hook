@@ -43,6 +43,7 @@ function shorten(addr: string) {
  * Label for the navbar connect chip.
  */
 function accountLabel(walletId?: string | null) {
+  if (walletId === "E") return "E - New Wallet";
   if (walletId) return `Wallet ${walletId}`;
   return "Connected";
 }

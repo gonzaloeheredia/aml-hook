@@ -241,8 +241,8 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
             ? "24h USD · Floor C"
             : latencyMitigation === "SCORE_NEVER_WRITTEN"
               ? decision === "block"
-                ? "Unknown · Magnitude block"
-                : "Unknown"
+                ? "New Wallet · Magnitude block"
+                : "New Wallet"
               : decision === "block"
                 ? "Blocked"
                 : latencyMitigation === "INFLOW_HEURISTIC"
@@ -269,7 +269,7 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
               latencyMitigation === "DAILY_AGGREGATION"
             ? "24h aggregation"
             : latencyMitigation === "SCORE_NEVER_WRITTEN"
-              ? "Unknown wallet"
+              ? "New Wallet"
               : latencyMitigation === "INFLOW_HEURISTIC"
                 ? "Inflow heuristic"
                 : wallet.hopDistance == null
@@ -336,7 +336,7 @@ export function withHopOverlay(base: DemoCase, wallet: SimWallet): DemoCase {
                 latencyMitigation === "DAILY_AGGREGATION"
               ? "24h aggregation"
               : latencyMitigation === "SCORE_NEVER_WRITTEN"
-                ? "Unknown wallet"
+                ? "New Wallet"
                 : latencyMitigation === "INFLOW_HEURISTIC"
                   ? "Oracle latency · inflow"
                   : wallet.hopDistance

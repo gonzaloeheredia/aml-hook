@@ -511,8 +511,8 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
     },
     E: {
       id: "E",
-      accountLabel: "Account E · Unknown",
-      role: "Unknown wallet — starts empty. Fund from clean C (no hop). Floor A/D by bag and swap size",
+      accountLabel: "E - New Wallet",
+      role: "New wallet — starts empty. Fund from clean C (no hop). Floor A/D by bag and swap size",
       address: "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
       usdc: 0,
       eth: 1,

@@ -132,7 +132,7 @@ const STEPS = [
   },
   {
     n: "10",
-    title: "Unknown wallet E",
+    title: "E - New Wallet",
     action:
       "E starts empty. Switch to C in MetaMask Simulator and send USDC to E. Then connect E and swap. Do not send A → E.",
     rows: [
@@ -197,7 +197,7 @@ export function UseOfCaseView() {
           { label: "A", value: "Exploit · score 100 · REVERT" },
           { label: "B / C", value: "Start clean · hop receivers" },
           { label: "D", value: "Published 0 · 5,000 USDC" },
-          { label: "E", value: "Unknown · starts empty" },
+          { label: "E", value: "New Wallet · starts empty" },
         ]}
       />
 
