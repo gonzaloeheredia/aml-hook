@@ -600,7 +600,7 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
     summary: [
       "No oracle row. Starts empty — fund from clean C in MetaMask (no hop). Do not use A.",
       "After C→E $500 → next $500 swap is 3%. C→E $10k then $1k swap → 8% (A mid). C→E $15k + small swap → 8% (D). This swap $15k → REVERT.",
-      "$10k then $5k in 24h is Floor C. Unbind the price feed after a quote → last FX (silent under 30 min; same bands).",
+      "$10k then $5k in 24h is Floor C. Unbind the feed with POST /demo/price-feed after a quote → last FX (silent under 30 min; same bands).",
     ],
     signals: [
       { label: "Exploit / sanctions", value: "Clear", tone: "ok" },

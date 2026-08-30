@@ -139,7 +139,7 @@ const STEPS = [
       { label: "C→E $500, E swaps $500", value: "FEE_OVERRIDE 3%" },
       { label: "C→E $10k, E swaps $1,000", value: "FEE_OVERRIDE 8%" },
       { label: "C→E $15k, E swaps $15,000", value: "REVERT UnscoredMagnitudeBlocked" },
-      { label: "Price feed", value: "Unbind after a prior quote → same floor, lastFx cache" },
+      { label: "Price feed", value: "POST /demo/price-feed after a prior quote → lastFx cache" },
     ],
     note: "Floor A looks at this swap. Floor D looks at the unpublished bag. The stricter fee wins. Restart between sizes so C’s 50,000 USDC covers each act.",
   },
@@ -204,7 +204,7 @@ export function UseOfCaseView() {
       <div className="mt-12 grid gap-x-10 gap-y-8 md:grid-cols-2">
         <DocStory
           question="Where do I click?"
-          answer="hook is the simulator. Connect opens A–E. MetaMask Simulator moves USDC off-pool and mints MockUSDC / MockWETH to the open account. Advance 5 min and Unbind price feed live on the swap card."
+          answer="hook is the simulator. Connect opens A–E. MetaMask Simulator moves USDC off-pool and mints 1,000 MockUSDC or 1 MockWETH to the open account. Advance 5 min is on the swap card. Unbind the price feed is POST /demo/price-feed."
         />
         <DocStory
           question="What must already be running?"

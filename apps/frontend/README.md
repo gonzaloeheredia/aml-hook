@@ -39,7 +39,7 @@ On-screen titles (serif, same size on every stage): **Swap**, **Hook execution**
 
 REVERT is `beforeSwap` only — no `afterSwap` emit for that attempt.
 
-**Navbar:** Uniswap logo, **MetaMask Simulator** text link, theme switch, **Connect** pill. Connect always shows that label (title has the address when a wallet is connected). Wallet D shows **Score 0** until contaminated; **Latency** while keeper-pending. Wallet E stays **Unknown** and starts empty. P2P USDC transfers and **Mint 10,000 USDC** / **Mint 1 ETH** (MockUSDC / MockWETH) run from the MetaMask simulator panel under Tokens. The same panel has a **Sepolia faucet** (paste a public address → 10,000 MockUSDC + 1 MockWETH). That path does not connect MetaMask and does not change A–E.
+**Navbar:** Uniswap logo, **MetaMask Simulator** text link, theme switch, **Connect** pill. After connect the pill shows **Wallet A–E**; click it to switch or disconnect. Wallet D shows **Score 0** until contaminated; **Latency** while keeper-pending. Wallet E stays **Unknown** and starts empty. P2P USDC transfers and **Mint 1,000 USDC** / **Mint 1 ETH** (MockUSDC / MockWETH) run from the MetaMask simulator panel under Tokens, to the open account only. The judge faucet is API-only (`POST /demo/mint` `{ address }` → 10,000 MockUSDC + 1 MockWETH). That path does not connect MetaMask and does not change A–E.
 
 ### The five use-case wallets
 
@@ -47,7 +47,7 @@ REVERT is `beforeSwap` only — no `afterSwap` emit for that attempt.
 2. **Wallet B (clean)** — receives from A → ~65 / 8%; from tainted C → ~42 / 3%
 3. **Wallet C (clean)** — 50,000 USDC. Fund E (unknown, no hop) or D (inflow). Receive from A → ~65 / 8%; from tainted B → ~42 / 3%
 4. **Wallet D (score 0)** — 5,000 USDC published clean. Held funds → ALLOW 0.30%. Advance 5 min after a $1,000 swap (no intervening write) → 3% (B mid). Clean C→D ~10k → inflow 3% (no hop). Clean C→D $15k → inflow 8%
-5. **Wallet E (unknown)** — starts empty. Fund from clean **C** (no hop). C→E $500 → 3%; $10k then $1k swap → 8% (A mid); $15k bag + $500 swap → 8% (D); this swap $15k → revert. $10k then $5k → Floor C. Unbind feed after a quote → last FX (silent under 30 min; `PriceFallbackUsed` until 24h after that); `MagnitudeQuoteFailed` only if never quoted or cache > 24h
+5. **Wallet E (unknown)** — starts empty. Fund from clean **C** (no hop). C→E $500 → 3%; $10k then $1k swap → 8% (A mid); $15k bag + $500 swap → 8% (D); this swap $15k → revert. $10k then $5k → Floor C. Unbind the feed via `POST /demo/price-feed` after a quote → last FX (silent under 30 min; `PriceFallbackUsed` until 24h after that); `MagnitudeQuoteFailed` only if never quoted or cache > 24h
 
 N-hop formula (agent applies skill `uhi10-use-case`; keeper publishes): `score = 100 × 0.65^hops` (`exposed_proportion` is 1.0 in this demo).
 The UI waits on `POST /transfers` and `POST /swaps` until that publish lands. Closer hop wins if a wallet is contaminated more than once. Never-scored magnitude is **USD-8**, not native token units. Local Anvil uses `MockUsdFeed` ($1 USDC, $1,000 ETH). A live Deploy binds official Chainlink ETH/USD and USDC/USD.
@@ -75,11 +75,11 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 
 1. Connect **Wallet D** → swap → ALLOW 0.30% (published score 0)
 2. Connect **Wallet A** → swap → `WalletBlocked` (score 100, not listed)
-3. Open **MetaMask Simulator** → optional **Mint 10,000 USDC** / **Mint 1 ETH** on A–E → Send USDC **A→B**, then **B→C**
+3. Open **MetaMask Simulator** → optional **Mint 1,000 USDC** / **Mint 1 ETH** on the open account → Send USDC **A→B**, then **B→C**
 4. Swap with **B** → FEE_OVERRIDE 8%; with **C** → FEE_OVERRIDE 3%
 5. On **D**, swap $1,000, then **Advance 5 min** with no keeper write → 3% on a $1,000 swap (Floor B mid). A healthy keeper stamps `updatedAt` every **3 minutes** without calling the agent; Floor B only arms at **5 minutes** if that stamp is late.
 6. Restart. Send **10,000** C→D (C still clean) → D swap → 3% (inflow, no hop). Restart. Send **15,000** C→D → D swap → 8%
-7. MetaMask **C → E** ($500 / $10k / $15k). Swap $500 after $500 bag → 3%; $1k after $10k bag → 8% (A mid); $500 after $15k bag → 8% (D). This swap $15k → revert. Then $10,000 + $5,000 → Floor C revert. **Unbind price feed** after a quote → last FX (silent under 30 min); `MagnitudeQuoteFailed` only if that token was never quoted or the cache is older than 24h
+7. MetaMask **C → E** ($500 / $10k / $15k). Swap $500 after $500 bag → 3%; $1k after $10k bag → 8% (A mid); $500 after $15k bag → 8% (D). This swap $15k → revert. Then $10,000 + $5,000 → Floor C revert. Unbind the feed with `POST /demo/price-feed` after a quote → last FX (silent under 30 min); `MagnitudeQuoteFailed` only if that token was never quoted or the cache is older than 24h
 8. From **Fees**, advance → **AML stats** → **Opinion** → **Event**
 
 ## Data source
@@ -95,6 +95,6 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 - `contracts/README.md` — Foundry layout (`src/contracts/…`, `script/Deploy.sol`, `CreatePool.s.sol`)
 - `apps/api/README.md` — COA + signed `updateScore` (Anvil or Sepolia)
 
-This UI never talks to a live MetaMask extension. **Connect** picks demo wallets A–E. The **Sepolia faucet** only mints MockUSDC / MockWETH to a pasted address via the API.
+This UI never talks to a live MetaMask extension. **Connect** picks demo wallets A–E. The judge faucet only mints MockUSDC / MockWETH to an address via `POST /demo/mint`.
 
 **Judges — never-scored is intentional.** The faucet does not publish `ComplianceOracle`. Unless `_ORACLE_KEEPER` writes a clean score for that address, a swap on the Sepolia pool (app.uniswap.org) is Wallet E: Floor A/C/D — 3% under $1,000, 8% from $1,000–$14,999 (or revert if the ticket is more than 20% of pool liquidity), revert at ≥ $15,000. That is the product, not a broken mint.
