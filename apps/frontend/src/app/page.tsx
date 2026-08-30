@@ -103,9 +103,9 @@ export default function HomePage() {
     () => initialSimWallets(),
   );
   const [simActiveId, setSimActiveId] = useState<SimWalletId>("A");
-  const [transfers, setTransfers] = useState<TransferRecord[]>([]);
+  const [, setTransfers] = useState<TransferRecord[]>([]);
   const [chainEvents, setChainEvents] = useState<HookChainEvent[]>([]);
-  const [auditRevealKey, setAuditRevealKey] = useState(0);
+  const [, setAuditRevealKey] = useState(0);
 
   const [stage, setStage] = useState<DemoStage>("swap");
   const [slideDir, setSlideDir] = useState<1 | -1>(1);
@@ -574,20 +574,6 @@ export default function HomePage() {
     refreshCompliance,
     refreshLedger,
   ]);
-
-  const handleCaseChange = (id: DemoCaseId) => {
-    if (!connected) {
-      setModalOpen(true);
-      return;
-    }
-    setCaseId(id);
-    setSimActiveId(id);
-    setSwapAmountUsd(DEMO_CASES[id].activity.amountUsd);
-    setAddress(simWallets[id].address);
-    setRunning(false);
-    // Keep unlock frontier, but return to Swap for a fresh run
-    goToStage("swap");
-  };
 
   const handleStageSelect = (next: DemoStage) => {
     if (next === "swap" && !connected) {
