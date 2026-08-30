@@ -6,6 +6,7 @@ import { ConnectModal } from "@/components/ConnectModal";
 import { EscrowPanel } from "@/components/EscrowPanel";
 import { FundsPanel } from "@/components/FundsPanel";
 import { FeeSummary } from "@/components/FeeSummary";
+import { Footer } from "@/components/Footer";
 import { FlowSimulator } from "@/components/FlowSimulator";
 import { MetaMaskPanel } from "@/components/MetaMaskPanel";
 import { NavBar, type AppView } from "@/components/NavBar";
@@ -757,7 +758,7 @@ export default function HomePage() {
   }, [appView, modalOpen, metaMaskOpen, moveStageBy]);
 
   return (
-    <main className="relative min-h-dvh overflow-x-hidden">
+    <main className="relative flex min-h-dvh flex-col overflow-x-hidden">
       {appView === "hook" && (
         <StageSideNav
           stage={stage}
@@ -771,7 +772,7 @@ export default function HomePage() {
           }}
         />
       )}
-      <div className="relative z-10 mx-auto w-full px-5 sm:px-8 md:px-12 lg:px-16">
+      <div className="relative z-10 mx-auto flex w-full flex-1 flex-col px-5 sm:px-8 md:px-12 lg:px-16">
         <NavBar
           view={appView}
           onViewChange={(next) => {
@@ -957,6 +958,7 @@ export default function HomePage() {
           </StageMorph>
         </section>
         )}
+        <Footer />
       </div>
 
       {appView === "hook" && (

@@ -200,7 +200,7 @@ Remain on D (or any published-clean wallet that already swapped in this hour). P
 | Floor | `STALE_WITH_POOL_ACTIVITY` |
 | Fee | 3% on a $1,000 swap (mid band). Under $1,000 passes. $15,000 or more → 8%. A swap that takes more than 20% of the pool hardens the band and stops at 8%. Floor B stays inside FEE_OVERRIDE / ALLOW. |
 
-A stale score with **no** prior swap in the hour is also Floor B: **3%** on that first swap (8% if it takes more than 20% of the pool). Floor B fires when the keeper is late. The demo button advances the clock without a write. A healthy keeper stamps `updatedAt` again when the window ages, even if the score did not move.
+A stale score with **no** prior swap in the hour is also Floor B: **3%** on that first swap (8% if it takes more than 20% of the pool). Floor B fires when the keeper is late. The demo button advances the clock without a write. A healthy keeper stamps `updatedAt` again when the window ages, even if the score did not move. **Advance 5 min** and `POST /demo/elapse` are Anvil-only. On Sepolia, Floor B still applies after five real minutes with no keeper write. A healthy 3-minute tick refreshes `updatedAt` and keeps Floor B quiet.
 
 ### Step 8: C sends to D (clean inbound, mid band)
 
@@ -263,7 +263,7 @@ Call `POST /demo/price-feed` `{ bound: false }` after E (or D) has already been 
 
 Bind the feed again to refresh the live round. A published score of 0 (Wallet D) and an unknown wallet (Wallet E) are different rows. Restart between the C→E sizes so C's 50,000 USDC covers each act.
 
-Once an operator publishes E's first score (`updateScore`), E leaves the never-scored path (Floors A/C/D combined) and behaves like any known wallet (B, C, or D). There is no contaminated address on Sepolia to grow that score organically by hop — Wallet A lives on the Anvil/API ledger — so the first row is an administrative write. After that write, a later inbound transfer hits Floor D the same way Steps 8–9 hit D: mid inflow 3%, large inflow 8%. Floor B also arms if that published row goes stale (5 minutes of real time on Sepolia; `/demo/elapse` is Anvil-only). Hop scoring does not apply and cannot be shown in this setup: it needs a transfer from a wallet that is actually tainted back to A. The administrative score has no contamination origin — it only unlocks Floor B/D, not the hop path.
+Once an operator publishes E's first score (`updateScore`), E leaves the never-scored path (Floors A/C/D combined) and behaves like any known wallet (B, C, or D). Floor D is testable on Sepolia: send a later inbound (mint or P2P), then swap — mid 3%, large 8%, same as Steps 8–9. Floor B is also testable there after five real minutes with no keeper write. `/demo/elapse` and **Advance 5 min** are Anvil-only. A healthy 3-minute tick stamps `updatedAt` and keeps Floor B quiet. Hop scoring cannot be shown on Sepolia: Wallet A lives on the Anvil/API ledger, so there is no tainted sender. The administrative score has no contamination origin — it only unlocks Floor B/D, not the hop path.
 
 After E's first score is published, it stops being an unscored wallet — Floor D (new inflow) and Floor B (stale score) now apply exactly like they do for D. Hop scoring (contamination traced back to A) doesn't apply here: it needs a transfer from a wallet that's actually tainted back to A, and there's no such address on Sepolia to send from. E's published score has no contamination origin — it only unlocks Floor B/D, not the hop path.
 

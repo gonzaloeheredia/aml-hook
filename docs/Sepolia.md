@@ -130,6 +130,16 @@ row for that EOA (externally owned account), app.uniswap.org will treat the wall
 fee or revert by size. See [`Use_Case.md`](Use_Case.md) §
 environments.
 
+After `_ORACLE_KEEPER` publishes a score for that EOA, Floors A/C no longer
+treat it as never-scored. **Floor D** applies on a later inbound (mint or
+P2P, then swap) the same way Steps 8–9 treat Wallet D. **Floor B** applies
+if the row goes stale: five real minutes with no `updateScore`. The swap-card
+**Advance 5 min** button and `POST /demo/elapse` are Anvil-only. A healthy
+3-minute keeper tick stamps `updatedAt` and keeps Floor B quiet. **Hop
+scoring** from Wallet A cannot be shown here: A is an Anvil demo key, not a
+Sepolia EOA. The administrative score unlocks Floor B/D. It does not create
+a hop.
+
 ## What is not a live Uniswap fill
 
 `@aml-hook/sdk` `getDeployment` and `sync-deployment.mjs` stay on Anvil

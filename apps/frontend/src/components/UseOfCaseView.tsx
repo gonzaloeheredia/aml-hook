@@ -115,10 +115,11 @@ const STEPS = [
       { label: "Decision", value: "FEE_OVERRIDE" },
       { label: "Floor", value: "STALE_WITH_POOL_ACTIVITY" },
       { label: "Fee", value: "3% on $1,000 (mid). Under $1,000 passes." },
+      { label: "Sepolia", value: "Wait 5 min real time. Advance 5 min is Anvil-only." },
     ],
     note: "B never reverts. $15,000 or more → 8%. A healthy keeper stamps updatedAt so a stable clean wallet does not look stale.",
     explain:
-      "This step tests a late keeper. D's score remains 0, yet updatedAt is older than five minutes and D already swapped in the hour. The hook charges 3% on a $1,000 ticket. Floor B never blocks.",
+      "This step tests a late keeper. D's score remains 0, yet updatedAt is older than five minutes and D already swapped in the hour. The hook charges 3% on a $1,000 ticket. Floor B never blocks. Advance 5 min is Anvil-only. On Sepolia, wait five real minutes with no keeper write. A healthy 3-minute tick refreshes updatedAt and keeps Floor B quiet.",
   },
   {
     n: "8",
@@ -163,7 +164,7 @@ const STEPS = [
     ],
     note: "Floor A looks at this swap. Floor D looks at the unpublished bag. The stricter fee wins. Restart between sizes so C’s 50,000 USDC covers each act.",
     explain:
-      "C → E is an ERC-20 transfer. A faucet mint writes tokens straight to E. Neither path hits the hook. Floor A sizes this swap; Floor D sizes the unpublished bag. Use C → E for the $500 / $10,000 / $15,000 acts: the mint is a fixed 1,000 MockUSDC + 1 MockWETH. Funding from A would add a hop and would leave the unknown-wallet path. After E's first score is published, it stops being an unscored wallet — Floor D (new inflow) and Floor B (stale score) now apply exactly like they do for D. Hop scoring (contamination traced back to A) doesn't apply here: it needs a transfer from a wallet that's actually tainted back to A, and there's no such address on Sepolia to send from. E's published score has no contamination origin — it only unlocks Floor B/D, not the hop path.",
+      "C → E is an ERC-20 transfer. A faucet mint writes tokens straight to E. Neither path hits the hook. Floor A sizes this swap; Floor D sizes the unpublished bag. Use C → E for the $500 / $10,000 / $15,000 acts: the mint is a fixed 1,000 MockUSDC + 1 MockWETH. Funding from A would add a hop and would leave the unknown-wallet path. After E's first score is published, E is a known wallet. Floor D is testable on Sepolia: send a new inbound, then swap (same as Steps 8–9). Floor B is also testable there: wait five real minutes with no keeper write. Advance 5 min is Anvil-only; a 3-minute tick can refresh the row and hide B. Hop scoring cannot be shown on Sepolia — A lives on Anvil, and there is no tainted sender on that chain. The published score unlocks Floor B/D. It does not create a hop.",
   },
   {
     n: "11",
