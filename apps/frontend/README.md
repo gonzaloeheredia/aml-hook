@@ -39,7 +39,7 @@ On-screen titles (serif, same size on every stage): **Swap**, **Hook execution**
 
 REVERT is `beforeSwap` only — no `afterSwap` emit for that attempt.
 
-**Navbar:** Uniswap logo, **MetaMask Simulator** text link, theme switch, **Connect** pill. Connect always shows that label (title has the address when a wallet is connected). Wallet D shows **Score 0** until contaminated; **Latency** while keeper-pending. Wallet E stays **Unknown** and starts empty. P2P USDC transfers and **Mint 10,000 USDC** / **Mint 1 ETH** (MockUSDC / MockWETH) run from the MetaMask simulator panel under Tokens. Wallet F cannot mint or send P2P.
+**Navbar:** Uniswap logo, **MetaMask Simulator** text link, theme switch, **Connect** pill. Connect always shows that label (title has the address when a wallet is connected). Wallet D shows **Score 0** until contaminated; **Latency** while keeper-pending. Wallet E stays **Unknown** and starts empty. P2P USDC transfers and **Mint 10,000 USDC** / **Mint 1 ETH** (MockUSDC / MockWETH) run from the MetaMask simulator panel under Tokens. Wallet F cannot mint or send P2P. The same panel has a **Sepolia faucet** (paste a public address → 10,000 MockUSDC + 1 MockWETH). That path does not connect MetaMask and does not change A–F.
 
 ### The six use-case wallets
 
@@ -97,4 +97,6 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 - `contracts/README.md` — Foundry layout (`src/contracts/…`, `script/Deploy.sol`, `CreatePool.s.sol`)
 - `apps/api/README.md` — Anvil adapter + COA + signed `updateScore`
 
-This UI never talks to a live MetaMask extension or to Sepolia. **Connect** picks demo wallets A–F. A reviewer who opens the Sepolia pool in app.uniswap.org with a fresh address is never-scored (Floor A/C/D) unless `_ORACLE_KEEPER` publishes a row.
+This UI never talks to a live MetaMask extension. **Connect** picks demo wallets A–F. The **Sepolia faucet** only mints MockUSDC / MockWETH to a pasted address via the API.
+
+**Judges — never-scored is intentional.** The faucet does not publish `ComplianceOracle`. Unless `_ORACLE_KEEPER` writes a clean score for that address, a swap on the Sepolia pool (app.uniswap.org) is Wallet E: Floor A/C/D — 3% under $1,000, 8% from $1,000–$14,999 (or revert if the ticket is more than 20% of pool liquidity), revert at ≥ $15,000. That is the product, not a broken mint.

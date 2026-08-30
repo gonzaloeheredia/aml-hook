@@ -6,10 +6,12 @@
  */
 
 import type { FastifyInstance, FastifyReply } from "fastify";
+import { getAddress, isAddress } from "viem";
 import {
   chainHealth,
   clearPolicyKnobsCache,
   hydrateWallets,
+  idFromAddress,
   isChainUnavailable,
   isPriceFeedBound,
   listEscrows,
@@ -54,6 +56,9 @@ import {
   setWallets,
 } from "./store.js";
 import type { WalletId } from "./types.js";
+
+const FAUCET_USDC = 10_000;
+const FAUCET_ETH = 1;
 
 const WALLET_IDS_HINT = "A, B, C, D, E, or F";
 
@@ -442,13 +447,50 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post<{
-    Body: { walletId?: string; token?: string; amount?: number };
+    Body: { walletId?: string; address?: string; token?: string; amount?: number };
   }>("/demo/mint", async (req, reply) => {
+    const addressRaw = String(req.body?.address ?? "").trim();
     const idRaw = String(req.body?.walletId ?? "").toUpperCase();
+
+    if (addressRaw && idRaw) {
+      return reply.code(400).send({
+        error: "Pass address (judge faucet) or walletId (A–E demo), not both",
+      });
+    }
+
+    if (addressRaw) {
+      if (!isAddress(addressRaw)) {
+        return reply.code(400).send({ error: "address must be a 20-byte hex EOA" });
+      }
+      const address = getAddress(addressRaw);
+      if (idFromAddress(address) === "F") {
+        return reply.code(400).send({
+          error: "Wallet F is an OFAC SDN subject — mint is disabled.",
+        });
+      }
+      try {
+        const usdcTx = await mintUsdc(address, FAUCET_USDC);
+        const ethTx = await mintEth(address, FAUCET_ETH);
+        return {
+          ok: true,
+          faucet: true,
+          address,
+          usdc: FAUCET_USDC,
+          eth: FAUCET_ETH,
+          usdcTx,
+          ethTx,
+        };
+      } catch (err) {
+        return sendChainError(reply, err);
+      }
+    }
+
     const token = String(req.body?.token ?? "").toLowerCase();
     const amount = Number(req.body?.amount);
     if (!isWalletId(idRaw)) {
-      return reply.code(400).send({ error: `walletId must be ${WALLET_IDS_HINT}` });
+      return reply.code(400).send({
+        error: `walletId must be ${WALLET_IDS_HINT}, or pass address for the judge faucet`,
+      });
     }
     if (idRaw === "F") {
       return reply.code(400).send({

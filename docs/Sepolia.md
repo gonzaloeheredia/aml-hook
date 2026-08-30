@@ -107,8 +107,12 @@ A published 0–30 LP pays 0 extra even if the row is later stale.
 Any new address that swaps or mints on this pool without an oracle row hits
 Floor A/C/D (use-case Wallet E). Swaps under $1,000 take 3%; $1,000–$14,999
 take 8% (or revert if the ticket is more than 20% of pool liquidity); ≥ $15,000
-revert. The demo UI does not publish scores for arbitrary MetaMask accounts and
-does not talk to this chain — see [`Use_Case.md`](Use_Case.md) § environments.
+revert. That is intentional. The demo faucet (`POST /demo/mint` with `{ address }`,
+MetaMask panel **Sepolia faucet**) only mints 10,000 MockUSDC + 1 MockWETH. It
+does not call `updateScore`. Unless `_ORACLE_KEEPER` later publishes a clean
+row for that EOA, app.uniswap.org will treat the wallet as never-scored — elevated
+fee or revert by size, not a failed faucet. See [`Use_Case.md`](Use_Case.md) §
+environments.
 
 ## What is not on Sepolia
 

@@ -38,6 +38,13 @@ type Props = {
     token: "usdc" | "eth",
     amount: number,
   ) => Promise<string | null>;
+  /** Judge faucet: mint 10,000 MockUSDC + 1 MockWETH to a pasted Sepolia address. */
+  onFaucet: (address: string) => Promise<{
+    error: string | null;
+    usdcTx?: string;
+    ethTx?: string;
+    address?: string;
+  }>;
   /** Optional API connectivity hint shown in the panel header */
   apiLabel?: string | null;
 };
@@ -82,6 +89,7 @@ export function MetaMaskPanel({
   onSendTransfer,
   onUseInUniswap,
   onMint,
+  onFaucet,
   apiLabel,
 }: Props) {
   const [view, setView] = useState<View>("home");
@@ -90,6 +98,14 @@ export function MetaMaskPanel({
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [minting, setMinting] = useState<"usdc" | "eth" | null>(null);
+  const [faucetAddress, setFaucetAddress] = useState("");
+  const [faucetBusy, setFaucetBusy] = useState(false);
+  const [faucetError, setFaucetError] = useState<string | null>(null);
+  const [faucetResult, setFaucetResult] = useState<{
+    address: string;
+    usdcTx: string;
+    ethTx: string;
+  } | null>(null);
   const [lastMove, setLastMove] = useState<{
     from: SimWalletId;
     to: SimWalletId;
@@ -168,6 +184,29 @@ export function MetaMaskPanel({
     const err = await onMint(activeId, token, amount);
     setMinting(null);
     if (err) setError(err);
+  };
+
+  const handleFaucet = async () => {
+    const next = faucetAddress.trim();
+    if (!/^0x[a-fA-F0-9]{40}$/.test(next)) {
+      setFaucetError("Paste a 0x Sepolia address (40 hex chars).");
+      return;
+    }
+    setFaucetBusy(true);
+    setFaucetError(null);
+    const res = await onFaucet(next);
+    setFaucetBusy(false);
+    if (res.error) {
+      setFaucetError(res.error);
+      return;
+    }
+    if (res.address && res.usdcTx && res.ethTx) {
+      setFaucetResult({
+        address: res.address,
+        usdcTx: res.usdcTx,
+        ethTx: res.ethTx,
+      });
+    }
   };
 
   return (
@@ -526,6 +565,48 @@ export function MetaMaskPanel({
                 {error && view === "home" && (
                   <p className="mt-2 text-center text-xs text-[#FF6B6B]">{error}</p>
                 )}
+
+                <div className="mt-6 border-t border-white/10 pt-4">
+                  <div className="mb-1 text-sm font-semibold text-white">
+                    Sepolia faucet
+                  </div>
+                  <p className="mb-3 text-[11px] leading-snug text-white/40">
+                    Paste a public Sepolia address. Mints 10,000 MockUSDC + 1
+                    MockWETH. Does not connect that wallet here. A new address
+                    is never-scored on the pool until a keeper publishes a row.
+                  </p>
+                  <input
+                    type="text"
+                    spellCheck={false}
+                    autoComplete="off"
+                    placeholder="0x…"
+                    value={faucetAddress}
+                    onChange={(e) => setFaucetAddress(e.target.value)}
+                    className="w-full rounded-2xl border border-white/10 bg-[#121214] px-3 py-2.5 font-mono text-xs text-white placeholder:text-white/25"
+                  />
+                  <button
+                    type="button"
+                    disabled={faucetBusy}
+                    onClick={() => void handleFaucet()}
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-[#1A1A1C] px-3 py-2.5 text-xs font-semibold text-white hover:bg-[#242426] disabled:opacity-40"
+                  >
+                    {faucetBusy
+                      ? "Minting…"
+                      : "Mint 10,000 USDC + 1 ETH"}
+                  </button>
+                  {faucetError && (
+                    <p className="mt-2 text-center text-xs text-[#FF6B6B]">
+                      {faucetError}
+                    </p>
+                  )}
+                  {faucetResult && (
+                    <p className="mt-2 break-all text-center text-[11px] text-white/45">
+                      Sent to {shorten(faucetResult.address)}. USDC{" "}
+                      {shorten(faucetResult.usdcTx)} · ETH{" "}
+                      {shorten(faucetResult.ethTx)}
+                    </p>
+                  )}
+                </div>
               </div>
 
               <div className="mt-auto border-t border-white/10 p-4">

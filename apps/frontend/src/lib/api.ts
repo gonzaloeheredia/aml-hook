@@ -391,7 +391,7 @@ export function postDemoElapse(seconds = 301) {
   );
 }
 
-/** POST /demo/mint — mint MockUSDC or MockWETH to a demo wallet. */
+/** POST /demo/mint — mint MockUSDC or MockWETH to a demo wallet A–E. */
 export function postDemoMint(
   walletId: SimWallet["id"],
   token: "usdc" | "eth",
@@ -406,6 +406,22 @@ export function postDemoMint(
   }>(`/demo/mint`, {
     method: "POST",
     body: JSON.stringify({ walletId, token, amount }),
+  });
+}
+
+/** POST /demo/mint — judge faucet: 10,000 MockUSDC + 1 MockWETH to an arbitrary address. */
+export function postDemoFaucet(address: string) {
+  return request<{
+    ok: boolean;
+    faucet: true;
+    address: string;
+    usdc: number;
+    eth: number;
+    usdcTx: string;
+    ethTx: string;
+  }>(`/demo/mint`, {
+    method: "POST",
+    body: JSON.stringify({ address }),
   });
 }
 
