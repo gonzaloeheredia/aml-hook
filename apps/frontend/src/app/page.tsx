@@ -748,13 +748,6 @@ export default function HomePage() {
     };
   }, [appView, modalOpen, metaMaskOpen, moveStageBy]);
 
-  const apiLabel =
-    apiStatus === "online"
-      ? `API · ${API_BASE}`
-      : apiStatus === "connecting"
-        ? `Connecting · ${API_BASE}`
-        : `Offline · ${API_BASE}`;
-
   return (
     <main className="relative min-h-dvh overflow-x-hidden">
       {appView === "hook" && (
@@ -999,7 +992,6 @@ export default function HomePage() {
         onSendTransfer={handleSendTransfer}
         onMint={handleMint}
         onUseInUniswap={handleUseInUniswap}
-        apiLabel={apiLabel}
       />
     </main>
   );
