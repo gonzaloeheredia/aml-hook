@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { DocBackToTop } from "@/components/DocBackToTop";
 
 const ACCENT = "#FC72FF";
 
@@ -13,7 +14,7 @@ type ShellProps = {
  */
 export function DocShell({ title, children }: ShellProps) {
   return (
-    <section className="relative pb-16 pt-8 md:pt-12">
+    <section id="doc-module" className="relative pb-16 pt-8 md:pt-12">
       <div className="mb-20 text-center md:mb-28">
         <h1 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
           {title}
@@ -22,6 +23,7 @@ export function DocShell({ title, children }: ShellProps) {
       <div className="relative mx-auto w-full max-w-[1000px] px-2 pb-8 sm:px-3 md:-translate-x-3">
         {children}
       </div>
+      <DocBackToTop />
     </section>
   );
 }
