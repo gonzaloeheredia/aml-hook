@@ -279,6 +279,11 @@ export default function HomePage() {
     goToStage("swap");
   };
 
+  const handleDisconnect = () => {
+    setConnected(false);
+    setRunning(false);
+  };
+
   const handleUseInUniswap = (id: SimWalletId) => {
     const mapped = caseIdForSimWallet(id);
     const wallet = simWallets[id];
@@ -777,6 +782,7 @@ export default function HomePage() {
             connected ? walletTone(simWallets[caseId]).border : undefined
           }
           onConnectClick={() => setModalOpen(true)}
+          onDisconnect={handleDisconnect}
           onMetaMaskClick={() => setMetaMaskOpen(true)}
         />
 
