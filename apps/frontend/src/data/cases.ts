@@ -15,7 +15,7 @@
 
 export type Decision = "allow" | "fee_override" | "block";
 
-export type DemoCaseId = "A" | "B" | "C" | "D" | "E" | "N";
+export type DemoCaseId = "A" | "B" | "C" | "D" | "E";
 
 export interface DemoCase {
   id: DemoCaseId;
@@ -151,8 +151,8 @@ export interface DemoCase {
 
 /** Display order: A → E */
 export const CASE_ORDER: DemoCaseId[] = ["A", "B", "C", "D", "E"];
-/** A–E walkthrough plus the judge New wallet. */
-export const CONNECT_ORDER: DemoCaseId[] = ["A", "B", "C", "D", "E", "N"];
+/** Connect picker: A–E walkthrough. */
+export const CONNECT_ORDER: DemoCaseId[] = ["A", "B", "C", "D", "E"];
 
 const CLEAN_AGENT_NOTE =
   "Internal operator documentation. The agent never files with any authority.";
@@ -682,121 +682,6 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
         score: "—",
         output: "FEE_OVERRIDE",
         mainFacts: "Wallet E unknown; starts empty; fund from C. Next swap follows Floor A/D on the new bag.",
-        basis: "UNKNOWN_WALLET_USD_BANDS",
-        nextReview: "On keeper publish, or on a $15,000 attempt",
-      },
-      poolReport: { ...SHARED_POOL_REPORT },
-      note: CLEAN_AGENT_NOTE,
-    },
-  },
-  N: {
-    id: "N",
-    label: "New wallet — mint here, unknown score",
-    shortLabel: "New wallet",
-    wallet: "0x976EA74026E726554dB657fA54763abd0C3a0aa9",
-    walletLabel: "New wallet",
-    score: 0,
-    riskLabel: "Unknown",
-    decision: "fee_override",
-    decisionLabel: "Fee override",
-    baseFeeBps: 30,
-    appliedFeeBps: 300,
-    feeMultiplier: 300 / 30,
-    exploitConfirmed: false,
-    activity: {
-      hopDistance: null,
-      origin: "—",
-      windowLabel: "first swap",
-      totalUsd: 0,
-      amountUsd: 0,
-      txCount: 0,
-    },
-    typology: "Unknown wallet",
-    summary: [
-      "No oracle row. Starts at 0. Mint USDC / ETH on this account, then swap.",
-      "Floor A is this swap; Floor D is the unpublished bag. The stricter fee wins. This swap $15,000 → REVERT.",
-      "A published score is not written until a keeper publishes a row.",
-    ],
-    signals: [
-      { label: "Exploit / sanctions", value: "Clear", tone: "ok" },
-      { label: "Keeper score", value: "— never written", tone: "warn" },
-      { label: "Hop distance", value: "—", tone: "ok" },
-      { label: "Applied fee", value: "— (empty)", tone: "warn" },
-    ],
-    tags: [
-      { label: "New wallet", tone: "warn" },
-      { label: "FEE_OVERRIDE", tone: "warn" },
-    ],
-    flowPath: "fee_override",
-    amountPresets: [500, 1000, 10_000, 15_000],
-    swapSell: "0",
-    swapBuy: "0",
-    sellToken: "USDC",
-    buyToken: "ETH",
-    gasUsed: 188_000,
-    totalTimeSec: 1.82,
-    stepTimesSec: {
-      sign: 0.12,
-      unlock: 0.18,
-      before: 0.21,
-      l1: 0.15,
-      l2: 0.42,
-      decide: 0.28,
-      out: 0.46,
-    },
-    agent: {
-      status: "Technical opinion · FEE_OVERRIDE (unknown)",
-      hookOutput: "FEE_OVERRIDE",
-      documentType: "opinion + sar-annex",
-      recipient: "Pool operator Compliance Officer",
-      confidence: "MEDIUM",
-      humanReview: true,
-      retentionYears: 5,
-      auditHash: "0xe0c1…000n",
-      technicalOpinion: {
-        issued: true,
-        objectAndScope:
-          "Subject: New wallet. Role: unknown pool participant. The oracle has never written a row for this address.",
-        typologies:
-          "Instrument: Uniswap v4 RWA pool swap (USDC→ETH). First flow from an unpublished address. Floor A is this swap; Floor D is the current bag.",
-        sanctionsCheck:
-          "Layer-1 screen clear (simulated). No keeper score exists to read.",
-        sourcesConsulted: [
-          "Venue: AML Hook demo RWA pool (Uniswap v4). Account under review: New wallet. Never-written oracle row.",
-        ],
-        riskAndScoring:
-          "Unknown wallet. Starts at 0. After mint, Floor A is this swap and Floor D is the unpublished bag. The stricter fee wins.",
-        decisionExecuted:
-          "beforeSwap applies Floor A (this swap) and Floor D (bag). afterSwap emits SwapObserved on the fee path; a $15,000 attempt reverts.",
-        legalBasis:
-          "FATF 2021 VASP guidance note 37 (USD/EUR 1,000 VA) and Rec. 10 occasional CDD (USD/EUR 15,000). Floor C 24h aggregation is a BSA CTR design choice. See whitepaper §8.4.",
-        recommendations:
-          "Mint on this account first. Then use the size chips: bag $500 → 3%; $10k bag + $1k swap → 8%; this swap $15k → revert.",
-        traceability: "Retention 5 years. Support draft — not submitted.",
-      },
-      sarAnnex: {
-        produced: true,
-        status: "support-draft (not filed)",
-        activityPeriod: "first-swap window",
-        amountInvolved: "USD size chosen on the swap card",
-        operationState: "FEE_OVERRIDE or REVERT",
-        narrativeDescription:
-          "WHO: New wallet — unknown address. WHAT: first pool swap with no keeper score.",
-        narrativeAnalysis:
-          "WHEN: live demo session. WHERE: demo RWA pool.",
-        narrativeEvidence:
-          "WHY: never-written oracle row. Floor A is this swap; Floor D is the bag.",
-        narrativeConclusion:
-          "HOW: unknown-wallet USD bands. Internal pack only — not a filing.",
-        warnings: [
-          "Confidentiality — no tip-off",
-          "Document status: support draft — not submitted",
-        ],
-      },
-      decisionRecord: {
-        score: "—",
-        output: "FEE_OVERRIDE",
-        mainFacts: "New wallet unknown; starts at 0; mint on this account. Next swap follows Floor A/D.",
         basis: "UNKNOWN_WALLET_USD_BANDS",
         nextReview: "On keeper publish, or on a $15,000 attempt",
       },

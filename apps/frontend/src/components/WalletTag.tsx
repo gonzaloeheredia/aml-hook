@@ -36,7 +36,7 @@ export function walletTone(wallet: SimWallet): WalletTone {
       bg: "bg-uni-warn/10",
       text: "text-uni-warn",
       badge: "bg-uni-warn text-black",
-      label: wallet.id === "N" ? "New wallet" : "Unknown",
+      label: "Unknown",
     };
   }
 

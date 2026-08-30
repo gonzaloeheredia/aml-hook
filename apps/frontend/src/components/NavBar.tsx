@@ -14,7 +14,7 @@ type Props = {
   connected: boolean;
   /** Connected wallet address, or null if disconnected */
   address: string | null;
-  /** Active demo wallet id (A–E / N), shown on the connect chip */
+  /** Active demo wallet id (A–E), shown on the connect chip */
   walletId?: string | null;
   /** Border class for risk tone: green / yellow / red */
   riskBorderClass?: string;
@@ -43,7 +43,6 @@ function shorten(addr: string) {
  * Label for the navbar connect chip.
  */
 function accountLabel(walletId?: string | null) {
-  if (walletId === "N") return "New wallet";
   if (walletId) return `Wallet ${walletId}`;
   return "Connected";
 }

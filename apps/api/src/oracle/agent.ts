@@ -313,7 +313,7 @@ export async function reevaluateAfterTransfer(
 }> {
   const fromEval = await reevaluateWallet(from, "transfer");
 
-  if (to === "E" || to === "N") {
+  if (to === "E") {
     return {
       from: fromEval,
       to: getOracleEvaluation(to),

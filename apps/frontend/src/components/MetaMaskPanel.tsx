@@ -177,7 +177,7 @@ export function MetaMaskPanel({
               <span
                 className={`flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold ${walletTone(active).badge}`}
               >
-                {activeId === "N" ? "+" : activeId}
+                {activeId}
               </span>
                 <span className="max-w-[9rem] truncate">{active.accountLabel}</span>
                 <span className="text-white/40">▾</span>
@@ -218,7 +218,7 @@ export function MetaMaskPanel({
                       <span
                         className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold ${tone.badge}`}
                       >
-                        {id === "N" ? "+" : id}
+                        {id}
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-semibold text-white">
@@ -284,7 +284,7 @@ export function MetaMaskPanel({
                         : "border-white/10 bg-white/[0.04] text-white/70"
                     }`}
                   >
-                    {id === "N" ? "New wallet" : `Account ${id}`}
+                    {`Account ${id}`}
                     <div className="font-mono text-[10px] opacity-60">
                       {shorten(wallets[id].address)}
                     </div>
