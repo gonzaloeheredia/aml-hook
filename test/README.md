@@ -31,7 +31,6 @@ node test/flow-uniswap-metamask.mjs
 |---|---|
 | 2–3 Uniswap swaps while clean (B/C) | Still green · score 0 · 0.30% |
 | Wallet A pool swap | **WalletBlocked** (score 100; not OFAC-listed) |
-| Wallet F pool swap | **SanctionHit** (live OFAC SDN ETH address; no P2P) |
 | MetaMask **A → B** (or A → C) | Hop **1** · score ~65 · fee **8%** |
 | MetaMask **B → C** (or C → B) after that | Hop **2** · score ~42 · fee **3%** |
 | Extra B ↔ A after hop 1 | B stays hop **1** (closer hop wins) |

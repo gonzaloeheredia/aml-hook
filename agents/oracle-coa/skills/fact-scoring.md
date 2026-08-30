@@ -368,6 +368,6 @@ Claude is not scoring:
 - Clean path → `LONG_CLEAN_HISTORY` + `COHERENT_TRANSACTION_PROFILE`
 - afterSwap `SwapObserved` / `WalletBlocked` accumulate on the record
 
-Live catalog types above remain the full product spec. A–F constraints that
+Live catalog types above remain the full product spec. A–E constraints that
 must not drift live in skill `uhi10-use-case`. Vendor KYT APIs are still
 out of band.

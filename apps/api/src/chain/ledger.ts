@@ -5,7 +5,7 @@
  */
 
 import { keccak256, toBytes, type Address, type Hex } from "viem";
-import { DEMO_WALLETS, POOL_SINK, WALLET_IDS, bindOfacDemoWallet, hasSigner } from "./accounts.js";
+import { DEMO_WALLETS, POOL_SINK, WALLET_IDS, hasSigner } from "./accounts.js";
 import { erc20Abi, hookAbi, registryAbi } from "./abi.js";
 import { anvilRpc, governorWallet, keeperWallet, publicClient, requireChain, walletClient } from "./clients.js";
 import { getChainConfig, isLocalAnvil } from "./config.js";
@@ -33,7 +33,6 @@ const ethCredit: Record<WalletId, number> = {
   C: DEMO_WALLETS.C.eth,
   D: DEMO_WALLETS.D.eth,
   E: DEMO_WALLETS.E.eth,
-  F: DEMO_WALLETS.F.eth,
 };
 
 export { ethToWei, usdcToWei, weiToEth, weiToUsdc };
@@ -191,7 +190,6 @@ async function clearWalletASanction(): Promise<void> {
 
 export async function seedBalances(): Promise<void> {
   await requireChain();
-  await bindOfacDemoWallet();
   resetEthCredits();
   await clearWalletASanction();
   for (const id of WALLET_IDS) {
@@ -219,7 +217,7 @@ export async function transferUsdc(
   usdc: number,
 ): Promise<Hex> {
   if (!hasSigner(from) || !hasSigner(to)) {
-    throw new Error("Wallet F cannot send or receive P2P — OFAC SDN subject has no demo key");
+    throw new Error("Wallet has no demo key — P2P is disabled");
   }
   await requireChain();
   const cfg = getChainConfig();
@@ -239,7 +237,7 @@ export async function transferUsdc(
 
 export async function spendToSink(from: WalletId, usdc: number): Promise<Hex> {
   if (!hasSigner(from)) {
-    throw new Error("Wallet F cannot spend — OFAC SDN subject has no demo key");
+    throw new Error("Wallet has no demo key — spend is disabled");
   }
   const cfg = getChainConfig();
   const { account, client } = walletClient(DEMO_WALLETS[from].key!);

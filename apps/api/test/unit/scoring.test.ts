@@ -120,9 +120,10 @@ describe("unit: scoring", () => {
     assert.equal(feeBand(30), 30);
     assert.equal(feeBand(0), 0);
     assert.equal(isWalletId("A"), true);
-    assert.equal(isWalletId("F"), true);
+    assert.equal(isWalletId("E"), true);
+    assert.equal(isWalletId("F"), false);
     assert.equal(isWalletId("Z"), false);
-    assert.equal(hopScore(demoWallet("F", { ofacSubject: true })), 100);
+    assert.equal(hopScore(demoWallet("A", { exploitConfirmed: true, hopDistance: 0 })), 100);
   });
 
   it("shouldPublishScore: first write, band change, staleness", () => {

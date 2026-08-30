@@ -186,7 +186,6 @@ contract UnitDeployTest is Helpers {
     }
 
     /// @dev Demo Wallet A is an exploit origin (score 100), not an OFAC listing.
-    ///      Wallet F (live SDN) is bound by the API, not this script.
     function test_DeployWhenRunOnAnvil_DoesNotListDemoWalletA() external view {
         address demoA = deployment.DEMO_WALLET_A();
         assertFalse(sanctionRegistry.isSanctioned(demoA));

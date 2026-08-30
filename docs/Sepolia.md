@@ -6,7 +6,7 @@ canonical Circle USDC / WETH). Reviewers open this pool on Sepolia (e.g.
 app.uniswap.org). The hosted API (`ORACLE_CHAIN_ID=11155111`) reads
 [`contracts/deployments/11155111.json`](../contracts/deployments/11155111.json)
 and can publish scores / mint the faucet here. The guided UI is still the
-A–F **simulator** (`previewSwap`, not a live Uniswap fill).
+A–E **simulator** (`previewSwap`, not a live Uniswap fill).
 
 Addresses are also written by `script/Deploy.sol` to
 [`contracts/deployments/11155111.json`](../contracts/deployments/11155111.json)

@@ -27,7 +27,6 @@ Use this table as the map while running the demo. Each row points to the matchin
 | --- | --- | --- | --- | --- | --- |
 | 0 | D (or B / C) | Swap of already-held USDC | 0 | ALLOW | 0.30% |
 | 1 | A | Pool cash-out | 100 | REVERT | `WalletBlocked` (`SCORE_REVERT_BAND`) |
-| 1b | F | Pool cash-out (live OFAC SDN) | 100 | REVERT | `SanctionHit` (Layer 1 registry) |
 | 2 | A → B | P2P (peer-to-peer) | — | Agent emits 65; keeper publishes | — |
 | 3 | B | Swap | 65 | FEE_OVERRIDE | 8% |
 | 4 | B → C | P2P | — | Agent emits 42; keeper publishes | — |
@@ -44,9 +43,11 @@ Use this table as the map while running the demo. Each row points to the matchin
 | 12 | FEE_OVERRIDE paths | Escrow hold 24h / 48h | — | On-chain FeeEscrow | Differential |
 | 13 | Operator | Opinion stage | — | COA (Compliance Officer Agent) file | — |
 
-How to run it: from the repo root, `npm run deploy:local`, then start the API and the frontend. Without Anvil the API returns `503` `{ error: "deploy_local" }`. Connect A–F from the wallet picker, move USDC in the MetaMask panel (A–E only — F has no P2P), or mint more MockUSDC / MockWETH with **Mint 10,000 USDC** / **Mint 1 ETH** (also `POST /demo/mint`). Use the size chips and the two swap-card controls, and swap. Local quotes use `MockUsdFeed` ($1 USDC, $1,000 ETH). Demo ETH is mintable MockWETH, not native gas. The API exposes the same Anvil ledger on `POST /transfers`, `POST /swaps`, `POST /demo/mint`, `POST /demo/elapse`, `POST /demo/price-feed`, and `GET /escrow`. A demo swap is `previewSwap` + `observeSwap` + a FeeEscrow deposit on FEE_OVERRIDE — not a live Uniswap `PoolManager` fill.
+How to run it: from the repo root, `npm run deploy:local`, then start the API and the frontend. Without Anvil the API returns `503` `{ error: "deploy_local" }`. Connect A–E from the wallet picker, move USDC in the MetaMask panel, or mint more MockUSDC / MockWETH with **Mint 10,000 USDC** / **Mint 1 ETH** (also `POST /demo/mint`). Use the size chips and the two swap-card controls, and swap. Local quotes use `MockUsdFeed` ($1 USDC, $1,000 ETH). Demo ETH is mintable MockWETH, not native gas. The API exposes the same Anvil ledger on `POST /transfers`, `POST /swaps`, `POST /demo/mint`, `POST /demo/elapse`, `POST /demo/price-feed`, and `GET /escrow`. A demo swap is `previewSwap` + `observeSwap` + a FeeEscrow deposit on FEE_OVERRIDE — not a live Uniswap `PoolManager` fill.
 
-## 2. The six wallets
+Named-address OFAC (`SanctionHit` at Layer 1) is hook functionality, not a demo wallet. See whitepaper §3.3 / §8.6.
+
+## 2. The five wallets
 
 | Wallet | Role | Starting score |
 | --- | --- | --- |
@@ -55,9 +56,8 @@ How to run it: from the repo root, `npm run deploy:local`, then start the API an
 | **C** | Starts clean. Funds E (unknown) and D (inflow). Same hop rules as B. | 0 (published) |
 | **D** | Published score 0. Starts with 5,000 USDC. | 0 (published) |
 | **E** | Unknown. Starts empty. Clean C deposits USDC (no hop). | — (never written) |
-| **F** | Live OFAC SDN ETH address (not Anvil #6). COA writes `SanctionRegistry`. Pool swap hits `SanctionHit`. No P2P (no demo key). | 100 (list override) |
 
-B and C are symmetric for hops. Any path A → B → C or A → C → B produces the same hop math. D is confirmed clean until new funds arrive or a latency floor fires. E is unknown until the agent publishes a score. F is the true-positive list path — contrast with A (`WalletBlocked` without a listing). The step-by-step outcome for each wallet is in section 3.
+B and C are symmetric for hops. Any path A → B → C or A → C → B produces the same hop math. D is confirmed clean until new funds arrive or a latency floor fires. E is unknown until the agent publishes a score. The step-by-step outcome for each wallet is in section 3.
 
 ## 3. How the hook decides
 
@@ -108,7 +108,7 @@ A second inbound from a closer source replaces the farther hop. Clean-to-clean P
 
 ## 4. Walkthrough
 
-Reference for executing the demo step by step. Anvil must already be running (`npm run deploy:local`). Use the frontend (Connect + MetaMask panel) or the API. Amounts match the Anvil A–E wallets (#1–#5). Extra MockUSDC / MockWETH: MetaMask **Mint** buttons or `POST /demo/mint`. Wallet F is a live OFAC SDN ETH identifier (not Anvil #6) and cannot mint. On the swap card: **Advance 5 min** (Floor B) and **Unbind price feed** (uses `lastFx` after a prior quote: silent under 30 minutes, `PriceFallbackUsed` until 24h after that; `MagnitudeQuoteFailed` only if that token was never quoted or the cache is older than 24h). Restart data reseeds A–F on-chain.
+Reference for executing the demo step by step. Anvil must already be running (`npm run deploy:local`). Use the frontend (Connect + MetaMask panel) or the API. Amounts match the Anvil A–E wallets (#1–#5). Extra MockUSDC / MockWETH: MetaMask **Mint** buttons or `POST /demo/mint`. On the swap card: **Advance 5 min** (Floor B) and **Unbind price feed** (uses `lastFx` after a prior quote: silent under 30 minutes, `PriceFallbackUsed` until 24h after that; `MagnitudeQuoteFailed` only if that token was never quoted or the cache is older than 24h). Restart data reseeds A–E on-chain.
 
 ### Step 0 — Clean swap (D, or B / C)
 
@@ -135,21 +135,7 @@ Connect Wallet A. Swap any size.
 | Error | `WalletBlocked` · `"SCORE_REVERT_BAND"` |
 | Settlement | None. Funds stay in A. |
 
-A can still send USDC off-pool to B or C. Do not send A → E.
-
-### Step 1b — OFAC SDN cash-out (F)
-
-Connect Wallet F. Swap any size.
-
-| Check | Result |
-| --- | --- |
-| Sanctions | Listed (`SanctionRegistry` written by the COA from the live OFAC SDN dump) |
-| Score | Not consulted (Layer 1 fail-closes first) |
-| Decision | REVERT |
-| Error | `SanctionHit` |
-| Settlement | None. Funds stay in F. |
-
-F has no demo key — P2P is disabled. Do not fund E from F. Use A vs F to contrast `WalletBlocked` (exploit, not listed) with `SanctionHit` (listed).
+A can still send USDC off-pool to B or C. Do not send A → E. A listed address is a different hook path (`SanctionHit` at Layer 1) — whitepaper §3.3 / §8.6 — not a wallet in this walkthrough.
 
 ### Step 2 — A sends to B
 

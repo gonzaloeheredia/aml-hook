@@ -117,9 +117,7 @@ export function MetaMaskPanel({
 
   const recipients = useMemo(
     () =>
-      (Object.keys(wallets) as SimWalletId[]).filter(
-        (id) => id !== activeId && id !== "F" && !wallets[id].ofacSubject,
-      ),
+      (Object.keys(wallets) as SimWalletId[]).filter((id) => id !== activeId),
     [wallets, activeId],
   );
 
@@ -128,15 +126,14 @@ export function MetaMaskPanel({
     if (activeId === "C") setToId(wallets.E.usdc <= 0 ? "E" : "D");
     else if (activeId === "B" && !isSenderTainted(wallets.B)) setToId("D");
     else if (activeId === "A") setToId("B");
-    else setToId((prev) => (prev === activeId || prev === "F" ? "C" : prev));
+    else setToId((prev) => (prev === activeId ? "C" : prev));
   }, [activeId, wallets.B, wallets.E.usdc]);
 
   /** Clear flash when switching accounts */
   useEffect(() => {
     setLastMove(null);
     setError(null);
-    if (active.ofacSubject) setView("home");
-  }, [activeId, active.ofacSubject]);
+  }, [activeId]);
 
   const parsedAmount = Math.round(Number(String(amount).replace(/,/g, "")));
   const amountOk = Number.isFinite(parsedAmount) && parsedAmount > 0;
@@ -144,9 +141,6 @@ export function MetaMaskPanel({
     amountOk &&
     parsedAmount <= active.usdc &&
     toId !== activeId &&
-    toId !== "F" &&
-    activeId !== "F" &&
-    !active.ofacSubject &&
     !!wallets[toId];
 
   /**
@@ -175,10 +169,6 @@ export function MetaMaskPanel({
   };
 
   const handleMint = async (token: "usdc" | "eth", amount: number) => {
-    if (active.ofacSubject || activeId === "F") {
-      setError("Wallet F is an OFAC SDN subject — mint is disabled.");
-      return;
-    }
     setMinting(token);
     setError(null);
     const err = await onMint(activeId, token, amount);
@@ -321,7 +311,7 @@ export function MetaMaskPanel({
               </button>
               <h3 className="text-xl font-bold text-white">Send USDC</h3>
               <p className="mt-1 text-sm text-white/50">
-                Moves USDC between A–E. Wallet F is OFAC SDN — P2P is disabled. For D inflow (no hop), send from C while C is still clean — not from A.
+                Moves USDC between A–E. For D inflow (no hop), send from C while C is still clean — not from A.
               </p>
 
               <label className="mt-6 text-[11px] uppercase tracking-wider text-white/40">
@@ -474,9 +464,7 @@ export function MetaMaskPanel({
                   {formatUsd(totalUsd)}
                 </div>
                 <div className="mt-1 text-sm text-[#28A745]">
-                  {active.ofacSubject
-                    ? "OFAC SDN · pool will REVERT SanctionHit"
-                    : active.hopDistance == null && !active.exploitConfirmed
+                  {active.hopDistance == null && !active.exploitConfirmed
                     ? "Clean ledger · ready for baseline swap"
                     : active.exploitConfirmed
                       ? "Exploit confirmed · pool will REVERT"
@@ -499,11 +487,6 @@ export function MetaMaskPanel({
               </div>
 
               <div className="mt-4 px-4">
-                {active.ofacSubject ? (
-                  <p className="rounded-2xl border border-white/10 bg-[#1A1A1C] px-3 py-3 text-center text-xs text-white/55">
-                    P2P is disabled for Wallet F. Use this account in Uniswap to demo SanctionHit.
-                  </p>
-                ) : (
                 <button
                   type="button"
                   onClick={() => {
@@ -517,7 +500,6 @@ export function MetaMaskPanel({
                   </span>
                   <span className="text-[11px] font-medium">Send USDC (P2P)</span>
                 </button>
-                )}
               </div>
 
               <div className="mt-6 px-4 pb-2">
@@ -538,12 +520,7 @@ export function MetaMaskPanel({
                     tone="#627EEA"
                   />
                 </div>
-                {active.ofacSubject ? (
-                  <p className="mt-3 text-center text-[11px] text-white/40">
-                    Mint is disabled for Wallet F.
-                  </p>
-                ) : (
-                  <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="mt-3 grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       disabled={minting !== null}
@@ -561,7 +538,6 @@ export function MetaMaskPanel({
                       {minting === "eth" ? "Minting…" : "Mint 1 ETH"}
                     </button>
                   </div>
-                )}
                 {error && view === "home" && (
                   <p className="mt-2 text-center text-xs text-[#FF6B6B]">{error}</p>
                 )}

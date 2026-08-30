@@ -76,9 +76,9 @@ A live OFAC SDN exact-address screen is already in the payload (\`ofac\`).
 Use it for sanctionsCheck. You may call \`screen_ofac\` for another address.
 Do not invent an SDN hit. Demo wallets A–E are not OFAC-listed unless
 \`ofac.subject.match\` is true (Wallet A is an exploit, not an SDN match).
-Wallet F is the live OFAC SDN subject — expect subjectMatch true and a
-SanctionRegistry write. The swap fail-closes SanctionHit, not WalletBlocked.
-If the frozen score looks inconsistent with wallets A–F or the use-case
+A live SDN match is hook Layer 1 (SanctionRegistry → SanctionHit), not a
+use-case wallet and not WalletBlocked.
+If the frozen score looks inconsistent with wallets A–E or the use-case
 floors, call \`consult_skill\` with name \`uhi10-use-case\` (and
 \`uhi10-sepolia\` if the subject is not an Anvil A–E key) — do not change
 the published score. Never-scored is Floor A, not a COA 0.
@@ -146,7 +146,7 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: "consult_skill",
     description:
-      "Load a COA skill from agents/oracle-coa/skills. When hop decay, Wallet A vs OFAC, unpublished E, Wallet F SanctionHit, deferred D, LP floors, or fee bps is unclear, call with name uhi10-use-case. For Sepolia / non-demo subjects call uhi10-sepolia. Omit name to list skills.",
+      "Load a COA skill from agents/oracle-coa/skills. When hop decay, Wallet A exploit, unpublished E, deferred D, LP floors, or fee bps is unclear, call with name uhi10-use-case. For Sepolia / non-demo subjects call uhi10-sepolia. Omit name to list skills.",
     input_schema: {
       type: "object",
       properties: {

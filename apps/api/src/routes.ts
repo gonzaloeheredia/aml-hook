@@ -11,7 +11,6 @@ import {
   chainHealth,
   clearPolicyKnobsCache,
   hydrateWallets,
-  idFromAddress,
   isChainUnavailable,
   isPriceFeedBound,
   listEscrows,
@@ -60,7 +59,7 @@ import type { WalletId } from "./types.js";
 const FAUCET_USDC = 10_000;
 const FAUCET_ETH = 1;
 
-const WALLET_IDS_HINT = "A, B, C, D, E, or F";
+const WALLET_IDS_HINT = "A, B, C, D, or E";
 
 type TransferBody = {
   from?: string;
@@ -110,7 +109,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       publisher: getPublisherStatus(),
       chain,
       policy,
-      wallets: ["A", "B", "C", "D", "E", "F"],
+      wallets: ["A", "B", "C", "D", "E"],
     };
   });
 
@@ -269,11 +268,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     if (!isWalletId(fromRaw) || !isWalletId(toRaw)) {
       return reply.code(400).send({ error: `from/to must be ${WALLET_IDS_HINT}` });
-    }
-    if (fromRaw === "F" || toRaw === "F") {
-      return reply.code(400).send({
-        error: "Wallet F is an OFAC SDN subject — P2P is disabled. Use a pool swap to see SanctionHit.",
-      });
     }
     if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
       return reply.code(400).send({ error: "amountUsd must be a positive number" });
@@ -463,11 +457,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: "address must be a 20-byte hex EOA" });
       }
       const address = getAddress(addressRaw);
-      if (idFromAddress(address) === "F") {
-        return reply.code(400).send({
-          error: "Wallet F is an OFAC SDN subject — mint is disabled.",
-        });
-      }
       try {
         const usdcTx = await mintUsdc(address, FAUCET_USDC);
         const ethTx = await mintEth(address, FAUCET_ETH);
@@ -490,11 +479,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!isWalletId(idRaw)) {
       return reply.code(400).send({
         error: `walletId must be ${WALLET_IDS_HINT}, or pass address for the judge faucet`,
-      });
-    }
-    if (idRaw === "F") {
-      return reply.code(400).send({
-        error: "Wallet F is an OFAC SDN subject — mint is disabled.",
       });
     }
     if (token !== "usdc" && token !== "eth") {

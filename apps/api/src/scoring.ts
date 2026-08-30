@@ -64,7 +64,6 @@ export const UNSCORED_MID_FEE_BPS = DEFAULT_POLICY_KNOBS.punitiveFeeBps;
  */
 export function hopScore(wallet: Wallet): number {
   if (wallet.neverScored) return 0;
-  if (wallet.ofacSubject) return ORIGIN_EXPLOIT_SCORE;
   if (wallet.exploitConfirmed) return ORIGIN_EXPLOIT_SCORE;
   if (wallet.hopDistance == null) return 0;
   return Math.round(
@@ -233,7 +232,7 @@ export function toHookOutput(decision: Decision): "ALLOW" | "FEE_OVERRIDE" | "RE
 }
 
 /**
- * Type guard: returns true when `value` is a demo wallet id (A–F).
+ * Type guard: returns true when `value` is a demo wallet id (A–E).
  */
 export function isWalletId(value: string): value is WalletId {
   return (
@@ -241,8 +240,7 @@ export function isWalletId(value: string): value is WalletId {
     value === "B" ||
     value === "C" ||
     value === "D" ||
-    value === "E" ||
-    value === "F"
+    value === "E"
   );
 }
 

@@ -31,7 +31,7 @@ apps/api/src/oracle/           # Runtime (live Claude if key set)
 
 There is **no** Python `agent.py` in this repo. Skills are English markdown
 in `skills/`. Live Claude loads them with `consult_skill` (use `uhi10-use-case`
-when A–F constraints are unclear; `uhi10-sepolia` for the live pool). Tests
+when A–E constraints are unclear; `uhi10-sepolia` for the live pool). Tests
 and `COA_LIVE=0` use `factScoring.ts`.
 
 ---
@@ -113,7 +113,7 @@ Canonical wallets: A (score 100 / REVERT), B/C hop-1 (~65 / FEE_OVERRIDE 8%),
 hop-2 (~42 / FEE_OVERRIDE 3%), D (published clean + inflow / 8% at $15k),
 E (never written, starts empty, funded by C: Floor A is this swap; Floor D is the bag).
 Wallet A is a confirmed exploit (score 100 · `WalletBlocked`; not OFAC-listed).
-Wallet F is a live OFAC SDN ETH subject (`SanctionHit` at Layer 1; no P2P).
+Named-address OFAC (`SanctionHit` at Layer 1) is hook functionality, not a demo wallet.
 On FEE_OVERRIDE, intended friction is `recommendedFeeBps` when the keeper wrote
 one; never-scored bands are hook-local USD-8 (`lastFx` if younger than 30 minutes, else Chainlink). Settlement = pool
 standard fee + differential in FeeEscrow.
@@ -153,7 +153,7 @@ DIMENSION 1: DOMAIN                     DIMENSION 2: TASK TYPE
 ├── typology-detection                   └── task-regulatory-report
 ├── cross-pool-intelligence
 ├── protocol-obligations
-├── uhi10-use-case                       (A–F demo validations; consult when unsure)
+├── uhi10-use-case                       (A–E demo validations; consult when unsure)
 └── uhi10-sepolia                        (Sepolia live pool; never-scored EOA = Wallet E)
 
 ── SCORING ──                            ── SYSTEM CONTROL ──
@@ -190,7 +190,7 @@ DIMENSION 1: DOMAIN                     DIMENSION 2: TASK TYPE
   cross-pool-intelligence (query)
           |
           v
-  uhi10-use-case (A–F validations; consult when unsure)
+  uhi10-use-case (A–E validations; consult when unsure)
           |
           v
   fact-scoring -> task-swap-decision

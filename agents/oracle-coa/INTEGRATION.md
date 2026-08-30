@@ -7,7 +7,7 @@ the **off-chain scoring oracle** for the UHI10 demo.
 
 The TypeScript runner lives in `apps/api/src/oracle/`. With `ANTHROPIC_API_KEY`,
 Claude emits score, fee, and Opinion (`liveScore.ts`). Tools:
-`consult_skill` (call `uhi10-use-case` before scoring A–F),
+`consult_skill` (call `uhi10-use-case` before scoring A–E),
 `search_regulations`, `get_active_version_at`, `screen_ofac`. The keeper publishes
 `finalScore` + `recommendedFeeBps` to `ComplianceOracle`. Quotes use
 `AmlHook.previewSwap`. A 3-minute tick stamps `updatedAt` without calling
@@ -33,7 +33,7 @@ on an exact match. The swap still only reads that mapping.
 
 No live OpenSanctions / Etherscan / Chainalysis calls. Facts come from Anvil
 wallets, P2P ERC-20 transfers, `SwapObserved` / `WalletBlocked`, live OFAC SDN
-(ETH addresses), and `SanctionRegistry`. N-hop decay (`100 × 0.65^hops`) is the A–F backbone in
+(ETH addresses), and `SanctionRegistry`. N-hop decay (`100 × 0.65^hops`) is the A–E backbone in
 skill `uhi10-use-case`; the agent applies it — TypeScript does not precompute
 65/42 when live. This runner does not score Sepolia addresses. The live pool
 (`docs/Sepolia.md`) needs a separate keeper/attestor if a new wallet must leave

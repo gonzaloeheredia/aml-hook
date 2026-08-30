@@ -16,7 +16,7 @@ neither satisfies Rec. 1.
 
 **Demo runtime:** `hookOutput` and `recommendedFeeBps` come from the agent's
 emitted score (Claude or interpreter). Floors A–D stay on-chain in
-`RiskPolicy.decide`. Consult `uhi10-use-case` before emitting A–F fees.
+`RiskPolicy.decide`. Consult `uhi10-use-case` before emitting A–E fees.
 Consult `uhi10-sepolia` when the subject is not an Anvil A–E key. Never
 describe Floor A (never-scored) as a published 0. A never-scored **LP add**
 on an empty pool can revert on the 8% `take` — that is hook + inventory, not

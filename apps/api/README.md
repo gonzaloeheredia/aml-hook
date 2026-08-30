@@ -6,7 +6,7 @@ TypeScript API that talks to the configured chain. It does not own the ledger. B
 
 **Sepolia (`ORACLE_CHAIN_ID=11155111`).** Reads [`contracts/deployments/11155111.json`](../../contracts/deployments/11155111.json) (env overrides win). Requires `ORACLE_RPC_URL`, `KEEPER_PRIVATE_KEY`, and `ATTESTOR_PRIVATE_KEY` — no Anvil key fallback. Public address template: [`.env.sepolia.example`](.env.sepolia.example). Pool write-up: [`docs/Sepolia.md`](../../docs/Sepolia.md). `/demo/elapse` is Anvil-only.
 
-**Oracle COA:** with `ANTHROPIC_API_KEY` in `apps/api/.env`, Claude emits `finalScore`, `recommendedFeeBps`, and the Opinion (tools: `consult_skill` / `uhi10-use-case`, `search_regulations`, `screen_ofac`). The keeper writes `ComplianceOracle`; quotes and swaps read `AmlHook.previewSwap`. On every evaluation the COA screens the subject against the live OFAC SDN ETH list and, on an exact match, writes `SanctionRegistry` — the swap still only reads that mapping. Tests and `OFAC_LIVE=0` skip Treasury. There are still **no** live calls to OpenSanctions, Etherscan, GoPlus, Chainalysis, or TRM. Seed waits on Claude when the key is set (A–D and F). E stays unpublished. The 3-minute keeper tick only stamps the last score (no Claude). If the agent is down, that tick still keeps `updatedAt` inside Floor B's 5-minute window. If both are down, Floor B fires.
+**Oracle COA:** with `ANTHROPIC_API_KEY` in `apps/api/.env`, Claude emits `finalScore`, `recommendedFeeBps`, and the Opinion (tools: `consult_skill` / `uhi10-use-case`, `search_regulations`, `screen_ofac`). The keeper writes `ComplianceOracle`; quotes and swaps read `AmlHook.previewSwap`. On every evaluation the COA screens the subject against the live OFAC SDN ETH list and, on an exact match, writes `SanctionRegistry` — the swap still only reads that mapping. Tests and `OFAC_LIVE=0` skip Treasury. There are still **no** live calls to OpenSanctions, Etherscan, GoPlus, Chainalysis, or TRM. Seed waits on Claude when the key is set (A–D). E stays unpublished. The 3-minute keeper tick only stamps the last score (no Claude). If the agent is down, that tick still keeps `updatedAt` inside Floor B's 5-minute window. If both are down, Floor B fires.
 
 **Quotes:** `GET /wallets/:id/quote` and swap settlement call `AmlHook.previewSwap` — the same L1→L3 path `beforeSwap` uses. There is no TypeScript policy fallback.
 
@@ -145,7 +145,7 @@ npm run dev
 |---|---|
 | Anvil #0 | Admin / registry keeper / oracle keeper / hook governor / compliance officer / FeeEscrow owner |
 | Anvil #1–#5 | Demo wallets A–E. Keys stay on the API |
-| Live OFAC SDN ETH | Wallet F. No Anvil key. COA writes `SanctionRegistry`; swap → `SanctionHit` |
+| OFAC SDN ETH match | Hook Layer 1: COA writes `SanctionRegistry`; swap → `SanctionHit`. Not a demo wallet |
 | Anvil #9 | Distinct attestor. Signs `attestationHash` |
 
 `KEEPER_PRIVATE_KEY` must hold AccessManager role `_ORACLE_KEEPER` (role id `2`) or `updateScore` reverts with `AccessManagedUnauthorized`. `ATTESTOR_PRIVATE_KEY` must be the oracle attestor or the signature is rejected.

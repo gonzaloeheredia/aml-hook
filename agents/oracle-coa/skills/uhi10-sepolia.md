@@ -7,11 +7,11 @@ description: "Live Ethereum Sepolia (11155111) instantiation of the AML Hook use
 
 Canonical addresses: `docs/Sepolia.md` and
 `contracts/deployments/11155111.json`. This skill tells you **how to behave**.
-It does not replace `uhi10-use-case` (A–F math still applies).
+It does not replace `uhi10-use-case` (A–E math still applies).
 
 When `ORACLE_CHAIN_ID=11155111`, this API publishes to this pool: the keeper
 submits `updateScore` and the attestor signs `attestationHash`. Demo quotes
-are still `previewSwap`, not PoolManager fills. Do not copy Anvil A–F hops
+are still `previewSwap`, not PoolManager fills. Do not copy Anvil A–E hops
 onto Sepolia EOAs.
 
 ---
@@ -22,7 +22,7 @@ onto Sepolia EOAs.
 |---|---|
 | Wallet **E** | Any EOA (or untrusted caller) with `updatedAt == 0` on `ComplianceOracle` `0xED5ED80715D886e4cE808269e69fcDFBeD22733B` |
 | Wallet **A** | Only if you have a confirmed exploit fact on **that** address. Anvil wallet A is not this pool’s LP |
-| Wallet **F** | Live OFAC SDN exact-address match → `SanctionRegistry` `0xBf46E7dad8286FC3e487C22b27F17D734814df5d` → hook `SanctionHit`. Do not invent hops from F |
+| Listed SDN | Live OFAC SDN exact-address match → `SanctionRegistry` `0xBf46E7dad8286FC3e487C22b27F17D734814df5d` → hook `SanctionHit`. Not a use-case wallet. Do not invent hops from a listed address |
 | B / C / D hops | Only after observed P2P / facts on **these** addresses. Do not import the Anvil ledger |
 
 A judge who opens the pool on app.uniswap.org with a fresh EOA is Wallet E:
@@ -99,8 +99,8 @@ FX: ETH/USD `0x694AA1769357215DE4FAC081bf1f309aDC325306`, USDC/USD
 1. Never-written Sepolia address → Wallet E. Do not publish unless the
    operator explicitly requests a seed write (0–30) for an untrusted LP
    caller on an empty or near-empty pool.
-2. Do not copy Anvil A–F scores, hops, or P2P onto Sepolia.
-3. Do not treat F as a hop source. Do not treat the score-10 liquidity
+2. Do not copy Anvil A–E scores, hops, or P2P onto Sepolia.
+3. Do not treat a listed SDN address as a hop source. Do not treat the score-10 liquidity
    router as hop 0 exploit.
 4. Subject = hook-resolved sender (§1.3 of the system prompt).
 5. Opinion sources: Etherscan / oracle / registry — never this filename.

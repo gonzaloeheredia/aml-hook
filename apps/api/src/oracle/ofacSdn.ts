@@ -287,8 +287,8 @@ export const PREFERRED_SDN_ETH = [
 ] as const;
 
 /**
- * Pick Wallet F's address from the live SDN set.
- * Prefers known Garantex ETH identifiers; otherwise the sorted first live address.
+ * Pick a live SDN ETH address from the current dump.
+ * Prefers known Garantex identifiers; otherwise the sorted first live address.
  */
 export async function pickLiveSdnAddress(
   preferred: readonly string[] = PREFERRED_SDN_ETH,

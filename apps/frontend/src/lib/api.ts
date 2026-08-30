@@ -194,7 +194,6 @@ export function toSimWallet(w: ApiWallet): SimWallet {
     exploitConfirmed: w.exploitConfirmed,
     keeperPending: w.keeperPending,
     neverScored: w.neverScored,
-    ofacSubject: w.ofacSubject,
     lastKnownUsdc: w.lastKnownUsdc,
     lastScoreAt: w.lastScoreAt,
     lastKnownAt: w.lastKnownAt,
@@ -205,7 +204,7 @@ export function toSimWallet(w: ApiWallet): SimWallet {
 }
 
 /**
- * Maps an API wallet list into a Record keyed by A–F (fills missing seeds).
+ * Maps an API wallet list into a Record keyed by A–E (fills missing seeds).
  */
 export function walletsRecord(
   list: ApiWallet[],
@@ -433,7 +432,7 @@ export function postDemoPriceFeed(bound: boolean) {
   });
 }
 
-/** POST /reset — reseed A–F baseline */
+/** POST /reset — reseed A–E baseline */
 export function postReset() {
   return request<{
     ok: boolean;

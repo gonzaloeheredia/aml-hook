@@ -31,11 +31,5 @@ export function seedDemoWallets(): Record<WalletId, Wallet> {
     C: demoWallet("C", { usdc: 50_000 }),
     D: demoWallet("D", { usdc: 5_000 }),
     E: demoWallet("E", { neverScored: true, usdc: 0 }),
-    F: demoWallet("F", {
-      ofacSubject: true,
-      address: "0x7FF9cFad3877F21d41Da833E2F775dB0569eE3D9",
-      usdc: 10_000,
-      eth: 0,
-    }),
   };
 }

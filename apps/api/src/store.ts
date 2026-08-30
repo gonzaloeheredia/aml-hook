@@ -10,11 +10,10 @@ import { EXPLOIT_SOURCE } from "./scoring.js";
 import type { HookEvent, TransferRecord, Wallet, WalletId } from "./types.js";
 
 /**
- * Builds the initial A–F wallet ledger from the use case:
+ * Builds the initial A–E wallet ledger from the use case:
  * A = exploit origin (score 100, not OFAC-listed); B and C start clean (symmetric N-hop);
  * D = published score 0 (already-held funds ALLOW; clean C→D is inflow, not a hop);
- * E = unknown, starts empty (fund from C);
- * F = live OFAC SDN ETH address (COA writes SanctionRegistry; swap → SanctionHit).
+ * E = unknown, starts empty (fund from C).
  */
 function seedWallets(): Record<WalletId, Wallet> {
   return {
@@ -78,19 +77,6 @@ function seedWallets(): Record<WalletId, Wallet> {
       exploitConfirmed: false,
       neverScored: true,
     },
-    F: {
-      id: "F",
-      accountLabel: "Account F · OFAC SDN",
-      role: "Live OFAC SDN exact-address match. COA writes SanctionRegistry. Pool swap → SanctionHit. No P2P.",
-      address: DEMO_WALLETS.F.address,
-      usdc: DEMO_WALLETS.F.usdc,
-      eth: DEMO_WALLETS.F.eth,
-      hopDistance: null,
-      originId: null,
-      exploitConfirmed: false,
-      neverScored: false,
-      ofacSubject: true,
-    },
   };
 }
 
@@ -136,7 +122,6 @@ function seedLastKnown(wallets: Record<WalletId, Wallet>): Record<WalletId, numb
     C: wallets.C.usdc,
     D: wallets.D.usdc,
     E: wallets.E.usdc,
-    F: wallets.F.usdc,
   };
 }
 
@@ -147,7 +132,6 @@ function seedActivity(): Record<WalletId, WalletActivity> {
     C: { ...EMPTY_ACTIVITY },
     D: { ...EMPTY_ACTIVITY },
     E: { ...EMPTY_ACTIVITY },
-    F: { ...EMPTY_ACTIVITY },
   };
 }
 
@@ -158,18 +142,17 @@ function seedDaily(): Record<WalletId, DailyActivity> {
     C: { ...EMPTY_DAILY },
     D: { ...EMPTY_DAILY },
     E: { ...EMPTY_DAILY },
-    F: { ...EMPTY_DAILY },
   };
 }
 
 function seedLastScoreAt(): Partial<Record<WalletId, number>> {
   const t = Date.now();
-  return { A: t, B: t, C: t, D: t, F: t };
+  return { A: t, B: t, C: t, D: t };
 }
 
 function seedLastKnownAt(): Record<WalletId, number> {
   const t = Date.now();
-  return { A: t, B: t, C: t, D: t, E: t, F: t };
+  return { A: t, B: t, C: t, D: t, E: t };
 }
 
 /** Mutable singleton store for the demo API. */
@@ -303,7 +286,7 @@ export function isScoreStale(id: WalletId): boolean {
 }
 
 /**
- * Returns wallets A–F as an array.
+ * Returns wallets A–E as an array.
  */
 export function listWallets(): Wallet[] {
   return (Object.keys(store.wallets) as WalletId[]).map((id) => store.wallets[id]);

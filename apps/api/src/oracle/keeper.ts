@@ -6,7 +6,7 @@
  * (`stalenessThreshold`). The tick does not call Claude — it stamps the last
  * agent score. If the agent is down, this heartbeat still keeps a published
  * row fresh. If there is no last score (`neverScored`, Wallet E), the tick
- * skips. Includes Wallet F (published OFAC subject).
+ * skips.
  */
 
 import { isKeeperPending, listWallets } from "../store.js";
@@ -27,7 +27,7 @@ export function keeperTickMs(): number {
 }
 
 /**
- * Recomputes and publishes A–D and F (skips E and deferred Wallet D).
+ * Recomputes and publishes A–D (skips E and deferred Wallet D).
  */
 export async function runKeeperTick(): Promise<void> {
   for (const w of listWallets()) {

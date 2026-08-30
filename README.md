@@ -46,7 +46,7 @@ Supporting notes:
 | Never written, this swap ≥ $15,000 | REVERT | `UnscoredMagnitudeBlocked` |
 | Never written, no live price and no last FX (or last FX older than 24h) | REVERT | `MagnitudeQuoteFailed` |
 
-A published score of 0 is confirmed clean. An address with no oracle row is unknown. Those are different paths. The 3% / 8% and $1,000 / $15,000 figures above are deploy defaults; `_COMPLIANCE_OFFICER` proposes then confirms retunes (48h). Score cuts 31 / 55 / 71 stay fixed. Full thresholds: whitepaper §8.4. The A–F walkthrough: use case. Fee escrow destinations: §8.3.
+A published score of 0 is confirmed clean. An address with no oracle row is unknown. Those are different paths. The 3% / 8% and $1,000 / $15,000 figures above are deploy defaults; `_COMPLIANCE_OFFICER` proposes then confirms retunes (48h). Score cuts 31 / 55 / 71 stay fixed. Full thresholds: whitepaper §8.4. The A–E walkthrough: use case. Fee escrow destinations: §8.3.
 
 N-hop score written by the agent (skill `uhi10-use-case`), published by the keeper:
 
@@ -91,7 +91,7 @@ Writes are split so a score keeper cannot move escrow, and an escrow keeper cann
 
 ## Demo wallets
 
-The frontend talks to the API. Locally the API reads and writes the use-case ledger on Anvil (wallets A–E = accounts #1–#5; Wallet F is a live OFAC SDN ETH address, not Anvil #6). Hosted, the same UI can point at a Sepolia API (`NEXT_PUBLIC_API_URL`); the A–F picker stays a simulator.
+The frontend talks to the API. Locally the API reads and writes the use-case ledger on Anvil (wallets A–E = accounts #1–#5). Hosted, the same UI can point at a Sepolia API (`NEXT_PUBLIC_API_URL`); the A–E picker stays a simulator. Named-address OFAC (`SanctionHit`) is hook Layer 1 — whitepaper §8.6 — not a demo wallet.
 
 | Wallet | Starting state | What to try |
 | --- | --- | --- |
@@ -100,7 +100,6 @@ The frontend talks to the API. Locally the API reads and writes the use-case led
 | C | Clean, score 0, 50,000 USDC | Fund E (unknown) or D (inflow). Receive from A → ~65 / 8% |
 | D | Published score 0, 5,000 USDC | Held funds → ALLOW. Clean C→D $10k → 3%; $15k → 8% (no hop). Advance 5 min after a swap → Floor B |
 | E | Never written, empty | Fund from C. C→E $500 → 3%; $10k then $1k swap → 8% (A mid); $15k bag + small swap → 8% (D); $15k this swap → revert |
-| F | Live OFAC SDN ETH address, 10,000 USDC, no demo key | Pool swap → `SanctionHit`. No P2P. Contrast with A (`WalletBlocked`) |
 
 ## Quick start
 
@@ -139,7 +138,7 @@ curl http://127.0.0.1:4000/health
 | Liquidity sanctions gate | On-chain for add **and** remove. Pause blocks add and swaps, not a clean LP exit. Demo UI is still swap-only |
 | PoolManager | Anvil: `MockPoolManager` unless `POOL_MANAGER` is set. Sepolia: official Uniswap v4 `0xE03A1074…3543` — live initialize + liquidity (`docs/Sepolia.md`). The guided demo swap is still `previewSwap` + `observeSwap` + FeeEscrow (either chain) |
 | `updateScore` | Signed tx. Local: keeper #0 + attestor #9. Sepolia: `_ORACLE_KEEPER` + attestor in [`docs/Sepolia.md`](docs/Sepolia.md) |
-| Demo balances, P2P, quotes, escrow rows | Anvil for the A–F walkthrough. P2P is ERC-20 `transfer`. Sepolia judge faucet: `POST /demo/mint` `{ address }` |
+| Demo balances, P2P, quotes, escrow rows | Anvil for the A–E walkthrough. P2P is ERC-20 `transfer`. Sepolia judge faucet: `POST /demo/mint` `{ address }` |
 | USD quotes | `lastFx` if younger than 30 minutes; else one Chainlink round per token (`lastFx` until 24h if the live round is missing). Anvil: `MockUsdFeed` ($1 fee token, $1000 ETH). Live chain: official Chainlink ETH/USD + USDC/USD. Extra tokens: governor `setPriceFeed` |
 | Policy knobs (USD floors, floor fees, pool-impact) | `_COMPLIANCE_OFFICER` propose → 48h confirm. Score cuts 31 / 55 / 71 stay fixed |
 | COA score + Opinion | Live Claude when `ANTHROPIC_API_KEY` is in `apps/api/.env`. Skill interpreter if the key is off. Live OFAC SDN screen; COA writes `SanctionRegistry` on an exact match. No Chainalysis / TRM |
@@ -151,7 +150,7 @@ npm run deploy:local
 ```
 
 1. Starts Anvil on `:8545`.
-2. Deploys AccessManager, L1/L2/L3, AmlHook (CREATE2), and FeeEscrow. Uses `MockPoolManager` unless `POOL_MANAGER` is set. Deploys mintable `MockUSDC` (6 decimals) and `MockWETH` (18 decimals, priced at $1,000) unless `FEE_TOKEN` / `WETH_TOKEN` are set. On Anvil binds `MockUsdFeed` ($1 USDC, $1000 ETH). On a live chain binds official Chainlink ETH/USD, WETH, and USDC/USD. Seeds wallets A–E (Anvil #1–#5). The API then binds Wallet F to a live OFAC SDN ETH address and mints USDC to it.
+2. Deploys AccessManager, L1/L2/L3, AmlHook (CREATE2), and FeeEscrow. Uses `MockPoolManager` unless `POOL_MANAGER` is set. Deploys mintable `MockUSDC` (6 decimals) and `MockWETH` (18 decimals, priced at $1,000) unless `FEE_TOKEN` / `WETH_TOKEN` are set. On Anvil binds `MockUsdFeed` ($1 USDC, $1000 ETH). On a live chain binds official Chainlink ETH/USD, WETH, and USDC/USD. Seeds wallets A–E (Anvil #1–#5).
 3. Wires roles. Anvil account #0 is the default admin / keepers / governor / compliance officer. Anvil #9 is the local attestor. Production requires a distinct `ATTESTOR`, a Safe as `ADMIN` or `FEE_ESCROW_OWNER`, a dedicated `COMPLIANCE_OFFICER` (48h grant delay), and a dedicated `COMPLIANCE_RESERVE` (never the LP fund). Floor B default is 5 minutes (`DEFAULT_STALENESS` / `MAX_SCORE_AGE`). Institutional pools may tighten to 120 seconds.
 4. Writes `contracts/deployments/31337.json` (hook, escrow, `feeToken`, `wethToken`, feeds, wallets, attestor) and copies it into `packages/sdk/deployments/`.
 5. Writes `apps/api/.env.local`.

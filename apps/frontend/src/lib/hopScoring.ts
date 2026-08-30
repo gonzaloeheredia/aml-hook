@@ -215,8 +215,6 @@ export type SimWallet = {
   lastKnownUsdc?: number;
   /** True when the oracle has never published a row (Wallet E). */
   neverScored?: boolean;
-  /** True when this row is the live OFAC SDN demo subject (Wallet F). */
-  ofacSubject?: boolean;
   opsInWindow?: number;
   windowUsd?: number;
   windowStart?: number;
@@ -246,7 +244,6 @@ export function caseIdForSimWallet(id: SimWalletId): DemoCaseId {
  */
 export function hopScore(wallet: SimWallet): number {
   if (wallet.neverScored) return 0;
-  if (wallet.ofacSubject) return ORIGIN_EXPLOIT_SCORE;
   if (wallet.exploitConfirmed) return ORIGIN_EXPLOIT_SCORE;
   if (wallet.hopDistance == null) return 0;
   return Math.round(
@@ -348,15 +345,6 @@ export function resolveDemoRisk(
       keeperPending: false,
     };
   }
-  if (wallet.ofacSubject) {
-    return {
-      score: 100,
-      decision: "block",
-      feeBps: 0,
-      latencyMitigation: null,
-      keeperPending,
-    };
-  }
   if (wallet.exploitConfirmed) {
     return {
       score: 100,
@@ -445,7 +433,7 @@ export function resolveDemoRisk(
 }
 
 /**
- * Initial ledger: A exploit; B/C clean; D published score 0; E unknown; F OFAC SDN.
+ * Initial ledger: A exploit; B/C clean; D published score 0; E unknown.
  */
 export function initialSimWallets(): Record<SimWalletId, SimWallet> {
   resetDemoClock();
@@ -537,25 +525,6 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
       opsInWindow: 0,
       windowUsd: 0,
     },
-    F: {
-      id: "F",
-      accountLabel: "Account F · OFAC SDN",
-      role: "Live OFAC SDN exact-address match. COA writes SanctionRegistry. Pool swap → SanctionHit. No P2P.",
-      address: "0x7FF9cFad3877F21d41Da833E2F775dB0569eE3D9",
-      usdc: 10_000,
-      eth: 0,
-      hopDistance: null,
-      originId: null,
-      exploitConfirmed: false,
-      neverScored: false,
-      ofacSubject: true,
-      lastKnownUsdc: 10_000,
-      lastScoreAt: t,
-      lastKnownAt: t,
-      opsInWindow: 0,
-      windowUsd: 0,
-      dailyUsd: 0,
-    },
   };
 }
 
@@ -574,13 +543,6 @@ export function previewTransfer(
   amountUsd: number,
 ): { title: string; detail: string; tone: "ok" | "warn" | "bad" } {
   const amount = Math.round(amountUsd);
-  if (sender.ofacSubject || recipient.ofacSubject) {
-    return {
-      title: "OFAC SDN · no P2P",
-      detail: "Wallet F is a live OFAC SDN subject. P2P is disabled. Use a pool swap to see SanctionHit.",
-      tone: "bad",
-    };
-  }
   if (recipient.neverScored) {
     const knobs = getPolicyKnobs();
     const nextBag = recipient.usdc + amount;
@@ -663,7 +625,6 @@ export function applyTransfer(
   const sender = wallets[from];
   const recipient = wallets[to];
   if (!sender || !recipient) return null;
-  if (sender.ofacSubject || recipient.ofacSubject) return null;
   if (sender.usdc < amount) return null;
 
   if (recipient.neverScored) {

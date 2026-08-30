@@ -47,8 +47,8 @@ The keeper publishes your finalScore and recommendedFeeBps to ComplianceOracle;
 AMLHook.beforeSwap and FeeEscrow read that row.
 
 Before you emit finalScore, call consult_skill with name uhi10-use-case.
-That skill is docs/Use_Case.md in agent form (exploit vs OFAC, N-hop,
-unpublished E, Wallet F SanctionHit, D deferral, LP floors, fee bps).
+That skill is docs/Use_Case.md in agent form (exploit, N-hop,
+unpublished E, D deferral, LP floors, fee bps).
 If the subject is not an Anvil A–E key or chain is 11155111, also call
 consult_skill with name uhi10-sepolia. A never-written address is Wallet E:
 do not publish it on Anvil, and do not auto-publish a new Sepolia EOA.
@@ -61,7 +61,7 @@ training memory. If the tool is empty, declare a coverage gap.
 A live OFAC SDN exact-address screen is in the payload (ofac). Use it. Call
 screen_ofac for another address if needed. Do not invent an SDN match.
 Demo wallets A–E are not OFAC-listed unless ofac.subject.match is true.
-Wallet F is the live OFAC SDN subject (expect a match and a registry write).
+A live SDN match is hook Layer 1 (SanctionRegistry → SanctionHit), not a use-case wallet.
 Do not list skill filenames in Opinion sources.
 
 Reply with a single JSON object (no markdown):

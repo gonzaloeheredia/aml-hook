@@ -177,7 +177,7 @@ Section 1.2 is the crime model. The hook maps those typologies onto three famili
 
 **Market conduct.** Wash trading and self-cycles; rug pulls and exit liquidity; layering — chained swaps that hide the route. Structuring is the same family when the aim is to dodge a reporting or policy threshold. Mitigation C and the unknown-wallet USD window are the on-chain form of that red flag.
 
-**Real-time threats.** Named-address OFAC — Layer 1 `SanctionHit` when the registry lists an address (score not read). The use-case Wallet F is that path: a **live OFAC SDN ETH address** (not Anvil #6); the COA writes `SanctionRegistry` and the swap fail-closes before the score is read. Wallet A is **not** listed: the officer writes score 100 from an external exploit finding (`WalletBlocked` / `SCORE_REVERT_BAND`). P2P from A still contaminates B, C, and D. F has no demo key — no P2P, no hop into B/C/D, do not fund E from F. Exploit cash-out before a keeper write — Wallet E (never written, starts empty, funded only by clean C). Clean-wallet overlay — Wallet D's inbound-USD bands (pass / 3% / 8%). Compromised keys: an institutional wallet still has valid credentials, and the attacker uses them. The signal is a sudden change in size or counterparties.
+**Real-time threats.** Named-address OFAC — Layer 1 `SanctionHit` when `SanctionRegistry` lists an address (score not read). The COA can write that mapping from a live OFAC SDN exact-address match; `beforeSwap` only reads the mapping. That is hook functionality, not a use-case wallet. Wallet A is **not** listed: the officer writes score 100 from an external exploit finding (`WalletBlocked` / `SCORE_REVERT_BAND`). P2P from A still contaminates B, C, and D. Exploit cash-out before a keeper write — Wallet E (never written, starts empty, funded only by clean C). Clean-wallet overlay — Wallet D's inbound-USD bands (pass / 3% / 8%). Compromised keys: an institutional wallet still has valid credentials, and the attacker uses them. The signal is a sudden change in size or counterparties.
 
 A static list reaches only the named-address slice of the first family. Graph, conduct, and the race against the list need the cumulative model.
 
@@ -282,7 +282,7 @@ This section is the Compliance Officer Agent. In the UHI10 demo, when
 `ANTHROPIC_API_KEY` is set, Claude emits `finalScore`, `recommendedFeeBps`,
 typologies, and the Opinion / STR-shaped file. The keeper publishes the score
 and fee to `ComplianceOracle`. `beforeSwap` never calls the model — it reads
-that row. A–F constraints live in skill `uhi10-use-case` (`consult_skill`).
+that row. A–E constraints live in skill `uhi10-use-case` (`consult_skill`).
 Without a key, or under `COA_LIVE=0` / tests, a skill interpreter
 (`factScoring.ts`) applies the same skills. There are still no live vendor KYT APIs
 (OFAC SDN HTTP, Chainalysis, TRM, Elliptic, Forta, EAS, Hypernative).
@@ -526,8 +526,8 @@ A single table replaces every condition that determines a swap's outcome: the pu
 
 Notes on reading the table:
 
-- A published score of 0 (Wallet D in the use case) and a wallet that was never written (Wallet E) are different rows. Floor A no longer applies once a score exists, even if that score is 0. Floor D **does** apply to a never-written wallet: with no baseline the current input-token bag is inbound (pass / 3% / 8%). The stricter of A (swap size) and D (bag) wins. A may still revert on swap size or on a high pool-impact mid-band swap. Demo E starts empty; clean C funds it (no hop). Do not fund E from A (exploit origin / score 100) or from F (OFAC SDN).
-- Layer 1 `SanctionHit` (Wallet F, live SDN mapping) is not a score-band revert. Wallet A (`WalletBlocked`, score 100, mapping clear) is the contrast.
+- A published score of 0 (Wallet D in the use case) and a wallet that was never written (Wallet E) are different rows. Floor A no longer applies once a score exists, even if that score is 0. Floor D **does** apply to a never-written wallet: with no baseline the current input-token bag is inbound (pass / 3% / 8%). The stricter of A (swap size) and D (bag) wins. A may still revert on swap size or on a high pool-impact mid-band swap. Demo E starts empty; clean C funds it (no hop). Do not fund E from A (exploit origin / score 100).
+- Layer 1 `SanctionHit` is not a score-band revert. A listed address fail-closes before the oracle is read. Wallet A (`WalletBlocked`, score 100, mapping clear) is the contrast: exploit finding, not an OFAC listing.
 - Floor B and Floor D never revert. Floor A large reverts on this swap. Floor C reverts when several swaps in 24 hours cross $15,000. B and D use the same USD cuts as A ($1,000 / $15,000) but map them to pass / 3% / 8%. B's 20% pool-impact extra hardens the fee band and stops at 8%. D has no pool-impact extra.
 - **Liquidity never-scored** reuses this same Floor A / C / D table. Floor A is this deposit vs $1,000 / $15,000 (3% / 8% / revert), including the 20% pool-impact extra. Floor C is the 24-hour **sum of adds** (`_lpDaily`), never mixed with swap C. Floor D uses the same `Inflow` baseline as a swapper (max USD of token0 / token1). Floor B does **not** arm a never-scored add, and a **published** LP score ignores Floor B: 0–30 stays 0 extra even if stale; 31–70 pays 3% / 8% by score, not USD.
 - None of these floors soften a score-band revert, or a fee-override already set by the score.
@@ -655,7 +655,7 @@ for the next decision.
 
 ### 8.6 Tooling
 
-Section 7 is the officer that writes the score and the Opinion file. This subsection lists **intended** production KYT sources. The UHI10 demo now screens the public OFAC SDN ETH-address dump on every COA evaluation and Opinion; a direct match is written to `SanctionRegistry` (demo Wallet F). The swap still only reads that mapping — there is no Treasury call inside `beforeSwap`. Wallet A remains an exploit score 100 without a listing (`WalletBlocked`). Other vendor KYT feeds (Chainalysis, TRM, Elliptic, OpenSanctions, Etherscan, GoPlus) are not wired. Claude (or the skill interpreter when the key is off) scores from the Anvil ledger plus that live SDN screen, `SanctionRegistry`, and the git corpus (`search_regulations`). Layer 1 at execution is `SanctionRegistry`. Layer 2 is `ComplianceOracle` (3-minute keeper stamp + attestor; agent-published score and fee). USD magnitude uses Chainlink (or `MockUsdFeed` on Anvil).
+Section 7 is the officer that writes the score and the Opinion file. This subsection lists **intended** production KYT sources. The UHI10 demo now screens the public OFAC SDN ETH-address dump on every COA evaluation and Opinion; a direct match is written to `SanctionRegistry`. The swap still only reads that mapping — there is no Treasury call inside `beforeSwap`. That Layer 1 path is hook functionality (`SanctionHit`), not a guided-demo wallet. Wallet A remains an exploit score 100 without a listing (`WalletBlocked`). Other vendor KYT feeds (Chainalysis, TRM, Elliptic, OpenSanctions, Etherscan, GoPlus) are not wired. Claude (or the skill interpreter when the key is off) scores from the Anvil ledger plus that live SDN screen, `SanctionRegistry`, and the git corpus (`search_regulations`). Layer 1 at execution is `SanctionRegistry`. Layer 2 is `ComplianceOracle` (3-minute keeper stamp + attestor; agent-published score and fee). USD magnitude uses Chainlink (or `MockUsdFeed` on Anvil).
 
 #### 8.6.1 Signals
 

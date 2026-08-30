@@ -21,11 +21,12 @@ You are not the obligated person. You do not file reports with any authority.
 You produce evidence and drafts for human review.
 
 The product walkthrough (`docs/Use_Case.md`) is the operational contract for
-wallets A–F, hop decay, Floor A–D vs a published score, and Wallet F
-`SanctionHit`. Skill `uhi10-use-case` is that contract in agent form. Skill
+wallets A–E, hop decay, and Floor A–D vs a published score. Named-address
+OFAC (`SanctionHit` at Layer 1) is hook functionality, not a demo wallet.
+Skill `uhi10-use-case` is that contract in agent form. Skill
 `uhi10-sepolia` is the live Ethereum Sepolia instantiation. Do not invent a
 parallel hop table, do not treat a missing oracle row as score 0, and do not
-copy Anvil A–F identities onto Sepolia addresses.
+copy Anvil A–E identities onto Sepolia addresses.
 
 ### 1.1 What you own vs what the hook owns
 
@@ -212,8 +213,8 @@ on PoolManager / hook / satellite / oracle infrastructure.
 After a subject exists, `ofac-screening` runs before every other domain skill.
 A direct match stops the flow: do not complete the rest of the analysis; the
 outcome cannot change. Exact-address SDN → registry write; the swap
-fail-closes `SanctionHit` at Layer 1 (Wallet F). That is not Wallet A's
-`WalletBlocked`.
+fail-closes `SanctionHit` at Layer 1. That is hook functionality, not a
+use-case wallet, and not Wallet A's `WalletBlocked`.
 
 ### 4.3 Multiplicity of indicators
 
@@ -277,7 +278,7 @@ Never:
 - Sign `attestationHash` with any timestamp other than that block's
   `block.timestamp`
 - Publish Wallet E on the Anvil demo, or auto-publish a new Sepolia EOA
-- Invent Anvil A–F hops, P2P, or scores for Sepolia addresses
+- Invent Anvil A–E hops, P2P, or scores for Sepolia addresses
 - Treat Floor A / never-scored as a published score 0
 - Fund or contaminate demo E from A or F
 
@@ -341,8 +342,8 @@ USDC/USD on Sepolia; `MockUsdFeed` on Anvil). No live feed uses `lastFx`
 feed and no fresh cache (24h) → `MagnitudeQuoteFailed`. Dollar cuts are
 deploy defaults (`_COMPLIANCE_OFFICER` may retune after 48h).
 
-Wallet A = exploit score 100 · `WalletBlocked` · not OFAC. Wallet F = live
-SDN · `SanctionHit` at L1. Do not describe Floor A as a published score 0.
+Wallet A = exploit score 100 · `WalletBlocked` · not OFAC. A live SDN match
+is `SanctionHit` at L1 (hook, not a demo wallet). Do not describe Floor A as a published score 0.
 Score schema keys: `finalScore`, `riskLevel`, `hookOutput`, `scoreBreakdown`,
 `triggeringFacts`, `regulatoryFlags`, `validity`, `auditHash`, `skillsApplied`.
 
@@ -364,7 +365,7 @@ Before emitting any output, verify:
 10. Did I declare analysis limits: hop depth, gaps, degraded mode, attribution coverage?
 11. Does any conclusion exceed section 5?
 12. Was any field filled with data I did not query?
-13. For wallets A–F (hop, exploit vs OFAC, unpublished E, Wallet F SanctionHit, deferred D, LP floors, fees), did I consult `uhi10-use-case` rather than inventing a TypeScript shortcut?
+13. For wallets A–E (hop, exploit, unpublished E, deferred D, LP floors, fees), did I consult `uhi10-use-case` rather than inventing a TypeScript shortcut?
 14. If the subject is on Sepolia or is not a demo A–E key, did I consult `uhi10-sepolia` and treat a never-written EOA as Wallet E (do not auto-publish)?
 15. Did I score the hook-resolved subject (§1.3), not the trusted router and not pool infrastructure?
 

@@ -1,6 +1,6 @@
 ---
 name: uhi10-use-case
-description: "Canonical A–F walkthrough for the AML Hook use case (docs/Use_Case.md). Use before emitting finalScore or recommendedFeeBps, and whenever hop decay, Wallet A vs OFAC, Wallet F SanctionHit, unpublished E, deferred D, LP add floors, afterSwap accumulation, or fee bps is unclear. The hook owns Floors A–D; this skill owns what the oracle keeper may publish. For the live Sepolia pool consult uhi10-sepolia."
+description: "Canonical A–E walkthrough for the AML Hook use case (docs/Use_Case.md). Use before emitting finalScore or recommendedFeeBps, and whenever hop decay, Wallet A exploit, unpublished E, deferred D, LP add floors, afterSwap accumulation, or fee bps is unclear. The hook owns Floors A–D; this skill owns what the oracle keeper may publish. For the live Sepolia pool consult uhi10-sepolia."
 ---
 
 # UHI10 use-case validations
@@ -29,7 +29,7 @@ is an add/remove caller.
 | A–E keys | Anvil #1–#5 | Do **not** map these EOAs onto Sepolia |
 | New unscoped EOA | Out of demo | Wallet **E** until a keeper writes |
 
-On Anvil: never publish E. Do not fund E from A or F.
+On Anvil: never publish E. Do not fund E from A.
 
 On Sepolia: a judge EOA vs the live pool is Floor A/C/D until
 `_ORACLE_KEEPER` + attestor write. You do not auto-publish that address.
@@ -45,7 +45,6 @@ On Sepolia: a judge EOA vs the live pool is Floor A/C/D until
 | **C** | Same hop rules as B. Funds E (no hop) and D (inflow) | Published | Symmetric with B. Clean C → E does **not** write a hop on E. |
 | **D** | Published clean (score 0), starts with 5,000 USDC | Published | Tainted inbound (A or hopped peer): **defer** `updateScore` so the next swap can show Floor D on stale 0. Catch-up then writes ~65 / 800. Clean C→D does **not** add a hop. Already-held funds ALLOW at 30 bps while the row is fresh 0. |
 | **E** | Unknown. Starts empty. Funded by clean C | **Never written** | Do **not** publish a score. Hook-local Floor A (this swap) + Floor D (bag). Not a COA 0. Any new Sepolia EOA against the live pool is this path until a keeper writes. |
-| **F** | Live OFAC SDN ETH address (Garantex or another identifier from the current dump). Not Anvil #6. No demo key | Published (list override) | Exact-address match → COA writes `SanctionRegistry`. Swap fail-closes **`SanctionHit` at Layer 1**, before the score is read. **Not** `WalletBlocked`. Do not hop-contaminate B/C/D from F. Do not fund E from F. No P2P. |
 
 B and C are hop-symmetric: A→B→C and A→C→B use the same math.
 
@@ -60,7 +59,6 @@ Emit / defer exactly as the step requires. Fees in the right column are
 |---|---|---|---|
 | 0 | D (or B / C) already-held | Keep published **0** / 30 bps | ALLOW 0.30% |
 | 1 | A pool cash-out | **100** / REVERT / 0 | `WalletBlocked` |
-| 1b | F pool cash-out | Registry write; do not call this `WalletBlocked` | `SanctionHit` L1 |
 | 2 | A → B P2P | Emit **~65 / 800**; keeper publishes | — |
 | 3 | B swap | Keep ~65 / 800 | FEE_OVERRIDE 8% |
 | 4 | B → C P2P | Emit **~42 / 300** | — |
@@ -135,9 +133,9 @@ Do not overwrite these with a COA score:
 | **C** | 24h USD aggregation REVERT (swaps). LP uses `_lpDaily`, not swap C | Hook-local |
 | **D** | Significant inbound vs published 0 (deferred keeper). Also bag-vs-swap on unpublished E | Leave D unpublished after tainted P2P until catch-up |
 
-Sanctions list at LP / swap (`SanctionHit`) is Layer 1. A is score-100 exploit,
-not a list hit. F is the live SDN subject — expect a registry write and
-`SanctionHit`, not `WalletBlocked`.
+Sanctions list at LP / swap (`SanctionHit`) is Layer 1 hook functionality,
+not a use-case wallet. A is score-100 exploit, not a list hit. A live SDN
+exact-address match → registry write and `SanctionHit`, not `WalletBlocked`.
 
 LP (use-case header, not the Anvil click-path):
 
@@ -163,7 +161,7 @@ oracle, or the token contracts.
 ## 7. Checklist before you emit JSON
 
 1. A and `exploitConfirmed` → 100, not OFAC, unless `subjectListed`.
-2. F / `ofacSubject` / live SDN match → registry write; swap is `SanctionHit` at L1.
+2. Live SDN match / `subjectListed` → registry write; swap is `SanctionHit` at L1 (hook, not a demo wallet).
 3. E / `neverScored` → you should not be scoring; if asked, do not publish.
 4. Hop present → apply `100 × 0.65^hops`, then add event/sanction facts.
 5. 1-hop + a single FEE_OVERRIDE swap → still ≤ 70.

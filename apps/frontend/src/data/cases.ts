@@ -8,8 +8,6 @@
  * - D = published score 0. Held funds ALLOW. Floor B (Advance 5 min).
  *   Clean C→D inflow 3% ($10k) / 8% ($15k). Floor C on a 24h $15k sum.
  * - E = unknown, starts empty. Clean C funds E (no hop). Then Floor A/D by bag.
- * - F = live OFAC SDN ETH address. COA writes SanctionRegistry. Swap → SanctionHit.
- *   Contrast with A (exploit score 100, not listed). No P2P from F.
  * Live decisions come from AmlHook.previewSwap via the API.
  * Fee / USD figures below are deploy defaults (3% / 8% / $1k / $15k).
  * The UI rewrites them from officer knobs (`GET /policy`).
@@ -17,7 +15,7 @@
 
 export type Decision = "allow" | "fee_override" | "block";
 
-export type DemoCaseId = "A" | "B" | "C" | "D" | "E" | "F";
+export type DemoCaseId = "A" | "B" | "C" | "D" | "E";
 
 export interface DemoCase {
   id: DemoCaseId;
@@ -152,7 +150,7 @@ export interface DemoCase {
 }
 
 /** Display order: A → E */
-export const CASE_ORDER: DemoCaseId[] = ["A", "B", "C", "D", "E", "F"];
+export const CASE_ORDER: DemoCaseId[] = ["A", "B", "C", "D", "E"];
 
 const CLEAN_AGENT_NOTE =
   "Internal operator documentation. The agent never files with any authority.";
@@ -684,121 +682,6 @@ export const DEMO_CASES: Record<DemoCaseId, DemoCase> = {
         mainFacts: "Wallet E unknown; starts empty; fund from C. Next swap follows Floor A/D on the new bag.",
         basis: "UNKNOWN_WALLET_USD_BANDS",
         nextReview: "On keeper publish, or on a $15,000 attempt",
-      },
-      poolReport: { ...SHARED_POOL_REPORT },
-      note: CLEAN_AGENT_NOTE,
-    },
-  },
-  F: {
-    id: "F",
-    label: "OFAC SDN — SanctionHit",
-    shortLabel: "Wallet F · OFAC SDN",
-    wallet: "0x7FF9cFad3877F21d41Da833E2F775dB0569eE3D9",
-    walletLabel: "Wallet F · OFAC SDN",
-    score: 100,
-    riskLabel: "Sanctioned",
-    decision: "block",
-    decisionLabel: "Block",
-    baseFeeBps: 30,
-    appliedFeeBps: 0,
-    feeMultiplier: 0,
-    exploitConfirmed: false,
-    activity: {
-      hopDistance: null,
-      origin: "—",
-      windowLabel: "live SDN",
-      totalUsd: 10_000,
-      amountUsd: 1000,
-      txCount: 0,
-    },
-    typology: "OFAC SDN exact-address match",
-    summary: [
-      "Live OFAC SDN ETH address (Garantex or another identifier from the current dump). Not Anvil #6.",
-      "The COA screens Treasury, writes SanctionRegistry, and the swap fail-closes SanctionHit at Layer 1 — before the score is read.",
-      "Contrast with Wallet A: A is exploit score 100, not listed. F is listed. No P2P from F (no demo key).",
-    ],
-    signals: [
-      { label: "Exploit / sanctions", value: "OFAC SDN match", tone: "bad" },
-      { label: "Keeper score", value: "100 (list override)", tone: "bad" },
-      { label: "Hop distance", value: "—", tone: "ok" },
-      { label: "Applied fee", value: "REVERT · SanctionHit", tone: "bad" },
-    ],
-    tags: [
-      { label: "OFAC SDN", tone: "bad" },
-      { label: "REVERT", tone: "bad" },
-    ],
-    flowPath: "block",
-    revertReason: "SanctionHit",
-    swapSell: "1,000.00",
-    swapBuy: "0",
-    sellToken: "USDC",
-    buyToken: "ETH",
-    gasUsed: 0,
-    totalTimeSec: 0.9,
-    stepTimesSec: {
-      sign: 0.1,
-      unlock: 0.1,
-      before: 0.12,
-      l1: 0.28,
-      l2: 0.05,
-      decide: 0.1,
-      out: 0.15,
-    },
-    agent: {
-      status: "Technical opinion · REVERT (SanctionHit)",
-      hookOutput: "REVERT",
-      documentType: "opinion + sar-annex",
-      recipient: "Pool operator Compliance Officer",
-      confidence: "HIGH",
-      humanReview: true,
-      retentionYears: 5,
-      auditHash: "0xf0ac…000f",
-      technicalOpinion: {
-        issued: true,
-        objectAndScope:
-          "Subject: Wallet F. Role: OFAC SDN exact-address match. The COA wrote SanctionRegistry; Layer 1 fail-closes the swap.",
-        typologies:
-          "Instrument: Uniswap v4 RWA pool swap (USDC→ETH). Direct true-positive on the live OFAC SDN ETH list. Not N-hop contamination.",
-        sanctionsCheck:
-          "Live OFAC SDN screen: DIRECT MATCH. Registry keeper wrote the mapping. beforeSwap reads isSanctioned → SanctionHit. Score is not consulted.",
-        sourcesConsulted: [
-          "Venue: AML Hook demo RWA pool (Uniswap v4). Account under review: Wallet F (live SDN ETH identifier). OFAC SDN dump via Treasury sanctions list service.",
-        ],
-        riskAndScoring:
-          "Exact-address match on OFAC SDN. Unconditional block at Layer 1. Distinct from Wallet A (exploit score 100, mapping clear).",
-        decisionExecuted:
-          "COA fetched the SDN ETH set, wrote setSanctioned, and beforeSwap reverted SanctionHit. afterSwap not reached. P2P disabled (no demo key).",
-        legalBasis:
-          "OFAC SDN · IEEPA · 31 CFR Part 501. FATF Rec. 6. Narrative organization follows FinCEN SAR Narrative Guidance as an internal model only.",
-        recommendations:
-          "Do not lift the mapping without a Treasury delisting. Do not fund E from F. Use Wallet A to demo WalletBlocked vs this SanctionHit path.",
-        traceability: "Retention 5 years. Support draft — not submitted.",
-      },
-      sarAnnex: {
-        produced: true,
-        status: "support-draft (not filed)",
-        activityPeriod: "live demo session",
-        amountInvolved: "USD 1,000 attempted pool swap",
-        operationState: "REVERT",
-        narrativeDescription:
-          "WHO: Wallet F — OFAC SDN ETH address. WHAT: pool cash-out attempt blocked at Layer 1.",
-        narrativeAnalysis:
-          "WHEN: live demo session. WHERE: demo RWA pool. Live Treasury SDN dump.",
-        narrativeEvidence:
-          "WHY: exact-address match on OFAC SDN. COA wrote SanctionRegistry.",
-        narrativeConclusion:
-          "HOW: beforeSwap SanctionHit. Internal pack only — not a filing.",
-        warnings: [
-          "Confidentiality — no tip-off",
-          "Document status: support draft — not submitted",
-        ],
-      },
-      decisionRecord: {
-        score: "100",
-        output: "REVERT",
-        mainFacts: "Wallet F live OFAC SDN match; mapping written; SanctionHit.",
-        basis: "OFAC_SDN_EXACT_ADDRESS_L1",
-        nextReview: "On Treasury delisting only",
       },
       poolReport: { ...SHARED_POOL_REPORT },
       note: CLEAN_AGENT_NOTE,

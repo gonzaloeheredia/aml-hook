@@ -25,13 +25,6 @@ describe("unit: ledger", () => {
     assert.equal(after.E.neverScored, true);
   });
 
-  it("applyHopContamination: OFAC subject F is not a hop source or sink", () => {
-    const after = applyHopContamination(seedDemoWallets(), "A", "F");
-    assert.equal(after.F.hopDistance, null);
-    const fromF = applyHopContamination(after, "F", "B");
-    assert.equal(fromF.B.hopDistance, null);
-  });
-
   it("applyHopContamination: clean→clean does not add a hop", () => {
     const after = applyHopContamination(seedDemoWallets(), "B", "C");
     assert.equal(after.C.hopDistance, null);
