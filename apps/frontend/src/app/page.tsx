@@ -7,7 +7,9 @@ import { EscrowPanel } from "@/components/EscrowPanel";
 import { FeeSummary } from "@/components/FeeSummary";
 import { FlowSimulator } from "@/components/FlowSimulator";
 import { MetaMaskPanel } from "@/components/MetaMaskPanel";
-import { NavBar } from "@/components/NavBar";
+import { NavBar, type AppView } from "@/components/NavBar";
+import { UseOfCaseView } from "@/components/UseOfCaseView";
+import { WhitepaperView } from "@/components/WhitepaperView";
 import { OnChainAccumulator } from "@/components/OnChainAccumulator";
 import { StageMorph } from "@/components/StageMorph";
 import { StageRail, type DemoStage } from "@/components/StageRail";
@@ -113,6 +115,7 @@ export default function HomePage() {
   const [unlockedThrough, setUnlockedThrough] =
     useState<DemoStage>("swap");
 
+  const [appView, setAppView] = useState<AppView>("hook");
   const [apiStatus, setApiStatus] = useState<ApiStatus>("connecting");
   const [apiError, setApiError] = useState<string | null>(null);
   const [compliance, setCompliance] = useState<ApiCompliancePack | null>(null);
@@ -643,7 +646,7 @@ export default function HomePage() {
    * Opinion → Event: click only, right half, after scrolling to the end of the module.
    */
   useEffect(() => {
-    if (modalOpen || metaMaskOpen) return;
+    if (appView !== "hook" || modalOpen || metaMaskOpen) return;
 
     const TOP_EPS = 40;
     const DELTA_THRESHOLD = 48;
@@ -763,7 +766,7 @@ export default function HomePage() {
       window.removeEventListener("click", onClick);
       window.removeEventListener("wheel", onWheel);
     };
-  }, [modalOpen, metaMaskOpen, moveStageBy]);
+  }, [appView, modalOpen, metaMaskOpen, moveStageBy]);
 
   const apiLabel =
     apiStatus === "online"
@@ -774,19 +777,26 @@ export default function HomePage() {
 
   return (
     <main className="relative min-h-dvh overflow-x-hidden">
-      <StageSideNav
-        stage={stage}
-        unlockedThrough={unlockedThrough}
-        disabled={modalOpen || metaMaskOpen}
-        onPrev={() => {
-          void moveStageBy(-1);
-        }}
-        onNext={() => {
-          void moveStageBy(1);
-        }}
-      />
+      {appView === "hook" && (
+        <StageSideNav
+          stage={stage}
+          unlockedThrough={unlockedThrough}
+          disabled={modalOpen || metaMaskOpen}
+          onPrev={() => {
+            void moveStageBy(-1);
+          }}
+          onNext={() => {
+            void moveStageBy(1);
+          }}
+        />
+      )}
       <div className="relative z-10 mx-auto w-full px-5 sm:px-8 md:px-12 lg:px-16">
         <NavBar
+          view={appView}
+          onViewChange={(next) => {
+            setAppView(next);
+            window.scrollTo(0, 0);
+          }}
           connected={connected}
           address={address}
           walletId={connected ? caseId : null}
@@ -797,20 +807,16 @@ export default function HomePage() {
           onMetaMaskClick={() => setMetaMaskOpen(true)}
         />
 
-        {apiStatus !== "online" && (
-          <div
-            className={`mb-2 border-l px-4 py-2 text-sm ${
-              apiStatus === "connecting"
-                ? "hair text-uni-muted"
-                : "border-l-[1.5px] border-uni-bad/50 text-uni-bad"
-            }`}
-          >
-            {apiStatus === "connecting"
-              ? `Connecting to backend at ${API_BASE}…`
-              : apiError ??
-                `Run \`npm run deploy:local\`, then start apps/api (${API_BASE}).`}
+        {appView === "hook" && apiStatus === "offline" && (
+          <div className="mb-2 border-l-[1.5px] border-uni-bad/50 px-4 py-2 text-sm text-uni-bad">
+            {apiError ??
+              `Run \`npm run deploy:local\`, then start apps/api (${API_BASE}).`}
           </div>
         )}
+
+        {appView === "whitepaper" && <WhitepaperView />}
+        {appView === "use-of-case" && <UseOfCaseView />}
+        {appView !== "hook" ? null : (
 
         <section
           className={`relative pb-6 ${
@@ -824,7 +830,7 @@ export default function HomePage() {
             swift={slideSwift}
           >
           {stage === "swap" && (
-            <div className="mb-3 text-center">
+            <div className="mb-20 text-center md:mb-28">
               <h1 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 Swap
               </h1>
@@ -832,7 +838,7 @@ export default function HomePage() {
           )}
 
           {stage === "hook" && (
-            <div className="mb-8 text-center">
+            <div className="mb-20 text-center md:mb-28">
               <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 Hook execution
               </h2>
@@ -840,7 +846,7 @@ export default function HomePage() {
           )}
 
           {stage === "fees" && (
-            <div className="mb-8 text-center">
+            <div className="mb-20 text-center md:mb-28">
               <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 Fee summary
               </h2>
@@ -848,7 +854,7 @@ export default function HomePage() {
           )}
 
           {stage === "stats" && (
-            <div className="mb-8 text-center">
+            <div className="mb-20 text-center md:mb-28">
               <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 AML stats
               </h2>
@@ -856,7 +862,7 @@ export default function HomePage() {
           )}
 
           {stage === "opinion" && (
-            <div className="mb-8 text-center">
+            <div className="mb-20 text-center md:mb-28">
               <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 AML Analysis
               </h2>
@@ -864,7 +870,7 @@ export default function HomePage() {
           )}
 
           {stage === "event" && (
-            <div className="mb-8 text-center">
+            <div className="mb-20 text-center md:mb-28">
               <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 Event
               </h2>
@@ -972,8 +978,10 @@ export default function HomePage() {
               )}
           </StageMorph>
         </section>
+        )}
       </div>
 
+      {appView === "hook" && (
       <button
         type="button"
         onClick={() => {
@@ -1001,6 +1009,7 @@ export default function HomePage() {
         </span>
         <span className="hidden sm:inline">Restart data</span>
       </button>
+      )}
 
       <ConnectModal
         open={modalOpen}
