@@ -65,7 +65,6 @@ const EMPTY_STATS: Record<DemoCaseId, SwapStats> = {
   C: { count: 0, tradedUsd: 0, tradedEth: 0 },
   D: { count: 0, tradedUsd: 0, tradedEth: 0 },
   E: { count: 0, tradedUsd: 0, tradedEth: 0 },
-  F: { count: 0, tradedUsd: 0, tradedEth: 0 },
 };
 
 type ApiStatus = "connecting" | "online" | "offline";
