@@ -15,7 +15,7 @@ export function WhitepaperView() {
       <DocHero
         chip="Product paper"
         heading="AML Hook"
-        lede="Modular compliance layer for Uniswap v4. Institutions stay out of DeFi when they cannot tell clean liquidity from tainted liquidity. AML Hook is the layer that lets them participate with regulatory certainty."
+        lede="Modular compliance layer for Uniswap v4. Institutions stay out of DeFi (decentralized finance) when they cannot tell clean liquidity from tainted liquidity. AML Hook is the layer that lets them participate with regulatory certainty."
         asideTitle="Document"
         asideMark="AH"
         meta={[
@@ -28,7 +28,7 @@ export function WhitepaperView() {
       <div className="mt-12 grid gap-x-10 gap-y-8 md:grid-cols-2">
         <DocStory
           question="What is missing today?"
-          answer="About USD 25 billion in RWAs already sit on-chain without circulating. Identity checks at the door are a start. They have no memory of what the wallet does next."
+          answer="About USD 25 billion in RWAs (Real World Assets) already sit on-chain without circulating. Identity checks at entry are a start. They have no memory of what the wallet does next."
         />
         <DocStory
           question="What does the hook do?"
@@ -36,11 +36,11 @@ export function WhitepaperView() {
         />
         <DocStory
           question="How is it different?"
-          answer="Permissioned Pools is the door: who may enter. AML Hook is the film after the door: how those addresses behave once they are in. The two products stack."
+          answer="Permissioned Pools governs who may enter. AML Hook evaluates how those addresses behave once they hold that access. The two products stack."
         />
         <DocStory
           question="Where is the revenue?"
-          answer="The extra fee on an atypical-but-not-confirmed-illicit swap is residual risk the pool would otherwise absorb for free. That differential is a new line."
+          answer="The extra fee on an atypical swap that still lacks a confirmed illicit finding is residual risk the pool would otherwise absorb for free. That differential is a new line."
         />
       </div>
 
@@ -54,14 +54,16 @@ export function WhitepaperView() {
 
         <div className="mt-10 space-y-6 text-[16px] font-normal leading-[1.85] text-uni-pink/85">
           <p>
-            DeFi does not know who operates in its pools or how they behaved
-            before. Any address can swap with any other, and nobody records
-            what happened or why. In traditional finance, reputation builds
-            over time. In DeFi every wallet starts from zero on every swap.
+            DeFi leaves unknown both who operates in its pools and how those
+            addresses behaved before. Any address can swap with any other, and
+            nobody records what happened or why. In traditional finance,
+            reputation builds over time. In DeFi every wallet starts from zero
+            on every swap.
           </p>
           <p>
-            For retail this is a nuisance. For institutions it is a blocker. A
-            regulated fund, a market maker, or a European protocol under MiCA
+            Retail users absorb that gap as inconvenience. For institutions it
+            blocks participation. A regulated fund, a market maker, or a
+            European protocol under MiCA (Markets in Crypto-Assets Regulation)
             cannot operate where it cannot show that counterparties meet due
             diligence.
           </p>
@@ -70,11 +72,11 @@ export function WhitepaperView() {
         <div className="mt-12 space-y-8">
           <DocRow
             label="The crime model"
-            value="Operators buy time (lists lag), distance (mule hops), smallness (structuring under a threshold), and borrowed reputation (a clean wallet with a sudden inbound). A static list or KYC pass does not see those."
+            value="Illicit operators optimize for time (lists lag), distance (mule hops), smallness (structuring under a threshold), and borrowed reputation (a clean wallet with a sudden inbound). A static list or KYC (Know Your Customer) pass leaves those patterns unseen."
           />
           <DocRow
             label="What the hook intercepts"
-            value="On swaps: beforeSwap and afterSwap. It screens the resolved end-user, reads a behavioral score, and decides. Independently it also intercepts liquidity add and remove. Pause stops swap evaluation; it does not freeze a clean LP mint or exit."
+            value="On swaps: beforeSwap and afterSwap. It screens the resolved end-user, reads a behavioral score, and decides. Liquidity add and remove run on a separate path. Pause stops swap evaluation. A clean LP (liquidity provider) mint or exit still proceeds."
           />
         </div>
 
@@ -119,7 +121,7 @@ export function WhitepaperView() {
               [
                 "1",
                 "Static sanctions",
-                "OFAC or another list. Match → immediate block. No external call at execution.",
+                "OFAC (Office of Foreign Assets Control) or another list. A match reverts the swap in that transaction. No external call at execution.",
               ],
               [
                 "2",
@@ -162,19 +164,19 @@ export function WhitepaperView() {
         <div className="mt-12 space-y-8">
           <DocRow
             label="Legal baseline"
-            value="OFAC / SDN at Layer 1. FATF Rec. 15 if the operator has a point of control. MiCA for European VASPs — a UI block is easy to bypass; the hook is inside the pool. SEC / CFTC audit trail. GENIUS Act compatibility for reserved payment-stablecoins. FATF / FinCEN monitoring with a record of actions taken."
+            value="OFAC / SDN (Specially Designated Nationals) at Layer 1. FATF (Financial Action Task Force) Rec. 15 if the operator has a point of control. MiCA for European VASPs (Virtual Asset Service Providers): a UI (user interface) block is easy to bypass; the hook is inside the pool. SEC (Securities and Exchange Commission) / CFTC (Commodity Futures Trading Commission) audit trail. GENIUS Act compatibility for reserved payment-stablecoins. FATF / FinCEN (Financial Crimes Enforcement Network) monitoring with a record of actions taken."
           />
           <DocRow
             label="Permissioned Pools"
-            value="Labs’ product is the door: who may hold exposure. It does not score behavior or calibrate a fee. AML Hook is the film after the door. The permissioned router is the shared entry."
+            value="Labs’ product governs who may hold exposure. It leaves behavior unscored and leaves the fee uncalibrated. AML Hook evaluates conduct after access. The permissioned router is the shared entry."
           />
           <DocRow
             label="Market"
-            value="TAM: tokenized RWA (~USD 100B by end-2026). SAM: mid-market private credit. First pools: Centrifuge, Goldfinch, Clearpool and peers that need a compliance difference versus Maple-scale institutional guarantees."
+            value="TAM (Total Addressable Market): tokenized RWA (about USD 100B by end-2026). SAM (Serviceable Addressable Market): mid-market private credit. First pools: Centrifuge, Goldfinch, Clearpool and peers that need a compliance difference versus Maple-scale institutional guarantees."
           />
           <DocRow
             label="Compliance Officer Agent"
-            value="The hook number is the on-chain decision. The agent writes the file the operator keeps: why this swap was allowed, charged, or reverted. beforeSwap never calls the model — it reads the oracle row the keeper published."
+            value="The hook number is the on-chain decision. The agent writes the file the operator keeps: why this swap was allowed, charged, or reverted. beforeSwap reads the oracle row the keeper published. It never calls the model."
           />
         </div>
 
@@ -206,15 +208,15 @@ export function WhitepaperView() {
           <div className="mt-8 space-y-8">
             <DocRow
               label="Architecture"
-              value="Uniswap v4 puts every pool in one PoolManager. The pool key carries the hook address. Full evaluation plus governance does not fit EIP-170, so AmlHook DELEGATECALLs a logic contract that shares one state."
+              value="Uniswap v4 puts every pool in one PoolManager. The pool key carries the hook address. Full evaluation plus governance exceeds the EIP-170 size cap, so AmlHook DELEGATECALLs a logic contract that shares one state."
             />
             <DocRow
               label="Fee escrow"
-              value="On FEE_OVERRIDE the pool keeps 0.30%. The extra slice sits in FeeEscrow. Clean release goes to LpCompensationVault (LPs claim after epoch close). Confirmed illicit recover goes to ComplianceTreasury, then a delayed allowlisted payout — never back to the pool, never to LPs while still suspect."
+              value="On FEE_OVERRIDE the pool keeps 0.30%. The extra slice sits in FeeEscrow. Clean release goes to LpCompensationVault (LPs claim after epoch close). Confirmed illicit recover goes to ComplianceTreasury, then a delayed allowlisted payout. The slice never returns to the pool, and never to LPs while still suspect."
             />
             <DocRow
               label="Latency floors"
-              value="When the keeper has not written, the score is stale, or a large inflow is still unpublished, score bands are not enough. Floors A–D cover unknown wallets, stale scores, 24h USD aggregation, and inbound USD on a published-clean wallet. Full numeric table is in whitepaper §8.4 and in Use of case."
+              value="When the keeper has not written, the score is stale, or a large inflow is still unpublished, score bands leave those cases uncovered. Floors A–D cover unknown wallets, stale scores, 24h USD aggregation, and inbound USD on a published-clean wallet. Full numeric table is in whitepaper §8.4 and in Use of case."
             />
           </div>
         </details>

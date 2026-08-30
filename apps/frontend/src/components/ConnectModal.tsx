@@ -15,7 +15,7 @@ type Props = {
   onClose: () => void;
   /** Called when the user picks Wallet A–E */
   onConnect: (caseId: DemoCaseId) => void;
-  /** Live ledger — B/C/D stay green until contaminated; E stays unknown */
+  /** Live ledger: B/C/D remain green until contaminated; E remains unknown */
   wallets: Record<DemoCaseId, SimWallet>;
 };
 
@@ -27,7 +27,7 @@ function shorten(addr: string) {
 }
 
 /**
- * Connect modal — wallets A–E.
+ * Connect modal: wallets A–E.
  * Row border: green clean / score 0 · yellow hop, latency, or unknown · red exploit.
  */
 export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
@@ -54,7 +54,7 @@ export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
         </div>
 
         <p className="mb-3 text-sm text-uni-muted">
-          Pick the use-case account to run through the AML Hook:
+          Select the use-case account for the AML Hook:
         </p>
         <div className="space-y-0">
           {CONNECT_ORDER.map((id) => {
@@ -83,7 +83,7 @@ export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
                   <span className="mt-0.5 block text-[11px] opacity-80">
                     {wallet.neverScored
                       ? wallet.usdc <= 0
-                          ? "New Wallet · empty — fund from clean C (no hop)"
+                          ? "New Wallet · empty. Fund from clean C (no hop)"
                           : `New Wallet · bag $${wallet.usdc.toLocaleString("en-US")} · Floor A/D on next swap`
                       : wallet.keeperPending
                         ? `Keeper pending · next swap uses inflow ${formatFeePct(getPolicyKnobs().proportionalFeeBps)} / ${formatFeePct(getPolicyKnobs().punitiveFeeBps)} by inbound USD`
@@ -94,7 +94,7 @@ export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
                             : id === "C"
                               ? "Clean · fund E (unknown) or D (inflow); A→C is 1-hop"
                               : id === "A"
-                                ? "Exploit · score 100 · pool WalletBlocked · P2P still contaminates B/C"
+                                ? "Exploit · score 100 · pool WalletBlocked · P2P (peer-to-peer) still contaminates B/C"
                                 : c.label}
                   </span>
                 </span>

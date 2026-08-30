@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-/// @title Layer 2 — on-chain behavioral score store
+/// @title Layer 2: on-chain behavioral score store
 /// @notice The oracle keeper publishes a Compliance Officer Agent score; AMLHook reads
 ///         it at beforeSwap (whitepaper §3.2 Layer 2 / §3.5 / §3.8). The hook never
 ///         writes scores and never calls the agent.
@@ -15,7 +15,7 @@ interface IComplianceOracle {
     /// @dev `hopDistance` / `origin` support N-hop decay from the UHI10 use-case skill;
     ///      `updatedAt` distinguishes never-written (0) from confirmed-clean (score 0, ts ≠ 0).
     struct WalletRisk {
-        uint8 score; // 0–100 — ternary bands in RiskPolicy (§3.3)
+        uint8 score; // 0–100: ternary bands in RiskPolicy (§3.3)
         uint8 hopDistance; // 0 = origin / unknown; N-hop from contamination source
         address origin; // contamination origin wallet (address(0) if clean)
         uint24 feeBps; // COA recommended fee (bps), published by the keeper; used on FEE_OVERRIDE
@@ -32,7 +32,7 @@ interface IComplianceOracle {
     );
 
     /// @notice Returns the stored risk profile (defaults to clean / score 0 if unset).
-    /// @dev Unset means `updatedAt == 0` — Mitigation A elevates that path; confirmed clean
+    /// @dev Unset means `updatedAt == 0`. Mitigation A elevates that path; confirmed clean
     ///      requires an explicit keeper publish of score 0 with non-zero `updatedAt`.
     function getRisk(address wallet) external view returns (WalletRisk memory);
 

@@ -15,7 +15,7 @@ enum MultisigAggregation {
 /// @notice Supported multisig contract types for owner enumeration.
 enum MultisigType {
     NONE,          // not a multisig (used as the revoke sentinel)
-    GNOSIS_SAFE    // Gnosis Safe — owners read via `getOwners()`
+    GNOSIS_SAFE    // Gnosis Safe: owners read via `getOwners()`
 }
 
 /// @notice Registry entry for a multisig account eligible to swap through the hook.
@@ -24,7 +24,7 @@ struct TrustedMultisig {
     MultisigType kind; // contract type (NONE when not trusted)
 }
 
-/// @title WalletSubject — compliance subject resolution (whitepaper §3.5)
+/// @title WalletSubject: compliance subject resolution (whitepaper §3.5)
 /// @notice Resolves the true swap originator from a trusted router, with optional Gnosis Safe owner screening.
 library WalletSubject {
     /// @notice Router is not in the trusted set, or subject resolution returned `address(0)`.
@@ -109,8 +109,8 @@ library WalletSubject {
     }
 
     /// @notice Resolve the LP subject. A trusted router reports `msgSender()`; a direct caller is the LP.
-    /// @dev Does not require a trusted router (unlike swaps). Does not revert on a list hit — the
-    ///      caller decides add-revert vs remove-seize. A trusted router that fails `msgSender()`
+    /// @dev Does not require a trusted router (unlike swaps). A list hit does not revert here:
+    ///      the caller decides add-revert vs remove-seize. A trusted router that fails `msgSender()`
     ///      still reverts. Hook data is never read.
     function resolveLp(
         address sender,

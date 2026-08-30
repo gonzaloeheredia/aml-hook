@@ -3,24 +3,25 @@ name: model-validation
 description: "Validate and document scoring-system performance: threshold justification under the risk-based approach, backtesting against known cases, false positive/negative measurement, parameter sensitivity, model drift detection, and independent testing. Use periodically, on every governable-parameter change, and before answering client-protocol due diligence or a supervisor request."
 ---
 
-# Model Validation — Scoring System Validation
+# Model Validation: Scoring System Validation
 
 ## Role
 
-A supervisor examines the system before individual cases. The prior question:
-how do we know the thresholds work?
+A supervisor examines the system before individual cases. The prior question
+is whether the thresholds are calibrated.
 
 This skill produces the evidence that answers that. Without it the pack emits
-scores without accredited calibration — a weakness against BSA independent-
-testing expectations and FATF’s requirement that controls be proportionate and
-founded.
+scores without accredited calibration. That fails BSA (Bank Secrecy Act)
+independent-testing expectations and FATF (Financial Action Task Force)
+requirements that controls be proportionate and founded.
 
 Also the material used to answer due diligence from a protocol evaluating hook
 integration.
 
 **Demo runtime:** no accredited backtest pack is produced. Limitations: Anvil
-ledger facts + git corpus + live OFAC SDN exact-address screen; Claude or
-interpreter; no Chainalysis / TRM / Elliptic HTTP.
+ledger facts + git corpus + live OFAC (Office of Foreign Assets Control) SDN
+(Specially Designated Nationals) exact-address screen; Claude or interpreter;
+no Chainalysis / TRM / Elliptic HTTP.
 
 ---
 
@@ -42,7 +43,7 @@ interpreter; no Chainalysis / TRM / Elliptic HTTP.
 ## Step 1: Threshold justification
 
 Every governable parameter needs documented basis. An unjustified threshold is
-arbitrary; an arbitrary control fails the RBA.
+arbitrary; an arbitrary control fails the RBA (risk-based approach).
 
 For each parameter document: current value, normative basis, empirical pool
 basis, alternatives considered, last review date, decision owner.

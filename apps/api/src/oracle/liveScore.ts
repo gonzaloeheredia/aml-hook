@@ -77,9 +77,9 @@ Reply with a single JSON object (no markdown):
   "riskAndScoring": "string",
   "typologies": "string",
   "sanctionsCheck": "string",
-  "sourcesConsulted": ["string — venues, no skill filenames"],
+  "sourcesConsulted": ["string: venues, no skill filenames"],
   "decisionExecuted": "string",
-  "legalBasis": "string — corpus ids + publicationDate",
+  "legalBasis": "string: corpus ids + publicationDate",
   "recommendations": "string",
   "traceability": "string",
   "sarAnnex": null or {

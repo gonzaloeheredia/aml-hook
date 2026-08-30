@@ -3,7 +3,7 @@
  *
  * When live, Claude emits score, fee, Opinion, and skill findings. The keeper
  * publishes finalScore + recommendedFeeBps to ComplianceOracle. The hook and
- * FeeEscrow read that row — TypeScript does not precompute 65/42 or mock copy.
+ * FeeEscrow read that row. TypeScript does not precompute 65/42 or mock copy.
  * Tick only stamps the last agent score (no Claude). Wallet E is never published.
  */
 
@@ -301,7 +301,7 @@ export async function resetOracle(): Promise<void> {
 
 /**
  * After a P2P transfer: reevaluate sender always; recipient immediately unless
- * the recipient is Wallet D (deferred keeper — stale score 0 until catch-up).
+ * the recipient is Wallet D (deferred keeper: stale score 0 until catch-up).
  */
 export async function reevaluateAfterTransfer(
   from: WalletId,

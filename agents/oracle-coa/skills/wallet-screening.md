@@ -3,11 +3,12 @@ name: wallet-screening
 description: "Evaluate AML/CFT risk of an address participating in a Uniswap v4 swap. Covers blockchain analytics, direct and indirect exposure to risk entities, cluster attribution, obfuscation patterns (mixing, bridging, chain-hopping, peeling), and account-type classification. Use as the primary domain skill in every case: base analysis unit for the wallet profile."
 ---
 
-# Wallet Screening — Address Risk Evaluation
+# Wallet Screening: Address Risk Evaluation
 
 ## Role
 
-AML/CFT analysis unit on an individual address. Does not decide swap output:
+AML/CFT (Anti-Money Laundering / Combating the Financing of Terrorism)
+analysis unit on an individual address. Does not decide swap output:
 evaluates, documents, and produces `FactEvent`s that `fact-scoring` quantifies.
 
 Assumed production stack: Chainalysis, Elliptic, or TRM Labs. Must function in
@@ -41,10 +42,10 @@ If attribution failed, this skill does not run.
 
 | Type | Detection | Implication |
 |---|---|---|
-| **EOA** | `EXTCODESIZE == 0` | Direct analysis |
+| **EOA (externally owned account)** | `EXTCODESIZE == 0` | Direct analysis |
 | **Smart Account / Multisig** | Code + Safe / ERC-4337 pattern | Controller verification (Step 2) |
 | **Protocol contract** | Known protocol attribution | Risk on real originator, not router |
-| **Router / aggregator** | Universal Router, 1inch, CoW, etc. | Not the subject — attribution must already have resolved |
+| **Router / aggregator** | Universal Router, 1inch, CoW, etc. | Not the subject. Attribution must already have resolved |
 | **Undetermined** | No attribution possible | Analyze as EOA; record indeterminacy |
 
 **Critical rule.** Evaluating the router as the subject has no AML value.
@@ -59,7 +60,7 @@ account inherits override path.
 
 ### 2.2 Threshold
 A compromised controller does not always imply execution power. If clean
-controllers still meet the multisig threshold, note that — **except** for
+controllers still meet the multisig threshold, note that, **except** for
 `OFAC_DIRECT_MATCH` on a controller: designation reaches entities where the
 designated person has relevant participation; escalate to human review with
 preventive `REVERT`.
@@ -88,7 +89,7 @@ conduct. Only subsequent movement/use counts.
 ## Step 4: Cluster attribution
 
 Cite as provider judgment. Max confidence `MEDIUM` unless second independent
-source. On provider disagreement, report both — do not cherry-pick.
+source. On provider disagreement, report both. Do not select one source.
 
 ---
 

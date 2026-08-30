@@ -5,7 +5,7 @@ import {IAggregatorV3} from "../interfaces/external/IAggregatorV3.sol";
 import {IERC20Minimal} from "../interfaces/external/IERC20Minimal.sol";
 import {UsdQuote} from "./UsdQuote.sol";
 
-/// @title OracleQuote — Chainlink USD-8 price resolution with hot-cache fallback
+/// @title OracleQuote: Chainlink USD-8 price resolution with hot-cache fallback
 /// @notice Provides USD quotes for token amounts used by the hook's magnitude floors.
 /// @dev Resolution order per token:
 ///      1. Hot cache (`lastFx` age < `HOT_TTL` = 30 min) → return cached without calling Chainlink.
@@ -77,7 +77,7 @@ library OracleQuote {
     }
 
     /// @notice Convert a native-unit `amount` to 8-decimal USD using the resolved quote.
-    /// @dev Returns 0 when the price or amount is zero (no revert — callers handle zero separately).
+    /// @dev Returns 0 when the price or amount is zero (no revert: callers handle zero separately).
     function toUsd(Fx memory fx, uint256 amount) internal pure returns (uint256) {
         if (fx.price == 0 || amount == 0) return 0;
         return UsdQuote.toUsd8(amount, fx.tokenDecimals, fx.price, fx.feedDecimals);

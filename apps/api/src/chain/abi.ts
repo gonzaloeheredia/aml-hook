@@ -1,5 +1,5 @@
 /**
- * Minimal ABIs for the demo adapter. Quotes go through previewSwap — not a TS policy.
+ * Minimal ABIs for the demo adapter. Quotes go through previewSwap. TypeScript does not apply a policy.
  */
 
 export const hookAbi = [

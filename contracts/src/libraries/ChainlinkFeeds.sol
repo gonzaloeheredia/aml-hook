@@ -4,7 +4,7 @@ pragma solidity ^0.8.26;
 /// @title Official Chainlink AggregatorV3 USD proxies + canonical tokens
 /// @notice Lookup table so Deploy binds real ETH/USD and USDC/USD instead of MockUsdFeed.
 /// @dev Proxy addresses from data.chain.link / Chainlink Data Feeds docs. Env
-///      `ETH_USD_FEED` / `TOKEN_USD_FEED` override these. Anvil (31337) has none —
+///      `ETH_USD_FEED` / `TOKEN_USD_FEED` override these. Anvil (31337) has none.
 ///      Deploy falls back to MockUsdFeed there only.
 library ChainlinkFeeds {
     /// @notice ETH/USD Data Feed proxy on `chainId`, or zero if unknown.

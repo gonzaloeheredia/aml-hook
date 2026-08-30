@@ -111,7 +111,7 @@ const SKILL_CATALOG: Record<
     sources: ["UHI10 A–E use-case skill"],
     finding: (w) =>
       w.neverScored
-        ? "Use-case: Wallet E is unpublished — do not write a COA score."
+        ? "Use-case: Wallet E is unpublished. Do not write a COA score."
         : w.exploitConfirmed
           ? "Use-case: Wallet A exploit score 100, not OFAC, REVERT WalletBlocked."
           : w.hopDistance === 1

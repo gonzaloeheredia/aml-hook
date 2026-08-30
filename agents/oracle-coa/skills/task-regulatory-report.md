@@ -3,7 +3,7 @@ name: task-regulatory-report
 description: "Draft the evidence pack the pool operator delivers to its own Compliance Officer: technical Opinion with justified scoring, SAR-support annex for a possible FinCEN filing, decision record, and pool aggregate report. Use after task-swap-decision when reasonable suspicion is reached, when a block executed, or when the operator requests a period pack. The agent never files with any authority. Live: Claude. Schema: apps/api/src/oracle/report.ts."
 ---
 
-# Task: Regulatory Report — Evidence / Opinion Pack
+# Task: Regulatory Report: Evidence / Opinion Pack
 
 ## Role
 
@@ -11,7 +11,8 @@ Transforms prior analysis into formal documentation. Does not generate new
 analysis: structures and formalizes what earlier skills produced.
 
 **Recipient.** Pool operator’s Compliance Officer. The agent produces evidence
-and drafts for review. It does not file with FinCEN, OFAC, any European
+and drafts for review. It does not file with FinCEN (Financial Crimes
+Enforcement Network), OFAC (Office of Foreign Assets Control), any European
 authority, or any supervisor. Filing requires human review and signature.
 
 **Purpose.** Enable the operator to show a supervisor or auditor that the pool
@@ -21,7 +22,7 @@ chain from conclusion to on-chain evidence is reconstructible.
 **Live:** Claude drafts the Opinion after the score (corpus via
 `search_regulations`). **Interpreter** (`COA_LIVE=0` / tests):
 `buildOpinionFromScore()` in `apps/api/src/oracle/report.ts` maps
-`ScoreResult` → `OracleOpinion` for the frontend Opinion UI.
+`ScoreResult` → `OracleOpinion` for the frontend Opinion UI (user interface).
 
 ---
 
@@ -45,10 +46,10 @@ chain from conclusion to on-chain evidence is reconstructible.
 
 Base document. Issued for every `REVERT`, every block, and every
 `REASONABLE_SUSPICION_REACHED` signal. Also issued in abbreviated form for
-`ALLOW` (verification that no SAR annex was opened).
+`ALLOW` (verification that no SAR (Suspicious Activity Report) annex was opened).
 
 **Narrative model.** Body follows FinCEN *Guidance on Preparing A Complete &
-Sufficient Suspicious Activity Report Narrative* (Nov 2003) — **internal
+Sufficient Suspicious Activity Report Narrative* (Nov 2003). **Internal
 structure only** (Who / What / When / Where / Why / How). Not a filed SAR.
 
 **Skills must not appear in the Opinion.** Text and annex cite facts,
@@ -57,7 +58,7 @@ list agent skill names (`ofac-screening`, `fact-scoring`, `task-*`,
 `skills/…`). Skills are internal instruments, not Opinion sources.
 
 ```
-TECHNICAL COMPLIANCE OPINION — AML HOOK
+TECHNICAL COMPLIANCE OPINION: AML HOOK
 ════════════════════════════════════════════════════════════
 
 Event:           [ID]
@@ -67,44 +68,44 @@ Issued:          [ISO 8601]
 Block:           [N]
 Recipient:       Pool operator Compliance Officer
 Character:       Internal evidence. Not a report to any authority.
-Model:           FinCEN SAR Narrative Guidance (Who–How) — not a filing
+Model:           FinCEN SAR Narrative Guidance (Who / What / When / Where / Why / How). Not a filing
 
-1. WHO — SUBJECT(S)
+1. WHO: SUBJECT(S)
 ════════════════════════════════════════════════════════════
 Address(es) under review, role (originator / intermediary / beneficiary),
 known graph relationships (hop origin, cluster if recorded).
 No verified identity in a permissionless pool.
 
-2. WHAT — INSTRUMENTS AND PATTERNS
+2. WHAT: INSTRUMENTS AND PATTERNS
 ════════════════════════════════════════════════════════════
-Instrument (USDC→ETH swap, ERC-20 P2P, etc.), FATF typologies / indicators
-observed, on-chain evidence (tx_hash / block), sanctions screen result
-(hit or clear verification).
+Instrument (USDC→ETH swap, ERC-20 P2P (peer-to-peer), etc.), FATF (Financial
+Action Task Force) typologies / indicators observed, on-chain evidence
+(tx_hash / block), sanctions screen result (hit or clear verification).
 
-3. WHEN — TEMPORALITY
+3. WHEN: TEMPORALITY
 ════════════════════════════════════════════════════════════
 Evaluation timestamp, trigger, suspicious-activity period, next review.
 No dense tables; individual dates remain in the ledger.
 
-4. WHERE — VENUE AND ADDRESSES
+4. WHERE: VENUE AND ADDRESSES
 ════════════════════════════════════════════════════════════
 Venue (Uniswap v4 pool / network), address under review, P2P hop path,
 corridors or jurisdictions only if in evidence.
 
-5. WHY — WHY UNUSUAL / ELEVATED
+5. WHY: WHY UNUSUAL / ELEVATED
 ════════════════════════════════════════════════════════════
 Score and band (ALLOW / FEE_OVERRIDE / REVERT), triggeringFacts with
 scoreContribution, contrast to expected pool profile. Do not conclude crime.
 
-6. HOW — METHOD OF OPERATION AND CONTROL
+6. HOW: METHOD OF OPERATION AND CONTROL
 ════════════════════════════════════════════════════════════
 Modus (cash-out, hop, ordinary swap) and hook response
 (ALLOW / FEE_OVERRIDE / REVERT), emitted event, treatment of funds.
 
 7. NORMATIVE BASIS
 ════════════════════════════════════════════════════════════
-Standard supporting each conclusion (FATF, OFAC, BSA/FinCEN as narrative
-model framework, EU framework if applicable).
+Standard supporting each conclusion (FATF, OFAC, BSA (Bank Secrecy Act)/FinCEN
+as narrative model framework, EU (European Union) framework if applicable).
 
 8. RECOMMENDATIONS TO THE COMPLIANCE OFFICER
 ════════════════════════════════════════════════════════════
@@ -114,7 +115,7 @@ Suggested actions, timelines, tip-off prohibition, human decision.
 ════════════════════════════════════════════════════════════
 auditHash: [hash]
 On-chain events emitted: [list with block]
-Supporting evidence (ledger / emits / screen) — no skill filenames
+Supporting evidence (ledger / emits / screen). No skill filenames
 Retention: 5 years (FATF Rec. 11; BSA)
 ```
 
@@ -162,7 +163,7 @@ note: "No identity verification. Cluster attribution (if any) is from a
 role: ORIGINATOR | BENEFICIARY | LINKED_WALLET
 ```
 
-### B.3 Narrative fields (Who–How structure)
+### B.3 Narrative fields (Who / What / When / Where / Why / How structure)
 
 Objective drafting. No conclusions on lawfulness. No skill filenames.
 
@@ -179,8 +180,8 @@ Objective drafting. No conclusions on lawfulness. No skill filenames.
 |---|---|
 | Deadline | 30 calendar days from initial detection if operator is obligated |
 | Confidentiality | Tip-off prohibition |
-| Obligation determination | Filing depends on BSA qualification — legal confirmation required |
-| Document status | Support draft — not submitted |
+| Obligation determination | Filing depends on BSA qualification. Legal confirmation required |
+| Document status | Support draft. Not submitted |
 
 ### B.5 Structured annex output (aligned with `OracleOpinion.sarAnnex`)
 
@@ -194,10 +195,10 @@ Objective drafting. No conclusions on lawfulness. No skill filenames.
   "narrativeDescription": "WHO: … WHAT: …",
   "narrativeAnalysis": "WHEN: … WHERE: …",
   "narrativeEvidence": "WHY: …",
-  "narrativeConclusion": "HOW: … Internal SAR-support pack — not a FinCEN SAR.",
+  "narrativeConclusion": "HOW: … Internal SAR-support pack. Not a FinCEN SAR.",
   "warnings": [
-    "Confidentiality — no tip-off to the subject",
-    "Document status: support draft — not submitted",
+    "Confidentiality: no tip-off to the subject",
+    "Document status: support draft. Not submitted",
     "Organize facts chronologically from the ledger for any human-owned filing",
     "Human judgment required before any BSA filing decision"
   ]
@@ -214,7 +215,7 @@ decision existed and had a basis.
 ```
 DECISION RECORD
 Event / Wallet / Pool / Block
-Score: [XX] — Output: [ALLOW / FEE_OVERRIDE / REVERT]
+Score: [XX]. Output: [ALLOW / FEE_OVERRIDE / REVERT]
 Main facts: [top three by scoreContribution with regulatoryBasis]
 Basis: [reason code]
 Next review: [date]
@@ -228,21 +229,21 @@ Maps to `OracleOpinion.decisionRecord`: `score`, `output`, `mainFacts`,
 
 ## D. Pool aggregate report
 
-Periodic product for the operator. Shows monitoring-system performance —
-what a supervisor examines before individual cases.
+Periodic product for the operator. Shows monitoring-system performance.
+A supervisor examines this before individual cases.
 
 ```
-MONITORING REPORT — POOL [0x...]
+MONITORING REPORT: POOL [0x...]
 Period: [from] – [to]
 
 1. VOLUME AND COVERAGE
-2. OUTPUT DISTRIBUTION — ALLOW / FEE_OVERRIDE / REVERT / sanctions blocks
+2. OUTPUT DISTRIBUTION: ALLOW / FEE_OVERRIDE / REVERT / sanctions blocks
 3. TYPOLOGIES DETECTED
 4. REASONABLE-SUSPICION SIGNALS
-5. OPERATIONAL PERFORMANCE — source availability, degraded mode, latency
-6. FEE_OVERRIDE AND ESCROW — escrowed, released to pool, LP compensation
-7. GOVERNANCE — Timelock parameter changes
-8. TRACEABILITY — 5-year retention; auditHash index
+5. OPERATIONAL PERFORMANCE: source availability, degraded mode, latency
+6. FEE_OVERRIDE AND ESCROW: escrowed, released to pool, LP (liquidity provider) compensation
+7. GOVERNANCE: Timelock parameter changes
+8. TRACEABILITY: 5-year retention; auditHash index
 ```
 
 ---
@@ -257,7 +258,7 @@ material. It does not draft or send the response.
 | Scope | Only material the operator asks to compile |
 | Recipient | Operator legal / Compliance Officer |
 | Prohibition | Agent never answers any authority directly |
-| Format | Case-file index with `auditHash`, on-chain events, sources — no legal interpretation |
+| Format | Case-file index with `auditHash`, on-chain events, sources. No legal interpretation |
 
 ---
 
@@ -275,7 +276,7 @@ material. It does not draft or send the response.
 
 ---
 
-## Output (`OracleOpinion` — keys match `types.ts`)
+## Output (`OracleOpinion`: keys match `types.ts`)
 
 ```json
 {
@@ -291,7 +292,7 @@ material. It does not draft or send the response.
     "riskAndScoring": "<WHY>",
     "typologies": "<WHAT>",
     "sanctionsCheck": "<WHEN>",
-    "sourcesConsulted": ["<WHERE — evidence only, no skill names>"],
+    "sourcesConsulted": ["<WHERE: evidence only, no skill names>"],
     "decisionExecuted": "<HOW>",
     "legalBasis": "...",
     "recommendations": "...",

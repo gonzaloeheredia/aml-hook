@@ -4,7 +4,7 @@ import type { DemoCase } from "@/data/cases";
 
 type Props = {
   demoCase: DemoCase;
-  /** Live swap counter — increments +1 after each completed node circuit */
+  /** Live swap counter: increments +1 after each completed node circuit */
   swapCount: number;
   /** Cumulative USDC sold across completed circuits for this wallet */
   tradedUsd: number;
@@ -57,7 +57,7 @@ export function FeeSummary({
           label="AML fee (hook)"
           value={
             blocked
-              ? "—"
+              ? "n/a"
               : feeOverride
                 ? `${feeLabel(demoCase.appliedFeeBps)} · override`
                 : feeLabel(demoCase.appliedFeeBps)

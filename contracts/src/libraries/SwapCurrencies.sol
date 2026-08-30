@@ -10,7 +10,7 @@ import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 import {PoolImpact} from "./PoolImpact.sol";
 
-/// @title SwapCurrencies — Uniswap v4 swap currency and size derivation helpers
+/// @title SwapCurrencies: Uniswap v4 swap currency and size derivation helpers
 /// @notice Utility functions used by the AML hook to derive token addresses and amounts from
 ///         the Uniswap v4 `PoolKey` and `SwapParams` structs.
 library SwapCurrencies {

@@ -1,7 +1,7 @@
 /**
  * ECDSA attestor for ComplianceOracle.updateScore (C-01).
  * Signs attestationHash(wallet, score, hop, origin, feeBps, updatedAt, chainid)
- * as an Ethereum signed message — same payload the contract recovers.
+ * as an Ethereum signed message. The contract recovers the same payload.
  */
 
 import type { Address, Hex } from "viem";

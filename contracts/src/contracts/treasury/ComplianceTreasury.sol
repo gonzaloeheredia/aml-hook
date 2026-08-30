@@ -9,7 +9,7 @@ interface IERC20Treasury {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
 }
 
-/// @title ComplianceTreasury — authority fund with two ledgers
+/// @title ComplianceTreasury: authority fund with two ledgers
 /// @notice `LP_PRINCIPAL` is seized LP capital after a confirmed-illicit FeeEscrow recover
 ///         (the remove tx itself holds principal 48h in escrow). `ILLICIT_RISK_FEE` is a
 ///         risk-fee recover after Layer 1 or a later oracle illicit write. The two

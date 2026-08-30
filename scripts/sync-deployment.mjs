@@ -15,7 +15,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const src = join(root, "contracts/deployments/31337.json");
 
 if (!existsSync(src)) {
-  console.error("Missing", src, "— run forge script script/Deploy.sol:Deploy first.");
+  console.error("Missing", src, ": run forge script script/Deploy.sol:Deploy first.");
   process.exit(1);
 }
 
@@ -52,8 +52,8 @@ KEEPER_PRIVATE_KEY=${anvilKey}
 ATTESTOR_PRIVATE_KEY=${attestorKey}
 SCORE_SOURCE=onchain
 # AccessManager=${deployment.AccessManager ?? ""}
-# attestor=${deployment.attestor ?? ""} — Anvil #9 locally
-# oracleKeeper=${deployment.oracleKeeper ?? deployment.keeper ?? ""} — must hold _ORACLE_KEEPER
+# attestor=${deployment.attestor ?? ""}: Anvil #9 on the local chain
+# oracleKeeper=${deployment.oracleKeeper ?? deployment.keeper ?? ""}: must hold _ORACLE_KEEPER
 `;
 
 writeFileSync(join(root, "apps/api/.env.local"), envLocal);

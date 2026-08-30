@@ -6,13 +6,13 @@
 import type { Address, Hex } from "viem";
 import type { WalletId } from "../types.js";
 
-/** Anvil #0 — deployer / oracle keeper / hook governor / FeeEscrow owner. */
+/** Anvil #0: deployer / oracle keeper / hook governor / FeeEscrow owner. */
 export const KEEPER_KEY =
   "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as Hex;
 export const KEEPER_ADDRESS =
   "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" as Address;
 
-/** Anvil #9 — distinct attestor (Deploy local default). */
+/** Anvil #9: distinct attestor (Deploy local default). */
 export const ATTESTOR_KEY =
   "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6" as Hex;
 export const ATTESTOR_ADDRESS =

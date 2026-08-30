@@ -3,9 +3,9 @@ pragma solidity ^0.8.26;
 
 import {HookDecision} from "../../libraries/HookDecision.sol";
 
-/// @title IRiskPolicy — Layer 3 pure mapping: score + floor signals → ALLOW / FEE_OVERRIDE / REVERT
+/// @title IRiskPolicy: Layer 3 pure mapping: score + floor signals → ALLOW / FEE_OVERRIDE / REVERT
 interface IRiskPolicy {
-    /// @notice Discriminator for the revert path — tells the hook which error to emit.
+    /// @notice Discriminator for the revert path: tells the hook which error to emit.
     enum RevertKind {
         None,                // not a revert
         ScoreBand,           // score ≥ 71

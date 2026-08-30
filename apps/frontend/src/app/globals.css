@@ -93,7 +93,7 @@ body {
 }
 
 /**
- * On/off theme button — round, press to light, press again to dark.
+ * On/off theme button: round, press to light, press again to dark.
  */
 .theme-power {
   display: inline-flex;
@@ -147,7 +147,7 @@ html[data-theme="light"] .theme-power:hover {
 }
 
 /**
- * Scroll-driven AML analysis reveal — slow fade + rise + deblur as the
+ * Scroll-driven AML analysis reveal: slow fade + rise + deblur as the
  * user scrolls each block into view.
  */
 .scroll-reveal {
@@ -270,7 +270,7 @@ html.stage-nav-cursor .stage-nav-hint {
 }
 
 /**
- * Asymmetric geometry — one recipe per surface so the same box never
+ * Asymmetric geometry: one recipe per surface so the same box never
  * repeats across the demo. Hairlines use ink at 8%; strong edges 20% / 1.5px.
  */
 .surface {

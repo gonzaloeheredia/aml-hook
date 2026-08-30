@@ -3,13 +3,13 @@ name: swap-behavior-analysis
 description: "Analyze a wallet’s cumulative behavior inside the pool and over time to detect patterns no point-in-time check can identify. Covers behavioral profile, statistical anomalies vs pool distribution, fraud and exit-liquidity schemes, linked-wallet analysis, and pre-swap DeFi activity. Use whenever wallet history is available, and mandatorily before emitting a score in the block band."
 ---
 
-# Swap Behavior Analysis — Cumulative Behavioral Analysis
+# Swap Behavior Analysis: Cumulative Behavioral Analysis
 
 ## Role
 
-Functional differentiator of AML Hook. While `wallet-screening` answers “what
-is this wallet?”, this skill answers “how did it behave?” — the film, not the
-photograph.
+Functional differentiator of AML (Anti-Money Laundering) Hook.
+`wallet-screening` evaluates the address at a point in time. This skill
+evaluates cumulative behavior over the wallet history.
 
 Operates on the wallet’s historical window and the pool’s statistical
 distribution. Evaluates deviation from expected behavior, not identity.
@@ -41,7 +41,7 @@ hop-contaminated wallets carry NW facts from the Anvil ledger graph.
 |---|---|
 | `ageDays` | Days since first recorded tx |
 | `totalSwaps` | Swaps executed in the pool |
-| `meanAmount` / `medianAmount` | Stats on USD-converted `amountSpecified` |
+| `meanAmount` / `medianAmount` | Stats on USD (United States dollar)-converted `amountSpecified` |
 | `amountDispersion` | Low dispersion + high frequency → automation / structuring |
 | `meanFrequency` | Swaps per unit time |
 | `directionalRatio` | Share of `zeroForOne = true` |
@@ -76,16 +76,16 @@ Period volume > 5× historical mean without pool-activity correlative →
 Moves >90% shortly after receipt → `RAPID_FULL_BALANCE_TRANSFER`.
 
 ### 2.5 Fraud / exit liquidity / wash patterns
-Linked-wallet reciprocal swaps, anomalous LP removal, sandwich adjacency —
-emit DF facts for `typology-detection` / `fact-scoring`.
+Linked-wallet reciprocal swaps, anomalous LP (liquidity provider) removal,
+sandwich adjacency: emit DF facts for `typology-detection` / `fact-scoring`.
 
 ---
 
 ## Step 3: Alternative hypothesis
 
 Before confirming a cumulative typology, evaluate legitimate economic
-explanations (rebalancing, DCA, arbitrage). Record evaluation and discard
-reason. Absence of this analysis weakens the case file.
+explanations (rebalancing, DCA (dollar-cost averaging), arbitrage). Record
+evaluation and discard reason. Absence of this analysis weakens the case file.
 
 ---
 

@@ -287,7 +287,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const sender = getWallet(fromRaw);
       if (!sender || sender.usdc < amountUsd) {
         return reply.code(400).send({
-          error: "Transfer failed — insufficient USDC or invalid route",
+          error: "Transfer failed: insufficient USDC or invalid route",
         });
       }
 
@@ -367,7 +367,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         const oracle = await reevaluateAfterBlock(idRaw);
         return {
           settled: false,
-          reason: quote.revertReason ?? "REVERT — previewSwap fail-closed",
+          reason: quote.revertReason ?? "REVERT: previewSwap fail-closed",
           quote,
           wallet,
           oracle: oracle.scoreResult,
@@ -398,7 +398,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         feeBps: quote.feeBps,
         amountUsd: quote.usdcIn,
         hopDistance: wallet.hopDistance,
-        origin: wallet.originId ?? "—",
+        origin: wallet.originId ?? "n/a",
         at: new Date().toISOString(),
         kind: "SwapObserved",
       });
@@ -457,7 +457,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     if (addressRaw && idRaw) {
       return reply.code(400).send({
-        error: "Pass address (faucet) or walletId (A–E demo), not both",
+        error: "Pass address (faucet) or walletId (A–E demo). Do not pass both",
       });
     }
 

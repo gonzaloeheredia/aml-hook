@@ -5,7 +5,7 @@ import {IRiskPolicy} from "../interfaces/policies/IRiskPolicy.sol";
 import {HookDecision} from "./HookDecision.sol";
 import {RiskPolicyLib} from "./RiskPolicyLib.sol";
 
-/// @title LpPolicyLib — liquidity-only Layer 3 (not a swap)
+/// @title LpPolicyLib: liquidity-only Layer 3 (not a swap)
 /// @notice Maps list-cleared LP subjects to ALLOW / FEE_OVERRIDE / REVERT.
 /// @dev Independent of `RiskPolicyLib.decide` for a **known** score: Floor B (stale) does
 ///      not arm, and Mitigation D does not apply. Never-scored adds reuse the swap Floor A

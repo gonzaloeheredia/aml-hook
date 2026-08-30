@@ -10,25 +10,25 @@ pragma solidity ^0.8.26;
 ///
 ///      After dropping per-contract `owner`/`onlyOwner`, no contract stores "who may
 ///      call me". That decision lives in one OpenZeppelin AccessManager. These ids
-///      are the single place Deploy.sol and the tests agree on — so they cannot drift.
+///      are the single place Deploy.sol and the tests agree on, so they cannot drift.
 ///
 ///      Ids start at 1 because the manager reserves:
 ///        0                 = ADMIN_ROLE
 ///        type(uint64).max  = PUBLIC_ROLE (everyone)
 ///      Using either by accident would open a function too widely.
 ///
-///      WHY FOUR ROLES (not one keeper):
-///        _REGISTRY_KEEPER      — OFAC-style list writes (designation pipeline)
-///        _ORACLE_KEEPER        — publishes COA scores (`ComplianceOracle.updateScore`)
-///        _HOOK_GOVERNOR        — trusted routers + operational thresholds (rare, human)
-///        _COMPLIANCE_OFFICER   — FATF/policy knobs (USD floors, floor fees, pool-impact)
+///      WHY FOUR DISTINCT ROLES:
+///        _REGISTRY_KEEPER:      OFAC-style list writes (designation pipeline)
+///        _ORACLE_KEEPER:        publishes COA scores (`ComplianceOracle.updateScore`)
+///        _HOOK_GOVERNOR:        trusted routers + operational thresholds (rare, human)
+///        _COMPLIANCE_OFFICER:   FATF/policy knobs (USD floors, floor fees, pool-impact)
 ///      Different jobs, different infrastructure. One shared key would let a
 ///      compromised scorer rewrite sanctions (or vice versa). The governor is
 ///      separate again: keepers write data continuously; governors retune trust.
 ///      Policy percentages and dollar floors sit on their own role so a router
 ///      change cannot silently rewrite the FATF cuts (48h execution delay on grant).
 ///
-///      FeeEscrow is NOT on these roles — it keeps its own owner/keeper/depositor
+///      FeeEscrow is NOT on these roles: it keeps its own owner/keeper/depositor
 ///      model (settlement path is a different authorization shape; see FeeEscrow).
 library Roles {
     /// @notice Writes the sanctions list: `SanctionRegistry.setSanctioned`

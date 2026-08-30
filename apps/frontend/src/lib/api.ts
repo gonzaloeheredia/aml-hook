@@ -1,6 +1,6 @@
 /**
  * HTTP client for the AML Hook in-memory demo API (`apps/api/`).
- * Default base: http://localhost:4000 — override with NEXT_PUBLIC_API_URL.
+ * Default base: http://localhost:4000. Override with NEXT_PUBLIC_API_URL.
  */
 
 import type { DemoCaseId } from "@/data/cases";
@@ -462,7 +462,7 @@ export function postSwap(walletId: DemoCaseId, amountUsd?: number) {
   });
 }
 
-/** POST /oracle/:id/catch-up — publish deferred keeper score (Wallet D). */
+/** POST /oracle/:id/catch-up: publish deferred keeper score (Wallet D). */
 export function postKeeperCatchUp(id: DemoCaseId) {
   return request<{
     ok: boolean;
@@ -471,7 +471,7 @@ export function postKeeperCatchUp(id: DemoCaseId) {
   }>(`/oracle/${id}/catch-up`, { method: "POST" });
 }
 
-/** POST /demo/elapse — advance demo clock (301s makes a published score stale). */
+/** POST /demo/elapse: advance demo clock (301s makes a published score stale). */
 export function postDemoElapse(seconds = 301) {
   return request<{ ok: boolean; now: number; elapsedSeconds: number }>(
     `/demo/elapse`,
@@ -482,7 +482,7 @@ export function postDemoElapse(seconds = 301) {
   );
 }
 
-/** POST /demo/mint — mint MockUSDC or MockWETH to a demo wallet A–E. */
+/** POST /demo/mint: mint MockUSDC or MockWETH to a demo wallet A–E. */
 export function postDemoMint(
   walletId: SimWallet["id"],
   token: "usdc" | "eth",
@@ -500,7 +500,7 @@ export function postDemoMint(
   });
 }
 
-/** POST /demo/mint — faucet: 1,000 MockUSDC + 1 MockWETH to an arbitrary address. */
+/** POST /demo/mint: faucet, 1,000 MockUSDC + 1 MockWETH to an arbitrary address. */
 export function postDemoFaucet(address: string) {
   return request<{
     ok: boolean;
@@ -516,7 +516,7 @@ export function postDemoFaucet(address: string) {
   });
 }
 
-/** POST /demo/price-feed — bind or unbind the demo USDC/USD feed. */
+/** POST /demo/price-feed: bind or unbind the demo USDC/USD feed. */
 export function postDemoPriceFeed(bound: boolean) {
   return request<{ ok: boolean; priceFeedBound: boolean }>(`/demo/price-feed`, {
     method: "POST",
@@ -524,7 +524,7 @@ export function postDemoPriceFeed(bound: boolean) {
   });
 }
 
-/** POST /reset — reseed A–E baseline */
+/** POST /reset: reseed A–E baseline */
 export function postReset() {
   return request<{
     ok: boolean;

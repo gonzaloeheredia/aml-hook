@@ -1,5 +1,5 @@
 /**
- * Demo compliance pack — score + Opinion from the Compliance Officer Agent.
+ * Demo compliance pack: score and Opinion from the Compliance Officer Agent.
  * Agent runs a connected skill/source pipeline; outcomes stay use-case aligned.
  * Includes §3.8 inflow elevation for Wallet D while the keeper is pending.
  */
@@ -63,7 +63,7 @@ export async function resolveSwapDecision(
   const preview = await previewSwap(wallet.address as `0x${string}`, usdcToWei(usdcIn));
   // Display-only: denominator uses the demo wallet's nominal usdc balance, not the real
   // on-chain balance. May diverge from on-chain deltaBps when wallet.usdc is stale.
-  // This value is used only for latencySummary UI — it does not affect the compliance decision.
+  // This value is used only for latencySummary UI. It does not affect the compliance decision.
   const deltaBps = displayDeltaBps(preview.inflowUsd, wallet.usdc);
 
   return {
@@ -161,14 +161,14 @@ export async function buildCompliancePack(
 
   const latencySummary =
     resolved.latencyMitigation === "MAGNITUDE_QUOTE_FAILED"
-      ? "No usable USD price (no lastFx within 24h) — fail-closed (MagnitudeQuoteFailed)."
+      ? "No usable USD price (no lastFx within 24h). Fail-closed (MagnitudeQuoteFailed)."
       : resolved.latencyMitigation === "INFLOW_MAGNITUDE"
         ? `Inbound USD ${resolved.inflowUsd.toLocaleString("en-US")} ≥ ${revertFloor} → FEE_OVERRIDE ${highPct} (Floor D).`
         : resolved.latencyMitigation === "STALE_WITH_POOL_ACTIVITY"
           ? `Score older than 5 minutes and this wallet already swapped in the hour → Floor B (pass / ${midPct} / ${highPct} by swap USD).`
           : resolved.latencyMitigation === "ACTIVITY_WINDOW_CAP" ||
               resolved.latencyMitigation === "DAILY_AGGREGATION"
-            ? `This swap makes the 24-hour USD total cross ${revertFloor} — Floor C REVERT.`
+            ? `This swap makes the 24-hour USD total cross ${revertFloor}. Floor C REVERT.`
             : resolved.latencyMitigation === "INFLOW_HEURISTIC"
               ? `Inflow heuristic: inbound USD ${resolved.inflowUsd.toLocaleString("en-US")} is ${resolved.deltaBps} bps of current USD → FEE_OVERRIDE ${(appliedFeeBps / 100).toFixed(2)}% (differential).`
               : resolved.latencyMitigation === "SCORE_NEVER_WRITTEN"
@@ -207,7 +207,7 @@ export async function buildCompliancePack(
           ? "Wallet E is unknown and empty. Fund it from clean C (no hop). Do not use A."
           : `Wallet E is unknown. Floor A is this swap; Floor D is the bag C sent ($${wallet.usdc.toLocaleString("en-US")}). Stricter fee wins.`
         : wallet.exploitConfirmed
-          ? "Confirmed exploit — keeper score 100. Pool swaps WalletBlocked (SCORE_REVERT_BAND). Not on OFAC. P2P outflows contaminate B, C, or D. Do not fund E from A."
+          ? "Confirmed exploit. Keeper score 100. Pool swaps WalletBlocked (SCORE_REVERT_BAND). SanctionRegistry is clear. P2P (peer-to-peer) outflows contaminate B, C, or D. Do not fund E from A."
           : wallet.id === "D" && resolved.keeperPending
             ? "Wallet D: inbound P2P recorded; keeper has not published the decay score yet."
             : wallet.hopDistance
@@ -216,7 +216,7 @@ export async function buildCompliancePack(
                 ? `Wallet D has a published score of 0. Already-held funds ALLOW at 0.30%. Floor B at ${feeFloor} → ${midPct}; C→D ${midEx} → ${midPct}; inbound ${revertFloor} → ${highPct}.`
                 : wallet.id === "C"
                   ? `Clean wallet. Fund E (${dust} / ${midEx} / ${revertFloor}) or D (inflow). A→C is 1-hop · ${highPct}.`
-                  : "Clean wallet. No contamination from A yet — ALLOW at standard fee.",
+                  : "Clean wallet. No contamination from A yet. ALLOW at the standard fee.",
       wallet.neverScored && wallet.usdc <= 0
         ? `C→E ${dust} → ${midPct}; ${midEx} then ${feeFloor} swap → ${highPct} (A mid); ${revertFloor} bag → ${highPct} on a small swap; this swap ${revertFloor} → revert.`
         : (latencySummary ?? (topFacts ? `Top facts: ${topFacts}.` : hopTag)),

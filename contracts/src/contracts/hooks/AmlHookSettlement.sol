@@ -26,10 +26,10 @@ interface IERC20Approve {
 /// @dev Compliance decisions live in `AmlHookLogic`. Fee *math* lives in `FeeBps`.
 ///      Swap FEE_OVERRIDE deposits the differential (`EscrowKind.RiskFee`). LP add
 ///      deposits the full 3%/8% override. A blocked remove deposits principal
-///      (`LpPrincipal`) and `feesAccrued` (`RiskFee`) for 48h — not tesorería in-tx.
+///      (`LpPrincipal`) and `feesAccrued` (`RiskFee`) for 48h. Settlement does not credit the treasury in-tx.
 abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
     using PoolIdLibrary for PoolKey;
-    /// @notice Pool base fee in bps (0.30%) — left to the PoolManager; not overridden.
+    /// @notice Pool base fee in bps (0.30%): left to the PoolManager; not overridden.
     uint24 public constant STANDARD_FEE_BPS = FeeBps.STANDARD;
 
     /// @notice Escrow for FEE_OVERRIDE differential fees (§3.7). address(0) disables take/deposit.
@@ -268,7 +268,7 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
     }
 
     /// @notice Grant or revoke a subject's right to reclaim their failed deposit for `token`.
-    /// @dev Restricted — call this from AmlHook (which has the `restricted` modifier from
+    /// @dev Restricted: call this from AmlHook (which has the `restricted` modifier from
     ///      AccessManaged) via `approveFailedDepositRefund`. Internal so it is callable
     ///      across the AmlHook diamond without a circular import.
     function _setFailedDepositRefundApproval(address wallet, address token, bool approved) internal {
@@ -304,7 +304,7 @@ abstract contract AmlHookSettlement is BaseHook, ReentrancyGuard {
     }
 
     /// @notice Subject (wallet) may retry depositing their recorded failed amount into FeeEscrow.
-    /// @dev L-02 fix: restricted to the subject themselves — third parties cannot trigger an
+    /// @dev L-02 fix: restricted to the subject themselves. Third parties cannot trigger an
     ///      `_approveEscrow` call on someone else's behalf, removing the approval-grief vector.
     function retryEscrowDeposit(address wallet, address token) external nonReentrant {
         if (msg.sender != wallet) revert Unauthorized();

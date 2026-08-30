@@ -31,7 +31,7 @@ import {HelpersCore} from "test/utils/HelpersCore.t.sol";
 /// @dev `take` forwards ERC-20 from this stub to `to` (mint tokens here before FEE_OVERRIDE afterSwap tests).
 contract HookPoolManagerStub {
     /// @dev 1:1 sqrtPriceX96. Returned from every `extsload` so StateLibrary.getSlot0 /
-    ///      getLiquidity succeed. Liquidity slot then reads as 2^96 — impact ≈ 0 unless a
+    ///      getLiquidity succeed. Liquidity slot then reads as 2^96: impact ≈ 0 unless a
     ///      test overrides via a richer stub.
     uint256 internal constant STUB_SQRT_PRICE_X96 = 79228162514264337593543950336;
 

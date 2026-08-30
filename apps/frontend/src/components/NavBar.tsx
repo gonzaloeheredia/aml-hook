@@ -10,7 +10,7 @@ type Props = {
   view: AppView;
   /** Switches hook / whitepaper / use of case */
   onViewChange: (view: AppView) => void;
-  /** Whether a demo wallet is currently connected to Uniswap */
+  /** Whether a demo wallet is connected to Uniswap */
   connected: boolean;
   /** Connected wallet address, or null if disconnected */
   address: string | null;

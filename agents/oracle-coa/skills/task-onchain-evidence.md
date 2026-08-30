@@ -3,7 +3,7 @@ name: task-onchain-evidence
 description: "Collect, organize, and validate on-chain evidence needed to evaluate a wallet. Covers block explorers, blockchain analytics engines, public designated-address registries, decentralized alert networks, third-party attestations, and the internal LP-report registry. Use after intake, before domain skills: produces the case file on which all analysis builds."
 ---
 
-# Task: On-Chain Evidence — Evidence Collection
+# Task: On-Chain Evidence: Evidence Collection
 
 ## Role
 
@@ -16,10 +16,10 @@ with traceability for every datum.
 the source that produced it, with consultation time. A score without an
 evidence chain is not defensible.
 
-**Demo runtime.** Live vendor APIs are not called. Facts come from the Anvil
-ledger (wallets, P2P transfers, `SwapObserved` / `WalletBlocked`) plus
-`SanctionRegistry`. This skill remains the full product spec for a later
-vendor-wired runtime.
+**Demo runtime.** Live vendor APIs (application programming interfaces) are
+not called. Facts come from the Anvil ledger (wallets, P2P (peer-to-peer)
+transfers, `SwapObserved` / `WalletBlocked`) plus `SanctionRegistry`. This
+skill remains the full product spec for a later vendor-wired runtime.
 
 ---
 
@@ -40,38 +40,38 @@ vendor-wired runtime.
 
 Hierarchy determines `confidence` of emitted `FactEvent`s.
 
-### Level 1 — Official sources and verifiable on-chain state
+### Level 1: Official sources and verifiable on-chain state
 
 | Source | Information | Confidence |
 |---|---|---|
-| OFAC SDN, UN, EU lists | Current designations | HIGH |
+| OFAC (Office of Foreign Assets Control) SDN (Specially Designated Nationals), UN (United Nations), EU (European Union) lists | Current designations | HIGH |
 | On-chain designated-address mapping | Hook Layer 1, no external dependency at runtime | HIGH |
 | Block explorer | Txs, contract code, `EXTCODESIZE`, multisig owners | HIGH |
 | Hook-emitted events | `SwapObserved`, prior decisions, blocks | HIGH |
 
-### Level 2 — Commercial analytics
+### Level 2: Commercial analytics
 
 | Source | Information | Confidence |
 |---|---|---|
 | Chainalysis / TRM / Elliptic / Solidus | Designated mapping, cluster attribution, exposure, DeFi manipulation | MEDIUM |
 
-Cluster attribution is provider judgment — `MEDIUM` unless confirmed by a
+Cluster attribution is provider judgment. `MEDIUM` unless confirmed by a
 second independent source.
 
-### Level 3 — Decentralized / community
+### Level 3: Decentralized / community
 
-Forta, EAS attestations, Hypernative, DeFiLlama Hacks DB, open sanctioned-
-address registries → typically `MEDIUM`.
+Forta, EAS (Ethereum Attestation Service) attestations, Hypernative, DeFiLlama
+Hacks DB, open sanctioned-address registries → typically `MEDIUM`.
 
-### Level 4 — Protocol-internal signals
+### Level 4: Protocol-internal signals
 
 | Source | Information | Confidence |
 |---|---|---|
-| LP report registry | Staked LP reports | LOW individually; MEDIUM past threshold + challenge |
+| LP (liquidity provider) report registry | Staked LP reports | LOW individually; MEDIUM past threshold + challenge |
 | Oracle history | Prior `ScoreResult` | HIGH on score value; basis inherits original confidence |
 | Shared cross-pool registry | Aggregated signals from other pools | MEDIUM |
 
-### Level 5 — Analytical inference
+### Level 5: Analytical inference
 
 Percentiles, deviations, temporal correlations, wallet linkage → `LOW` unless
 deterministic (verifiable co-spend in a concrete tx → `HIGH`).
@@ -82,13 +82,13 @@ deterministic (verifiable co-spend in a concrete tx → `HIGH`).
 
 | Dimension | Sources |
 |---|---|
-| **S — Sanctions** | Level 1 full; Level 2 for cluster |
-| **ST — Structuring** | Hook events; explorer; analytical inference on series |
-| **MX — Mixers** | Level 1 for designated contracts; Level 2 for tracing; explorer for direct verification |
-| **NW — Network** | Explorer; Level 2; oracle for counterparty scores; DeFiLlama; LP reports |
-| **GEO — Geography** | Level 2 only; always declare inference basis |
-| **MT — Mitigants** | Oracle history; explorer protocol diversity; attestation registries |
-| **DF — DeFi typologies** | Explorer + mempool/block adjacency + Level 2/3 alerts |
+| **S: Sanctions** | Level 1 full; Level 2 for cluster |
+| **ST: Structuring** | Hook events; explorer; analytical inference on series |
+| **MX: Mixers** | Level 1 for designated contracts; Level 2 for tracing; explorer for direct verification |
+| **NW: Network** | Explorer; Level 2; oracle for counterparty scores; DeFiLlama; LP reports |
+| **GEO: Geography** | Level 2 only; always declare inference basis |
+| **MT: Mitigants** | Oracle history; explorer protocol diversity; attestation registries |
+| **DF: DeFi typologies** | Explorer + mempool/block adjacency + Level 2/3 alerts |
 
 ---
 

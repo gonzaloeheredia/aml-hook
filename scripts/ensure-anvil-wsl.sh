@@ -24,5 +24,5 @@ for i in $(seq 1 40); do
     exit 0
   fi
 done
-echo "Failed to start Anvil — see /tmp/anvil-aml.log"
+echo "Failed to start Anvil: see /tmp/anvil-aml.log"
 exit 1

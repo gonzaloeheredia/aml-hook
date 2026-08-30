@@ -1,6 +1,6 @@
 /**
  * Overlays a live backend compliance pack onto a static DemoCase
- * so Swap / Flow / Audit track the API ledger (not only local hop math).
+ * so Swap / Flow / Audit track the API ledger.
  */
 
 import type { DemoCase } from "@/data/cases";
@@ -96,7 +96,7 @@ export function withComplianceOverlay(
     activity: {
       ...base.activity,
       hopDistance,
-      origin: originId ?? "—",
+      origin: originId ?? "n/a",
       totalUsd: pack.usdc + pack.eth * ETH_USD,
       amountUsd: usdcIn,
     },
@@ -146,7 +146,7 @@ export function withComplianceOverlay(
       {
         label: "Keeper score",
         value: unknown
-          ? "— never written"
+          ? "n/a (never written)"
           : `${score} / 100${pack.keeperPending ? " (stale)" : ""}`,
         tone:
           decision === "block"
@@ -157,14 +157,14 @@ export function withComplianceOverlay(
       },
       {
         label: "Hop distance",
-        value: hopDistance == null ? "—" : String(hopDistance),
+        value: hopDistance == null ? "n/a" : String(hopDistance),
         tone: decision === "allow" ? "ok" : "warn",
       },
       {
         label: "Applied fee",
         value:
           decision === "block"
-            ? "—"
+            ? "n/a"
             : `${(appliedFeeBps / 100).toFixed(2)}%`,
         tone:
           decision === "fee_override"

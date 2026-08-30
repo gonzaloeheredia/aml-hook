@@ -159,7 +159,7 @@ export function feeBpsFromHop(
   return score >= 55 ? knobs.punitiveFeeBps : knobs.proportionalFeeBps;
 }
 
-/** ALLOW / FEE / REVERT band — keeper writes on a tier/fee-band change, or when the last write aged out. */
+/** ALLOW / FEE / REVERT band. The keeper writes on a tier or fee-band change, or when the last write aged out. */
 export function scoreTier(score: number): "allow" | "fee" | "revert" {
   if (score >= 71) return "revert";
   if (score >= 31) return "fee";
@@ -178,7 +178,7 @@ export function feeBand(feeBps: number, knobs: PolicyKnobs = getPolicyKnobsSync(
 /**
  * Whether the keeper should call `updateScore`.
  * Write on first publish, on an ALLOW/FEE/REVERT or 3%/8% band change, or when the
- * last write is at least as old as Floor B's window — so `updatedAt` cannot freeze
+ * last write is at least as old as Floor B's window, so `updatedAt` cannot freeze
  * under a skip and trip Floor B on a stable clean wallet (whitepaper §8.4).
  */
 export function shouldPublishScore(input: {
@@ -212,7 +212,7 @@ export function swapUsdcAmount(wallet: Wallet, preferred = DEFAULT_SWAP_USDC): n
 
 /**
  * Computes ETH received after selling `usdcIn` USDC, net of pool fee (bps).
- * Uses a constant-product approximation with a hardcoded ETH_USD rate — demo only.
+ * Uses a constant-product approximation with a hardcoded ETH_USD rate. Demo only.
  * SwapQuote.ethOut values are illustrative, not real Uniswap v4 pool quotes.
  */
 export function ethOutFromSwap(usdcIn: number, feeBps: number): number {
@@ -245,7 +245,7 @@ export function isWalletId(value: string): value is WalletId {
 }
 
 /**
- * Mitigation A — unknown wallet (Wallet E). Size quoted 1:1 USDC → USD.
+ * Mitigation A: unknown wallet (Wallet E). Size quoted 1:1 USDC → USD.
  */
 export function applyUnscoredBands(
   assessedUsd: number,

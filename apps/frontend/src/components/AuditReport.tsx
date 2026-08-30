@@ -7,8 +7,8 @@ type Props = {
   demoCase: DemoCase;
   connectedAddress: string | null;
   /**
-   * `stats` — metadata + Report Overview + Detection Data (AML stats module).
-   * `opinion` — Compliance Officer legal / technical opinion.
+   * `stats`: metadata + Report Overview + Detection Data (AML stats module).
+   * `opinion`: Compliance Officer legal / technical opinion.
    */
   variant: "stats" | "opinion";
 };
@@ -49,7 +49,7 @@ function walletInitials(addr: string, fallback: string) {
 }
 
 /**
- * AML stats module — subject bar + overview / detection cards.
+ * AML stats module: subject bar + overview / detection cards.
  * Compact layout so the full module fits one viewport without scrolling.
  */
 export function AmlStats({ demoCase, connectedAddress }: Omit<Props, "variant">) {
@@ -138,7 +138,7 @@ export function AmlStats({ demoCase, connectedAddress }: Omit<Props, "variant">)
             <div>
               <div className="value-hero text-[40px] text-uni-pink md:text-[48px]">
                 {demoCase.activity.hopDistance == null
-                  ? "—"
+                  ? "n/a"
                   : demoCase.activity.hopDistance}
               </div>
               <div className="label-kicker mt-2">Hop distance</div>
@@ -225,7 +225,7 @@ function softenNarrative(text: string): string {
 }
 
 /**
- * Formal closing opinion for the operator record — not a SAR and not a filing.
+ * Formal closing opinion for the operator record: not a SAR and not a filing.
  */
 function formalLegalOpinion(demoCase: DemoCase): {
   title: string;
@@ -285,9 +285,9 @@ function verdictCopy(demoCase: DemoCase): {
   if (demoCase.decision === "block") {
     return {
       chip: "Blocked",
-      title: "This swap was stopped",
+      title: "This swap was reverted",
       subtitle:
-        "The hook reverted before any funds moved. Nothing was settled on the pool.",
+        "The hook cancelled the swap before funds moved. The pool recorded no settlement.",
       accent: "#FF5370",
     };
   }
@@ -295,22 +295,22 @@ function verdictCopy(demoCase: DemoCase): {
     const feePct = (demoCase.appliedFeeBps / 100).toFixed(2);
     return {
       chip: "Extra fee",
-      title: "This swap can go through, with extra friction",
-      subtitle: `Standard 0.30% plus a risk differential — about ${feePct}% total on this swap.`,
+      title: "This swap settles with a risk fee",
+      subtitle: `The pool keeps 0.30%. Total intended friction on this swap is ${feePct}%.`,
       accent: "#F0B90B",
     };
   }
   return {
     chip: "Allowed",
-    title: "This wallet can swap normally",
+    title: "This wallet swaps at the standard fee",
     subtitle:
-      "Standard pool fee 0.30%. No extra review file was opened for this wallet.",
+      "Standard pool fee 0.30%. The operator file for this wallet stays at the minimum log.",
     accent: "#4DB6FF",
   };
 }
 
 /**
- * Opinion module — Compliance Officer Agent legal / technical opinion.
+ * Opinion module: Compliance Officer Agent legal / technical opinion.
  * Scannable verdict first; legal jargon stays behind "Technical details".
  */
 export function LegalOpinion({ demoCase }: Pick<Props, "demoCase">) {
@@ -430,7 +430,7 @@ export function LegalOpinion({ demoCase }: Pick<Props, "demoCase">) {
             <summary className="cursor-pointer list-none text-center text-[15px] font-medium text-uni-pink [&::-webkit-details-marker]:hidden">
               Extra review file · drafted, not filed
               <span className="ml-2 text-[13px] font-normal text-uni-muted group-open:hidden">
-                — tap to read
+                · open to read
               </span>
             </summary>
             <div className="mt-6 space-y-6">
@@ -527,7 +527,7 @@ export function LegalOpinion({ demoCase }: Pick<Props, "demoCase">) {
                 />
                 <MetaCell
                   label="Keeper tx"
-                  value={demoCase.agent.run.publishTxHash ?? "—"}
+                  value={demoCase.agent.run.publishTxHash ?? "n/a"}
                   mono
                 />
               </div>
@@ -547,7 +547,7 @@ export function LegalOpinion({ demoCase }: Pick<Props, "demoCase">) {
   );
 }
 
-/** @deprecated Prefer AmlStats / LegalOpinion — kept as thin router. */
+/** @deprecated Prefer AmlStats / LegalOpinion: kept as thin router. */
 export function AuditReport({
   demoCase,
   connectedAddress,

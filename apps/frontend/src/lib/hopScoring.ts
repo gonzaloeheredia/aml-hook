@@ -4,9 +4,9 @@
  * Use case (`docs/Use_Case.md`):
  * - Wallet A = confirmed exploit, score 100 → WalletBlocked on pool swaps.
  * - Wallets B and C both start clean (ALLOW 0.30%, green). Swaps never add score.
- * - Wallet D = published score 0. Already-held funds ALLOW; clean C→D is inflow, not a hop.
+ * - Wallet D = published score 0. Already-held funds ALLOW; clean C→D is inflow (no hop).
  * - Wallet E = unknown, starts empty. Clean C funds E (no hop). Floor A/D by bag and swap.
- * - Risk only via MetaMask P2P hops:
+ * - Risk only via MetaMask P2P (peer-to-peer) hops:
  *   - Receive from A → hop 1 → score ≈ 65 → FEE_OVERRIDE 8% (yellow)
  *   - Receive from a 1-hop peer (B↔C after A tainted one) → hop 2 → ≈ 42 → 3%
  * - Closer hop wins if a wallet is contaminated more than once.
@@ -62,7 +62,7 @@ export function formatUsdFloor(usd: number): string {
   return `$${usd.toLocaleString("en-US")}`;
 }
 
-/** Dust example that stays strictly under the officer fee floor. */
+/** Dust example that stays under the officer fee floor. */
 export function dustExampleUsd(feeThresholdUsd = getPolicyKnobs().unscoredFeeThresholdUsd): number {
   if (feeThresholdUsd > 500) return 500;
   return Math.max(1, Math.floor(feeThresholdUsd / 2));
@@ -158,10 +158,10 @@ export function publishedUsdBandFee(usd: number): number {
   if (usd >= knobs.unscoredFeeThresholdUsd) return knobs.proportionalFeeBps;
   return 0;
 }
-/** Floor B window — keep in lockstep with `apps/api` / `AmlHookLogic.DEFAULT_STALENESS`. */
+/** Floor B window: keep in lockstep with `apps/api` / `AmlHookLogic.DEFAULT_STALENESS`. */
 export const STALENESS_MS = 300_000;
 export const ACTIVITY_WINDOW_MS = 3_600_000;
-/** Floor C — BSA CTR-style 24-hour USD aggregation. */
+/** Floor C: BSA CTR-style 24-hour USD aggregation. */
 export const DAILY_WINDOW_MS = 86_400_000;
 
 let demoOffsetMs = 0;
@@ -240,7 +240,7 @@ export function caseIdForSimWallet(id: SimWalletId): DemoCaseId {
 
 /**
  * Computes N-hop derived score for a wallet state (ledger truth).
- * When keeperPending, the oracle still reads stale 0 — use resolveDemoRisk.
+ * When keeperPending, the oracle still reads stale 0: use resolveDemoRisk.
  */
 export function hopScore(wallet: SimWallet): number {
   if (wallet.neverScored) return 0;
@@ -276,7 +276,7 @@ export function inflowDeltaBps(currentUsdc: number, lastKnownUsdc: number): numb
 }
 
 /**
- * Offline beforeSwap — same order as RiskPolicy + Mitigation C.
+ * Offline beforeSwap: same order as RiskPolicy + Mitigation C.
  */
 export function resolveDemoRisk(
   wallet: SimWallet,
@@ -442,7 +442,7 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
     A: {
       id: "A",
       accountLabel: "Account A · Exploit",
-      role: "Confirmed exploit — score 100 · WalletBlocked on pool; P2P can still contaminate B/C/D",
+      role: "Confirmed exploit: score 100 · WalletBlocked on pool. P2P (peer-to-peer) outflows can contaminate B, C, and D",
       address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
       usdc: 10_000_000,
       eth: 5,
@@ -460,7 +460,7 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
     B: {
       id: "B",
       accountLabel: "Account B · Clean",
-      role: "Clean wallet — A→B = 1-hop (~65); tainted C→B = 2-hop (~42)",
+      role: "Clean wallet. A→B is 1-hop (~65). Tainted C→B is 2-hop (~42)",
       address: "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
       usdc: 25_000,
       eth: 4,
@@ -477,7 +477,7 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
     C: {
       id: "C",
       accountLabel: "Account C · Clean",
-      role: "Clean wallet — fund E (unknown) or D (inflow); A→C = 1-hop (~65)",
+      role: "Clean wallet. Fund E (unknown) or D (inflow). A→C is 1-hop (~65)",
       address: "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
       usdc: 50_000,
       eth: 8,
@@ -494,7 +494,7 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
     D: {
       id: "D",
       accountLabel: "Account D · Score 0",
-      role: `Published score 0 — ALLOW on already-held funds; clean C→D → inflow ${formatFeePct(getPolicyKnobs().proportionalFeeBps)} / ${formatFeePct(getPolicyKnobs().punitiveFeeBps)} by size (no hop)`,
+      role: `Published score 0. Already-held funds ALLOW. Clean C→D is inflow ${formatFeePct(getPolicyKnobs().proportionalFeeBps)} / ${formatFeePct(getPolicyKnobs().punitiveFeeBps)} by size (no hop)`,
       address: "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
       usdc: 5_000,
       eth: 2,
@@ -512,7 +512,7 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
     E: {
       id: "E",
       accountLabel: "E - New Wallet",
-      role: "New wallet — starts empty. Fund from clean C (no hop). Floor A/D by bag and swap size",
+      role: "New wallet. Starts empty. Fund from clean C (no hop). Floor A/D by bag and swap size",
       address: "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
       usdc: 0,
       eth: 1,
@@ -534,7 +534,7 @@ export function isSenderTainted(wallet: SimWallet): boolean {
 }
 
 /**
- * What a P2P send will do — used by the MetaMask send screen.
+ * What a P2P send will do: used by the MetaMask send screen.
  * Clean C→D / B→D is inflow (no hop). A→D or tainted C→D is a hop.
  */
 export function previewTransfer(
@@ -552,7 +552,7 @@ export function previewTransfer(
       title: "No hop · unknown wallet",
       detail: quote.revert
         ? `E never takes a hop. The next ${formatUsdFloor(knobs.unscoredRevertThresholdUsd)} swap still reverts (Floor A).`
-        : `E never takes a hop. Unpublished bag $${nextBag.toLocaleString("en-US")} — Floor D ${formatFeePct(quote.dFee || quote.feeBps)}. A ${dust} swap still pays the stricter of A and D.`,
+        : `E never takes a hop. Unpublished bag $${nextBag.toLocaleString("en-US")}. Floor D ${formatFeePct(quote.dFee || quote.feeBps)}. A ${dust} swap still pays the stricter of A and D.`,
       tone: "warn",
     };
   }
@@ -578,26 +578,26 @@ export function previewTransfer(
     if (dFee === knobs.punitiveFeeBps) {
       return {
         title: `No hop · inflow ${highPct}`,
-        detail: `D stays score 0. Inbound $${inflow.toLocaleString("en-US")} ≥ ${formatUsdFloor(knobs.unscoredRevertThresholdUsd)} → FEE_OVERRIDE ${highPct}.`,
+        detail: `D remains score 0. Inbound $${inflow.toLocaleString("en-US")} ≥ ${formatUsdFloor(knobs.unscoredRevertThresholdUsd)} → FEE_OVERRIDE ${highPct}.`,
         tone: "warn",
       };
     }
     if (dFee === knobs.proportionalFeeBps && knobs.proportionalFeeBps > 0) {
       return {
         title: `No hop · inflow ${midPct}`,
-        detail: `D stays score 0. +$${inflow.toLocaleString("en-US")} → FEE_OVERRIDE ${midPct}.`,
+        detail: `D remains score 0. +$${inflow.toLocaleString("en-US")} → FEE_OVERRIDE ${midPct}.`,
         tone: "warn",
       };
     }
     return {
       title: "No hop · small inbound",
-      detail: `D stays score 0. Inbound under ${formatUsdFloor(knobs.unscoredFeeThresholdUsd)} — Floor D passes.`,
+      detail: `D remains score 0. Inbound under ${formatUsdFloor(knobs.unscoredFeeThresholdUsd)}. Floor D passes.`,
       tone: "ok",
     };
   }
   return {
     title: "Clean to clean",
-    detail: "No hop. Recipient score stays 0.",
+    detail: "No hop. Recipient score remains 0.",
     tone: "ok",
   };
 }
@@ -693,9 +693,9 @@ export function applyTransfer(
     role: recipient.exploitConfirmed
       ? recipient.role
       : deferKeeper
-        ? `Latency path — keeper pending; next swap uses inflow ${formatFeePct(getPolicyKnobs().proportionalFeeBps)} / ${formatFeePct(getPolicyKnobs().punitiveFeeBps)} by inbound USD`
+        ? `Latency path: keeper pending. Next swap uses inflow ${formatFeePct(getPolicyKnobs().proportionalFeeBps)} / ${formatFeePct(getPolicyKnobs().punitiveFeeBps)} by inbound USD`
         : resolvedHop == null
-          ? `Clean wallet — ALLOW until contaminated by A or a tainted peer`
+          ? `Clean wallet: ALLOW until contaminated by A or a tainted peer`
           : `${resolvedHop}-hop from origin ${resolvedOrigin ?? EXPLOIT_SOURCE}`,
   };
 
@@ -720,7 +720,7 @@ export function applyTransfer(
 }
 
 /**
- * Caps the demo swap to what the wallet can actually spend.
+ * Caps the demo swap to what the wallet can spend.
  */
 export function swapUsdcAmount(wallet: SimWallet, preferred = DEFAULT_SWAP_USDC): number {
   return Math.min(preferred, Math.max(0, Math.floor(wallet.usdc)));

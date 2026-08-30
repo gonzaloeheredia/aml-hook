@@ -1,6 +1,6 @@
 /**
  * MOCK in-memory ledger mutations: P2P transfers and pool swap settlement.
- * These are NOT Uniswap PoolManager swaps — the API simulates settlement + fees
+ * These are not Uniswap PoolManager swaps. The API simulates settlement and fees
  * for the demo UI. Risk propagation (hops) is real product logic, stored in memory
  * and then published on-chain by the keeper when RPC env is set.
  */
@@ -14,7 +14,7 @@ import type { Decision, Wallet, WalletId } from "./types.js";
 
 /**
  * Applies a P2P USDC transfer between two wallets.
- * Risk/score changes ONLY here — pool swaps never raise behavioral score.
+ * Risk and score change only here. Pool swaps never raise behavioral score.
  *
  * Hop rules (B, C, D start clean / published score 0; E stays unknown):
  * - Receive from exploit A → hop 1 → score ≈ 65 → fee 8%
@@ -68,7 +68,7 @@ export function applyHopContamination(
       role: recipient.exploitConfirmed
         ? recipient.role
         : resolvedHop == null
-          ? `Clean wallet — ALLOW until contaminated by A or a tainted peer`
+          ? `Clean wallet. ALLOW until contaminated by A or a tainted peer`
           : `${resolvedHop}-hop from origin ${resolvedOrigin ?? EXPLOIT_SOURCE}`,
     },
   };
@@ -77,8 +77,8 @@ export function applyHopContamination(
 /**
  * Settles a USDC→ETH pool swap on the ledger when the decision is not REVERT.
  * Debits USDC and credits ETH net of fee. Returns null if blocked or underfunded.
- * Does NOT change hopDistance / behavioral score — clean wallets stay green
- * after any number of swaps; risk only moves via P2P hops.
+ * Does not change hopDistance or behavioral score. Clean wallets stay green
+ * after any number of swaps. Risk moves only via P2P hops.
  */
 export function applyPoolSwap(
   wallets: Record<WalletId, Wallet>,

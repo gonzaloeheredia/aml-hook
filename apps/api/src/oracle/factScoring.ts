@@ -3,8 +3,8 @@
  *
  * Wallet A is locked at 100 (protocol exploit). Other wallets accumulate from
  * the oracle record: SanctionRegistry hits, P2P contamination, and afterSwap
- * SwapObserved / WalletBlocked emits. The hop graph is one fact among those —
- * it does not replace the running record.
+ * SwapObserved / WalletBlocked emits. The hop graph is one fact among those.
+ * It does not replace the running record.
  */
 
 import { createHash } from "node:crypto";
@@ -84,7 +84,7 @@ export function buildFacts(
           0,
           "MEDIUM",
           "FATF VA Red Flags Cat. 2",
-          `Inbound P2P ${last.from}→${last.to} for ${last.amountUsd} USDC recorded; hop graph updated. Weight is documentary — hop formula already carries the score.`,
+          `Inbound P2P ${last.from}→${last.to} for ${last.amountUsd} USDC recorded; hop graph updated. Weight is documentary: the hop formula already carries the score.`,
         ),
       );
     }
@@ -403,7 +403,7 @@ export function scoreFromFacts(
     hookOutput = "FEE_OVERRIDE";
     regulatoryFlags.push({
       type: "INSUFFICIENT_CONFIDENCE",
-      description: "Block band without HIGH fact — degraded to FEE_OVERRIDE.",
+      description: "Block band without HIGH fact: degraded to FEE_OVERRIDE.",
       recommendation: "Human review before fail-closed treatment.",
     });
   }

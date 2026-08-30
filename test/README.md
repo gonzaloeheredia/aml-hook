@@ -1,10 +1,10 @@
-# Headless demo flows (not unit tests)
+# Headless demo flows
 
-This folder is **not** the Foundry suite — Solidity tests live in [`contracts/test/`](../contracts/test/).
+This folder is **not** the Foundry suite. Solidity tests live in [`contracts/test/`](../contracts/test/).
 
-Scripts here exercise the same API routes the frontend uses (`/swaps`, `/transfers`, `/compliance`, `/escrow`) **without opening a browser**. Those routes hit Anvil: quotes are `previewSwap` (local `MockUsdFeed`: $1 USDC, $1,000 ETH), P2P is ERC-20 `transfer`, FEE_OVERRIDE deposits into `FeeEscrow`. Need Anvil + API (`npm run deploy:local`, then `apps/api`). They do not touch the Sepolia pool ([`docs/Sepolia.md`](../docs/Sepolia.md)).
+Scripts here exercise the same API (application programming interface) routes the frontend uses (`/swaps`, `/transfers`, `/compliance`, `/escrow`) without opening a browser. Those routes hit Anvil. Quotes are `previewSwap` (local `MockUsdFeed`: $1 USDC, $1,000 ETH). P2P (peer-to-peer) is ERC-20 `transfer`. FEE_OVERRIDE deposits into `FeeEscrow`. Need Anvil + API (`npm run deploy:local`, then `apps/api`). They do not touch the Sepolia pool ([`docs/Sepolia.md`](../docs/Sepolia.md)).
 
-Foundry Solidity tests (mirroring `contracts/src/`) live in [`contracts/test/`](../contracts/test/) — see that folder's README for the layout.
+Foundry Solidity tests (mirroring `contracts/src/`) live in [`contracts/test/`](../contracts/test/). See that folder's README for the layout.
 
 ## Prerequisites
 
@@ -25,12 +25,12 @@ API default: `http://localhost:4000` (override with `API_BASE`). Without Anvil t
 node test/flow-uniswap-metamask.mjs
 ```
 
-**Risk is hop-based, not swap-count.** The agent applies skill `uhi10-use-case` (`score = 100 × 0.65^hops`); the keeper publishes. `POST /transfers` and `POST /swaps` wait for that write (plus Wallet D/E latency, activity, and magnitude paths in the API/UI):
+Risk is hop-based. Swap count does not drive the score. The agent applies skill `uhi10-use-case` (`score = 100 × 0.65^hops`). The keeper publishes. `POST /transfers` and `POST /swaps` wait for that write (plus Wallet D/E latency, activity, and magnitude paths in the API/UI (user interface)):
 
 | Event | Effect |
 |---|---|
 | 2–3 Uniswap swaps while clean (B/C) | Still green · score 0 · 0.30% |
-| Wallet A pool swap | **WalletBlocked** (score 100; not OFAC-listed) |
+| Wallet A pool swap | **WalletBlocked** (score 100; not OFAC (Office of Foreign Assets Control)-listed) |
 | MetaMask **A → B** (or A → C) | Hop **1** · score ~65 · fee **8%** |
 | MetaMask **B → C** (or C → B) after that | Hop **2** · score ~42 · fee **3%** |
 | Extra B ↔ A after hop 1 | B stays hop **1** (closer hop wins) |
@@ -41,5 +41,6 @@ node test/flow-uniswap-metamask.mjs
 | MetaMask **C → D** $15k (C still clean) | inflow **FEE_OVERRIDE 8%** |
 | Wallet E first swap (API or frontend) | Fund from **C** first. Bag under $1,000 → **3%**; bag $10k + $1k swap → **8%** (A mid); bag ≥ $15k + small swap → **8%** (D); this swap ≥ $15,000 → **REVERT**; 24h cross → **DailyAggregationBlocked**; unbound feed after a quote → last FX (silent under 30 min); never quoted or cache > 24h → **MagnitudeQuoteFailed** |
 
-Script steps: clean multi-swaps → A `WalletBlocked` → A→B → B→A (still hop 1) → B→C (hop 2) → B @ 8% vs C @ 3%.  
-Wallet D inflow path: exercise via API (`POST /transfers` C→D while C is clean, `POST /swaps` D) or the frontend walkthrough — see [`apps/api/README.md`](../apps/api/README.md).
+The script runs clean multi-swaps, then A `WalletBlocked`, then A→B, then B→A (still hop 1), then B→C (hop 2). After that B is at 8% and C is at 3%.
+
+Wallet D inflow path: exercise via API (`POST /transfers` C→D while C is clean, `POST /swaps` D) or the frontend walkthrough. See [`apps/api/README.md`](../apps/api/README.md).

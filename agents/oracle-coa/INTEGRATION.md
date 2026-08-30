@@ -1,6 +1,6 @@
-# Oracle COA — integration in aml-hook (demo)
+# Oracle COA (Compliance Officer Agent): integration in aml-hook (demo)
 
-This folder is the Compliance Officer Agent package (prompts + skills) used as
+This folder is the COA package (prompts + skills) used as
 the **off-chain scoring oracle** for the UHI10 demo.
 
 ## Runtime
@@ -13,7 +13,7 @@ Claude emits score, fee, and Opinion (`liveScore.ts`). Tools:
 `AmlHook.previewSwap`. A 3-minute tick stamps `updatedAt` without calling
 Claude. Without a key, `COA_LIVE=0`, or `npm test`, `factScoring.ts`
 interprets the skills. Every evaluation (and every Opinion) screens the
-subject against the live OFAC SDN ETH list and writes `SanctionRegistry`
+subject against the live OFAC (Office of Foreign Assets Control) SDN (Specially Designated Nationals) ETH list and writes `SanctionRegistry`
 on an exact match. The swap still only reads that mapping.
 
 | Module | Role |
@@ -27,14 +27,14 @@ on an exact match. The swap still only reads that mapping.
 | `report.ts` | Opinion schema (`task-regulatory-report`) |
 | `corpus.ts` | `searchRegulations` · `getActiveVersionAt` |
 | `store.ts` | In-memory cache. Quotes do not read this |
-| `onchainPublisher.ts` | Keeper → `ComplianceOracle.updateScore` (signed RPC, or fail). The attestor must sign `attestationHash(wallet, score, hopDistance, origin, feeBps, updatedAt, chainid)`. A score-only or empty signature is rejected. |
+| `onchainPublisher.ts` | Keeper → `ComplianceOracle.updateScore` (signed RPC (remote procedure call), or fail). The attestor must sign `attestationHash(wallet, score, hopDistance, origin, feeBps, updatedAt, chainid)`. A score-only or empty signature is rejected. |
 | `ofacSdn.ts` / `ofacScreen.ts` | Live OFAC SDN ETH set + `setSanctioned` writer |
 | `types.ts` | `ScoreResult` · `OracleOpinion` · `ScorePublishResult` |
 
 No live OpenSanctions / Etherscan / Chainalysis calls. Facts come from Anvil
-wallets, P2P ERC-20 transfers, `SwapObserved` / `WalletBlocked`, live OFAC SDN
+wallets, P2P (peer-to-peer) ERC-20 transfers, `SwapObserved` / `WalletBlocked`, live OFAC SDN
 (ETH addresses), and `SanctionRegistry`. N-hop decay (`100 × 0.65^hops`) is the A–E backbone in
-skill `uhi10-use-case`; the agent applies it — TypeScript does not precompute
+skill `uhi10-use-case`. The agent applies it. TypeScript does not precompute
 65/42 when live. This runner does not score Sepolia addresses. The live pool
 (`docs/Sepolia.md`) needs a separate keeper/attestor if a new wallet must leave
 the never-scored band.
@@ -45,7 +45,7 @@ the never-scored band.
 |---|---|
 | `afterSwap` on `FEE_OVERRIDE` | Hook takes differential (`feeBps − 30`) → `FeeEscrow.deposit` (`RiskFee`) |
 | `afterAddLiquidity` on 31–70 / never-scored 3%/8% | Hook takes the **full** override → `FeeEscrow.deposit` (`RiskFee`) |
-| Blocked LP remove | Principal → `LpPrincipal`; `feesAccrued` → `RiskFee`. Both 48h. |
+| Blocked LP (liquidity provider) remove | Principal → `LpPrincipal`; `feesAccrued` → `RiskFee`. Both 48h. |
 | FeeEscrow keeper | Checkpoint 1/2 / default after COA off-chain review (COA never writes escrow) |
 | Clean Checkpoint 2 | Risk fee → LpCompensationVault (LP claim after epoch). Principal → LP wallet. |
 | Illicit recover | `ILLICIT_RISK_FEE` vs `LP_PRINCIPAL` by kind |
@@ -53,10 +53,10 @@ the never-scored band.
 | Layer | Behavior |
 |---|---|
 | COA / oracle | Publishes `finalScore` + `recommendedFeeBps` (total friction, e.g. 800 / 300) |
-| `beforeSwap` | Ternary decision; does **not** set punitive `lpFeeOverride` — pool keeps standard fee |
+| `beforeSwap` | Ternary decision. Does **not** set punitive `lpFeeOverride`. The pool keeps the standard fee. |
 
-Opinion copy must describe **standard pool fee + escrowed differential**, not
-`lpFeeOverride` as the settlement path.
+Opinion copy must describe **standard pool fee + escrowed differential**.
+`lpFeeOverride` is not the settlement path.
 
 ## Triggers
 
@@ -68,22 +68,22 @@ POST /swaps      → afterSwap SwapObserved → wait for agent → reevaluate(wa
                  → if D keeperPending: catch-up publish (~65) after latency swap
 POST /oracle/:id/catch-up → manual deferred publish (Wallet D)
 POST /reset      → clear + seed oracle for A–D and F (Claude wait when key set; E unpublished)
-keeper tick 3m   → republish last agent score (no Claude). If the agent is down, this stamp still keeps Floor B (5 min) quiet.
+keeper tick 3m   → republish last agent score (no Claude). If the agent is down, this stamp still keeps Floor B (5 min) from arming.
 ```
 
-Quotes and swaps call `AmlHook.previewSwap` (same L1→L3 as `beforeSwap`). They
+Quotes and swaps call `AmlHook.previewSwap` (same L1 (Layer 1) → L3 (Layer 3) as `beforeSwap`). They
 do not apply TypeScript floors on the COA cache. The keeper writes when the
 decision tier or fee band changes, **or** on a 3-minute heartbeat (same score,
 new `updatedAt`), **or** when the last write is at least as old as Floor B
 (5 minutes). The publisher is signed RPC or it fails.
-That freshness stamp stops a stable clean wallet from looking stale. Floor B
+That freshness stamp prevents a stable clean wallet from being classified as stale. Floor B
 charges 3% on the first stale swap of the hour, then pass / 3% / 8% by swap+window
-USD if the keeper is late and the wallet already swapped in that hour.
+USD (United States dollar) if the keeper is late and the wallet already swapped in that hour.
 A wallet with `updatedAt == 0` is Mitigation A
 (unknown / Wallet E): the hook converts **this swap** to USD-8 (`lastFx` if
 younger than 30 minutes, else Chainlink; official ETH/USD + USDC/USD on a live Deploy; `MockUsdFeed` on Anvil), then
-Floor D on the unpublished bag. The stricter fee wins. Demo E starts empty;
-clean C funds it (no hop). After C→E $500 a $500 swap is 3%. After C→E
+Floor D on the unpublished bag. The stricter fee wins. Demo E starts empty.
+Clean C funds it (no hop). After C→E $500 a $500 swap is 3%. After C→E
 $10,000 a $1,000 swap is 8% (A mid). After C→E $15,000 a small swap is 8%.
 Floor C may still REVERT if prior 24h USD + this swap crosses $15,000.
 
@@ -95,12 +95,12 @@ Floor C may still REVERT if prior 24h USD + this swap crosses $15,000.
 | Prior 24h USD > 0 and prior + this swap ≥ $15,000 | `DailyAggregationBlocked` (Floor C) |
 | No live round and no `lastFx` within 24h | `MagnitudeQuoteFailed` (fail-closed) |
 
-USD quoting: `lastFx` younger than 30 minutes skips Chainlink; otherwise one
+USD quoting: `lastFx` younger than 30 minutes skips Chainlink. Otherwise one
 round per token, then `lastFx` until 24 hours. `PriceFallbackUsed` is only the
-heartbeat-stale live path and the 24h cache-after-live-miss path, not the
+heartbeat-stale live path and the 24h cache-after-live-miss path. It is not the
 30-minute hot cache.
 
-That path is not Wallet D. The COA should publish an explicit score 0 once E is
+That path is not Wallet D. Publish an explicit score 0 once E is
 reviewed so a later large swap of already-held funds is ALLOW.
 
 ## API
@@ -125,8 +125,8 @@ reviewed so a later large swap of already-held funds is ALLOW.
 ## Frontend
 
 Opinion (`LegalOpinion`) consumes `compliance.agent.*`. The oracle fills those
-fields using the FinCEN SAR Narrative Guidance model
-(Who / What / When / Where / Why / How) as structure only — not a filing.
+fields using the FinCEN (Financial Crimes Enforcement Network) SAR (Suspicious Activity Report) Narrative Guidance model
+(Who / What / When / Where / Why / How) as structure only. The model is not a filing.
 Agent skill filenames are never listed in the Opinion. SAR annex opens when
 `hookOutput` is not `ALLOW`. Corpus documents used at calculation time appear
 under Opinion **Normative basis** (`technicalOpinion.normativeCitations`).

@@ -38,7 +38,7 @@ interface IAmlHookSatellite {
         external returns (address wallet, bool seize, uint8 score, bool viaRouter);
 }
 
-/// @title AmlHook — Uniswap v4 AML hook entry-point (satellite edition)
+/// @title AmlHook: Uniswap v4 AML hook entry-point (satellite edition)
 /// @notice Thin hook shell that owns settlement state and compliance window accumulators.
 ///         All swap / LP evaluation logic and governance setters live in AmlHookSatellite,
 ///         called via DELEGATECALL so the satellite runs in AmlHook's storage context.
@@ -129,7 +129,7 @@ contract AmlHook is AmlHookActivity, AmlHookGovernance, AmlHookSettlement {
     }
 
     // -------------------------------------------------------------------------
-    // Uniswap v4 callbacks — dispatch evaluation to satellite via DELEGATECALL
+    // Uniswap v4 callbacks: dispatch evaluation to satellite via DELEGATECALL
     // -------------------------------------------------------------------------
 
     function _beforeAddLiquidity(address sender, PoolKey calldata key, ModifyLiquidityParams calldata, bytes calldata)
@@ -236,7 +236,7 @@ contract AmlHook is AmlHookActivity, AmlHookGovernance, AmlHookSettlement {
     }
 
     // -------------------------------------------------------------------------
-    // Fallback — routes governance setters and logic view functions to satellite
+    // Fallback: routes governance setters and logic view functions to satellite
     // -------------------------------------------------------------------------
 
     /// @dev Forwards any selector not implemented directly on AmlHook to the satellite

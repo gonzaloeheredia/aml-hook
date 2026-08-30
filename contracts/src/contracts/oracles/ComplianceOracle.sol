@@ -5,7 +5,7 @@ import {AccessManaged} from "@openzeppelin/contracts/access/manager/AccessManage
 
 import {IComplianceOracle} from "../../interfaces/oracles/IComplianceOracle.sol";
 
-/// @title Layer 2 — ComplianceOracle (REAL on-chain storage)
+/// @title Layer 2: ComplianceOracle (REAL on-chain storage)
 /// @notice On-chain store of Compliance Officer Agent scores (whitepaper §3.2 Layer 2 / §3.5 / §3.8).
 ///
 /// @dev ═══════════════════════════════════════════════════════════════════════
@@ -78,7 +78,7 @@ contract ComplianceOracle is AccessManaged, IComplianceOracle {
     /// @dev Binds the full published snapshot: hop/origin cannot be swapped under a score-only signature.
     ///      M-03 fix: `updateNonce[wallet]` is mixed in so each attestation commits to exactly one
     ///      call slot. After `updateScore` increments the nonce, all previously-signed payloads
-    ///      for this wallet are invalidated — a keeper cannot replay a prior signature to
+    ///      for this wallet are invalidated. A keeper cannot replay a prior signature to
     ///      restore an earlier (lower) score. Keepers must read the current nonce before signing.
     function attestationHash(
         address wallet,

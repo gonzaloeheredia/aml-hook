@@ -1,5 +1,5 @@
 /**
- * AML Hook demo API — TypeScript + in-memory ledger (no database).
+ * AML Hook demo API: TypeScript + in-memory ledger (no database).
  *
  * Adapter: Anvil is the ledger and the decision (previewSwap / observeSwap / FeeEscrow).
  * The keeper recomputes scores from the oracle record and publishes to ComplianceOracle.
@@ -34,7 +34,7 @@ async function main() {
   await registerRoutes(app);
 
   await app.listen({ port: PORT, host: HOST });
-  app.log.info(`AML Hook demo API on http://localhost:${PORT} — Anvil is the ledger`);
+  app.log.info(`AML Hook demo API on http://localhost:${PORT}: Anvil is the ledger`);
   startKeeperTicker(app.log);
 }
 

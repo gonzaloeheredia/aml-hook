@@ -3,7 +3,7 @@ name: fact-scoring
 description: "AML/CFT wallet scoring module (score 0–100) with FATF/OFAC/BSA justification per dimension. Produces the score AML Hook consumes at beforeSwap for ternary output: ALLOW, FEE_OVERRIDE, or REVERT. Use whenever task-swap-decision needs a quantified rating integrable into the task-regulatory-report Opinion pack. Live: Claude via consult_skill. Interpreter: apps/api/src/oracle/factScoring.ts when COA_LIVE=0 or tests."
 ---
 
-# Fact Scoring — Wallet AML/CFT Scoring Module
+# Fact Scoring: Wallet AML/CFT (Anti-Money Laundering / Combating the Financing of Terrorism) Scoring Module
 
 ## Purpose and scope
 
@@ -12,17 +12,20 @@ observed facts about an address and translates them into a numeric risk score
 (0–100) with audited normative traceability, ready to write to the oracle and
 consume at swap time.
 
-Each weight derives from FATF recommendations / technical papers, applied
-under BSA / OFAC (U.S.) and MiCA / TFR (EU). The module does not invent
+Each weight derives from FATF (Financial Action Task Force) recommendations /
+technical papers, applied under BSA (Bank Secrecy Act) / OFAC (Office of
+Foreign Assets Control) (U.S.) and MiCA (Markets in Crypto-Assets) / TFR
+(Transfer of Funds Regulation) (EU). The module does not invent
 arbitrary scores.
 
 Demo Wallet A emits `EXPLOIT_PROTOCOL_FUNDS` only (not `OFAC_DIRECT_MATCH`).
 The officer wrote score 100; the pool path is `WalletBlocked`. Demo Wallet E
 starts empty and is funded by clean C (no hop); never-written bands are
-hook-local, not a COA score. A new Sepolia EOA is the same unpublished path
-until a keeper writes (`uhi10-sepolia`). Do not apply Anvil hopDistance to
-Sepolia addresses. An operator seed write of 0–30 on the untrusted
-`PoolModifyLiquidityTest` is not `EXPLOIT_PROTOCOL_FUNDS` and not hop 0.
+hook-local, not a COA (Compliance Officer Agent) score. A new Sepolia EOA
+(externally owned account) is the same unpublished path until a keeper writes
+(`uhi10-sepolia`). Do not apply Anvil hopDistance to Sepolia addresses. An
+operator seed write of 0–30 on the untrusted `PoolModifyLiquidityTest` is not
+`EXPLOIT_PROTOCOL_FUNDS` and not hop 0.
 
 Outputs serve two functions:
 
@@ -46,16 +49,16 @@ formula from skill `uhi10-use-case`. The TypeScript interpreter
 
 | Source | Role in scoring |
 |---|---|
-| FATF Rec. 1 (RBA) | Continuous 0–100 score; proportional ternary controls |
-| FATF Rec. 10 | Continuous monitoring; mid-band = functional EDD |
-| FATF Rec. 15 / 16 | VA/VASP risks; Travel Rule is perimeter/mitigant, not a swap duty |
+| FATF Rec. 1 (RBA, risk-based approach) | Continuous 0–100 score; proportional ternary controls |
+| FATF Rec. 10 | Continuous monitoring; mid-band = functional EDD (enhanced due diligence) |
+| FATF Rec. 15 / 16 | VA/VASP (virtual asset / virtual asset service provider) risks; Travel Rule is perimeter/mitigant, not a swap duty |
 | FATF Rec. 20 | Reasonable suspicion (not certainty); no minimum amount |
 | FATF VA Red Flags 2020 | Six categories; multiplicity principle → context multipliers |
-| OFAC / BSA / MiCA / TFR / AMLR | Application frameworks for screening, SAR support, CASP |
+| OFAC / BSA / MiCA / TFR / AMLR (Anti-Money Laundering Regulation) | Application frameworks for screening, SAR (Suspicious Activity Report) support, CASP (crypto-asset service provider) |
 
 Travel Rule does **not** attach to the swap itself (no two institutions, no
-distinct originator/beneficiary, user keeps custody). Prior-leg IVMS 101 may
-act as a mitigant (`TRAVEL_RULE_PRIOR_LEG`).
+distinct originator/beneficiary, user keeps custody). Prior-leg IVMS 101
+(Inter-VASP Messaging Standard) may act as a mitigant (`TRAVEL_RULE_PRIOR_LEG`).
 
 ---
 
@@ -108,19 +111,19 @@ score ≥ 71. The block band requires at least one `HIGH` fact.
 
 ## 2. Fact catalog by dimension
 
-### 2.1 S — Sanctions (override capable)
+### 2.1 S: Sanctions (override capable)
 
 | Type | Description | baseWeight |
 |---|---|---|
-| `OFAC_DIRECT_MATCH` | Exact address on OFAC SDN | +100 (override) |
-| `UN_DIRECT_MATCH` | UN Security Council list | +100 (override) |
-| `EU_DIRECT_MATCH` | EU consolidated list | +100 (override) |
+| `OFAC_DIRECT_MATCH` | Exact address on OFAC SDN (Specially Designated Nationals) | +100 (override) |
+| `UN_DIRECT_MATCH` | UN (United Nations) Security Council list | +100 (override) |
+| `EU_DIRECT_MATCH` | EU (European Union) consolidated list | +100 (override) |
 | `SANCTIONED_CONTRACT_DIRECT` | Direct interaction with designated contract | +100 (override) |
-| `TERRORISM_FINANCING` | Documented TF / proliferation nexus | +100 (override) |
+| `TERRORISM_FINANCING` | Documented TF (terrorist financing) / proliferation nexus | +100 (override) |
 | `INDIRECT_COUNTERPARTY_MATCH` | Direct counterparty on a list | +50 |
 | `SANCTIONED_CLUSTER_LINK` | Analytics cluster → designated entity | +45 |
 
-### 2.2 ST — Structuring
+### 2.2 ST: Structuring
 
 FATF VA Red Flags Cat. 1.
 
@@ -134,9 +137,9 @@ FATF VA Red Flags Cat. 1.
 | `STRUCTURING_STEPPED_PATTERN` | Rapid high-value series then long idle | +18 |
 | `STRUCTURING_UNILATERAL_DIRECTIONAL` | Constant `zeroForOne`, homogeneous amounts | +15 |
 
-Defaults: report threshold USD 10,000; window 30 days; min splits 3.
+Defaults: report threshold USD (United States dollar) 10,000; window 30 days; min splits 3.
 
-### 2.3 MX — Mixers / anonymization
+### 2.3 MX: Mixers / anonymization
 
 FATF Cat. 3; OFAC VC Guidance 2021. Lookback default 90 days.
 
@@ -149,7 +152,7 @@ FATF Cat. 3; OFAC VC Guidance 2021. Lookback default 90 days.
 | `BRIDGE_CHAIN_HOPPING` | ≥3 chains in <24h before swap | +22 |
 | `OPAQUE_ORIGIN_MAJORITY` | >50% inbound funds unattributable | +25 |
 
-### 2.4 NW — Network / counterparties
+### 2.4 NW: Network / counterparties
 
 FATF Cats. 2, 4, 5; Rec. 10. **Demo types used in UHI10:**
 
@@ -164,12 +167,12 @@ FATF Cats. 2, 4, 5; Rec. 10. **Demo types used in UHI10:**
 | `INBOUND_ONLY_MICRO_CLUSTER` | Small unidirectional inbounds from many addresses | +22 |
 | `COUNTERPARTY_CONCENTRATION` | Near-exclusive interaction with target + self wallets | +18 |
 | `DARKNET_LINK` / `RANSOMWARE_LINK` | Traceable illicit markets / ransomware | +40 / +45 |
-| `LP_REPORT_VALIDATED` | Independent staked LP reports past threshold + challenge | +20 |
+| `LP_REPORT_VALIDATED` | Independent staked LP (liquidity provider) reports past threshold + challenge | +20 |
 | `EXTERNAL_SIGNAL_VERIFIED` | Shared-registry fact independently verified | inherits |
 | `EXTERNAL_SIGNAL_UNVERIFIED` | Shared-registry, unverified; ceiling at FEE_OVERRIDE | × 0.5 |
 | `ATTRIBUTION_INCONSISTENT` | Unsigned hookData originator ≠ effective fund recipient | +20 |
 
-### 2.4 bis DF — Native DeFi typologies
+### 2.4 bis DF: Native DeFi typologies
 
 Aggregated into NW for totals when needed. Receive-vs-use rule applies to all.
 
@@ -187,7 +190,7 @@ Aggregated into NW for totals when needed. Receive-vs-use rule applies to all.
 | `INVESTMENT_SCAM_PRODUCT` | +35 |
 | `STATE_EVASION_PATTERN` | +45 |
 
-### 2.5 GEO — Geographic risk
+### 2.5 GEO: Geographic risk
 
 Inference only; max confidence `MEDIUM` unless analytics documents attribution.
 
@@ -198,7 +201,7 @@ Inference only; max confidence `MEDIUM` unless analytics documents attribution.
 | `GEO_COMPREHENSIVE_SANCTIONS_REGIME` | +35 |
 | `GEO_UNREGULATED_SERVICE` | +15 |
 
-### 2.6 MT — Mitigants
+### 2.6 MT: Mitigants
 
 Never below 0; never neutralize a sanctions override. **Cap: 40 points.**
 
@@ -265,7 +268,7 @@ Declare calculation time in `validity.calculatedAt` (and block number when live)
 1. Do not publish effective per-pool threshold values (output bands are public).
 2. `LP_REPORT_VALIDATED` alone cannot reach the block band (FEE_OVERRIDE ceiling).
 3. Mitigant aggregate cap = 40.
-4. Governable parameter changes via DAO Timelock only.
+4. Governable parameter changes via DAO (decentralized autonomous organization) Timelock only.
 
 ---
 
@@ -325,15 +328,15 @@ Keys **must** match `apps/api/src/oracle/types.ts`:
 
 | Range | riskLevel | hookOutput | Basis |
 |---|---|---|---|
-| 0–30 | `STANDARD` | `ALLOW` | FATF Rec. 1 & 10 — proportional controls |
-| 31–70 | `ELEVATED` | `FEE_OVERRIDE` | Rec. 10 EDD — economic friction, not hard block (pool standard fee + differential → FeeEscrow) |
-| 71–99 | `BLOCK` | `REVERT` | Rec. 20 / BSA — reasonable suspicion |
-| 100 | `BLOCK` | `REVERT` + blocking protocol | Rec. 6 / IEEPA — unconditional designation path |
-| No published row (`updatedAt == 0`) | n/a | Hook-local Floor A: this swap 3% / 8% / REVERT at $1,000 / $15,000 (defaults; `_COMPLIANCE_OFFICER` may retune after 48h). Floor C may still REVERT on a 24h sum. No live round and no `lastFx` within 24h fail-closes (`MagnitudeQuoteFailed`); a 30-minute hot cache skips Chainlink. Live Deploy binds official ETH/USD + USDC/USD. | FATF 2021 VASP guidance note 37 (USD/EUR 1,000 VA). Rec. 10 occasional CDD (USD/EUR 15,000). Rec. 10(d) / ¶23 ongoing CDD (B/D). Rec. 10 linked operations (C). VASP Guidance de-risking + INR.1 proportionality (D does not block). See whitepaper §8.4. |
+| 0–30 | `STANDARD` | `ALLOW` | FATF Rec. 1 and 10: proportional controls |
+| 31–70 | `ELEVATED` | `FEE_OVERRIDE` | Rec. 10 EDD: economic friction (pool standard fee + differential → FeeEscrow) |
+| 71–99 | `BLOCK` | `REVERT` | Rec. 20 / BSA: reasonable suspicion |
+| 100 | `BLOCK` | `REVERT` + blocking protocol | Rec. 6 / IEEPA (International Emergency Economic Powers Act): unconditional designation path |
+| No published row (`updatedAt == 0`) | n/a | Hook-local Floor A: this swap 3% / 8% / REVERT at $1,000 / $15,000 (defaults; `_COMPLIANCE_OFFICER` may retune after 48h). Floor C may still REVERT on a 24h sum. No live round and no `lastFx` within 24h fail-closes (`MagnitudeQuoteFailed`); a 30-minute hot cache skips Chainlink. Live Deploy binds official ETH/USD + USDC/USD. | FATF 2021 VASP guidance note 37 (USD/EUR 1,000 VA). Rec. 10 occasional CDD (customer due diligence) (USD/EUR 15,000). Rec. 10(d) / ¶23 ongoing CDD (B/D). Rec. 10 linked operations (C). VASP Guidance de-risking + INR.1 proportionality (D does not block). See whitepaper §8.4. |
 
 **71–99 vs 100.** Mid-block is operation rejection. Score 100 from sanctions
-is **blocking** (segregate/audit trail under OFAC), not a simple refund —
-see `task-blocking-protocol`.
+is **blocking** (segregate/audit trail under OFAC). See
+`task-blocking-protocol`.
 
 ### 4.2 Reasonable suspicion
 

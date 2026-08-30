@@ -5,13 +5,15 @@ description: "Canonical A–E walkthrough for the AML Hook use case (docs/Use_Ca
 
 # UHI10 use-case validations
 
-This skill is the agent form of `docs/Use_Case.md`. **When in doubt, re-read
-this skill** (tool `consult_skill`, name `uhi10-use-case`). Do not invent a
-parallel hop table. On chain `11155111` also consult `uhi10-sepolia`.
+This skill is the agent form of `docs/Use_Case.md`. **When any item is
+unclear, re-read this skill** (tool `consult_skill`, name `uhi10-use-case`).
+Do not invent a parallel hop table. On chain `11155111` also consult
+`uhi10-sepolia`.
 
-The hook never calls you at swap or LP time. You emit `finalScore` +
-`recommendedFeeBps`. The keeper publishes that row to `ComplianceOracle`.
-`AMLHook.beforeSwap` / `beforeAddLiquidity` and FeeEscrow read it.
+The hook never calls you at swap or LP (liquidity provider) time. You emit
+`finalScore` + `recommendedFeeBps`. The keeper publishes that row to
+`ComplianceOracle`. `AMLHook.beforeSwap` / `beforeAddLiquidity` and FeeEscrow
+read it.
 
 Pool swaps **never** raise a hop. Peer-to-peer USDC moves risk. This
 walkthrough is swap-centric; LP rules below still bind you when the subject
@@ -24,9 +26,9 @@ is an add/remove caller.
 | | Guided demo (`Use_Case.md`) | Live pool (`uhi10-sepolia`) |
 |---|---|---|
 | Chain | Anvil `31337` | Ethereum Sepolia `11155111` |
-| This API / UI | Wired. Simulator. Quotes = `previewSwap` | Same API when `ORACLE_CHAIN_ID=11155111` (faucet + keeper). Quotes still `previewSwap`. SDK `getDeployment` is 31337-only |
+| This API (application programming interface) / UI (user interface) | Wired. Simulator. Quotes = `previewSwap` | Same API when `ORACLE_CHAIN_ID=11155111` (faucet + keeper). Quotes still `previewSwap`. SDK (software development kit) `getDeployment` is 31337-only |
 | Pool | `MockPoolManager` | Official Uniswap v4 PoolManager |
-| A–E keys | Anvil #1–#5 | Do **not** map these EOAs onto Sepolia |
+| A–E keys | Anvil #1–#5 | Do **not** map these EOAs (externally owned accounts) onto Sepolia |
 | New unscoped EOA | Out of demo | Wallet **E** until a keeper writes |
 
 On Anvil: never publish E. Do not fund E from A.
@@ -40,11 +42,11 @@ On Sepolia: a new EOA vs the live pool is Floor A/C/D until
 
 | Id | Role | Oracle row | Agent must |
 |---|---|---|---|
-| **A** | Confirmed exploit cash-out. **Not OFAC / not SanctionRegistry** unless evidence `subjectListed` is true | Published | `finalScore` **100**, fact `EXPLOIT_PROTOCOL_FUNDS`, `hookOutput` REVERT, `recommendedFeeBps` **0**. P2P outflows still contaminate B/C/D. **Do not treat A as OFAC.** Do not fund E from A. |
+| **A** | Confirmed exploit cash-out. **Not OFAC (Office of Foreign Assets Control) / not SanctionRegistry** unless evidence `subjectListed` is true | Published | `finalScore` **100**, fact `EXPLOIT_PROTOCOL_FUNDS`, `hookOutput` REVERT, `recommendedFeeBps` **0**. P2P (peer-to-peer) outflows still contaminate B/C/D. **Do not treat A as OFAC.** Do not fund E from A. |
 | **B** | Starts published-clean (score 0) | Published | After inbound from A (or 1-hop peer): hop 1 → **~65 / 800 bps**. After inbound from a 1-hop peer: hop 2 → **~42 / 300 bps**. Closer hop wins. |
 | **C** | Same hop rules as B. Funds E (no hop) and D (inflow) | Published | Symmetric with B. Clean C → E does **not** write a hop on E. |
 | **D** | Published clean (score 0), starts with 5,000 USDC | Published | Tainted inbound (A or hopped peer): **defer** `updateScore` so the next swap can show Floor D on stale 0. Catch-up then writes ~65 / 800. Clean C→D does **not** add a hop. Already-held funds ALLOW at 30 bps while the row is fresh 0. |
-| **E** | Unknown. Starts empty. Funded by clean C | **Never written** | Do **not** publish a score. Hook-local Floor A (this swap) + Floor D (bag). Not a COA 0. Any new Sepolia EOA against the live pool is this path until a keeper writes. |
+| **E** | Unknown. Starts empty. Funded by clean C | **Never written** | Do **not** publish a score. Hook-local Floor A (this swap) + Floor D (bag). Not a COA (Compliance Officer Agent) 0. Any new Sepolia EOA against the live pool is this path until a keeper writes. |
 
 B and C are hop-symmetric: A→B→C and A→C→B use the same math.
 
@@ -59,11 +61,11 @@ Emit / defer exactly as the step requires. Fees in the right column are
 |---|---|---|---|
 | 0 | D (or B / C) already-held | Keep published **0** / 30 bps | ALLOW 0.30% |
 | 1 | A pool cash-out | **100** / REVERT / 0 | `WalletBlocked` |
-| 2 | A → B P2P | Emit **~65 / 800**; keeper publishes | — |
+| 2 | A → B P2P | Emit **~65 / 800**; keeper publishes | n/a |
 | 3 | B swap | Keep ~65 / 800 | FEE_OVERRIDE 8% |
-| 4 | B → C P2P | Emit **~42 / 300** | — |
+| 4 | B → C P2P | Emit **~42 / 300** | n/a |
 | 5 | C swap | Keep ~42 / 300 | FEE_OVERRIDE 3% |
-| 6 | E or D 24h USD | You do not invent Floor C | `DailyAggregationBlocked` |
+| 6 | E or D 24h USD (United States dollar) | You do not invent Floor C | `DailyAggregationBlocked` |
 | 7 | D stale 5 min | Do not stamp a fake freshness to hide Floor B | FEE_OVERRIDE B mid 3% |
 | 8 | Clean C → D ~10k, then D swap | No hop. Leave 0 so Floor D can fire | D mid 3% |
 | 9 | Clean C → D $15k | No hop. Leave 0 | D large 8% |
@@ -72,7 +74,7 @@ Emit / defer exactly as the step requires. Fees in the right column are
 | 10c | C → E $15k, E $15k | **Do not publish E** | `UnscoredMagnitudeBlocked` |
 | 10d | E unbind feed | Still unpublished | `lastFx` / `PriceFallbackUsed` / `MagnitudeQuoteFailed` |
 | 11–12 | Floors / escrow | Not yours | Officer / FeeEscrow |
-| 13 | Opinion | File for the operator CO; never file with an authority | — |
+| 13 | Opinion | File for the operator CO; never file with an authority | n/a |
 
 ---
 
@@ -135,7 +137,8 @@ Do not overwrite these with a COA score:
 
 Sanctions list at LP / swap (`SanctionHit`) is Layer 1 hook functionality,
 not a use-case wallet. A is score-100 exploit, not a list hit. A live SDN
-exact-address match → registry write and `SanctionHit`, not `WalletBlocked`.
+(Specially Designated Nationals) exact-address match → registry write and
+`SanctionHit`, not `WalletBlocked`.
 
 LP (use-case header, not the Anvil click-path):
 
@@ -169,7 +172,7 @@ oracle, or the token contracts.
 7. Floors A–D (including LP A/C) are not your score.
 8. Walkthrough step matches §2 (defer D; never write E; no hop on clean C→D/E).
 9. Sepolia or unknown EOA → `uhi10-sepolia`; treat as E until a keeper writes.
-10. Opinion sources: venues and corpus ids — **never** this skill’s filename.
+10. Opinion sources: venues and corpus ids. **Never** this skill’s filename.
 
 If any item is unclear, call `consult_skill` again with `uhi10-use-case`,
 `uhi10-sepolia`, or `fact-scoring` / `task-swap-decision`.

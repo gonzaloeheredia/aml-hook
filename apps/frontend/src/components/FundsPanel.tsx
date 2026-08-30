@@ -65,7 +65,7 @@ export function FundsPanel({ apiOnline, tick }: Props) {
         <section>
           <div className="label-kicker">LP vault</div>
           <p className="mt-1 font-mono text-xs text-uni-muted">
-            {comp ? `${comp.balanceUsdc} USDC · epoch ${comp.openEpochId}` : "—"}
+            {comp ? `${comp.balanceUsdc} USDC · epoch ${comp.openEpochId}` : "n/a"}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <button
@@ -133,7 +133,7 @@ export function FundsPanel({ apiOnline, tick }: Props) {
           <p className="mt-1 font-mono text-xs text-uni-muted">
             {treas
               ? `principal ${treas.lpPrincipalUsdc} · illicit fee ${treas.illicitRiskFeeUsdc} USDC`
-              : "—"}
+              : "n/a"}
           </p>
           <div className="mt-3 space-y-2">
             <input

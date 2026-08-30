@@ -217,7 +217,7 @@ export async function transferUsdc(
   usdc: number,
 ): Promise<Hex> {
   if (!hasSigner(from) || !hasSigner(to)) {
-    throw new Error("Wallet has no demo key — P2P is disabled");
+    throw new Error("Wallet has no demo key: P2P is disabled");
   }
   await requireChain();
   const cfg = getChainConfig();
@@ -237,7 +237,7 @@ export async function transferUsdc(
 
 export async function spendToSink(from: WalletId, usdc: number): Promise<Hex> {
   if (!hasSigner(from)) {
-    throw new Error("Wallet has no demo key — spend is disabled");
+    throw new Error("Wallet has no demo key: spend is disabled");
   }
   const cfg = getChainConfig();
   const { account, client } = walletClient(DEMO_WALLETS[from].key!);

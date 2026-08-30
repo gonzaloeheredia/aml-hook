@@ -2,7 +2,7 @@
 pragma solidity ^0.8.26;
 
 /// @notice MOCK Chainlink AggregatorV3 for local Anvil deploys (USD-8 quotes).
-/// @dev Deploy-time tooling under script/mocks — not part of the on-chain app surface.
+/// @dev Deploy-time tooling under script/mocks. Off the on-chain app surface.
 contract MockUsdFeed {
     uint8 public decimals = 8;
     int256 public answer;

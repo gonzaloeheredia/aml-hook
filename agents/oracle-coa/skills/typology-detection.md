@@ -3,14 +3,15 @@ name: typology-detection
 description: "Identify which documented AML/CFT typology the observed wallet behavior corresponds to, and anchor it in the FATF red-flag indicator that defines it. Translates technical on-chain findings into regulatory categories supervisors recognize. Use after wallet-screening and swap-behavior-analysis, before fact-scoring: converts technical evidence into normative basis."
 ---
 
-# Typology Detection — AML/CFT Typology Identification
+# Typology Detection: AML/CFT (Anti-Money Laundering / Combating the Financing of Terrorism) Typology Identification
 
 ## Role
 
-Answers: what is this called, in a supervisor’s vocabulary, that technical
-analysis detected? Without this translation the case file has on-chain metrics
-a regulator is not obliged to interpret. With it, it has recognized typologies
-with reference red-flag indicators.
+Maps technical on-chain findings to FATF (Financial Action Task Force)
+red-flag categories that supervisors recognize. Without this translation the
+case file has on-chain metrics a regulator is not obliged to interpret. With
+it, the case file has recognized typologies with reference red-flag
+indicators.
 
 Does not produce score or decide hook output. Produces classification and
 normative anchoring that `fact-scoring` incorporates into each triggering
@@ -34,7 +35,7 @@ No live vendor typology labels.
 
 ## Reference framework
 
-FATF Virtual Assets Red Flag Indicators (2020) — six categories. Every
+FATF Virtual Assets Red Flag Indicators (2020): six categories. Every
 identified typology maps to at least one.
 
 | Category | Content |
@@ -48,7 +49,7 @@ identified typology maps to at least one.
 
 **Methodological principle.** A single indicator does not prove illicit
 activity. Combination without economic explanation supports suspicion. Report
-how many indicators/categories concur — that multiplicity underpins reasonable
+how many indicators/categories concur. That multiplicity underpins reasonable
 suspicion (FATF Rec. 20).
 
 ---
@@ -85,9 +86,10 @@ suspicion (FATF Rec. 20).
 ### 1.4 Native DeFi typologies
 
 Flash-loan manipulation, sandwich extraction, wash trading, rug-pull LP
-removal, ERC-6909 internal claims bypass, approval drain, address poisoning,
-NFT layering, CEX chain-jump, investment-scam product patterns — map to Cats.
-2/4/5 and DF fact types in `fact-scoring`.
+(liquidity provider) removal, ERC-6909 internal claims bypass, approval drain,
+address poisoning, NFT (non-fungible token) layering, CEX (centralized
+exchange) chain-jump, investment-scam product patterns map to Cats 2/4/5
+and DF fact types in `fact-scoring`.
 
 **Receive vs use.** Address poisoning and unsolicited inbound tainted transfers
 do not attribute conduct to the recipient without subsequent use.
@@ -129,5 +131,5 @@ rather than force a typology label.
 }
 ```
 
-Report `concurrentCategories` count — feeds reasonable-suspicion and
+Report `concurrentCategories` count. It feeds reasonable-suspicion and
 sufficiency checks in `task-swap-decision`.

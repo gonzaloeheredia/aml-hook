@@ -5,10 +5,10 @@ import {AmlHookGovernanceBase} from "./AmlHookGovernanceBase.sol";
 import {IERC20Minimal} from "../../interfaces/external/IERC20Minimal.sol";
 import {OracleQuote} from "../../libraries/OracleQuote.sol";
 
-/// @title AmlHookActivity — rolling-window accumulators for Floor B/C and Mitigation D baseline
+/// @title AmlHookActivity: rolling-window accumulators for Floor B/C and Mitigation D baseline
 /// @notice Tracks per-wallet operation counts, USD volume, and token balances.
 ///         Swap Floor C uses `_daily`. LP Floor C uses `_lpDaily` (adds only; never mixed).
-///         No compliance decisions here — all reads are consumed by `AmlHookLogic`.
+///         This contract stores accumulators. `AmlHookLogic` consumes the reads.
 abstract contract AmlHookActivity is AmlHookGovernanceBase {
     /// @dev Rolling `activityWindow` accumulator per wallet.
     struct PoolActivity {
@@ -33,7 +33,7 @@ abstract contract AmlHookActivity is AmlHookGovernanceBase {
 
     /// @dev Rolling activity snapshot per wallet (operation count, volume, timestamps).
     mapping(address => PoolActivity) internal _activity;
-    /// @dev Daily USD accumulator per wallet (swaps — Floor C).
+    /// @dev Daily USD accumulator per wallet (swaps: Floor C).
     mapping(address => DailyActivity) internal _daily;
     /// @dev Daily USD of LP adds per wallet (LP Floor C analog). Never mixed with swap C.
     mapping(address => DailyActivity) internal _lpDaily;
@@ -122,7 +122,7 @@ abstract contract AmlHookActivity is AmlHookGovernanceBase {
     }
 
     /// @dev Write the current ERC-20 balance of `wallet` for `token` as the Mitigation D baseline.
-    ///      Skipped when `inflowTriggered` (the heuristic already fired — resetting the baseline
+    ///      Skipped when `inflowTriggered` (the heuristic already fired. Resetting the baseline
     ///      would hide the inflow from future evaluations until the oracle catches up), when the
     ///      token is not an ERC-20 contract, or when less than `minBaselineInterval` has elapsed.
     function _updateKnownBalance(address wallet, address token, bool inflowTriggered) internal {

@@ -1,5 +1,5 @@
 /**
- * Off-chain oracle types — ScoreResult + Opinion from the COA agent skills.
+ * Off-chain oracle types: ScoreResult + Opinion from the COA agent skills.
  * Spec: agents/oracle-coa/skills/fact-scoring.md · task-regulatory-report.md
  */
 

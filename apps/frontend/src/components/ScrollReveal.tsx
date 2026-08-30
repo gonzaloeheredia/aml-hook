@@ -7,7 +7,7 @@ type Props = {
   className?: string;
   /** Extra delay once the block enters the viewport (ms) */
   delayMs?: number;
-  /** Intersection threshold — lower = starts earlier while scrolling */
+  /** Intersection threshold: lower = starts earlier while scrolling */
   threshold?: number;
 };
 

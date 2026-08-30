@@ -1,6 +1,6 @@
 /**
  * SanctionRegistry reads/writes for the COA.
- * Fail-open to "not listed" when Anvil is down — Layer 1 on the hook still fail-closes.
+ * Fail-open to "not listed" when Anvil is down. Layer 1 on the hook still fail-closes.
  * Writes use `_REGISTRY_KEEPER` (Anvil #0 locally; REGISTRY_KEEPER_PRIVATE_KEY on Sepolia).
  */
 
@@ -42,7 +42,7 @@ export async function isSanctionedAddress(address: string): Promise<boolean> {
 
 /**
  * Immediate `setSanctioned` when the mapping does not already match `sanctioned`.
- * OFAC SDN is a public list — commit-reveal is for unpublished designations, not this sync.
+ * OFAC SDN is a public list. Commit-reveal applies to unpublished designations. This sync writes immediately.
  */
 export async function writeSanction(
   address: string,

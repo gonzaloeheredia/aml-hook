@@ -53,7 +53,7 @@ import { applyLiveCaseCopy } from "@/lib/liveCaseCopy";
 import { withComplianceOverlay } from "@/lib/withComplianceOverlay";
 
 /**
- * Demo page — guided stages with horizontal slides:
+ * Demo page: guided stages with horizontal slides.
  * Swap → Hook (auto), then Fees → AML stats → Opinion → Event (click / wheel).
  * Event has a Back to Swap control; ledger balances persist until Restart data.
  */
@@ -733,7 +733,7 @@ export default function HomePage() {
         return;
       }
 
-      // Opinion never advances to Event via wheel — scroll-read, then click
+      // Opinion never advances to Event via wheel: scroll-read, then click
       if (cur === "opinion" && goingDown) {
         e.preventDefault();
         acc = 0;

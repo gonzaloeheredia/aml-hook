@@ -45,7 +45,7 @@ import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
 ///        L1 or score ≥ 71 cannot add. Known 31–70 pays a 3%/8% risk fee on the deposit.
 ///        Never-scored adds reuse swap Floor A/C/D. On a blocked remove the LP receives
 ///        nothing in-tx: principal and feesAccrued sit in FeeEscrow 48h (clean principal
-///        returns to the LP; illicit recover books tesorería `LP_PRINCIPAL` vs `ILLICIT_RISK_FEE`).
+///        returns to the LP; illicit recover books treasury `LP_PRINCIPAL` vs `ILLICIT_RISK_FEE`).
 ///      - MOCK: PoolManager defaults to MockPoolManager (no live Uniswap swaps).
 ///        Sepolia: set POOL_MANAGER to the official manager (docs/Sepolia.md).
 ///      - REAL: AmlHookSatellite (DELEGATECALL). AmlHook must inherit Activity /
@@ -53,7 +53,7 @@ import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
 ///      - MOCK: MockTrustedRouter only when the chain has no canonical Universal Router
 ///        (Anvil). On Uniswap-supported chains, Deploy registers the app.uniswap.org
 ///        Universal Router (+ 2.1.1 when distinct) via setTrustedRouter.
-    ///      - MOCK: MockUSDC (6 decimals) if FEE_TOKEN unset — pool / FeeEscrow custody asset.
+    ///      - MOCK: MockUSDC (6 decimals) if FEE_TOKEN unset: pool / FeeEscrow custody asset.
     ///      - MOCK: MockWETH (18 decimals, mintable “ETH”) if WETH_TOKEN unset. Bound to ETH/USD.
     ///      - REAL: Chainlink AggregatorV3 ETH/USD + USDC/USD + WETH on known chains.
     ///        MOCK: MockUsdFeed only on Anvil (31337) or when no official feed exists.
@@ -64,13 +64,13 @@ import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
     ///      Clean risk-fee releases go to LpCompensationVault (FeeEscrow.lpCompensationFund).
     ///      Recovered illicit fees go to ComplianceTreasury (FeeEscrow.complianceReserve).
     ///      The two contracts cannot be the same address. LP_COMPENSATION_FUND env is unused
-    ///      on a fresh Deploy — the vault is always created.
+    ///      on a fresh Deploy. The vault is always created.
     ///      - FEE_ESCROW_OWNER: FeeEscrow `owner` from genesis (defaults to ADMIN). Production MUST
     ///        be a Gnosis Safe; the deployer is only a one-shot `bootstrapper` for the hook depositor.
 ///      - ETH_USD_FEED / TOKEN_USD_FEED (alias USD_FEED): override Chainlink AggregatorV3
 ///        proxies. Unset → official Data Feed for the chain (ETH/USD, USDC/USD, WETH).
 ///        Anvil (31337) has no official feed and falls back to MockUsdFeed ($1 USDC, $1000 ETH).
-///        MockUSDC is not canonical USDC — set TOKEN_USD_FEED on live chains or the
+///        MockUSDC is not canonical USDC. Set TOKEN_USD_FEED on live chains or the
 ///        fee token has no USD binding.
     ///      - TRUSTED_ROUTER: extra router to trust in addition to the canonical Universal Router
     ///      - PRIVATE_KEY: broadcaster (defaults to Anvil account #0)
@@ -78,14 +78,14 @@ import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
     ///        to the deployer for a frictionless local run; a real deploy should set all five
     ///        explicitly and to distinct keys. COMPLIANCE_OFFICER is granted with a 48-hour delay.
     ///      - ATTESTOR: ECDSA attestor for ComplianceOracle.updateScore. Required and must be
-    ///        distinct from HOOK_GOVERNOR and ORACLE_KEEPER (C-01). No default — a missing value
-    ///        fails closed rather than aliasing the governor.
+    ///        distinct from HOOK_GOVERNOR and ORACLE_KEEPER (C-01). No default: a missing value
+    ///        fails closed. The script does not alias the governor.
 contract Deploy is Script {
     address constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
     // Anvil account #0
     uint256 constant ANVIL_PK =
         0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
-    /// @dev Anvil account #9 — local-only attestor so keeper (#0) and attestor stay distinct.
+    /// @dev Anvil account #9: local-only attestor so keeper (#0) and attestor stay distinct.
     uint256 constant LOCAL_ATTESTOR_PK =
         0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6;
 
@@ -173,7 +173,7 @@ contract Deploy is Script {
     /// @notice MockUSDC deployed by this script, or zero when `FEE_TOKEN` was provided.
     MockUSDC public mockUsdc;
 
-    /// @notice Demo ETH (MockWETH locally). Priced by the ETH/USD feed — not native gas.
+    /// @notice Demo ETH (MockWETH locally). Priced by the ETH/USD feed. Distinct from native gas.
     address public wethToken;
 
     /// @notice MockWETH deployed by this script, or zero when `WETH_TOKEN` was provided.
@@ -353,7 +353,7 @@ contract Deploy is Script {
                 | Hooks.AFTER_ADD_LIQUIDITY_RETURNS_DELTA_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
                 | Hooks.AFTER_REMOVE_LIQUIDITY_FLAG | Hooks.AFTER_REMOVE_LIQUIDITY_RETURNS_DELTA_FLAG
         );
-        // Only poolManager + accessManager go into the initcode hash — the salt can be pre-mined
+        // Only poolManager + accessManager go into the initcode hash. The salt can be pre-mined
         // per (network, accessManager) pair without knowing the downstream dependency addresses.
         bytes memory constructorArgs = abi.encode(IPoolManager(poolManagerAddr), address(accessManager));
         // Broadcast scripts rewrite `new {salt}` through the deterministic CREATE2 factory; unit
@@ -585,14 +585,14 @@ contract Deploy is Script {
         selectors[0] = ComplianceOracle.updateScore.selector;
     }
 
-    /// @notice Oracle governance (rate limit) — `_HOOK_GOVERNOR`, not the scoring keeper.
+    /// @notice Oracle governance (rate limit): `_HOOK_GOVERNOR`, not the scoring keeper.
     function _oracleGovernorSelectors() internal pure returns (bytes4[] memory selectors) {
         selectors = new bytes4[](2);
         selectors[0] = ComplianceOracle.setRateLimit.selector;
         selectors[1] = ComplianceOracle.setAttestor.selector;
     }
 
-    /// @notice Registry governance (reveal delay) — `_HOOK_GOVERNOR`.
+    /// @notice Registry governance (reveal delay): `_HOOK_GOVERNOR`.
     function _registryGovernorSelectors() internal pure returns (bytes4[] memory selectors) {
         selectors = new bytes4[](1);
         selectors[0] = SanctionRegistry.setRevealDelay.selector;
@@ -670,7 +670,7 @@ contract Deploy is Script {
         }
     }
 
-    /// @notice Policy-knob confirmations — `_COMPLIANCE_OFFICER` (48h grant delay), not the governor.
+    /// @notice Policy-knob confirmations: `_COMPLIANCE_OFFICER` (48h grant delay), not the governor.
     function _complianceSelectors() internal pure returns (bytes4[] memory selectors) {
         selectors = new bytes4[](3);
         selectors[0] = AmlHookGovernance.applyUnscoredThresholds.selector;

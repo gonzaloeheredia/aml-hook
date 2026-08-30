@@ -1,5 +1,5 @@
 /**
- * Headless demo-flow script (NOT Foundry / unit tests — see contracts/test for those).
+ * Headless demo-flow script (not Foundry / unit tests: see contracts/test for those).
  * Exercises the same HTTP API the frontend uses. No browser / no UI.
  *
  * MOCK: pool swaps & MetaMask P2P are simulated via POST /swaps and /transfers.
@@ -57,15 +57,15 @@ async function api(path, init = {}) {
 }
 
 /**
- * Assert helper — logs ✓ / ✗ and counts failures.
+ * Assert helper: logs ✓ / ✗ and counts failures.
  */
 function assert(label, condition, detail = "") {
   if (condition) {
     passed += 1;
-    console.log(`  ✓ ${label}${detail ? ` — ${detail}` : ""}`);
+    console.log(`  ✓ ${label}${detail ? `: ${detail}` : ""}`);
   } else {
     failed += 1;
-    console.error(`  ✗ ${label}${detail ? ` — ${detail}` : ""}`);
+    console.error(`  ✗ ${label}${detail ? `: ${detail}` : ""}`);
   }
 }
 
@@ -93,8 +93,8 @@ async function main() {
   await api("/reset", { method: "POST", body: "{}" });
   assert("ledger reset", true);
 
-  // ── 1. C swaps twice while clean — still no score ───────────────────
-  console.log("\n1) Wallet C · two Uniswap swaps (clean — swaps ≠ risk)");
+  // ── 1. C swaps twice while clean: still no score ───────────────────
+  console.log("\n1) Wallet C · two Uniswap swaps (clean: swaps ≠ risk)");
   await postSwap("C", 1000);
   const swapC2clean = await postSwap("C", 1000);
   const cAfterSwaps = await api("/wallets/C/compliance");
@@ -110,8 +110,8 @@ async function main() {
     `out=${cAfterSwaps.hookOutput} fee=${cAfterSwaps.feePercent}%`,
   );
 
-  // ── 2. B swaps twice while clean — still no score ───────────────────
-  console.log("\n2) Wallet B · two Uniswap swaps (clean — swaps ≠ risk)");
+  // ── 2. B swaps twice while clean: still no score ───────────────────
+  console.log("\n2) Wallet B · two Uniswap swaps (clean: swaps ≠ risk)");
   await postSwap("B", 1000);
   const swapB2clean = await postSwap("B", 1000);
   const bAfterSwaps = await api("/wallets/B/compliance");
@@ -195,7 +195,7 @@ async function main() {
     process.exitCode = 1;
     console.log("FAILED\n");
   } else {
-    console.log("OK — risk is hop-based; swaps alone never score\n");
+    console.log("OK: risk is hop-based; swaps alone never score\n");
   }
 }
 

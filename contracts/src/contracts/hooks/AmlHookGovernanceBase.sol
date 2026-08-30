@@ -15,7 +15,7 @@ import {OracleQuote} from "../../libraries/OracleQuote.sol";
 import {Roles} from "../../libraries/Roles.sol";
 import {MultisigAggregation, MultisigType, TrustedMultisig} from "../../libraries/WalletSubject.sol";
 
-/// @title AmlHookGovernanceBase — state, constants, events, errors, and initialisation for governance
+/// @title AmlHookGovernanceBase: state, constants, events, errors, and initialisation for governance
 /// @notice Shared base inherited by both AmlHookActivity (read path) and AmlHookGovernance (setters).
 ///         No external setter functions live here; they are added by AmlHookGovernance.
 abstract contract AmlHookGovernanceBase is AccessManaged, Pausable {

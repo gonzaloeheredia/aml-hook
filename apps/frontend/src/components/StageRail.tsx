@@ -23,7 +23,7 @@ export const DEMO_STAGES: {
 
 type Props = {
   stage: DemoStage;
-  /** Highest stage the user has reached (inclusive) — earlier steps stay clickable */
+  /** Highest stage the user has reached (inclusive): earlier steps stay clickable */
   unlockedThrough: DemoStage;
   onSelect: (stage: DemoStage) => void;
 };

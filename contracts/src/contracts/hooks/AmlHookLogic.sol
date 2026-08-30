@@ -13,7 +13,7 @@ import {LpPolicyLib} from "../../libraries/LpPolicyLib.sol";
 import {OracleQuote} from "../../libraries/OracleQuote.sol";
 import {WalletSubject} from "../../libraries/WalletSubject.sol";
 
-/// @title AmlHookLogic — swap and liquidity compliance evaluation
+/// @title AmlHookLogic: swap and liquidity compliance evaluation
 /// @notice Resolves the subject, reads the published COA row, gathers floor signals,
 ///         and delegates to `RiskPolicyLib` (swaps) or `LpPolicyLib` (LP adds). Never
 ///         calls the agent. Swap state mutations happen in `_endSwap`. LP never-scored
@@ -191,7 +191,7 @@ abstract contract AmlHookLogic is AmlHookActivity {
 
     /// @notice Force-refresh the Mitigation D balance baseline for `wallet` and `token`.
     /// @dev Reverts when the stored baseline is newer than the oracle's last write and the balance
-    ///      has grown since — advancing the baseline would hide a pre-score inflow from the heuristic.
+    ///      has grown since. Advancing the baseline would hide a pre-score inflow from the heuristic.
     /// @param wallet Compliance subject whose baseline to refresh.
     /// @param token  ERC-20 token to snapshot; address(0) or non-contract is a no-op.
     function syncBaseline(address wallet, address token) external restricted {

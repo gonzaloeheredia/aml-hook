@@ -174,7 +174,7 @@ export async function closeCompensationEpoch() {
     args: [BigInt(openId), cfg.feeToken],
   });
   if (pot === 0n) {
-    throw new Error("open epoch pot is zero — release a clean RiskFee first");
+    throw new Error("open epoch pot is zero: release a clean RiskFee first");
   }
 
   const recipients = cfg.compensationLps;

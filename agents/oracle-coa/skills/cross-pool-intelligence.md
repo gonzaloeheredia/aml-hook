@@ -3,7 +3,7 @@ name: cross-pool-intelligence
 description: "Manage the shared-signal registry among pools integrating AML Hook: what is shared, how an external signal is weighted vs an own observation, how corrections propagate, and how a malicious or miscalibrated pool is prevented from contaminating the common registry. Use when incorporating external signals into a wallet profile, when publishing an own signal, and on every correction of a previously shared score."
 ---
 
-# Cross-Pool Intelligence — Shared Signal Registry
+# Cross-Pool Intelligence: Shared Signal Registry
 
 ## Role
 
@@ -43,7 +43,7 @@ Share verifiable facts, not judgments.
 | Shared | Not shared |
 |---|---|
 | Facts with on-chain evidence (`tx_hash` + block) | Final numeric `finalScore` |
-| Fact type and FATF category | `scoreBreakdown` |
+| Fact type and FATF (Financial Action Task Force) category | `scoreBreakdown` |
 | Fact confidence and source | Applied thresholds |
 | Observation block | Emitting pool’s weighting methodology |
 | Emitting pool id | Complainant identities |
@@ -80,7 +80,7 @@ keeps original emitter identity and `auditHash`.
 | **Emitter reputation** | Adjust per Step 5 quality history |
 | **Independence** | N distinct pools on same fact reinforce; N derivatives of one observation do not |
 | **Age** | Temporal decay equivalent to own facts |
-| **Fact type** | Sanctions facts always verified against the list — never accepted by signal alone |
+| **Fact type** | Sanctions facts always verified against the list. Never accepted by signal alone |
 
 **Ceiling rule.** Unverified external signals cap at the `FEE_OVERRIDE` band.
 A block requires at least one own `HIGH` fact, or an external signal the

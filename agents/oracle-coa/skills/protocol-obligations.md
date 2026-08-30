@@ -3,20 +3,22 @@ name: protocol-obligations
 description: "Determine which AML/CFT obligations fall on the operator of a pool integrating AML Hook under U.S. (BSA, OFAC) and EU (MiCA, TFR, AMLR) frameworks, and what evidence must be retained to demonstrate them. Use when configuring a new pool, reviewing the framework applicable to an operator, or determining the recipient and standard of the evidence pack."
 ---
 
-# Protocol Obligations — Pool Operator Obligations
+# Protocol Obligations: Pool Operator Obligations
 
 ## Role
 
-Answers the question prior to everything else: who bears the obligation. AML
-Hook is not an obligated person. The hook is control infrastructure; the duty
-falls, if at all, on the pool operator, the asset issuer, or the liquidity
-provider entity — according to their own regulatory situation.
+Determines which actor bears AML/CFT (Anti-Money Laundering / Combating the
+Financing of Terrorism) obligations. AML Hook is not an obligated person. The
+hook is control infrastructure; the duty falls, if at all, on the pool
+operator, the asset issuer, or the liquidity provider entity, according to
+their own regulatory situation.
 
 Produces the applicable-obligation map and corresponding evidence standard.
 Does **not** issue binding legal opinions or alone determine obligated-person
 status. That requires operator-specific legal advice in their jurisdiction.
 
-**Demo runtime:** documentary. The agent never files with FinCEN, OFAC, or any
+**Demo runtime:** documentary. The agent never files with FinCEN (Financial
+Crimes Enforcement Network), OFAC (Office of Foreign Assets Control), or any
 supervisor. UHI10 does not configure a live operator-obligation map.
 
 ---
@@ -28,7 +30,7 @@ supervisor. UHI10 does not configure a live operator-obligation map.
 | `operator` | Nature of the entity operating the pool |
 | `operatorJurisdiction` | Incorporation / effective establishment |
 | `userJurisdictions` | Jurisdictions from which the pool is accessed |
-| `assetType` | Pair assets: stablecoin, tokenized RWA, native |
+| `assetType` | Pair assets: stablecoin, tokenized RWA (real-world asset), native |
 | `activeLicenses` | Operator registrations / authorizations |
 | `degreeOfControl` | Effective control: parameters, pause, upgrade |
 
@@ -36,9 +38,10 @@ supervisor. UHI10 does not configure a live operator-obligation map.
 
 ## Step 1: Obligated-person determination
 
-Status depends on degree of control, not self-label. FATF VA guidance: an
-actor with sufficient control/influence over the service may qualify as a
-VASP even when presented as decentralized.
+Status depends on degree of control, not self-label. FATF (Financial Action
+Task Force) VA (virtual asset) guidance: an actor with sufficient
+control/influence over the service may qualify as a VASP (virtual asset
+service provider) even when presented as decentralized.
 
 | Control indicator | Relevance |
 |---|---|
@@ -51,9 +54,10 @@ VASP even when presented as decentralized.
 | Contractual relationship with participants | High |
 | No operational control after deploy | Low |
 
-**Mandatory warning.** Whether a DeFi protocol/operator is a BSA obligated
-person is not uniformly settled. This skill produces a preliminary indicator
-assessment and always declares that it does not replace specific legal analysis.
+**Mandatory warning.** Whether a DeFi protocol/operator is a BSA (Bank Secrecy
+Act) obligated person is not uniformly settled. This skill produces a
+preliminary indicator assessment and always declares that it does not replace
+specific legal analysis.
 
 ---
 
@@ -77,27 +81,30 @@ decentralization exception.
 
 If the operator is (or may be) a money services business / money transmitter:
 
-- AML program, monitoring, SAR regime (31 CFR § 1010.320)
+- AML program, monitoring, SAR (Suspicious Activity Report) regime (31 CFR
+  (Code of Federal Regulations) § 1010.320)
 - Record retention
-- Travel Rule for VASP-to-VASP transfers (31 CFR § 1010.410(e)–(f), USD 3,000)
+- Travel Rule for VASP-to-VASP transfers (31 CFR § 1010.410(e)–(f), USD
+  (United States dollar) 3,000)
 
 **Travel Rule vs swap.** A pool swap does not meet Rec. 16 / Travel Rule
 elements (no two institutions, no distinct originator/beneficiary, user keeps
 custody). Functions of Travel Rule inside this system:
 
-1. Mitigant on prior fund leg when IVMS 101 is verifiable
+1. Mitigant on prior fund leg when IVMS 101 (Inter-VASP Messaging Standard)
+   is verifiable
 2. Operator’s own duty if offering custodial VASP services
 3. Perimeter where compliance already exists
 
 ---
 
-## Step 3: EU framework
+## Step 3: EU (European Union) framework
 
 | Instrument | Relevance |
 |---|---|
-| MiCA (EU) 2023/1114 | CASP authorization and conduct |
-| TFR (EU) 2023/1113 | Crypto Travel Rule; zero threshold |
-| AMLR (EU) 2024/1624 | Unified due diligence / monitoring |
+| MiCA (Markets in Crypto-Assets) (EU) 2023/1114 | CASP (crypto-asset service provider) authorization and conduct |
+| TFR (Transfer of Funds Regulation) (EU) 2023/1113 | Crypto Travel Rule; zero threshold |
+| AMLR (Anti-Money Laundering Regulation) (EU) 2024/1624 | Unified due diligence / monitoring |
 
 Apply when operator or activity has EU nexus. Preliminary only.
 
@@ -116,7 +123,7 @@ Recipient: operator Compliance Officer. Agent never files.
 
 **Attribution coverage warning.** Fail-closed without trusted forwarders
 reverts most open-pool flow; restricted/RWA pools with registered integrators
-are the viable deployment model — disclose when configuring.
+are the viable deployment model. Disclose when configuring.
 
 ---
 

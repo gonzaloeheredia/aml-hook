@@ -3,13 +3,13 @@
 import type { ReactNode } from "react";
 
 type Props = {
-  /** Remount key — changing this retriggers the slide */
+  /** Remount key: changing this retriggers the slide */
   stageKey: string;
   /** 1 = next (enter from right); -1 = previous (enter from left) */
   direction?: 1 | -1;
   /** Triple-length slide when entering Opinion from the left (forward) */
   slow?: boolean;
-  /** Going back — short slide from the left */
+  /** Going back: short slide from the left */
   swift?: boolean;
   children: ReactNode;
   className?: string;

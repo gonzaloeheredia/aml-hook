@@ -1,8 +1,8 @@
 /**
  * Maps ScoreResult → Legal / technical Opinion.
  *
- * Narrative model (FinCEN SAR Narrative Guidance, Nov 2003 — structure only):
- * Who / What / When / Where / Why / How — chronological, concise, support-draft only.
+ * Narrative model (FinCEN SAR Narrative Guidance, Nov 2003: structure only):
+ * Who / What / When / Where / Why / How. Chronological, concise, support-draft only.
  * Skills used by the oracle are NOT listed in the Opinion.
  */
 
@@ -60,7 +60,7 @@ export function buildOpinionFromScore(
         f.type.includes("REASONABLE_SUSPICION"),
     );
 
-  const origin = wallet.originId ?? "—";
+  const origin = wallet.originId ?? "n/a";
   const hop =
     wallet.hopDistance == null ? "none" : String(wallet.hopDistance);
 
@@ -76,7 +76,7 @@ export function buildOpinionFromScore(
         : hop !== "none"
         ? `Role: intermediary wallet with ${hop}-hop exposure from origin ${origin}.`
         : "Role: pool participant with no inbound contamination from exploit origin A.",
-    origin !== "—" && hop !== "none"
+    origin !== "n/a" && hop !== "none"
       ? `Known relationship: contamination path linked to origin wallet ${origin}.`
       : "No additional related suspects identified beyond the ledger graph.",
   ].join(" ");
@@ -128,7 +128,7 @@ export function buildOpinionFromScore(
     hop !== "none"
       ? `Fund movement path includes off-pool P2P hops (origin ${origin} → subject at hop ${hop}).`
       : "No foreign VASP corridor or multi-office branching identified on the evidence trail.",
-    "Jurisdiction framing for the operator pack: U.S. BSA / FinCEN SAR narrative practice (support draft only) and FATF VA red-flag vocabulary — not a filing.",
+    "Jurisdiction framing for the operator pack: U.S. BSA / FinCEN SAR narrative practice (support draft only) and FATF VA red-flag vocabulary. This pack is an internal file.",
   ].join(" ");
 
   const why =
@@ -185,7 +185,7 @@ export function buildOpinionFromScore(
     riskAndScoring: why,
     typologies: what,
     sanctionsCheck: when,
-    // Field reused as Where (venue / addresses / path). Evidence only — no skill filenames.
+    // Field reused as Where (venue / addresses / path). Evidence only: no skill filenames.
     sourcesConsulted: [
       where,
       ...connectedSources,
@@ -205,7 +205,7 @@ export function buildOpinionFromScore(
           ? "Fail-closed RWA pool policy on confirmed exploit / REVERT-band score (71–100). Narrative organization follows FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How) as an internal model only."
           : "FATF Rec. 6 / fail-closed RWA pool policy on confirmed exploit exposure. Narrative organization follows FinCEN SAR Narrative Guidance (Who/What/When/Where/Why/How) as an internal model only."
         : decision === "fee_override"
-          ? "FATF Rec. 1 & 10 (EBR / EDD). Narrative organization follows FinCEN SAR Narrative Guidance as an internal support-draft model — not a FinCEN filing."
+          ? "FATF Rec. 1 & 10 (EBR / EDD). Narrative organization follows FinCEN SAR Narrative Guidance as an internal support-draft model. The agent does not file with FinCEN."
           : "FATF Rec. 1 & 10. Verification narrative follows FinCEN SAR Narrative Guidance structure for consistency of operator records.",
       citations,
     ),
@@ -213,7 +213,7 @@ export function buildOpinionFromScore(
       ? `For the pool Compliance Officer only: ${score.regulatoryFlags.map((f) => f.recommendation).join(" ") || "Human review of elevated path."} Next review ${score.validity.nextReview}. Do not tip off the subject. Agent never files with FinCEN or any authority.`
       : `Continue ordinary monitoring. Next review ${score.validity.nextReview}. Re-open enhanced narrative if inbound tainted P2P or anomalous afterSwap series appears.`,
     traceability: corpusTrace(
-      `auditHash ${score.auditHash} · calculated ${score.validity.calculatedAt} · retention 5 years (FATF Rec. 11 · BSA). Support draft — not submitted.`,
+      `auditHash ${score.auditHash} · calculated ${score.validity.calculatedAt} · retention 5 years (FATF Rec. 11 · BSA). Support draft. Not submitted.`,
       citations,
     ),
     normativeCitations: citations,
@@ -233,8 +233,8 @@ export function buildOpinionFromScore(
           narrativeEvidence: `WHY: ${why}`,
           narrativeConclusion: `HOW: ${how} This annex is an internal SAR-support pack for the pool Compliance Officer. It is not a FinCEN SAR and must not be filed by the agent.`,
           warnings: [
-            "Confidentiality — no tip-off to the subject",
-            "Document status: support draft — not submitted to FinCEN or any authority",
+            "Confidentiality: no tip-off to the subject",
+            "Document status: support draft. Not submitted to FinCEN or any authority",
             "Organize facts chronologically; include individual dates/amounts from the ledger when preparing any human-owned filing",
             "Human judgment required before any BSA filing decision",
           ],

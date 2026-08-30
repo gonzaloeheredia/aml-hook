@@ -14,7 +14,7 @@ import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 
-/// @title AmlHookSatellite — evaluation and governance satellite for AmlHook
+/// @title AmlHookSatellite: evaluation and governance satellite for AmlHook
 /// @notice Deployed once; called exclusively via DELEGATECALL from AmlHook so all state
 ///         reads/writes operate on AmlHook's storage. Contains: full swap/LP evaluation
 ///         (AmlHookLogic), governance setters (AmlHookGovernance), and the external
@@ -50,7 +50,7 @@ contract AmlHookSatellite is AmlHookLogic {
     IPoolManager private immutable _satellitePoolManager;
 
     // ---------------------------------------------------------------------------
-    // Swap path wrappers — called from AmlHook via DELEGATECALL
+    // Swap path wrappers: called from AmlHook via DELEGATECALL
     // ---------------------------------------------------------------------------
 
     /// @notice Evaluate the swap and write results to EIP-1153 transient storage.

@@ -16,7 +16,7 @@ export type ChainDeployment = {
   AccessManager?: Address;
   admin?: Address;
   registryKeeper?: Address;
-  /** Key granted `_ORACLE_KEEPER` — must match apps/api KEEPER_PRIVATE_KEY for RPC publish */
+  /** Key granted `_ORACLE_KEEPER`: must match apps/api KEEPER_PRIVATE_KEY for RPC publish */
   oracleKeeper?: Address;
   hookGovernor?: Address;
   attestor?: Address;
@@ -52,7 +52,7 @@ export function getOracleKeeperAddress(d: ChainDeployment): Address {
 /**
  * Returns checked-in deployment addresses for a chain.
  * Refresh via `node scripts/deploy-local.mjs` (writes 31337.json).
- * Sepolia is not bundled — see `contracts/deployments/11155111.json` / docs/Sepolia.md.
+ * Sepolia is not bundled. See `contracts/deployments/11155111.json` / docs/Sepolia.md.
  */
 export function getDeployment(chainId: number): ChainDeployment | null {
   if (chainId === 31337) {

@@ -18,7 +18,7 @@ type Props = {
 };
 
 /**
- * Swap card — USDC→ETH amounts stay in sync with MetaMask balances.
+ * Swap card: USDC→ETH amounts stay in sync with MetaMask balances.
  */
 export function SwapWidget({
   demoCase,

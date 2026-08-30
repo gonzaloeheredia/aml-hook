@@ -41,7 +41,7 @@ export function applyLiveCaseCopy(demoCase: DemoCase): DemoCase {
   if (demoCase.id === "B") {
     if (!keepSummary) {
       summary = [
-        "Starts clean — no contamination. Swaps stay ALLOW 0.30% until a hop arrives.",
+        "Starts clean, with no contamination. Swaps remain ALLOW 0.30% until a hop arrives.",
         `After A → B: score ≈ 65 · ${hop1}. After tainted C → B: score ≈ 42 · ${hop2}.`,
         "Closer hop wins if both occur. Pool swaps never raise a hop.",
       ];
@@ -52,7 +52,7 @@ export function applyLiveCaseCopy(demoCase: DemoCase): DemoCase {
   if (demoCase.id === "C") {
     if (!keepSummary) {
       summary = [
-        "Starts clean — 50,000 USDC. Fund E (unknown, no hop) or D (inflow).",
+        "Starts clean, with 50,000 USDC. Fund E (unknown, no hop) or D (inflow).",
         `After A → C: score ≈ 65 · ${hop1}. After tainted B → C: score ≈ 42 · ${hop2}.`,
         "Closer hop wins if both occur. Pool swaps never raise a hop.",
       ];
@@ -64,9 +64,9 @@ export function applyLiveCaseCopy(demoCase: DemoCase): DemoCase {
   if (demoCase.id === "D") {
     if (!keepSummary) {
       summary = [
-        "Published score 0 — confirmed clean. Already-held USDC swaps at 0.30%.",
+        "Published score 0: confirmed clean. Already-held USDC swaps at 0.30%.",
         `Floor B: swap ${feeFloor} then Advance 5 min (no keeper write) → ${mid}. Floor C: two swaps that add to ${revertFloor} → REVERT.`,
-        `Clean C→D is inflow, not a hop: +${midEx} → ${mid}; +${revertFloor} → ${high}. A→D is a hop — do not use it for Floor D.`,
+        `Clean C→D is an inflow (no hop): +${midEx} → ${mid}; +${revertFloor} → ${high}. A→D is a hop. Do not use it for Floor D.`,
       ];
     }
     recommendations = `Swap D first (ALLOW). Advance 5 min after that swap to see Floor B ${mid}. Restart, then C→D ${midEx} (${mid}) or ${revertFloor} (${high}).`;
@@ -77,7 +77,7 @@ export function applyLiveCaseCopy(demoCase: DemoCase): DemoCase {
     amountPresets = neverScoredAmountPresets(knobs);
     if (!keepSummary) {
       summary = [
-        "No oracle row. Starts empty — fund from clean C in MetaMask (no hop). Do not use A.",
+        "No oracle row. Starts empty. Fund from clean C in MetaMask (no hop). Do not use A.",
         `After C→E ${dust} → next ${dust} swap is ${mid}. C→E ${midEx} then ${feeFloor} swap → ${high} (A mid). C→E ${revertFloor} + small swap → ${high} (D). This swap ${revertFloor} → REVERT.`,
         `${midEx} then a remainder that crosses ${revertFloor} in 24h is Floor C. Unbind the feed with POST /demo/price-feed after a quote → last FX (silent under 30 min; same bands).`,
       ];
@@ -107,7 +107,7 @@ export function applyLiveCaseCopy(demoCase: DemoCase): DemoCase {
           keepSummary
             ? opinion.decisionExecuted
             : demoCase.id === "D"
-              ? `Baseline ALLOW. After clean C→D, beforeSwap floors to FEE_OVERRIDE ${mid} (${midEx} inbound) or ${high} (${revertFloor}). D stays score 0 — no hop.`
+              ? `Baseline ALLOW. After clean C→D, beforeSwap floors to FEE_OVERRIDE ${mid} (${midEx} inbound) or ${high} (${revertFloor}). D remains score 0 (no hop).`
               : demoCase.id === "E"
                 ? `beforeSwap applies Floor A (this swap) and Floor D (bag). afterSwap emits SwapObserved on the fee path; a ${revertFloor} attempt reverts.`
                 : opinion.decisionExecuted,

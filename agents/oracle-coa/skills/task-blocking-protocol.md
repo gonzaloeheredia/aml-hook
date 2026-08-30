@@ -3,7 +3,7 @@ name: task-blocking-protocol
 description: "Execute the protocol when a sanctions match, terrorism-financing nexus, or situation beyond autonomous agent resolution is detected. Covers beforeSwap REVERT, FeeEscrow (FEE_OVERRIDE differential only), notification to the operator Compliance Officer, and confidentiality restrictions. Use immediately on any sanctions-dimension override, without waiting for analysis close."
 ---
 
-# Task: Blocking Protocol — Revert, Notification, and Fee Hold
+# Task: Blocking Protocol: Revert, Notification, and Fee Hold
 
 ## Role
 
@@ -14,34 +14,34 @@ time. Prevents the agent from operating outside its mandate.
 
 ---
 
-## Fundamental distinction: REVERT ≠ OFAC blocked property
+## Fundamental distinction: REVERT ≠ OFAC (Office of Foreign Assets Control) blocked property
 
 | Situation | Correct treatment | Incorrect treatment |
 |---|---|---|
 | Score 71–100 or sanctions match at swap time | **REVERT in `beforeSwap`.** The swap never confirms. No value transfer. Nothing to segregate on-chain. | Route swap output to a custody contract (afterSwap never holds principal) |
-| Score 31–70 (`FEE_OVERRIDE`) | Swap executes. Pool keeps the standard LP fee; **FeeEscrow holds only the risk differential** (not user capital, not designated-party property). | Treat FeeEscrow as OFAC blocked-property custody |
-| Funds already moved outside the pool (P2P, prior credit) | Outside hook scope. Notify the operator Compliance Officer. | Invent an on-chain freeze the hook cannot perform |
+| Score 31–70 (`FEE_OVERRIDE`) | Swap executes. Pool keeps the standard LP (liquidity provider) fee; **FeeEscrow holds only the risk differential** (not user capital, not designated-party property). | Treat FeeEscrow as OFAC blocked-property custody |
+| Funds already moved outside the pool (P2P (peer-to-peer), prior credit) | Outside hook scope. Notify the operator Compliance Officer. | Invent an on-chain freeze the hook cannot perform |
 
 Under OFAC, when a payment/delivery obligation exists toward a designated
 party, the asset must be blocked and kept segregated. Returning it to the
 sender may itself be a violation. **AML Hook does not create that obligation:**
 a list match fails closed in `beforeSwap`, so no delivery arises and there is
 no asset to segregate. Operator-level blocked-property duties, if they apply,
-sit with the operator — not with a hook custody contract.
+sit with the operator, not with a hook custody contract.
 
 FeeEscrow is unrelated to that OFAC path. It holds the extra risk slice
 (and, on a blocked LP exit, seized principal) for 48 hours (whitepaper §8.3).
-The COA never writes FeeEscrow. The FeeEscrow keeper submits the on-chain
-call after a sanity check. A clean risk-fee exit goes to the LP compensation
-fund. A clean principal row returns to the LP wallet. A confirmed-illicit
-row is recovered to ComplianceTreasury (`ILLICIT_RISK_FEE` or `LP_PRINCIPAL`
-by kind).
+The COA (Compliance Officer Agent) never writes FeeEscrow. The FeeEscrow
+keeper submits the on-chain call after a sanity check. A clean risk-fee exit
+goes to the LP compensation fund. A clean principal row returns to the LP
+wallet. A confirmed-illicit row is recovered to ComplianceTreasury
+(`ILLICIT_RISK_FEE` or `LP_PRINCIPAL` by kind).
 
 **Scope warning.** Applicability of blocking obligations to a pool operator
-depends on regulatory qualification and jurisdictional nexus — preliminarily
-assessed by `protocol-obligations`, confirmed by operator counsel. This skill
-records the criterion applied. It does not instruct the hook to custody swap
-output.
+depends on regulatory qualification and jurisdictional nexus. Assessed
+preliminarily by `protocol-obligations`, confirmed by operator counsel. This
+skill records the criterion applied. It does not instruct the hook to custody
+swap output.
 
 ---
 
@@ -63,9 +63,9 @@ output.
 
 | Trigger | Urgency | Action on operation |
 |---|---|---|
-| Direct OFAC SDN / UN / EU match | Critical | `REVERT` in `beforeSwap`. No on-chain custody. |
+| Direct OFAC SDN (Specially Designated Nationals) / UN (United Nations) / EU (European Union) match | Critical | `REVERT` in `beforeSwap`. No on-chain custody. |
 | Designated-contract interaction | Critical | Same |
-| TF / proliferation nexus | Critical | Same + immediate notification |
+| TF (terrorist financing) / proliferation nexus | Critical | Same + immediate notification |
 | Designated Smart Account controller | Critical | Preventive `REVERT`; human review of the subject, not asset custody |
 | Cluster-attribution match | High | `REVERT`; human review before any later score refresh |
 | Active exploit on the pool | Critical | Circuit breaker per operator config |
@@ -120,7 +120,8 @@ not contact authorities or third parties.
 - Tip-off prohibition: do not inform the subject of the analysis, report, or
   revert rationale beyond what the on-chain revert necessarily reveals.
 - Do not publish effective internal thresholds.
-- Do not file with OFAC/FinCEN — prepare material for the Compliance Officer.
+- Do not file with OFAC/FinCEN (Financial Crimes Enforcement Network). Prepare
+  material for the Compliance Officer.
 
 ---
 
@@ -129,10 +130,11 @@ not contact authorities or third parties.
 After `REVERT`:
 
 1. Write / refresh oracle score (`finalScore` 100 / `hookOutput` REVERT).
-2. Produce Opinion + SAR-support annex via `task-regulatory-report`.
+2. Produce Opinion + SAR (Suspicious Activity Report)-support annex via
+   `task-regulatory-report`.
 3. Watch outbound P2P for contamination of downstream wallets (demo B/C).
 4. Periodic review of sustained denials per `dispute-remediation` / config
-   (default 90 days) — except active sanctions overrides (not disputable here).
+   (default 90 days), except active sanctions overrides (not disputable here).
 
 After `FEE_OVERRIDE`, FeeEscrow checkpoints are driven by the FeeEscrow
 keeper from COA memos (`task-swap-decision` / dispute path). This skill does
@@ -151,7 +153,7 @@ not submit those transactions.
   "finalScore": 100,
   "custody": {
     "activated": false,
-    "reason": "beforeSwap full revert — no asset to segregate | FEE_OVERRIDE differential in FeeEscrow | pending human review (operator process, not hook custody)"
+    "reason": "beforeSwap full revert: no asset to segregate | FEE_OVERRIDE differential in FeeEscrow | pending human review (operator process, not hook custody)"
   },
   "notifications": [{"recipient": "compliance_officer", "timing": "immediate"}],
   "auditHash": "...",

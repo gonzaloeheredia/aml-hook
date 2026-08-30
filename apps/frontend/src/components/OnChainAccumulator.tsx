@@ -28,7 +28,7 @@ function afterSwapRows(event: HookChainEvent) {
   if (event.hopDistance != null) {
     rows.push({ label: "hop_distance", value: String(event.hopDistance) });
   }
-  if (event.origin && event.origin !== "—") {
+  if (event.origin && event.origin !== "n/a") {
     rows.push({ label: "origin", value: event.origin });
   }
   rows.push({ label: "timestamp", value: event.timestamp });
@@ -36,7 +36,7 @@ function afterSwapRows(event: HookChainEvent) {
 }
 
 /**
- * Pool blockchain record — only the afterSwap SwapObserved payload
+ * Pool blockchain record: only the afterSwap SwapObserved payload
  * from the project use-case document.
  */
 export function OnChainAccumulator({ events, showTitle = true }: Props) {
@@ -81,8 +81,8 @@ export function OnChainAccumulator({ events, showTitle = true }: Props) {
       ) : blockedOnly ? (
         <p className="mt-1 text-xs leading-relaxed text-uni-muted">
           <span className="font-medium text-uni-pink">REVERT</span> in{" "}
-          <span className="text-uni-pink">beforeSwap</span> — afterSwap never
-          runs, so nothing is written to the pool event log for this swap.
+          <span className="text-uni-pink">beforeSwap</span>. afterSwap never
+          runs, so the pool event log records nothing for this swap.
         </p>
       ) : (
         <p className="mt-1 text-xs text-uni-muted">

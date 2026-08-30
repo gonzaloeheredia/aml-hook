@@ -16,9 +16,9 @@ interface IERC20Vault {
     function transfer(address to, uint256 amount) external returns (bool);
 }
 
-/// @title LpCompensationVault — clean risk-fee releases, claimed by LPs after epoch close
-/// @notice FeeEscrow transfers clean `RiskFee` rows here. The vault does not decide
-///         illicit vs clean — that already happened in FeeEscrow. A keeper closes an
+/// @title LpCompensationVault: clean risk-fee releases, claimed by LPs after epoch close
+/// @notice FeeEscrow transfers clean `RiskFee` rows here. FeeEscrow already classified
+///         illicit vs clean. A keeper closes an
 ///         epoch with a merkle root of LP shares at the risk-assumption blocks. A
 ///         listed or score ≥ 71 wallet cannot claim. Unclaimed pot recycles after 90 days.
 contract LpCompensationVault is ILpCompensationVault, ReentrancyGuard {
@@ -30,7 +30,7 @@ contract LpCompensationVault is ILpCompensationVault, ReentrancyGuard {
     address public bootstrapper;
     /// @notice FeeEscrow that releases clean risk fees here.
     address public escrow;
-    /// @notice Compliance treasury — must stay a different address.
+    /// @notice Compliance treasury: must stay a different address.
     address public complianceTreasury;
     ISanctionRegistry public sanctionRegistry;
     IComplianceOracle public complianceOracle;

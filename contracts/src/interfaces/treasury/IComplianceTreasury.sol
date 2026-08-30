@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-/// @title Ledged compliance fund — two accounts, never mixed
+/// @title Ledged compliance fund: two accounts, never mixed
 /// @notice Holds seized LP principal and recovered illicit risk fees for the authority.
 ///         The LP compensation vault is a different address and is not this contract.
 interface IComplianceTreasury {

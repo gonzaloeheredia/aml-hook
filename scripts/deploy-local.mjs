@@ -4,7 +4,7 @@
  * Usage (from repo root, WSL or Git Bash with forge/anvil on PATH):
  *   node scripts/deploy-local.mjs
  *
- * Or manually:
+ * Or run these steps:
  *   anvil --disable-code-size-limit
  *   cd contracts && forge script script/Deploy.sol:Deploy --rpc-url http://127.0.0.1:8545 --broadcast --disable-code-size-limit
  *   node scripts/sync-deployment.mjs
@@ -64,7 +64,7 @@ function localForgeEnv() {
 
 async function main() {
   if (!forgeBin() && process.platform === "win32") {
-    console.log("No native forge — using WSL Foundry (scripts/deploy-local-wsl.sh) …");
+    console.log("No native forge: using WSL Foundry (scripts/deploy-local-wsl.sh) …");
     execSync("wsl -e bash scripts/deploy-local-wsl.sh", {
       cwd: root,
       stdio: "inherit",
@@ -90,7 +90,7 @@ async function main() {
       if (await rpcUp()) break;
     }
     if (!(await rpcUp())) {
-      console.error("Anvil did not start. Install Foundry and run `anvil` manually.");
+      console.error("Anvil did not start. Install Foundry and run `anvil` in a separate terminal.");
       process.exit(1);
     }
   } else {

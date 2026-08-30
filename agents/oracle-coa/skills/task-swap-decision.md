@@ -3,24 +3,25 @@ name: task-swap-decision
 description: "Translate the fact-scoring score into the ternary output AML Hook executes: allow with standard fee, apply FEE_OVERRIDE, or REVERT. Verifies override rules, validates evidentiary sufficiency, defines FEE_OVERRIDE escrow destination, and produces the on-chain reason basis. Use after fact-scoring, before task-regulatory-report."
 ---
 
-# Task: Swap Decision — Hook Output Determination
+# Task: Swap Decision: Hook Output Determination
 
 ## Role
 
 Takes `ScoreResult` and produces the decision the hook executes. Synthesis
 point where analysis becomes an economic action on a real operation.
 
-The decision is ternary — the operational translation of FATF Rec. 1 (RBA).
-A binary system treats mid-risk like low risk, or mid-risk like high risk;
-neither satisfies Rec. 1.
+The decision is ternary. It is the operational translation of FATF (Financial
+Action Task Force) Rec. 1 (RBA, risk-based approach). A binary system treats
+mid-risk like low risk, or mid-risk like high risk. Neither satisfies Rec. 1.
 
 **Demo runtime:** `hookOutput` and `recommendedFeeBps` come from the agent's
 emitted score (Claude or interpreter). Floors A–D stay on-chain in
 `RiskPolicy.decide`. Consult `uhi10-use-case` before emitting A–E fees.
 Consult `uhi10-sepolia` when the subject is not an Anvil A–E key. Never
-describe Floor A (never-scored) as a published 0. A never-scored **LP add**
-on an empty pool can revert on the 8% `take` — that is hook + inventory, not
-a COA REVERT band.
+describe Floor A (never-scored) as a published 0. A never-scored **LP
+(liquidity provider) add** on an empty pool can revert on the 8% `take`.
+That outcome is hook + inventory, not a COA (Compliance Officer Agent)
+REVERT band.
 
 ---
 
@@ -44,7 +45,7 @@ Overrides admit no weighting.
 |---|---|---|
 | Direct sanctions match | `OFAC_DIRECT_MATCH`, `UN_DIRECT_MATCH`, `EU_DIRECT_MATCH` | Score 100. `hookOutput: REVERT`. Activate `task-blocking-protocol` |
 | Designated contract | `SANCTIONED_CONTRACT_DIRECT` | Same |
-| TF / proliferation nexus | `TERRORISM_FINANCING` | Same, max urgency |
+| TF (terrorist financing) / proliferation nexus | `TERRORISM_FINANCING` | Same, max urgency |
 | Designated Smart Account controller | Hit on any controller | Preventive `REVERT` + mandatory human review |
 | Level-1 evidence unavailable | `level1Available: false` | Suspend evaluation; apply pool default policy |
 | Originator attribution unresolved | `attribution.resolved: false` under restrictive policy | `REVERT` with `ATTRIBUTION_FAILED`. No profile built. Queue deferred resolution if enabled |
@@ -62,7 +63,7 @@ Overrides admit no weighting.
 
 **Mid-band rationale.** Band 31–70 = atypical behavior without confirmed
 designation. No legal duty to hard-block. The regulatory standard is enhanced
-monitoring — `FEE_OVERRIDE` is the on-chain translation: proportional economic
+monitoring. `FEE_OVERRIDE` is the on-chain translation: proportional economic
 friction, event trail, participant not excluded.
 
 `riskLevel`: 0–30 → `STANDARD` · 31–70 → `ELEVATED` · 71–100 → `BLOCK`.
@@ -72,20 +73,21 @@ pool keeps ~30 bps; escrow holds `recommendedFeeBps − 30` when above standard.
 
 **Never-scored wallets (`updatedAt == 0`) are not this table.** The hook does
 not treat a missing row as score 0. It quotes **this swap** to USD-8
-(`lastFx` if younger than 30 minutes, else Chainlink) and applies Mitigation A, then Floor D on the unpublished bag (baseline 0
-= the whole current bag). The stricter fee wins. Official ETH/USD + USDC/USD on
-a live Deploy; `MockUsdFeed` on Anvil. Dollar cuts and 3% / 8% floors below are
-deploy defaults; `_COMPLIANCE_OFFICER` may retune them after 48h. Floor C (24h
-USD) is a separate REVERT. Demo Wallet E starts empty and is funded by clean
-C. After C→E $500 a $500 swap is 3% (A dust). After C→E $10,000 a $1,000 swap
-is 8% (A mid; D mid 3% loses). After C→E $15,000 a small swap is 8% (D bag).
-Do not fund E from A (exploit origin / score 100).
+(United States dollar, 8 decimals) (`lastFx` if younger than 30 minutes, else
+Chainlink) and applies Mitigation A, then Floor D on the unpublished bag
+(baseline 0 = the whole current bag). The stricter fee wins. Official ETH/USD
++ USDC/USD on a live Deploy; `MockUsdFeed` on Anvil. Dollar cuts and 3% / 8%
+floors below are deploy defaults; `_COMPLIANCE_OFFICER` may retune them after
+48h. Floor C (24h USD) is a separate REVERT. Demo Wallet E starts empty and
+is funded by clean C. After C→E $500 a $500 swap is 3% (A dust). After
+C→E $10,000 a $1,000 swap is 8% (A mid; D mid 3% loses). After C→E $15,000
+a small swap is 8% (D bag). Do not fund E from A (exploit origin / score 100).
 
 | Assessed USD | hookOutput | Fee |
 |---|---|---|
 | < $1,000 (`1_000e8`) | `FEE_OVERRIDE` | 3% (`FeeBps.PROPORTIONAL`) |
 | $1,000 – $14,999 | `FEE_OVERRIDE` | 8% (`FeeBps.LATENCY`) |
-| ≥ $15,000 (`15_000e8`) this swap | `REVERT` `UnscoredMagnitudeBlocked` | — |
+| ≥ $15,000 (`15_000e8`) this swap | `REVERT` `UnscoredMagnitudeBlocked` | n/a |
 | Prior 24h + this swap ≥ $15,000 | `REVERT` `DailyAggregationBlocked` | Floor C |
 | No live round and no `lastFx` within 24h | `REVERT` `MagnitudeQuoteFailed` | fail-closed |
 

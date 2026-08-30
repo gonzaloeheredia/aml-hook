@@ -137,8 +137,8 @@ contract UnitDeployTest is Helpers {
         assertTrue(adminIsAdmin);
     }
 
-    /// @dev The configurer needed the governor role for exactly one call — seeding the trusted
-    ///      router — and the script has to give that access back up afterward, same as admin.
+    /// @dev The configurer needed the governor role for exactly one call (seeding the trusted
+    ///      router) and the script has to give that access back up afterward, same as admin.
     function test_DeployWhenRunRevokesTheConfigurersTemporaryHookGovernorRole() external view {
         (bool configurerIsGovernor,) = accessManager.hasRole(Roles._HOOK_GOVERNOR, address(deployment));
         (bool hookGovernorIsGovernor,) = accessManager.hasRole(Roles._HOOK_GOVERNOR, hookGovernor);
@@ -227,9 +227,9 @@ contract UnitDeployTest is Helpers {
         assertEq(address(live.hook().priceFeeds(address(0))), ethUsd);
         assertEq(address(live.hook().priceFeeds(ChainlinkFeeds.weth(1))), ethUsd);
         assertEq(address(live.hook().priceFeeds(ChainlinkFeeds.usdc(1))), ChainlinkFeeds.usdcUsd(1));
-        // Deployed MockUSDC is not canonical mainnet USDC — leave unbound unless TOKEN_USD_FEED.
+        // Deployed MockUSDC is a repo token, not Circle mainnet USDC. Leave unbound unless TOKEN_USD_FEED.
         assertEq(address(live.hook().priceFeeds(live.feeToken())), address(0));
-        // MockWETH is the demo ETH token — bind official ETH/USD so magnitude quotes work.
+        // MockWETH is the demo ETH token. Bind official ETH/USD so magnitude quotes work.
         assertEq(address(live.hook().priceFeeds(live.wethToken())), ethUsd);
     }
 

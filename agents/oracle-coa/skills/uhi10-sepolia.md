@@ -3,16 +3,17 @@ name: uhi10-sepolia
 description: "Live Ethereum Sepolia (11155111) instantiation of the AML Hook use case. Consult when the subject is not an Anvil A–E key, when chainId is 11155111, or when asked about the official PoolManager pool, the untrusted liquidity router, satellite storage, or who may call updateScore. Do not copy Anvil hops onto Sepolia addresses."
 ---
 
-# Sepolia live pool — COA constraints
+# Sepolia live pool: COA (Compliance Officer Agent) constraints
 
 Canonical addresses: `docs/Sepolia.md` and
-`contracts/deployments/11155111.json`. This skill tells you **how to behave**.
-It does not replace `uhi10-use-case` (A–E math still applies).
+`contracts/deployments/11155111.json`. This skill states operational
+constraints. It does not replace `uhi10-use-case` (A–E math still applies).
 
-When `ORACLE_CHAIN_ID=11155111`, this API publishes to this pool: the keeper
-submits `updateScore` and the attestor signs `attestationHash`. Demo quotes
-are still `previewSwap`, not PoolManager fills. Do not copy Anvil A–E hops
-onto Sepolia EOAs.
+When `ORACLE_CHAIN_ID=11155111`, this API (application programming interface)
+publishes to this pool: the keeper submits `updateScore` and the attestor
+signs `attestationHash`. Demo quotes are still `previewSwap`, not PoolManager
+fills. Do not copy Anvil A–E hops onto Sepolia EOAs (externally owned
+accounts).
 
 ---
 
@@ -21,9 +22,9 @@ onto Sepolia EOAs.
 | Use-case role | On Sepolia |
 |---|---|
 | Wallet **E** | Any EOA (or untrusted caller) with `updatedAt == 0` on `ComplianceOracle` `0xED5ED80715D886e4cE808269e69fcDFBeD22733B` |
-| Wallet **A** | Only if you have a confirmed exploit fact on **that** address. Anvil wallet A is not this pool’s LP |
-| Listed SDN | Live OFAC SDN exact-address match → `SanctionRegistry` `0xBf46E7dad8286FC3e487C22b27F17D734814df5d` → hook `SanctionHit`. Not a use-case wallet. Do not invent hops from a listed address |
-| B / C / D hops | Only after observed P2P / facts on **these** addresses. Do not import the Anvil ledger |
+| Wallet **A** | Only if you have a confirmed exploit fact on **that** address. Anvil wallet A is not this pool’s LP (liquidity provider) |
+| Listed SDN (Specially Designated Nationals) | Live OFAC (Office of Foreign Assets Control) SDN exact-address match → `SanctionRegistry` `0xBf46E7dad8286FC3e487C22b27F17D734814df5d` → hook `SanctionHit`. Not a use-case wallet. Do not invent hops from a listed address |
+| B / C / D hops | Only after observed P2P (peer-to-peer) / facts on **these** addresses. Do not import the Anvil ledger |
 
 A fresh EOA that opens the pool on app.uniswap.org is Wallet E:
 Floor A/C/D. **Do not auto-publish** a score for that address.
@@ -45,14 +46,14 @@ the router so the seed could land (tx
 CreatePool then succeeded
 (`0xd38c46f9e38725e49362ded7e00a2ffb9174b35f82d5593aa55898aecefc02eb`).
 
-**How you treat that write**
+**Treatment of that write**
 
 - It is an **operator seed exception** (use-case §5 LP), not a finding that
   the test router is a clean trader or an attributed originator.
 - Do not hop-contaminate other addresses from that score 10.
 - Do not describe the LP EOA as published-clean because of it.
 - If asked to score the same router again, keep 0–30 unless new facts appear.
-  Do not raise it to mid-band just because it is a contract.
+  Do not raise it to mid-band because it is a contract.
 
 Trusted swap router on this deploy (not the subject): Universal Router
 `0x3A9D48AB9751398BbFa63ad67599Bb04e4BdF98b`.
@@ -64,16 +65,17 @@ Trusted swap router on this deploy (not the subject): Universal Router
 `ComplianceOracle.updateScore` is AccessManaged `_ORACLE_KEEPER` (id 2):
 `0x8132f689aB76DD5f595C7B4CC52Cab0C6e268b13`.
 
-A distinct attestor (`0xc90441a6E5B087225EC6382D6815564C6beC112c`) ECDSA-signs
-`attestationHash`. The hash **must** include `block.timestamp` of the
-publishing block. A signature over a guessed or previous timestamp reverts.
+A distinct attestor (`0xc90441a6E5B087225EC6382D6815564C6beC112c`) ECDSA
+(Elliptic Curve Digital Signature Algorithm)-signs `attestationHash`. The
+hash **must** include `block.timestamp` of the publishing block. A signature
+over a guessed or previous timestamp reverts.
 
 You draft the score. You do not submit the tx. You do not sign as attestor
 from this runtime.
 
 ---
 
-## 4. Infrastructure — never the subject
+## 4. Infrastructure: never the subject
 
 | Contract | Address | Role |
 |---|---|---|
@@ -89,8 +91,8 @@ storage: hook inherited Settlement before Activity, so `sanctionRegistry`
 read `complianceTreasury` and `isSanctioned` reverted). Current hook order is
 Activity → Governance → Settlement. Storage layout is not a scoring fact.
 
-FX: ETH/USD `0x694AA1769357215DE4FAC081bf1f309aDC325306`, USDC/USD
-`0xA2F78ab2355fe2f984D808B5CeE7FD0A93D5270E`.
+FX (foreign exchange): ETH/USD `0x694AA1769357215DE4FAC081bf1f309aDC325306`,
+USDC/USD `0xA2F78ab2355fe2f984D808B5CeE7FD0A93D5270E`.
 
 ---
 
@@ -103,4 +105,4 @@ FX: ETH/USD `0x694AA1769357215DE4FAC081bf1f309aDC325306`, USDC/USD
 3. Do not treat a listed SDN address as a hop source. Do not treat the score-10 liquidity
    router as hop 0 exploit.
 4. Subject = hook-resolved sender (§1.3 of the system prompt).
-5. Opinion sources: Etherscan / oracle / registry — never this filename.
+5. Opinion sources: Etherscan / oracle / registry. Never this filename.

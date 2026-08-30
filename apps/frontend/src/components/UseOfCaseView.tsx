@@ -21,7 +21,7 @@ const STEPS = [
     ],
     note: "D starts with 5,000 USDC and a published clean row. Size of already-held funds does not revert.",
     explain:
-      "D already holds this money and it's already scored clean. Nothing new to flag, so the swap goes through at the pool's normal fee.",
+      "D already holds this USDC and the oracle has published score 0. The hook finds no new inbound and no stale clock, so the swap settles at the pool's standard 0.30% fee.",
   },
   {
     n: "1",
@@ -33,9 +33,9 @@ const STEPS = [
       { label: "Error", value: "WalletBlocked · SCORE_REVERT_BAND" },
       { label: "Settlement", value: "None. Funds stay in A." },
     ],
-    note: "A is not on OFAC. The officer wrote score 100 from an external exploit finding. A can still send USDC off-pool to B or C. Do not send A → E.",
+    note: "A is not on OFAC (Office of Foreign Assets Control). The officer wrote score 100 from an external exploit finding. A can still send USDC off-pool to B or C. Do not send A → E.",
     explain:
-      "A's score of 100 blocks any pool swap outright — the funds never move, they just stay in A. A can still move funds off-pool; only swaps are blocked.",
+      "Score 100 sits in the revert band. beforeSwap cancels the pool swap and the funds remain in A. Off-pool transfers still leave A, so B, C, and D can receive contamination. Only the pool swap reverts.",
   },
   {
     n: "2",
@@ -49,7 +49,7 @@ const STEPS = [
       { label: "On-chain write", value: "ComplianceOracle" },
     ],
     explain:
-      "This transfer is what carries the risk forward. An off-chain engine sees it and scores B as 1 hop from A (~65); the keeper publishes that score on-chain.",
+      "The P2P (peer-to-peer) transfer carries hop risk. The off-chain engine scores B as one hop from A (about 65). The keeper then publishes that row on ComplianceOracle.",
   },
   {
     n: "3",
@@ -62,7 +62,7 @@ const STEPS = [
       { label: "Escrow", value: "Differential above 0.30%" },
     ],
     explain:
-      "A score of 55-70 doesn't block the swap, but charges a steep 8% fee as a penalty for being close to the tainted source. The extra fee goes to escrow, not lost.",
+      "Score 65 falls in the 55–70 band. The swap settles and the hook charges 8%. The pool keeps 0.30%. The remainder goes to FeeEscrow.",
   },
   {
     n: "4",
@@ -75,7 +75,7 @@ const STEPS = [
       { label: "Closer hop wins", value: "A → C is still 1 hop / 65 / 8%" },
     ],
     explain:
-      "Same mechanism, one hop further. Two hops from A dilutes the score to ~42. A closer hop always wins over a farther one if both exist.",
+      "Two hops from A produce a score of about 42. If C later receives a closer inbound from A, that 1-hop row of 65 replaces the farther hop.",
   },
   {
     n: "5",
@@ -88,11 +88,11 @@ const STEPS = [
       { label: "Optional reverse", value: "Clean B after tainted C → 42 / 3%" },
     ],
     explain:
-      "Same idea as Step 3, but the lower score falls in the cheaper FEE_OVERRIDE band: 3% instead of 8%. Farther from the tainted source, smaller penalty.",
+      "Score 42 falls in the 31–54 band. The swap settles at 3%. Distance from the exploit origin lowers the fee relative to the 1-hop path.",
   },
   {
     n: "6",
-    title: "Floor C — 24-hour USD",
+    title: "Floor C: 24-hour USD",
     action:
       "Restart data. Send 15,000 USDC from clean C → E. Connect E. Swap $10,000, then swap $5,000.",
     rows: [
@@ -101,13 +101,13 @@ const STEPS = [
       { label: "Error", value: "DailyAggregationBlocked" },
       { label: "Rule", value: "Prior 24h + this swap ≥ $15,000" },
     ],
-    note: "A first $15,000 ticket of the day is Floor A/B/D, not C. D works the same after two sized swaps that add to $15,000.",
+    note: "A first $15,000 ticket of the day is Floor A/B/D. C only fires when a later swap makes the 24-hour sum cross $15,000. D works the same after two sized swaps that add to $15,000.",
     explain:
-      "The C → E transfer never touches the hook — it is a plain ERC-20 transfer, not a swap, so no floor applies to it. Floor C only accumulates E's own swap volume against the pool: $10,000 + $5,000 = $15,000 crosses the threshold. The revert is on E's cumulative swaps, not on the incoming transfer.",
+      "The C → E transfer is a plain ERC-20 transfer. Floor C never sees it. Floor C adds E's own pool swaps: $10,000 plus $5,000 crosses $15,000. The second swap reverts.",
   },
   {
     n: "7",
-    title: "Floor B — stale score",
+    title: "Floor B: stale score",
     action:
       "Stay on D (or any published-clean wallet that already swapped this hour). Press Advance 5 min. Swap again.",
     rows: [
@@ -118,7 +118,7 @@ const STEPS = [
     ],
     note: "B never reverts. $15,000 or more → 8%. A healthy keeper stamps updatedAt so a stable clean wallet does not look stale.",
     explain:
-      "This isn't about D doing anything suspicious — it tests what happens when the score-writer goes quiet. D's score is still 0, just not refreshed in over 5 minutes, so the hook charges a small precautionary fee instead of trusting a possibly-stale row. This floor never blocks, only charges more.",
+      "This step tests a late keeper. D's score remains 0, yet updatedAt is older than five minutes and D already swapped in the hour. The hook charges 3% on a $1,000 ticket. Floor B never blocks.",
   },
   {
     n: "8",
@@ -133,7 +133,7 @@ const STEPS = [
     ],
     note: "Do not use A here: A → D is a hop. Floor D: under $1,000 passes; $1,000–$14,999 → 3%; $15,000+ → 8%. D does not revert.",
     explain:
-      "D is already published clean (score 0). C's transfer never touches the hook — it's a plain wallet-to-wallet transfer. That new money just hasn't been assessed yet. When D swaps, the hook checks for unassessed inbound funds: mid-size inflow (Step 8) costs 3% extra, large inflow (Step 9) costs 8% extra. D never reverts here — a clean source paying more while new money settles is not the same as an unscored wallet being blocked (Floor A).",
+      "D already has a published score of 0. C's transfer is a wallet-to-wallet move and never hits the hook. When D swaps, the hook prices the unassessed inbound: $10,000 sits in the mid band and costs 3%. Floor D never reverts.",
   },
   {
     n: "9",
@@ -148,11 +148,11 @@ const STEPS = [
     ],
     note: "Already-held clean funds never count as inbound. Only unknown-wallet Floor A blocks at $15,000.",
     explain:
-      "D is already published clean (score 0). C's transfer never touches the hook — it's a plain wallet-to-wallet transfer. That new money just hasn't been assessed yet. When D swaps, the hook checks for unassessed inbound funds: mid-size inflow (Step 8) costs 3% extra, large inflow (Step 9) costs 8% extra. D never reverts here — a clean source paying more while new money settles is not the same as an unscored wallet being blocked (Floor A).",
+      "The same inbound path as Step 8, at $15,000. Floor D charges 8% and still lets the swap settle. A published-clean wallet pays friction until the keeper writes. An unknown wallet at this size reverts under Floor A.",
   },
   {
     n: "10",
-    title: "E - New Wallet",
+    title: "E: New Wallet",
     action:
       "E starts empty. Fund E from clean C (P2P) or mint 1,000 USDC + 1 ETH to E. Then connect E and swap. Do not send A → E.",
     rows: [
@@ -163,13 +163,13 @@ const STEPS = [
     ],
     note: "Floor A looks at this swap. Floor D looks at the unpublished bag. The stricter fee wins. Restart between sizes so C’s 50,000 USDC covers each act.",
     explain:
-      "E can be funded two ways. C → E is a plain ERC-20 transfer; a faucet mint writes tokens straight to E. Neither path touches the hook. Floor A/D compares E's current balance to a stored baseline, so a mint and a C → E transfer of the same size have the same effect. Use C → E for the $500 / $10,000 / $15,000 sizes: the mint (panel and faucet) is a fixed 1,000 MockUSDC + 1 MockWETH. Fund from C, not A — A → E would be a hop, not an unknown-wallet test.",
+      "C → E is an ERC-20 transfer. A faucet mint writes tokens straight to E. Neither path hits the hook. Floor A sizes this swap; Floor D sizes the unpublished bag. Use C → E for the $500 / $10,000 / $15,000 acts: the mint is a fixed 1,000 MockUSDC + 1 MockWETH. Funding from A would add a hop and would leave the unknown-wallet path. After E's first score is published, it stops being an unscored wallet — Floor D (new inflow) and Floor B (stale score) now apply exactly like they do for D. Hop scoring (contamination traced back to A) doesn't apply here: it needs a transfer from a wallet that's actually tainted back to A, and there's no such address on Sepolia to send from. E's published score has no contamination origin — it only unlocks Floor B/D, not the hop path.",
   },
   {
     n: "11",
     title: "Normative review",
     action:
-      "Read why the cuts exist. No click in the demo — this is the officer / governor note.",
+      "Read why the cuts exist. This step has no click in the demo. It is the officer / governor note.",
     rows: [
       { label: "$1,000 cut", value: "FATF VASP guidance 2021, note 37" },
       { label: "$15,000 cut", value: "FATF Rec. 10 occasional CDD" },
@@ -177,7 +177,7 @@ const STEPS = [
       { label: "Who retunes", value: "Officer proposes USD floors; governor retunes windows" },
     ],
     explain:
-      "No demo action here — this is why these numbers exist. $1,000 comes from FATF guidance on virtual assets; $15,000 from FATF Recommendation 10; the 24-hour window echoes the US BSA's CTR concept. The compliance officer proposes dollar floors; the hook governor tunes time windows.",
+      "The $1,000 cut comes from FATF (Financial Action Task Force) guidance on virtual assets. The $15,000 cut comes from FATF Recommendation 10. The 24-hour window follows the BSA (Bank Secrecy Act) CTR (Currency Transaction Report) aggregation practice. The compliance officer proposes dollar floors. The hook governor retunes time windows.",
   },
   {
     n: "12",
@@ -191,7 +191,7 @@ const STEPS = [
       { label: "Never to pool", value: "User output already settled in-block" },
     ],
     explain:
-      "The extra fee from any FEE_OVERRIDE swap doesn't go straight to LPs — it sits in escrow for 24-48 hours. If nothing bad is confirmed, it releases to LPs or back to principal. If the wallet is later confirmed sanctioned or high-risk, it moves to the compliance treasury instead. The swap itself already settled; only this extra fee waits.",
+      "The extra fee from a FEE_OVERRIDE swap sits in escrow for 24 to 48 hours. A later clean finding releases the risk fee to the LP (liquidity provider) fund and returns seized principal to the LP. A later illicit finding books ComplianceTreasury. The swap output already settled in the same block.",
   },
   {
     n: "13",
@@ -205,7 +205,7 @@ const STEPS = [
       { label: "Events", value: "Successful swaps emit SwapObserved" },
     ],
     explain:
-      "After any FEE_OVERRIDE or REVERT, an Opinion documents why. With a Claude key configured, an AI model drafts it against real regulatory sources; without one, a simpler rule-based fallback fills the same structure. This screen also checks the wallet against the official OFAC sanctions list and records any match on-chain.",
+      "After FEE_OVERRIDE or REVERT, Opinion records why. With ANTHROPIC_API_KEY set, Claude drafts the file against the git corpus. Without a key, the skill interpreter fills the same schema. The COA (Compliance Officer Agent) screens OFAC SDN (Specially Designated Nationals) and writes SanctionRegistry on an exact match. The swap only reads that mapping.",
   },
 ] as const;
 
@@ -232,11 +232,11 @@ export function UseOfCaseView() {
       <div className="mt-12 grid gap-x-10 gap-y-8 md:grid-cols-2">
         <DocStory
           question="Where do I click?"
-          answer="hook is the simulator. Connect opens A–E. MetaMask Simulator moves USDC off-pool and mints 1,000 MockUSDC or 1 MockWETH to the open account. Advance 5 min is on the swap card. Unbind the price feed is POST /demo/price-feed."
+          answer="Hook is the simulator. Connect opens A–E. MetaMask Simulator moves USDC off-pool and mints 1,000 MockUSDC or 1 MockWETH to the open account. Advance 5 min is on the swap card. Unbind the price feed is POST /demo/price-feed."
         />
         <DocStory
           question="What must already be running?"
-          answer="From the repo root: npm run deploy:local, then the API and the frontend. Without Anvil the API returns 503. Hosted production talks to the Railway API."
+          answer="From the repo root: npm run deploy:local, then the API (application programming interface) and the frontend. Without Anvil the API returns 503. Hosted production talks to the Railway API."
         />
       </div>
 
@@ -292,7 +292,7 @@ export function UseOfCaseView() {
           <DocMeta label="1 hop / 2 hops" value="≈ 65 / 8% · ≈ 42 / 3%" />
           <DocMeta
             label="Sanctions"
-            value="Named-address OFAC is hook functionality, not a demo wallet"
+            value="Named-address OFAC is hook functionality. It is not a demo wallet."
           />
           <DocMeta
             label="Local quotes"

@@ -5,7 +5,7 @@ import {IRiskPolicy} from "../interfaces/policies/IRiskPolicy.sol";
 import {FeeBps} from "./FeeBps.sol";
 import {HookDecision} from "./HookDecision.sol";
 
-/// @title RiskPolicyLib — pure compliance decision engine (Layer 3)
+/// @title RiskPolicyLib: pure compliance decision engine (Layer 3)
 /// @notice Maps a published COA score + floor signals A–D to ALLOW / FEE_OVERRIDE / REVERT.
 /// @dev Pure: one memory pointer in, one result out. No storage, no external calls, no agent.
 library RiskPolicyLib {

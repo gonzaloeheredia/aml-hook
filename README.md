@@ -2,7 +2,7 @@
 
 Uniswap v4 hook that evaluates the swap subject at execution and returns a ternary decision: **ALLOW**, **FEE_OVERRIDE**, or **REVERT**.
 
-The hook does not compute risk on-chain. The Compliance Officer Agent emits a score; an off-chain keeper writes it into `ComplianceOracle`. `beforeSwap` reads that row, applies sanctions and latency floors, and either lets the swap through, takes a risk differential into `FeeEscrow`, or reverts. Liquidity add and remove resolve the LP via a trusted router’s `msgSender()` (or the direct sender). Listed or score ≥ 71 cannot add. Known 31–70 pays a 3%/8% mint fee; never-scored adds reuse Floor A/C/D. On a blocked remove the LP receives nothing in-tx: principal and fees wait 48h in `FeeEscrow` (clean principal returns to the LP). Pause stops swaps, not a clean mint or exit.
+The hook does not compute risk on-chain. The Compliance Officer Agent (COA) emits a score; an off-chain keeper writes it into `ComplianceOracle`. `beforeSwap` reads that row, applies sanctions and latency floors, and either lets the swap through, takes a risk differential into `FeeEscrow`, or reverts. Liquidity add and remove resolve the liquidity provider (LP) via a trusted router’s `msgSender()` (or the direct sender). A listed wallet or a score of 71 or above cannot add. A known score of 31–70 pays a 3% or 8% mint fee. Never-scored adds reuse Floor A, C, and D. On a blocked remove the LP receives nothing in that transaction: principal and fees wait 48 hours in `FeeEscrow` (clean principal returns to the LP). Pause stops swaps. A clean mint or exit still proceeds.
 
 ## Documentation
 
@@ -11,26 +11,26 @@ The product thesis and the executable scenario live in `docs/`. Read those befor
 | Document | Contents |
 | --- | --- |
 | [`docs/Whitepaper.md`](docs/Whitepaper.md) | Problem, architecture, roles, FeeEscrow, latency floors, regulatory framing, and competitive map |
-| [`docs/Use_Case.md`](docs/Use_Case.md) | Six-wallet run of the whitepaper: exploit, N-hop, D floors (B/C/inflow/$15k), E bands + window + feed, Opinion |
-| [`docs/Sepolia.md`](docs/Sepolia.md) | Live Ethereum Sepolia pool + hook addresses (official PoolManager). Hosted API can write that chain; SDK `getDeployment` stays 31337 |
+| [`docs/Use_Case.md`](docs/Use_Case.md) | Six-wallet run of the whitepaper: exploit, N-hop, D floors (B, C, inflow, $15k), E bands plus window plus feed, Opinion |
+| [`docs/Sepolia.md`](docs/Sepolia.md) | Live Ethereum Sepolia pool and hook addresses (official PoolManager). The hosted API (application programming interface) can write that chain. SDK `getDeployment` stays on 31337 |
 
 Supporting notes:
 
 | Document | Contents |
 | --- | --- |
 | [`contracts/README.md`](contracts/README.md) | Foundry layout, call path, roles |
-| [`apps/api/README.md`](apps/api/README.md) | Keeper + COA (Anvil local, Sepolia when `ORACLE_CHAIN_ID=11155111`) |
-| [`apps/frontend/README.md`](apps/frontend/README.md) | Guided UI |
-| [`agents/oracle-coa/`](agents/oracle-coa/) | COA skill specs |
-| [`corpus/README.md`](corpus/README.md) | Versioned FATF / FinCEN / Treasury / Wolfsberg corpus |
+| [`apps/api/README.md`](apps/api/README.md) | Keeper and COA (Anvil local; Sepolia when `ORACLE_CHAIN_ID=11155111`) |
+| [`apps/frontend/README.md`](apps/frontend/README.md) | Guided user interface (UI) |
+| [`agents/oracle-coa/`](agents/oracle-coa/) | COA skill specifications |
+| [`corpus/README.md`](corpus/README.md) | Versioned FATF (Financial Action Task Force), FinCEN (Financial Crimes Enforcement Network), Treasury, and Wolfsberg corpus |
 
 ## Decision surface
 
 | Condition | Output | Settlement |
 | --- | --- | --- |
 | Score 0–30, published and fresh | ALLOW | Pool fee 0.30% |
-| Score 31–54 (keeper omitted fee) | FEE_OVERRIDE | Pool keeps 0.30%. Extra slice → FeeEscrow (48h). Fallback 3% |
-| Score 55–70 (keeper omitted fee) | FEE_OVERRIDE | Pool keeps 0.30%. Extra slice → FeeEscrow (48h). Fallback 8% |
+| Score 31–54 (keeper omitted fee) | FEE_OVERRIDE | Pool keeps 0.30%. Extra slice goes to FeeEscrow (48h). Fallback 3% |
+| Score 55–70 (keeper omitted fee) | FEE_OVERRIDE | Pool keeps 0.30%. Extra slice goes to FeeEscrow (48h). Fallback 8% |
 | Score 71–100 | REVERT | No swap |
 | Sanctions list | REVERT | No swap. Score is not read. LP add and remove also revert (`SanctionHit`) |
 | Published 0 + inbound USD under $1,000 | ALLOW | Floor D dust |
@@ -82,7 +82,7 @@ storage slots match (`UnitAmlHookStorageLayoutTest`). Live Sepolia addresses:
 | `RiskPolicy` / `RiskPolicyLib` | Score + floors → decision. Hook **calls** `RiskPolicy.decide` (external). `RiskPolicyLib` is the pure mapping inside that contract. Also used off-chain as preview. No external calls from the policy itself |
 | `FeeEscrow` | 48h hold of the extra fee. Clean / early / default → `LpCompensationVault` (LP merkle claim). Confirmed illicit → ComplianceTreasury (delayed authority payout). Own access list |
 | `LpCompensationVault` | Accrues clean risk fees. Keeper closes an epoch; LPs claim. Listed / score ≥ 71 cannot claim. |
-| `ComplianceTreasury` | `LP_PRINCIPAL` + `ILLICIT_RISK_FEE`. `proposePayout` / `executePayout` (48h) to an allowlisted destination — never the vault. |
+| `ComplianceTreasury` | `LP_PRINCIPAL` + `ILLICIT_RISK_FEE`. `proposePayout` / `executePayout` (48h) to an allowlisted destination. The destination is never the vault. |
 | `AccessManager` | Shared authority for registry, oracle, hook governor, and compliance officer |
 
 Subject resolution uses a trusted router (`IMsgSender.msgSender()`). Uniswap `hookData` is ignored. An untrusted initiator reverts before any layer runs.
@@ -91,7 +91,7 @@ Writes are split so a score keeper cannot move escrow, and an escrow keeper cann
 
 ## Demo wallets
 
-The frontend talks to the API. Locally the API reads and writes the use-case ledger on Anvil (wallets A–E = accounts #1–#5). Hosted, the same UI can point at a Sepolia API (`NEXT_PUBLIC_API_URL`); the A–E picker stays a simulator. Named-address OFAC (`SanctionHit`) is hook Layer 1 — whitepaper §8.6 — not a demo wallet.
+The frontend talks to the API. Locally the API reads and writes the use-case ledger on Anvil (wallets A–E = accounts #1–#5). Hosted, the same UI can point at a Sepolia API (`NEXT_PUBLIC_API_URL`); the A–E picker stays a simulator. Named-address OFAC (`SanctionHit`) is hook Layer 1 (whitepaper §8.6). It is not a demo wallet.
 
 | Wallet | Starting state | What to try |
 | --- | --- | --- |
@@ -106,7 +106,7 @@ The frontend talks to the API. Locally the API reads and writes the use-case led
 ```bash
 npm install
 
-# required — Anvil, AccessManager-wired stack, keeper env for the API
+# required: Anvil, AccessManager-wired stack, keeper env for the API
 npm run deploy:local
 
 npm run dev:api        # http://localhost:4000
@@ -136,7 +136,7 @@ curl http://127.0.0.1:4000/health
 | --- | --- |
 | AccessManager, SanctionRegistry, ComplianceOracle, RiskPolicy, AmlHook, FeeEscrow | Deployed contracts |
 | Liquidity sanctions gate | On-chain for add **and** remove. Pause blocks add and swaps, not a clean LP exit. Demo UI is still swap-only |
-| PoolManager | Anvil: `MockPoolManager` unless `POOL_MANAGER` is set. Sepolia: official Uniswap v4 `0xE03A1074…3543` — live initialize + liquidity (`docs/Sepolia.md`). The guided demo swap is still `previewSwap` + `observeSwap` + FeeEscrow (either chain) |
+| PoolManager | Anvil: `MockPoolManager` unless `POOL_MANAGER` is set. Sepolia: official Uniswap v4 `0xE03A1074…3543`. Live initialize + liquidity (`docs/Sepolia.md`). The guided demo swap is still `previewSwap` + `observeSwap` + FeeEscrow on either chain |
 | `updateScore` | Signed tx. Local: keeper #0 + attestor #9. Sepolia: `_ORACLE_KEEPER` + attestor in [`docs/Sepolia.md`](docs/Sepolia.md) |
 | Demo balances, P2P, quotes, escrow rows | Anvil for the A–E walkthrough. P2P is ERC-20 `transfer`. Sepolia faucet: `POST /demo/mint` `{ address }` |
 | USD quotes | `lastFx` if younger than 30 minutes; else one Chainlink round per token (`lastFx` until 24h if the live round is missing). Anvil: `MockUsdFeed` ($1 fee token, $1000 ETH). Live chain: official Chainlink ETH/USD + USDC/USD. Extra tokens: governor `setPriceFeed` |
@@ -166,7 +166,7 @@ const d = getDeployment(31337);
 ```text
 aml-hook/
 ├── docs/               Whitepaper, use case, Sepolia addresses
-├── contracts/          Foundry — src/contracts · interfaces · AccessManager deploy
+├── contracts/          Foundry. src/contracts, interfaces, AccessManager deploy
 ├── apps/api/           COA, keeper (Anvil or Sepolia)
 ├── apps/frontend/      Next.js demo
 ├── packages/sdk/       ABIs and Anvil addresses

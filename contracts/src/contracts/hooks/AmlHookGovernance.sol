@@ -6,7 +6,7 @@ import {FeeBps} from "../../libraries/FeeBps.sol";
 import {MultisigAggregation, MultisigType, TrustedMultisig} from "../../libraries/WalletSubject.sol";
 import {IAggregatorV3} from "../../interfaces/external/IAggregatorV3.sol";
 
-/// @title AmlHookGovernance — external configuration setters for compliance parameters
+/// @title AmlHookGovernance: external configuration setters for compliance parameters
 /// @notice Adds all tunable parameter setters on top of AmlHookGovernanceBase state.
 ///         The swap-evaluation path (AmlHookLogic) is read-only here.
 ///         Sensitive floor parameters require a compliance-officer proposal followed by a

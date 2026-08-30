@@ -11,8 +11,8 @@ import type { HookEvent, TransferRecord, Wallet, WalletId } from "./types.js";
 
 /**
  * Builds the initial A–E wallet ledger from the use case:
- * A = exploit origin (score 100, not OFAC-listed); B and C start clean (symmetric N-hop);
- * D = published score 0 (already-held funds ALLOW; clean C→D is inflow, not a hop);
+ * A = exploit origin, score 100, not on OFAC (Office of Foreign Assets Control); B and C start clean (symmetric N-hop);
+ * D = published score 0 (already-held funds ALLOW; clean C→D is inflow (no hop));
  * E = unknown, starts empty (fund from C).
  */
 function seedWallets(): Record<WalletId, Wallet> {
@@ -20,7 +20,7 @@ function seedWallets(): Record<WalletId, Wallet> {
     A: {
       id: "A",
       accountLabel: "Account A · Exploit",
-      role: "Confirmed exploit — score 100 · WalletBlocked on pool; P2P can still contaminate B/C/D",
+      role: "Confirmed exploit: score 100 · WalletBlocked on pool. P2P (peer-to-peer) outflows can contaminate B, C, and D",
       address: DEMO_WALLETS.A.address,
       usdc: 10_000_000,
       eth: 5,
@@ -32,7 +32,7 @@ function seedWallets(): Record<WalletId, Wallet> {
     B: {
       id: "B",
       accountLabel: "Account B · Clean",
-      role: "Clean wallet — A→B = 1-hop (~65); tainted C→B = 2-hop (~42)",
+      role: "Clean wallet. A→B is 1-hop (~65). Tainted C→B is 2-hop (~42)",
       address: DEMO_WALLETS.B.address,
       usdc: 25_000,
       eth: 4,
@@ -44,7 +44,7 @@ function seedWallets(): Record<WalletId, Wallet> {
     C: {
       id: "C",
       accountLabel: "Account C · Clean",
-      role: "Clean wallet — fund E (unknown) or D (inflow); A→C = 1-hop (~65)",
+      role: "Clean wallet. Fund E (unknown) or D (inflow). A→C is 1-hop (~65)",
       address: DEMO_WALLETS.C.address,
       usdc: 50_000,
       eth: 8,
@@ -56,7 +56,7 @@ function seedWallets(): Record<WalletId, Wallet> {
     D: {
       id: "D",
       accountLabel: "Account D · Score 0",
-      role: "Published score 0 — ALLOW on already-held funds; clean C→D → inflow by size (no hop)",
+      role: "Published score 0. Already-held funds ALLOW. Clean C→D is inflow by size (no hop)",
       address: DEMO_WALLETS.D.address,
       usdc: 5_000,
       eth: 2,
@@ -68,7 +68,7 @@ function seedWallets(): Record<WalletId, Wallet> {
     E: {
       id: "E",
       accountLabel: "E - New Wallet",
-      role: "New wallet — starts empty. Fund from clean C (no hop). Floor A/D by bag and swap size",
+      role: "New wallet. Starts empty. Fund from clean C (no hop). Floor A/D by bag and swap size",
       address: DEMO_WALLETS.E.address,
       usdc: 0,
       eth: 1,
@@ -85,7 +85,7 @@ type Store = {
   wallets: Record<WalletId, Wallet>;
   transfers: TransferRecord[];
   events: HookEvent[];
-  /** Inflow heuristic baseline (USDC) per wallet — refreshed afterSwap. */
+  /** Inflow heuristic baseline (USDC) per wallet: refreshed afterSwap. */
   lastKnownUsdc: Record<WalletId, number>;
   /** Demo clock when lastKnownUsdc was last written (D: score newer than this clears inflow). */
   lastKnownAt: Record<WalletId, number>;
@@ -110,7 +110,7 @@ const EMPTY_ACTIVITY: WalletActivity = { windowStart: 0, ops: 0, windowUsd: 0 };
 const EMPTY_DAILY: DailyActivity = { windowStart: 0, usd: 0 };
 
 export const ACTIVITY_WINDOW_MS = 3_600_000;
-/** Floor C — BSA CTR-style 24-hour USD aggregation. */
+/** Floor C: BSA CTR-style 24-hour USD aggregation. */
 export const DAILY_WINDOW_MS = 86_400_000;
 /** Floor B: same window as `AmlHookLogic.DEFAULT_STALENESS` (5 minutes). */
 export const STALENESS_MS = 300_000;

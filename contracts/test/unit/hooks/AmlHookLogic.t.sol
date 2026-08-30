@@ -724,7 +724,7 @@ contract UnitAmlHookLogicTest is HelpersCore {
 
         vm.startPrank(hookGovernor);
         harness.syncBaseline(walletA, address(token));
-        // 20k USD via observeSwap — must not count toward Floor C.
+        // 20k USD via observeSwap: must not count toward Floor C.
         harness.observeSwap(walletA, address(token), 20_000 ether);
         vm.stopPrank();
 
@@ -733,7 +733,7 @@ contract UnitAmlHookLogicTest is HelpersCore {
         assertEq(uint8(d), uint8(HookDecision.ALLOW));
     }
 
-    // ── H-01: Floor B extra gate — stale wallet should be escalated even on opCount==0 ──
+    // ── H-01: Floor B extra gate: stale wallet should be escalated even on opCount==0 ──
 
     function test_StalePoolImpact_ElevatesOnWindowBoundary_OpCountZero() external {
         vm.prank(keeper);
@@ -758,7 +758,7 @@ contract UnitAmlHookLogicTest is HelpersCore {
 
         token.mint(walletA, 100 ether);
 
-        // Seed baseline at T0 — oracle updatedAt == block.timestamp > 0.
+        // Seed baseline at T0: oracle updatedAt == block.timestamp > 0.
         vm.prank(hookGovernor);
         harness.syncBaseline(walletA, address(token));
 
@@ -794,7 +794,7 @@ contract UnitAmlHookLogicTest is HelpersCore {
         vm.warp(block.timestamp + 2 hours);
         token.mint(walletA, 500 ether);
 
-        // Keeper re-scores after inflow — oracle.updatedAt > lastKnownBalanceTimestamp.
+        // Keeper re-scores after inflow: oracle.updatedAt > lastKnownBalanceTimestamp.
         vm.prank(keeper);
         complianceOracle.updateScore(walletA, 5, 0, address(0), 0, _scoreSigN(walletA, 5, 0, address(0), 0, 1));
 

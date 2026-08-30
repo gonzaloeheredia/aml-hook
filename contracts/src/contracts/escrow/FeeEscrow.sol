@@ -14,7 +14,7 @@ interface IERC20Fee {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
 }
 
-/// @title FeeEscrow — 48-hour hold of extra risk fees and seized LP principal (whitepaper §8.3)
+/// @title FeeEscrow: 48-hour hold of extra risk fees and seized LP principal (whitepaper §8.3)
 /// @notice Holds the extra slice on a fee-override, an LP-add risk fee, and seized LP
 ///         principal / `feesAccrued`. Not the swap output. User capital on a swap settles
 ///         in the same block. A blocked LP exit waits here 48 hours.
@@ -38,13 +38,13 @@ interface IERC20Fee {
 ///        ────────────────────────────   ────────────────────────────   ─────────────────────────
 ///        0–24h                          Optional review                Same hold
 ///        24–48h                         Early → LP compensation fund   Early → LP wallet
-///        At 48h, illicit confirmed      Block; later tesorería         Block; later tesorería
+///        At 48h, illicit confirmed      Block; later treasury          Block; later treasury
 ///                                       `ILLICIT_RISK_FEE`             `LP_PRINCIPAL`
 ///        At 48h, not illicit            LP compensation fund           LP wallet
 ///        Nobody resolved by 48h         LP compensation fund           LP wallet
 ///
 ///      Two destinations, and they cannot be the same address. Every clean **risk-fee**
-///      exit — early release, clean checkpoint, or default — goes to the LP compensation
+///      exit (early release, clean checkpoint, or default) goes to the LP compensation
 ///      fund. A clean **principal** row pays the LP wallet. A confirmed-illicit row stays
 ///      blocked while the operator produces the file. Then the escrow owner (a Safe in
 ///      production) recovers it after at least 7 days, only to ComplianceTreasury, booked
@@ -54,8 +54,8 @@ interface IERC20Fee {
 ///      `FeeRecovered` records destination, token, amount, wallet, and the originating
 ///      fingerprint so the movement is auditable against the fee-override or seized exit.
 ///
-///      FeeEscrow has its own owner, keeper, depositor, and auditor — not the shared
-///      AccessManager. Ownership is two-step and starts as the admin or a dedicated
+///      FeeEscrow has its own owner, keeper, depositor, and auditor. It does not use the
+///      shared AccessManager. Ownership is two-step and starts as the admin or a dedicated
 ///      escrow owner, not the deploying key. The hook is registered as depositor once
 ///      at deploy; that bootstrap key is then cleared.
 contract FeeEscrow is IFeeEscrow, ReentrancyGuard {

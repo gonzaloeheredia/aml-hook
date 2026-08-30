@@ -15,4 +15,4 @@ forge script script/Deploy.sol:Deploy \
   --broadcast \
   --private-key "$ANVIL_KEY"
 
-echo "Broadcast OK — sync from Windows: node scripts/sync-deployment.mjs"
+echo "Broadcast OK. Sync from Windows: node scripts/sync-deployment.mjs"

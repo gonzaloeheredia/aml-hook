@@ -14,7 +14,7 @@ const ETH_ADDR = /0x[a-fA-F0-9]{40}(?![a-fA-F0-9])/g;
 const DEFAULT_TTL_MS = 6 * 60 * 60 * 1000;
 const FETCH_MS = 25_000;
 
-/** Official OFAC SDN dumps (CSV first — smaller than SDN Advanced XML). */
+/** Official OFAC SDN dumps (CSV first: smaller than SDN Advanced XML). */
 export const OFAC_SDN_URLS = [
   "https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN.CSV",
   "https://www.treasury.gov/ofac/downloads/sdn.csv",

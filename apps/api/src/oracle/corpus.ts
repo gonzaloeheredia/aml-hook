@@ -1,7 +1,7 @@
 /**
  * Git-versioned regulatory corpus for search_regulations.
  *
- * Answers come from corpus/ only — never from model training memory.
+ * Answers come from corpus/ only. Model training memory is not a source.
  * Operational OFAC SDN screening is SanctionRegistry, not this tree.
  */
 

@@ -109,11 +109,11 @@ export function ofacFindingText(result: OfacScreenResult): string {
       : subject.registry?.ok
         ? `written to SanctionRegistry${subject.registry.txHash ? ` (${subject.registry.txHash})` : ""}`
         : `registry write failed (${subject.registry?.error ?? "unknown"})`;
-    return `DIRECT MATCH on OFAC SDN ETH list (${n} addresses, ${src}, as of ${asOf}${stale}). Subject ${subject.address} — ${wrote}. Next swap reads the mapping (SanctionHit).`;
+    return `DIRECT MATCH on OFAC SDN ETH list (${n} addresses, ${src}, as of ${asOf}${stale}). Subject ${subject.address}: ${wrote}. Next swap reads the mapping (SanctionHit).`;
   }
   const peer = result.counterparties.find((c) => c.match);
   if (peer) {
-    return `Subject ${subject.address} clear on OFAC SDN (${n} addresses, ${src}, as of ${asOf}${stale}). P2P counterparty ${peer.address} is a DIRECT MATCH — written to SanctionRegistry. Subject is indirect exposure, not a list hit.`;
+    return `Subject ${subject.address} clear on OFAC SDN (${n} addresses, ${src}, as of ${asOf}${stale}). P2P counterparty ${peer.address} is a DIRECT MATCH: written to SanctionRegistry. Subject has indirect exposure. The subject is not a list hit.`;
   }
   return `Clear on OFAC SDN ETH list (${n} addresses, ${src}, as of ${asOf}${stale}). Exact-address screen; not written to SanctionRegistry.`;
 }

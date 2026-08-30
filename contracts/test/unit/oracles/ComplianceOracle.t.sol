@@ -279,7 +279,7 @@ contract UnitComplianceOracleTest is HelpersCore {
         complianceOracle.updateScore(walletA, 30, 0, address(0), 0, sig);
         assertEq(complianceOracle.updateNonce(walletA), 1);
 
-        // Attempt to replay the same signature — nonce is now 1, hash differs → InvalidAttestation.
+        // Attempt to replay the same signature. Nonce is now 1, hash differs → InvalidAttestation.
         vm.warp(block.timestamp + 1);
         vm.prank(keeper);
         vm.expectRevert(ComplianceOracle.InvalidAttestation.selector);

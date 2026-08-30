@@ -5,7 +5,7 @@ import { IgnoreMetaMaskNoise } from "@/components/IgnoreMetaMaskNoise";
 import "./globals.css";
 
 /**
- * Body / UI — geometric sans. Headings — editorial serif.
+ * Body / UI: geometric sans. Headings: editorial serif.
  */
 const sans = Inter({
   variable: "--font-sans",
@@ -23,7 +23,7 @@ const serif = Newsreader({
 export const metadata: Metadata = {
   title: "AML Hook · Uniswap Demo",
   description:
-    "Visual demo of the AML Hook for Uniswap v4 — exploit cash-out detection, N-hop decay fees, and ternary ALLOW / FEE_OVERRIDE / REVERT.",
+    "Visual demo of the AML Hook for Uniswap v4: exploit cash-out detection, N-hop decay fees, and ternary ALLOW / FEE_OVERRIDE / REVERT.",
 };
 
 /**

@@ -3,7 +3,7 @@ pragma solidity ^0.8.26;
 
 import {IERC20Minimal} from "../interfaces/external/IERC20Minimal.sol";
 
-/// @title Inflow — Mitigation D pre-swap inbound token delta detector
+/// @title Inflow: Mitigation D pre-swap inbound token delta detector
 /// @notice Compares the wallet's current ERC-20 balance against the last-known baseline to detect
 ///         a significant inflow that may have arrived since the score was last written.
 library Inflow {

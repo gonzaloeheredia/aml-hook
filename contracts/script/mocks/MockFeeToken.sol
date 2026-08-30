@@ -2,7 +2,7 @@
 pragma solidity ^0.8.26;
 
 /// @notice MOCK mintable ERC-20 for local FeeEscrow deploys (Anvil).
-/// @dev Deploy-time tooling under script/mocks — not part of the on-chain app surface.
+/// @dev Deploy-time tooling under script/mocks. Off the on-chain app surface.
 contract MockFeeToken {
     string public name = "Mock Fee Token";
     string public symbol = "FEE";

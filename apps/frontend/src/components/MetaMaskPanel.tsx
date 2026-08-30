@@ -21,7 +21,7 @@ type Props = {
   activeId: SimWalletId;
   onActiveChange: (id: SimWalletId) => void;
   /**
-   * Posts a P2P transfer to the backend and updates local ledger state.
+   * Posts a P2P (peer-to-peer) transfer to the backend and updates local ledger state.
    * Returns an error message on failure.
    */
   onSendTransfer: (
@@ -120,7 +120,7 @@ export function MetaMaskPanel({
       return;
     }
     if (parsedAmount > active.usdc) {
-      setError(`Insufficient USDC — available ${formatUsdc(active.usdc)}`);
+      setError(`Insufficient USDC. Available: ${formatUsdc(active.usdc)}`);
       return;
     }
     setSending(true);
@@ -255,7 +255,7 @@ export function MetaMaskPanel({
               </button>
               <h3 className="text-xl font-bold text-white">Send USDC</h3>
               <p className="mt-1 text-sm text-white/50">
-                Moves USDC between A–E. For D inflow (no hop), send from C while C is still clean — not from A.
+                Moves USDC between A–E via P2P (peer-to-peer). For D inflow (no hop), send from C while C is still clean. Do not send from A.
               </p>
 
               <label className="mt-6 text-[11px] uppercase tracking-wider text-white/40">

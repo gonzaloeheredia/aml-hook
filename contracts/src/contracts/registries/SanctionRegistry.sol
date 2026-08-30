@@ -5,7 +5,7 @@ import {AccessManaged} from "@openzeppelin/contracts/access/manager/AccessManage
 
 import {ISanctionRegistry} from "../../interfaces/registries/ISanctionRegistry.sol";
 
-/// @title Layer 1 — SanctionRegistry (REAL on-chain list)
+/// @title Layer 1: SanctionRegistry (REAL on-chain list)
 /// @notice Static sanctions screening (whitepaper §3.2 Layer 1 / §3.5 / §4.1 OFAC/SDN).
 ///
 /// @dev `setSanctioned` remains available for immediate emergencies and for the COA's

@@ -3,7 +3,7 @@
  * ComplianceOracle.updatedAt so Floor B does not fire on a stable wallet.
  *
  * Tick is 3 minutes (`KEEPER_TICK_MS`). Floor B arms at 5 minutes
- * (`stalenessThreshold`). The tick does not call Claude — it stamps the last
+ * (`stalenessThreshold`). The tick does not call Claude. It stamps the last
  * agent score. If the agent is down, this heartbeat still keeps a published
  * row fresh. If there is no last score (`neverScored`, Wallet E), the tick
  * skips.

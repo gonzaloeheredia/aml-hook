@@ -8,7 +8,7 @@ type ShellProps = {
 };
 
 /**
- * Document chrome shared by Whitepaper and Use of case —
+ * Document chrome shared by Whitepaper and Use of case:
  * same centered serif title and max-width as LegalOpinion.
  */
 export function DocShell({ title, children }: ShellProps) {

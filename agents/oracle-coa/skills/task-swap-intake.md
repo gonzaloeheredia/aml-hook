@@ -3,7 +3,7 @@ name: task-swap-intake
 description: "Receive and classify a swap event or wallet evaluation request before assigning the analysis flow. Determines evaluation mode, extracts swap parameters, checks oracle score validity, and defines which domain skills must run. Always use as the first step on a new event: inbound swap, afterSwap update, LP report, or scheduled wallet review."
 ---
 
-# Task: Swap Intake — Event Reception and Classification
+# Task: Swap Intake: Event Reception and Classification
 
 ## Role
 
@@ -12,10 +12,11 @@ mode, and defines the workflow. Does not analyze substance: classifies and route
 
 **Demo runtime:** FULL on seed and new contamination; INCREMENTAL after
 `SwapObserved`. Live Claude waits on `POST /transfers` and `POST /swaps`.
-`COA_LIVE=0` / tests use the skill interpreter. This API is Anvil `31337`
-only. A Sepolia LP add / swap is out of band: classify the hook-resolved
-subject (`uhi10-sepolia`), do not auto-PRECOMPUTE a new EOA (Wallet E), and
-do not import the Anvil A–E ledger.
+`COA_LIVE=0` / tests use the skill interpreter. This API (application
+programming interface) is Anvil `31337` only. A Sepolia LP (liquidity
+provider) add / swap is out of band: classify the hook-resolved subject
+(`uhi10-sepolia`), do not auto-PRECOMPUTE a new EOA (externally owned
+account) (Wallet E), and do not import the Anvil A–E ledger.
 
 ---
 
@@ -23,8 +24,8 @@ do not import the Anvil A–E ledger.
 
 | Mode | Trigger | Latency | Depth |
 |---|---|---|---|
-| **PRECOMPUTE** | New wallet or scheduled expiry review | High — async | Full |
-| **POST_SWAP** | `SwapObserved` from `afterSwap` | Medium — seconds to minutes | Incremental on ST / NW |
+| **PRECOMPUTE** | New wallet or scheduled expiry review | High: async | Full |
+| **POST_SWAP** | `SwapObserved` from `afterSwap` | Medium: seconds to minutes | Incremental on ST / NW |
 | **ON_DEMAND** | Explicit operator / Compliance Officer request | High | Full, with case file |
 | **ALERT** | Validated LP report, Forta alert, sanctions list update | Immediate | Directed at triggering fact |
 | **DISPUTE** | Admitted challenge, external signal retraction, forwarder key revocation | High | Recalc on challenged facts |
@@ -77,8 +78,8 @@ series analysis (unilateral extraction vs bidirectional trading).
 
 | Level | Criterion | Response |
 |---|---|---|
-| **Critical** | Sanctions hit, designated contract, TF nexus, active exploit alert | Immediate → `task-blocking-protocol` |
-| **High** | Prior score ≥ 71, active cumulative typology, validated LP report, unscored wallet assessed USD ≥ $1,000 (hook 8% or $15,000 REVERT) | Priority recalc |
+| **Critical** | Sanctions hit, designated contract, TF (terrorist financing) nexus, active exploit alert | Immediate → `task-blocking-protocol` |
+| **High** | Prior score ≥ 71, active cumulative typology, validated LP report, unscored wallet assessed USD (United States dollar) ≥ $1,000 (hook 8% or $15,000 REVERT) | Priority recalc |
 | **Medium** | Prior 31–70, routine post-swap, new wallet assessed USD < $1,000 (hook 3% band) | Standard queue |
 | **Low** | Scheduled review in STANDARD band | Deferred queue |
 
@@ -161,5 +162,5 @@ Skill flows (`agent.ts`):
 ```
 
 > Operates on information available at event receipt. If insufficient to
-> classify, record the gap and assign the full flow by default — missing data
+> classify, record the gap and assign the full flow by default. Missing data
 > must not be resolved by assuming low risk.

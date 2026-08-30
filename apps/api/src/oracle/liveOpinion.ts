@@ -80,7 +80,7 @@ A live SDN match is hook Layer 1 (SanctionRegistry → SanctionHit), not a
 use-case wallet and not WalletBlocked.
 If the frozen score looks inconsistent with wallets A–E or the use-case
 floors, call \`consult_skill\` with name \`uhi10-use-case\` (and
-\`uhi10-sepolia\` if the subject is not an Anvil A–E key) — do not change
+\`uhi10-sepolia\` if the subject is not an Anvil A–E key). Do not change
 the published score. Never-scored is Floor A, not a COA 0.
 Cite only documents returned by that tool (git corpus). Never fill norms from
 training memory. If the tool returns nothing, declare a coverage gap.
@@ -92,10 +92,10 @@ After tool use, reply with a single JSON object (no markdown) using this shape:
   "riskAndScoring": "string (WHY)",
   "typologies": "string (WHAT)",
   "sanctionsCheck": "string (WHEN)",
-  "sourcesConsulted": ["string (WHERE — venue / evidence, no skill names)"],
+  "sourcesConsulted": ["string (WHERE: venue / evidence, no skill names)"],
   "decisionExecuted": "string (HOW)",
-  "legalBasis": "string — cite corpus ids with publicationDate",
-  "recommendations": "string — for the pool Compliance Officer only",
+  "legalBasis": "string: cite corpus ids with publicationDate",
+  "recommendations": "string: for the pool Compliance Officer only",
   "traceability": "string",
   "sarAnnex": null or {
     "narrativeDescription": "string",

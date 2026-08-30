@@ -62,7 +62,7 @@ const BASE_NODES: NodeDef[] = [
 ];
 
 const NODE_W = 156;
-/** Base card height (decision card is taller — reserved space for branches) */
+/** Base card height (decision card is taller: reserved space for branches) */
 const NODE_H = 92;
 const DECIDE_H = 138;
 const GAP_X = 42;
@@ -75,7 +75,7 @@ const PAD_B = 20;
 /**
  * Snake grid like the n8n reference:
  * Row 0 → 1 2 3 4
- * Row 1 → 5 6 7  (wrap under, left-to-right — lines never cross)
+ * Row 1 → 5 6 7  (wrap under, left-to-right: lines never cross)
  */
 const DEFAULT_SLOTS: Record<string, { col: number; row: number }> = {
   sign: { col: 0, row: 0 },
@@ -210,7 +210,7 @@ const AFTER_FLOW_HOLD_MS = 3000;
 type StepId = keyof DemoCase["stepTimesSec"];
 
 /**
- * Dwell time for a flow node — matches the layer's recorded execution time.
+ * Dwell time for a flow node: matches the layer's recorded execution time.
  */
 function stepDurationMs(times: DemoCase["stepTimesSec"], id: string): number {
   const sec = times[id as StepId] ?? 0.2;
@@ -419,7 +419,7 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
     setDropTargetId(null);
   };
 
-  // 4 columns × 2 rows — fits viewport; out node (col 2) always on-screen
+  // 4 columns × 2 rows: fits viewport; out node (col 2) always on-screen
   const canvasWidth = START_X + 4 * NODE_W + 3 * GAP_X + PAD_R;
   const canvasHeight = START_Y + NODE_H + GAP_Y + DECIDE_H + PAD_B;
 

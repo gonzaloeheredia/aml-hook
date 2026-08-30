@@ -16,7 +16,7 @@ export type HookChainEvent = {
   address: string;
   score: number;
   decision: "ALLOW" | "FEE_OVERRIDE" | "REVERT";
-  /** Human-readable fee, e.g. "0.30%" or "—" */
+  /** Human-readable fee, e.g. "0.30%" or "n/a" */
   fee: string;
   feeBps: number;
   amountUsd: number;
@@ -64,7 +64,7 @@ export function buildHookChainEvent(args: {
     address,
     score: demoCase.score,
     decision,
-    fee: blocked ? "—" : `${(demoCase.appliedFeeBps / 100).toFixed(2)}%`,
+    fee: blocked ? "n/a" : `${(demoCase.appliedFeeBps / 100).toFixed(2)}%`,
     feeBps: blocked ? 0 : demoCase.appliedFeeBps,
     amountUsd: demoCase.activity.amountUsd,
     hopDistance: demoCase.activity.hopDistance,
@@ -103,7 +103,7 @@ export function hookEventFromApi(
     address: event.address,
     score: event.score,
     decision: event.decision,
-    fee: blocked ? "—" : `${(event.feeBps / 100).toFixed(2)}%`,
+    fee: blocked ? "n/a" : `${(event.feeBps / 100).toFixed(2)}%`,
     feeBps: event.feeBps,
     amountUsd: event.amountUsd,
     hopDistance: event.hopDistance,
@@ -129,7 +129,7 @@ export function formatEventPayload(event: HookChainEvent): string {
   if (event.hopDistance != null) {
     lines.push(`  hop_distance: ${event.hopDistance}`);
   }
-  if (event.origin && event.origin !== "—") {
+  if (event.origin && event.origin !== "n/a") {
     lines.push(`  origin: ${event.origin}`);
   }
   lines.push(`  timestamp: ${event.timestamp}`);
