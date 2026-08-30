@@ -6,6 +6,7 @@ import {IAccessManaged} from "@openzeppelin/contracts/access/manager/IAccessMana
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 import {AmlHookGovernance} from "contracts/hooks/AmlHookGovernance.sol";
+import {AmlHookGovernanceBase} from "contracts/hooks/AmlHookGovernanceBase.sol";
 import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
@@ -80,7 +81,7 @@ contract UnitAmlHookLogicAdminTest is HelpersCore {
 
     function test_Constructor_RejectsStalenessAboveMax() external {
         uint256 tooHigh = harness.MAX_STALENESS() + 1;
-        vm.expectRevert(AmlHookGovernance.StalenessThresholdTooHigh.selector);
+        vm.expectRevert(AmlHookGovernanceBase.StalenessThresholdTooHigh.selector);
         new AmlHookHarness(
             address(accessManager),
             sanctionRegistry,
@@ -92,7 +93,7 @@ contract UnitAmlHookLogicAdminTest is HelpersCore {
     }
 
     function test_Constructor_RejectsInvalidActivityWindow() external {
-        vm.expectRevert(AmlHookGovernance.ActivityWindowInvalid.selector);
+        vm.expectRevert(AmlHookGovernanceBase.ActivityWindowInvalid.selector);
         new AmlHookHarness(address(accessManager), sanctionRegistry, complianceOracle, riskPolicy, 300, 1);
     }
 
@@ -102,7 +103,7 @@ contract UnitAmlHookLogicAdminTest is HelpersCore {
         harness.setMinBaselineInterval(2 hours);
 
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookGovernance.BaselineIntervalZero.selector);
+        vm.expectRevert(AmlHookGovernanceBase.BaselineIntervalZero.selector);
         harness.setMinBaselineInterval(0);
 
         vm.prank(hookGovernor);
@@ -116,12 +117,12 @@ contract UnitAmlHookLogicAdminTest is HelpersCore {
         harness.setPriceStalenessThreshold(120);
 
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookGovernance.PriceStalenessThresholdInvalid.selector);
+        vm.expectRevert(AmlHookGovernanceBase.PriceStalenessThresholdInvalid.selector);
         harness.setPriceStalenessThreshold(0);
 
         uint256 tooHigh = harness.MAX_PRICE_STALENESS() + 1;
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookGovernance.PriceStalenessThresholdInvalid.selector);
+        vm.expectRevert(AmlHookGovernanceBase.PriceStalenessThresholdInvalid.selector);
         harness.setPriceStalenessThreshold(tooHigh);
 
         vm.prank(hookGovernor);
@@ -186,11 +187,11 @@ contract UnitAmlHookLogicAdminTest is HelpersCore {
         uint64 belowMin = harness.MIN_DAILY_WINDOW() - 1;
         uint64 aboveMax = harness.MAX_DAILY_WINDOW() + 1;
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookGovernance.DailyWindowInvalid.selector);
+        vm.expectRevert(AmlHookGovernanceBase.DailyWindowInvalid.selector);
         harness.setDailyWindow(belowMin);
 
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookGovernance.DailyWindowInvalid.selector);
+        vm.expectRevert(AmlHookGovernanceBase.DailyWindowInvalid.selector);
         harness.setDailyWindow(aboveMax);
 
         vm.prank(hookGovernor);
@@ -205,11 +206,11 @@ contract UnitAmlHookLogicAdminTest is HelpersCore {
         harness.setTrustedMultisig(safe, MultisigType.GNOSIS_SAFE, true);
 
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookGovernance.MissingSwapSubject.selector);
+        vm.expectRevert(AmlHookGovernanceBase.MissingSwapSubject.selector);
         harness.setTrustedMultisig(address(0), MultisigType.GNOSIS_SAFE, true);
 
         vm.prank(hookGovernor);
-        vm.expectRevert(AmlHookGovernance.MissingSwapSubject.selector);
+        vm.expectRevert(AmlHookGovernanceBase.MissingSwapSubject.selector);
         harness.setTrustedMultisig(safe, MultisigType.NONE, true);
 
         vm.prank(hookGovernor);

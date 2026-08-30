@@ -19,7 +19,10 @@ arbitrary scores.
 Demo Wallet A emits `EXPLOIT_PROTOCOL_FUNDS` only (not `OFAC_DIRECT_MATCH`).
 The officer wrote score 100; the pool path is `WalletBlocked`. Demo Wallet E
 starts empty and is funded by clean C (no hop); never-written bands are
-hook-local, not a COA score.
+hook-local, not a COA score. A new Sepolia EOA is the same unpublished path
+until a keeper writes (`uhi10-sepolia`). Do not apply Anvil hopDistance to
+Sepolia addresses. An operator seed write of 0–30 on the untrusted
+`PoolModifyLiquidityTest` is not `EXPLOIT_PROTOCOL_FUNDS` and not hop 0.
 
 Outputs serve two functions:
 

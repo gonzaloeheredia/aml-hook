@@ -219,7 +219,7 @@ contract UnitAmlHookLiquidityTest is Helpers {
 
     function test_PausedHookAllowsCleanAddLiquidity() external {
         vm.prank(hookGovernor);
-        hook.pause();
+        AmlHookGovernance(address(hook)).pause();
 
         bytes4 sel = manager.callBeforeAddLiquidity(IHooks(address(hook)), walletC, key, addParams, "");
         assertEq(sel, hook.beforeAddLiquidity.selector);
@@ -228,7 +228,7 @@ contract UnitAmlHookLiquidityTest is Helpers {
     function test_PausedHookStillBlocksSanctionedAdd() external {
         _sanction(sanctionRegistry, keeper, walletA);
         vm.prank(hookGovernor);
-        hook.pause();
+        AmlHookGovernance(address(hook)).pause();
 
         vm.expectRevert(abi.encodeWithSelector(AmlHookLogic.SanctionHit.selector, walletA));
         manager.callBeforeAddLiquidity(IHooks(address(hook)), walletA, key, addParams, "");
@@ -236,7 +236,7 @@ contract UnitAmlHookLiquidityTest is Helpers {
 
     function test_PausedHookStillAllowsCleanRemoveLiquidity() external {
         vm.prank(hookGovernor);
-        hook.pause();
+        AmlHookGovernance(address(hook)).pause();
 
         bytes4 sel =
             manager.callBeforeRemoveLiquidity(IHooks(address(hook)), walletC, key, removeParams, "");
@@ -247,7 +247,7 @@ contract UnitAmlHookLiquidityTest is Helpers {
         _sanction(sanctionRegistry, keeper, walletB);
 
         vm.prank(hookGovernor);
-        hook.pause();
+        AmlHookGovernance(address(hook)).pause();
 
         manager.callBeforeRemoveLiquidity(IHooks(address(hook)), walletB, key, removeParams, "");
         assertEq(hook.nextSeizeId(), 1);
@@ -257,7 +257,7 @@ contract UnitAmlHookLiquidityTest is Helpers {
         address sender = _bindTrustedSubject(walletC);
 
         vm.prank(hookGovernor);
-        hook.pause();
+        AmlHookGovernance(address(hook)).pause();
 
         vm.expectRevert();
         manager.callBeforeSwap(IHooks(address(hook)), sender, key, _buildParams(), "");
@@ -288,8 +288,8 @@ contract UnitAmlHookLiquidityTest is Helpers {
     function test_NeverScoredLargeAddRevertsLikeFloorA() external {
         _bindUsdFeeds();
         vm.startPrank(hookGovernor);
-        hook.setPriceFeed(address(token0), address(usdFeed));
-        hook.setPriceFeed(address(token1), address(usdFeed));
+        AmlHookGovernance(address(hook)).setPriceFeed(address(token0), address(usdFeed));
+        AmlHookGovernance(address(hook)).setPriceFeed(address(token1), address(usdFeed));
         vm.stopPrank();
 
         manager.callBeforeAddLiquidity(IHooks(address(hook)), walletE, key, addParams, "");
@@ -332,8 +332,8 @@ contract UnitAmlHookLiquidityTest is Helpers {
     function test_NeverScoredSmallAddTakesProportionalFee() external {
         _bindUsdFeeds();
         vm.startPrank(hookGovernor);
-        hook.setPriceFeed(address(token0), address(usdFeed));
-        hook.setPriceFeed(address(token1), address(usdFeed));
+        AmlHookGovernance(address(hook)).setPriceFeed(address(token0), address(usdFeed));
+        AmlHookGovernance(address(hook)).setPriceFeed(address(token1), address(usdFeed));
         vm.stopPrank();
 
         uint256 paid = 500 ether;
@@ -356,8 +356,8 @@ contract UnitAmlHookLiquidityTest is Helpers {
     function test_NeverScoredAddsCrossing15kRevertLikeFloorC() external {
         _bindUsdFeeds();
         vm.startPrank(hookGovernor);
-        hook.setPriceFeed(address(token0), address(usdFeed));
-        hook.setPriceFeed(address(token1), address(usdFeed));
+        AmlHookGovernance(address(hook)).setPriceFeed(address(token0), address(usdFeed));
+        AmlHookGovernance(address(hook)).setPriceFeed(address(token1), address(usdFeed));
         vm.stopPrank();
 
         uint256 first = 10_000 ether;

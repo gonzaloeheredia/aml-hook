@@ -11,6 +11,8 @@ import {FeeEscrow} from "contracts/escrow/FeeEscrow.sol";
 import {SanctionRegistry} from "contracts/registries/SanctionRegistry.sol";
 import {Roles} from "libraries/Roles.sol";
 import {Deploy} from "script/Deploy.sol";
+import {MockUSDC} from "src/mocks/MockUSDC.sol";
+import {MockWETH} from "src/mocks/MockWETH.sol";
 import {UniversalRouters} from "libraries/UniversalRouters.sol";
 import {Helpers} from "test/utils/Helpers.t.sol";
 
@@ -83,8 +85,8 @@ contract UnitDeployTest is Helpers {
         assertEq(hook.stalenessThreshold(), 300);
 
         vm.startPrank(hookGovernor);
-        hook.setStalenessThreshold(120);
-        hook.setActivityWindow(2 hours);
+        AmlHookGovernance(address(hook)).setStalenessThreshold(120);
+        AmlHookGovernance(address(hook)).setActivityWindow(2 hours);
         vm.stopPrank();
 
         // It grants each role exactly the writes it needs
@@ -106,7 +108,7 @@ contract UnitDeployTest is Helpers {
 
         vm.prank(oracleKeeper);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, oracleKeeper));
-        hook.setStalenessThreshold(1);
+        AmlHookGovernance(address(hook)).setStalenessThreshold(1);
     }
 
     /// @dev The admin governs roles and is granted none of them, so it cannot write any contract.
@@ -121,7 +123,7 @@ contract UnitDeployTest is Helpers {
 
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, owner));
-        hook.setStalenessThreshold(1);
+        AmlHookGovernance(address(hook)).setStalenessThreshold(1);
     }
 
     /// @dev The step that is easy to skip: without it the deploying key stays a permanent admin.
@@ -190,12 +192,29 @@ contract UnitDeployTest is Helpers {
         assertFalse(sanctionRegistry.isSanctioned(demoA));
     }
 
+    function test_DeployWhenRunOnAnvil_DeploysMockUsdcWithSixDecimals() external view {
+        MockUSDC token = deployment.mockUsdc();
+        assertTrue(address(token) != address(0));
+        assertEq(address(token), deployment.feeToken());
+        assertEq(token.decimals(), 6);
+        assertEq(token.symbol(), "USDC");
+    }
+
+    function test_DeployWhenRunOnAnvil_DeploysMockWethWithEighteenDecimals() external view {
+        MockWETH token = deployment.mockWeth();
+        assertTrue(address(token) != address(0));
+        assertEq(address(token), deployment.wethToken());
+        assertEq(token.decimals(), 18);
+        assertEq(token.symbol(), "ETH");
+    }
+
     function test_DeployWhenRunOnAnvil_BindsMockUsdFeeds() external view {
         assertTrue(deployment.ethUsdFeed() != address(0));
         assertTrue(deployment.usdFeed() != address(0));
         assertTrue(deployment.ethUsdFeed() != ChainlinkFeeds.ethUsd(1));
         assertEq(address(hook.priceFeeds(address(0))), deployment.ethUsdFeed());
         assertEq(address(hook.priceFeeds(deployment.feeToken())), deployment.usdFeed());
+        assertEq(address(hook.priceFeeds(deployment.wethToken())), deployment.ethUsdFeed());
     }
 
     function test_DeployWhenRunOnEthereum_BindsOfficialChainlinkFeeds() external {
@@ -208,8 +227,10 @@ contract UnitDeployTest is Helpers {
         assertEq(address(live.hook().priceFeeds(address(0))), ethUsd);
         assertEq(address(live.hook().priceFeeds(ChainlinkFeeds.weth(1))), ethUsd);
         assertEq(address(live.hook().priceFeeds(ChainlinkFeeds.usdc(1))), ChainlinkFeeds.usdcUsd(1));
-        // MockFeeToken is not canonical USDC — leave unbound (fail-closed) unless TOKEN_USD_FEED.
+        // Deployed MockUSDC is not canonical mainnet USDC — leave unbound unless TOKEN_USD_FEED.
         assertEq(address(live.hook().priceFeeds(live.feeToken())), address(0));
+        // MockWETH is the demo ETH token — bind official ETH/USD so magnitude quotes work.
+        assertEq(address(live.hook().priceFeeds(live.wethToken())), ethUsd);
     }
 
     function test_DeployWhenRunWiresFeeEscrowAsHookDepositor() external view {
@@ -348,13 +369,13 @@ contract UnitDeployTest is Helpers {
     function test_GovernorCannotApplyPolicyParams() external {
         vm.prank(hookGovernor);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, hookGovernor));
-        hook.applyUnscoredThresholds(2_000e8, 50_000e8);
+        AmlHookGovernance(address(hook)).applyUnscoredThresholds(2_000e8, 50_000e8);
     }
 
     function test_ComplianceOfficerCannotRetuneGovernorKnobs() external {
         address officer = deployment.complianceOfficer();
         vm.prank(officer);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, officer));
-        hook.setStalenessThreshold(120);
+        AmlHookGovernance(address(hook)).setStalenessThreshold(120);
     }
 }

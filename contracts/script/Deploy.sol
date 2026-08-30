@@ -15,14 +15,16 @@ import {ComplianceTreasury} from "../src/contracts/treasury/ComplianceTreasury.s
 import {AmlHook} from "../src/contracts/hooks/AmlHook.sol";
 import {AmlHookGovernance} from "../src/contracts/hooks/AmlHookGovernance.sol";
 import {AmlHookLogic} from "../src/contracts/hooks/AmlHookLogic.sol";
+import {AmlHookSatellite} from "../src/contracts/hooks/AmlHookSatellite.sol";
 import {IFeeEscrow} from "../src/interfaces/escrow/IFeeEscrow.sol";
 import {IComplianceTreasury} from "../src/interfaces/treasury/IComplianceTreasury.sol";
 import {Roles} from "../src/libraries/Roles.sol";
 import {ChainlinkFeeds} from "../src/libraries/ChainlinkFeeds.sol";
 import {UniversalRouters} from "../src/libraries/UniversalRouters.sol";
+import {MockUSDC} from "../src/mocks/MockUSDC.sol";
+import {MockWETH} from "../src/mocks/MockWETH.sol";
 import {MockPoolManager} from "./mocks/MockPoolManager.sol";
 import {MockTrustedRouter} from "./mocks/MockTrustedRouter.sol";
-import {MockFeeToken} from "./mocks/MockFeeToken.sol";
 import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
 
 /// @notice Deploys the REAL on-chain AML stack (manager, registry, oracle, policy, hook) and wires
@@ -44,24 +46,31 @@ import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
 ///        nothing in-tx: principal and feesAccrued sit in FeeEscrow 48h (clean principal
 ///        returns to the LP; illicit recover books tesorería `LP_PRINCIPAL` vs `ILLICIT_RISK_FEE`).
 ///      - MOCK: PoolManager defaults to MockPoolManager (no live Uniswap swaps).
+///        Sepolia: set POOL_MANAGER to the official manager (docs/Sepolia.md).
+///      - REAL: AmlHookSatellite (DELEGATECALL). AmlHook must inherit Activity /
+///        Governance before Settlement or satellite slot 1 is complianceTreasury.
 ///      - MOCK: MockTrustedRouter only when the chain has no canonical Universal Router
 ///        (Anvil). On Uniswap-supported chains, Deploy registers the app.uniswap.org
 ///        Universal Router (+ 2.1.1 when distinct) via setTrustedRouter.
-    ///      - MOCK: MockFeeToken if FEE_TOKEN unset (FeeEscrow custody asset).
+    ///      - MOCK: MockUSDC (6 decimals) if FEE_TOKEN unset — pool / FeeEscrow custody asset.
+    ///      - MOCK: MockWETH (18 decimals, mintable “ETH”) if WETH_TOKEN unset. Bound to ETH/USD.
     ///      - REAL: Chainlink AggregatorV3 ETH/USD + USDC/USD + WETH on known chains.
     ///        MOCK: MockUsdFeed only on Anvil (31337) or when no official feed exists.
     ///      Optional env:
     ///      - POOL_MANAGER: real PoolManager address (else MockPoolManager)
-    ///      - FEE_TOKEN: FeeEscrow custody asset (else MockFeeToken)
+    ///      - FEE_TOKEN: FeeEscrow custody asset (else MockUSDC, 6 decimals)
+    ///      - WETH_TOKEN: mintable demo ETH (else MockWETH, 18 decimals)
     ///      - LP_COMPENSATION_FUND: where a clean extra fee goes (early / clean / default). Defaults
     ///        to FEE_ESCROW_OWNER / ADMIN, never to the deploying key when those differ.
     ///      Recovered illicit fees go to ComplianceTreasury (wired as FeeEscrow.complianceReserve),
     ///      never to the LP compensation fund.
     ///      - FEE_ESCROW_OWNER: FeeEscrow `owner` from genesis (defaults to ADMIN). Production MUST
     ///        be a Gnosis Safe; the deployer is only a one-shot `bootstrapper` for the hook depositor.
-    ///      - ETH_USD_FEED / TOKEN_USD_FEED (alias USD_FEED): override Chainlink AggregatorV3
-    ///        proxies. Unset → official Data Feed for the chain (ETH/USD, USDC/USD, WETH).
-    ///        Anvil (31337) has no official feed and falls back to MockUsdFeed ($1 USDC, $1000 ETH).
+///      - ETH_USD_FEED / TOKEN_USD_FEED (alias USD_FEED): override Chainlink AggregatorV3
+///        proxies. Unset → official Data Feed for the chain (ETH/USD, USDC/USD, WETH).
+///        Anvil (31337) has no official feed and falls back to MockUsdFeed ($1 USDC, $1000 ETH).
+///        MockUSDC is not canonical USDC — set TOKEN_USD_FEED on live chains or the
+///        fee token has no USD binding.
     ///      - TRUSTED_ROUTER: extra router to trust in addition to the canonical Universal Router
     ///      - PRIVATE_KEY: broadcaster (defaults to Anvil account #0)
     ///      - ADMIN / REGISTRY_KEEPER / ORACLE_KEEPER / HOOK_GOVERNOR / COMPLIANCE_OFFICER: default
@@ -144,6 +153,8 @@ contract Deploy is Script {
 
     /// @notice The deployed hook
     AmlHook public hook;
+    /// @notice The deployed evaluation + governance satellite (DELEGATECALL target)
+    AmlHookSatellite public satellite;
 
     /// @notice 48-hour hold of the extra risk fee (whitepaper §8.3)
     FeeEscrow public feeEscrow;
@@ -154,8 +165,17 @@ contract Deploy is Script {
     /// @notice PoolManager used by the hook (real or MockPoolManager)
     address public poolManager;
 
-    /// @notice FeeEscrow custody token (MockFeeToken locally). Also the demo USDC.
+    /// @notice FeeEscrow custody token (MockUSDC locally). Also the demo / pool USDC.
     address public feeToken;
+
+    /// @notice MockUSDC deployed by this script, or zero when `FEE_TOKEN` was provided.
+    MockUSDC public mockUsdc;
+
+    /// @notice Demo ETH (MockWETH locally). Priced by the ETH/USD feed — not native gas.
+    address public wethToken;
+
+    /// @notice MockWETH deployed by this script, or zero when `WETH_TOKEN` was provided.
+    MockWETH public mockWeth;
 
     /// @notice Bound USD feed for the fee token (Chainlink USDC/USD, env override, or Anvil mock).
     address public usdFeed;
@@ -277,6 +297,22 @@ contract Deploy is Script {
         uint64 activityWindow,
         address attestor
     ) private {
+        address feeTokenAddr = vm.envOr("FEE_TOKEN", address(0));
+        if (feeTokenAddr == address(0)) {
+            mockUsdc = new MockUSDC();
+            feeTokenAddr = address(mockUsdc);
+            console2.log("MockUSDC", feeTokenAddr);
+        }
+        feeToken = feeTokenAddr;
+
+        address wethTokenAddr = vm.envOr("WETH_TOKEN", address(0));
+        if (wethTokenAddr == address(0)) {
+            mockWeth = new MockWETH();
+            wethTokenAddr = address(mockWeth);
+            console2.log("MockWETH", wethTokenAddr);
+        }
+        wethToken = wethTokenAddr;
+
         accessManager = new AccessManager(configurer);
         sanctionRegistry = new SanctionRegistry(address(accessManager));
         complianceOracle = new ComplianceOracle(address(accessManager), attestor);
@@ -288,13 +324,6 @@ contract Deploy is Script {
             console2.log("MockPoolManager", poolManagerAddr);
         }
         poolManager = poolManagerAddr;
-
-        address feeTokenAddr = vm.envOr("FEE_TOKEN", address(0));
-        if (feeTokenAddr == address(0)) {
-            feeTokenAddr = address(new MockFeeToken());
-            console2.log("MockFeeToken", feeTokenAddr);
-        }
-        feeToken = feeTokenAddr;
         address lpFund = vm.envOr("LP_COMPENSATION_FUND", address(0));
         if (lpFund == address(0)) lpFund = feeEscrowOwner;
         if (lpFund == configurer && configurer != feeEscrowOwner) revert Deploy_LpFundIsConfigurer(configurer);
@@ -323,10 +352,14 @@ contract Deploy is Script {
         (address hookAddr, bytes32 salt) =
             HookMiner.find(create2Origin, flags, type(AmlHook).creationCode, constructorArgs);
 
+        satellite = new AmlHookSatellite(IPoolManager(poolManagerAddr), address(accessManager));
+        console2.log("AmlHookSatellite", address(satellite));
+
         hook = new AmlHook{salt: salt}(IPoolManager(poolManagerAddr), address(accessManager));
         require(address(hook) == hookAddr, "hook address mismatch");
 
         hook.initialize(
+            address(satellite),
             sanctionRegistry,
             complianceOracle,
             riskPolicy,
@@ -385,18 +418,18 @@ contract Deploy is Script {
             trustedRouter = address(mockRouter);
             console2.log("MockTrustedRouter", trustedRouter);
         }
-        hook.setTrustedRouter(trustedRouter, true);
+        AmlHookGovernance(address(hook)).setTrustedRouter(trustedRouter, true);
 
         _bindPriceFeeds(feeToken);
         if (canonical != address(0) && canonical != trustedRouter) {
-            hook.setTrustedRouter(canonical, true);
+            AmlHookGovernance(address(hook)).setTrustedRouter(canonical, true);
             console2.log("UniversalRouter", canonical);
         } else if (canonical != address(0)) {
             console2.log("UniversalRouter", canonical);
         }
         address v211 = UniversalRouters.appRouterV211(block.chainid);
         if (v211 != address(0) && v211 != trustedRouter) {
-            hook.setTrustedRouter(v211, true);
+            AmlHookGovernance(address(hook)).setTrustedRouter(v211, true);
             console2.log("UniversalRouterV211", v211);
         }
 
@@ -586,9 +619,13 @@ contract Deploy is Script {
             console2.log("MockEthUsdFeed", ethUsd);
         }
         if (ethUsd != address(0)) {
-            hook.setPriceFeed(address(0), ethUsd);
+            AmlHookGovernance(address(hook)).setPriceFeed(address(0), ethUsd);
             address weth = ChainlinkFeeds.weth(block.chainid);
-            if (weth != address(0)) hook.setPriceFeed(weth, ethUsd);
+            if (weth != address(0)) AmlHookGovernance(address(hook)).setPriceFeed(weth, ethUsd);
+            if (wethToken != address(0) && wethToken != weth) {
+                AmlHookGovernance(address(hook)).setPriceFeed(wethToken, ethUsd);
+                console2.log("MockWethUsdFeed", ethUsd);
+            }
             ethUsdFeed = ethUsd;
             console2.log("EthUsdFeed", ethUsd);
         }
@@ -596,7 +633,7 @@ contract Deploy is Script {
         address usdc = ChainlinkFeeds.usdc(block.chainid);
         address usdcUsd = ChainlinkFeeds.usdcUsd(block.chainid);
         if (usdc != address(0) && usdcUsd != address(0)) {
-            hook.setPriceFeed(usdc, usdcUsd);
+            AmlHookGovernance(address(hook)).setPriceFeed(usdc, usdcUsd);
             console2.log("UsdcUsdFeed", usdcUsd);
         }
 
@@ -615,7 +652,7 @@ contract Deploy is Script {
             console2.log("MockUsdFeed", feeFeed);
         }
         if (feeFeed != address(0)) {
-            hook.setPriceFeed(feeTokenAddr, feeFeed);
+            AmlHookGovernance(address(hook)).setPriceFeed(feeTokenAddr, feeFeed);
             usdFeed = feeFeed;
             console2.log("FeeTokenUsdFeed", feeFeed);
         }
@@ -705,6 +742,12 @@ contract Deploy is Script {
             '",\n',
             '  "feeToken": "',
             vm.toString(feeToken),
+            '",\n'
+        );
+        json = string.concat(
+            json,
+            '  "wethToken": "',
+            vm.toString(wethToken),
             '",\n',
             '  "usdFeed": "',
             vm.toString(usdFeed),

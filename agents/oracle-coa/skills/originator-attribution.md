@@ -9,10 +9,22 @@ description: "Determine who the real actor is behind the address reaching the ho
 
 Answers the question that conditions everything else: who is the analysis about?
 
-In Uniswap v4, `msg.sender` reaching the hook is rarely the user’s wallet.
-Most swaps arrive via Universal Router, aggregators, strategy contracts, or
-Smart Accounts. Scoring that address builds a risk profile of shared
-infrastructure used by millions of operations — not of an actor.
+In Uniswap v4, `msg.sender` reaching the hook is often a router. Scoring a
+**trusted** router builds a risk profile of shared infrastructure — not of
+an actor.
+
+**This product (AML Hook today).** `hookData` is ignored. The hook already
+resolved the subject before you run:
+
+| Caller | Subject |
+|---|---|
+| Trusted forwarder (Anvil demo router; Sepolia Universal Router `0x3A9D48AB9751398BbFa63ad67599Bb04e4BdF98b`) | Originator field (`SwapParams.msgSender` / LP equivalent). Never score the router. |
+| Untrusted contract (Sepolia first mint: `PoolModifyLiquidityTest` `0x0C478023803a644c94c4CE1C1e7b9A087e411B0A`) | **That contract is the subject.** Same floors and oracle row as a user wallet. |
+| Direct EOA | That EOA |
+
+Do not score PoolManager, AmlHook, AmlHookSatellite, oracle, or tokens.
+Signed `hookData` below is the general model / future integrator path — it
+is **not** what `beforeSwap` reads on this deploy.
 
 That profile converges to the ecosystem average and never hits a useful
 threshold (system detects nothing). If somehow it did, it would block every
@@ -47,6 +59,11 @@ must warn when configuring the pool.
 **Demo runtime:** the UHI10 Anvil walkthrough attributes wallets A–E through
 the trusted router / known demo identities. It does not exercise a live
 signed-`hookData` path.
+
+**Sepolia runtime:** this API is not pointed at `11155111`. A new EOA vs the
+live pool is use-case Wallet E until a keeper writes. Consult `uhi10-sepolia`
+before treating an untrusted LP router as “failed attribution” — it is a
+scored subject, not a missing originator.
 
 ---
 

@@ -28,6 +28,8 @@ import {
   postTransfer,
   postReset,
   postDemoElapse,
+  postDemoMint,
+  postDemoFaucet,
   walletsRecord,
   type ApiCompliancePack,
 } from "@/lib/api";
@@ -101,9 +103,9 @@ export default function HomePage() {
     () => initialSimWallets(),
   );
   const [simActiveId, setSimActiveId] = useState<SimWalletId>("A");
-  const [transfers, setTransfers] = useState<TransferRecord[]>([]);
+  const [, setTransfers] = useState<TransferRecord[]>([]);
   const [chainEvents, setChainEvents] = useState<HookChainEvent[]>([]);
-  const [auditRevealKey, setAuditRevealKey] = useState(0);
+  const [, setAuditRevealKey] = useState(0);
 
   const [stage, setStage] = useState<DemoStage>("swap");
   const [slideDir, setSlideDir] = useState<1 | -1>(1);
@@ -310,6 +312,48 @@ export default function HomePage() {
       const msg = err instanceof ApiError ? err.message : "Transfer failed";
       setApiError(msg);
       return msg;
+    }
+  };
+
+  const handleMint = async (
+    id: SimWalletId,
+    token: "usdc" | "eth",
+    amount: number,
+  ): Promise<string | null> => {
+    if (id === "F") {
+      return "Wallet F is an OFAC SDN subject — mint is disabled.";
+    }
+    if (apiStatus !== "online") {
+      return "Anvil is required. Run npm run deploy:local and start the API.";
+    }
+    try {
+      const res = await postDemoMint(id, token, amount);
+      setSimWallets(walletsRecord(res.wallets));
+      setApiError(null);
+      return null;
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Mint failed";
+      setApiError(msg);
+      return msg;
+    }
+  };
+
+  const handleFaucet = async (address: string) => {
+    if (apiStatus !== "online") {
+      return { error: "API is offline. The faucet needs the Sepolia-backed API." };
+    }
+    try {
+      const res = await postDemoFaucet(address);
+      return {
+        error: null,
+        address: res.address,
+        usdcTx: res.usdcTx,
+        ethTx: res.ethTx,
+      };
+    } catch (err) {
+      return {
+        error: err instanceof ApiError ? err.message : "Faucet mint failed",
+      };
     }
   };
 
@@ -530,20 +574,6 @@ export default function HomePage() {
     refreshCompliance,
     refreshLedger,
   ]);
-
-  const handleCaseChange = (id: DemoCaseId) => {
-    if (!connected) {
-      setModalOpen(true);
-      return;
-    }
-    setCaseId(id);
-    setSimActiveId(id);
-    setSwapAmountUsd(DEMO_CASES[id].activity.amountUsd);
-    setAddress(simWallets[id].address);
-    setRunning(false);
-    // Keep unlock frontier, but return to Swap for a fresh run
-    goToStage("swap");
-  };
 
   const handleStageSelect = (next: DemoStage) => {
     if (next === "swap" && !connected) {
@@ -992,6 +1022,8 @@ export default function HomePage() {
         activeId={simActiveId}
         onActiveChange={setSimActiveId}
         onSendTransfer={handleSendTransfer}
+        onMint={handleMint}
+        onFaucet={handleFaucet}
         onUseInUniswap={handleUseInUniswap}
         apiLabel={apiLabel}
       />

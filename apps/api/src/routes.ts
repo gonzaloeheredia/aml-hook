@@ -6,13 +6,17 @@
  */
 
 import type { FastifyInstance, FastifyReply } from "fastify";
+import { getAddress, isAddress } from "viem";
 import {
   chainHealth,
   clearPolicyKnobsCache,
   hydrateWallets,
+  idFromAddress,
   isChainUnavailable,
   isPriceFeedBound,
   listEscrows,
+  mintEth,
+  mintUsdc,
   readPolicyKnobs,
   recoverBlocked,
   requireChain,
@@ -53,6 +57,9 @@ import {
 } from "./store.js";
 import type { WalletId } from "./types.js";
 
+const FAUCET_USDC = 10_000;
+const FAUCET_ETH = 1;
+
 const WALLET_IDS_HINT = "A, B, C, D, E, or F";
 
 type TransferBody = {
@@ -81,9 +88,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/health", async () => {
     const chain = await chainHealth();
     const policy = await readPolicyKnobs(true);
+    const chainId = Number(process.env.ORACLE_CHAIN_ID ?? 31337);
     return {
       ok: chain.ok,
-      mode: "anvil",
+      mode: chainId === 11155111 ? "sepolia" : "anvil",
+      chainId,
       oracle: "coa-agent",
       agent: {
         name: "Compliance Officer Agent",
@@ -432,6 +441,87 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const seconds = Number(req.body?.seconds ?? 301);
       const now = await warpSeconds(Number.isFinite(seconds) ? seconds : 301);
       return { ok: true, now, elapsedSeconds: Number.isFinite(seconds) ? seconds : 301 };
+    } catch (err) {
+      return sendChainError(reply, err);
+    }
+  });
+
+  app.post<{
+    Body: { walletId?: string; address?: string; token?: string; amount?: number };
+  }>("/demo/mint", async (req, reply) => {
+    const addressRaw = String(req.body?.address ?? "").trim();
+    const idRaw = String(req.body?.walletId ?? "").toUpperCase();
+
+    if (addressRaw && idRaw) {
+      return reply.code(400).send({
+        error: "Pass address (judge faucet) or walletId (A–E demo), not both",
+      });
+    }
+
+    if (addressRaw) {
+      if (!isAddress(addressRaw)) {
+        return reply.code(400).send({ error: "address must be a 20-byte hex EOA" });
+      }
+      const address = getAddress(addressRaw);
+      if (idFromAddress(address) === "F") {
+        return reply.code(400).send({
+          error: "Wallet F is an OFAC SDN subject — mint is disabled.",
+        });
+      }
+      try {
+        const usdcTx = await mintUsdc(address, FAUCET_USDC);
+        const ethTx = await mintEth(address, FAUCET_ETH);
+        return {
+          ok: true,
+          faucet: true,
+          address,
+          usdc: FAUCET_USDC,
+          eth: FAUCET_ETH,
+          usdcTx,
+          ethTx,
+        };
+      } catch (err) {
+        return sendChainError(reply, err);
+      }
+    }
+
+    const token = String(req.body?.token ?? "").toLowerCase();
+    const amount = Number(req.body?.amount);
+    if (!isWalletId(idRaw)) {
+      return reply.code(400).send({
+        error: `walletId must be ${WALLET_IDS_HINT}, or pass address for the judge faucet`,
+      });
+    }
+    if (idRaw === "F") {
+      return reply.code(400).send({
+        error: "Wallet F is an OFAC SDN subject — mint is disabled.",
+      });
+    }
+    if (token !== "usdc" && token !== "eth") {
+      return reply.code(400).send({ error: "token must be usdc or eth" });
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return reply.code(400).send({ error: "amount must be a positive number" });
+    }
+    try {
+      await hydrateWallets();
+      const wallet = getWallet(idRaw);
+      if (!wallet) return reply.code(404).send({ error: "Wallet not found" });
+      const txHash =
+        token === "usdc"
+          ? await mintUsdc(wallet.address as `0x${string}`, amount)
+          : await mintEth(wallet.address as `0x${string}`, amount);
+      const wallets = await hydrateWallets();
+      return {
+        ok: true,
+        token,
+        amount,
+        txHash,
+        wallets: wallets.map((w) => ({
+          ...w,
+          score: walletScore(w),
+        })),
+      };
     } catch (err) {
       return sendChainError(reply, err);
     }

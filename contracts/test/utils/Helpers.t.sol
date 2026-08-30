@@ -14,7 +14,9 @@ import {LPFeeLibrary} from "v4-core/src/libraries/LPFeeLibrary.sol";
 
 import {AmlHook} from "contracts/hooks/AmlHook.sol";
 import {AmlHookGovernance} from "contracts/hooks/AmlHookGovernance.sol";
+import {AmlHookGovernanceBase} from "contracts/hooks/AmlHookGovernanceBase.sol";
 import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
+import {AmlHookSatellite} from "contracts/hooks/AmlHookSatellite.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "contracts/policies/RiskPolicy.sol";
 import {SanctionRegistry} from "contracts/registries/SanctionRegistry.sol";
@@ -120,6 +122,12 @@ contract Helpers is HelpersCore {
     HookPoolManagerStub public manager;
     AmlHook public hook;
 
+    /// @dev Cast helper: returns `hook` as AmlHookGovernance so tests can call governance setters
+    ///      that live in the satellite but are routed through AmlHook's fallback at runtime.
+    function _gov() internal view returns (AmlHookGovernance) {
+        return AmlHookGovernance(address(hook));
+    }
+
     /// @dev Trusted IMsgSender stand-in used by hook lifecycle tests (hookData is ignored).
     MockTrustedRouter public trustedRouter;
 
@@ -156,9 +164,9 @@ contract Helpers is HelpersCore {
         usdFeed = new MockAggregatorV3();
         usdFeed.setRound(1e8, block.timestamp);
         vm.startPrank(hookGovernor);
-        hook.setPriceFeed(address(0), address(usdFeed));
-        hook.setPriceFeed(address(1), address(usdFeed));
-        hook.setPriceFeed(address(2), address(usdFeed));
+        _gov().setPriceFeed(address(0), address(usdFeed));
+        _gov().setPriceFeed(address(1), address(usdFeed));
+        _gov().setPriceFeed(address(2), address(usdFeed));
         vm.stopPrank();
     }
 
@@ -167,7 +175,7 @@ contract Helpers is HelpersCore {
         if (address(trustedRouter) == address(0)) {
             trustedRouter = new MockTrustedRouter();
             vm.prank(hookGovernor);
-            hook.setTrustedRouter(address(trustedRouter), true);
+            _gov().setTrustedRouter(address(trustedRouter), true);
         }
         trustedRouter.setMsgSender(subject);
         return address(trustedRouter);
@@ -198,8 +206,9 @@ contract Helpers is HelpersCore {
             abi.encode(IPoolManager(address(manager)), address(_accessManager)),
             flags
         );
-        _hook = AmlHook(flags);
-        _hook.initialize(_registry, _oracle, _riskPolicy, _feeEscrow, _treasury, uint256(300), uint64(3600));
+        _hook = AmlHook(payable(flags));
+        AmlHookSatellite _satellite = new AmlHookSatellite(IPoolManager(address(manager)), address(_accessManager));
+        _hook.initialize(address(_satellite), _registry, _oracle, _riskPolicy, _feeEscrow, _treasury, uint256(300), uint64(3600));
     }
 
     function _deployHook(

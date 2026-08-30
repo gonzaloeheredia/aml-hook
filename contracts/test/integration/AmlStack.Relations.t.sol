@@ -84,8 +84,8 @@ contract IntegrationAmlStackRelationsTest is Helpers {
         MockAggregatorV3 feed = new MockAggregatorV3();
         feed.setRound(1e8, block.timestamp);
         vm.startPrank(hookGovernor);
-        harness.setPriceFeed(address(token), address(feed));
-        harness.setPriceFeed(address(0), address(feed));
+        AmlHookGovernance(address(harness)).setPriceFeed(address(token), address(feed));
+        AmlHookGovernance(address(harness)).setPriceFeed(address(0), address(feed));
         vm.stopPrank();
 
         key = PoolKey({
@@ -155,17 +155,17 @@ contract IntegrationAmlStackRelationsTest is Helpers {
 
     function test_GovernorCannotApplyPolicyKnobs() external {
         vm.prank(complianceOfficer);
-        harness.proposeFloorFees(10, 20);
+        AmlHookGovernance(address(harness)).proposeFloorFees(10, 20);
 
         vm.prank(hookGovernor);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, hookGovernor));
-        harness.applyFloorFees(10, 20);
+        AmlHookGovernance(address(harness)).applyFloorFees(10, 20);
     }
 
     function test_OfficerCannotRetuneGovernorKnobs() external {
         vm.prank(complianceOfficer);
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, complianceOfficer));
-        harness.setPriceFeed(address(token), address(0));
+        AmlHookGovernance(address(harness)).setPriceFeed(address(token), address(0));
     }
 
     function test_FeeEscrowIsIndependentOfAccessManagerRoles() external {

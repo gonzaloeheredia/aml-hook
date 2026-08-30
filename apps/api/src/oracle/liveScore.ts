@@ -47,11 +47,14 @@ The keeper publishes your finalScore and recommendedFeeBps to ComplianceOracle;
 AMLHook.beforeSwap and FeeEscrow read that row.
 
 Before you emit finalScore, call consult_skill with name uhi10-use-case.
-That skill is the A–F demo validations (exploit vs OFAC, N-hop, E unpublished,
-Wallet F live SDN / SanctionHit, D deferral, afterSwap caps, fee bps). If a
-weight, band, or floor is still unclear, consult_skill again (fact-scoring,
-task-swap-decision). Do not invent a hop table from memory when the skill is
-available.
+That skill is docs/Use_Case.md in agent form (exploit vs OFAC, N-hop,
+unpublished E, Wallet F SanctionHit, D deferral, LP floors, fee bps).
+If the subject is not an Anvil A–E key or chain is 11155111, also call
+consult_skill with name uhi10-sepolia. A never-written address is Wallet E:
+do not publish it on Anvil, and do not auto-publish a new Sepolia EOA.
+Do not copy Anvil hops onto Sepolia. If a weight, band, or floor is still
+unclear, consult_skill again (fact-scoring, task-swap-decision). Do not
+invent a hop table from memory when the skill is available.
 
 Call search_regulations at least once before legalBasis. Never cite norms from
 training memory. If the tool is empty, declare a coverage gap.
@@ -396,7 +399,7 @@ export async function evaluateWithLiveAgent(input: {
   }
   const live = await completeCoaJson({
     system: scoringSystemPrompt(),
-    user: `Evaluate this wallet. Call consult_skill (uhi10-use-case) before you emit finalScore. You emit the score, recommendedFeeBps, Opinion, and skill findings. TypeScript will only publish what you return.\n\n${scoringEvidencePayload(input.evidence)}`,
+    user: `Evaluate this wallet. Call consult_skill (uhi10-use-case) before you emit finalScore. If this is not an Anvil A–E demo key, also consult_skill (uhi10-sepolia). Never publish Wallet E. You emit the score, recommendedFeeBps, Opinion, and skill findings. TypeScript will only publish what you return.\n\n${scoringEvidencePayload(input.evidence)}`,
   });
   const scoreResult = scoreResultFromAgentDraft(
     live.draft,

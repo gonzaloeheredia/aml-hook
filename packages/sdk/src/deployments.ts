@@ -28,6 +28,8 @@ export type ChainDeployment = {
   /** Confirmed-illicit recover destination. Local deploy wires ComplianceTreasury. */
   complianceReserve?: Address;
   feeToken?: Address;
+  /** Mintable demo ETH (MockWETH). Priced by ethUsdFeed. */
+  wethToken?: Address;
   usdFeed?: Address;
   ethUsdFeed?: Address;
   poolManager?: Address;
@@ -48,6 +50,7 @@ export function getOracleKeeperAddress(d: ChainDeployment): Address {
 /**
  * Returns checked-in deployment addresses for a chain.
  * Refresh via `node scripts/deploy-local.mjs` (writes 31337.json).
+ * Sepolia is not bundled — see `contracts/deployments/11155111.json` / docs/Sepolia.md.
  */
 export function getDeployment(chainId: number): ChainDeployment | null {
   if (chainId === 31337) {

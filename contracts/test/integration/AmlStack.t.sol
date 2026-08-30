@@ -53,7 +53,7 @@ contract IntegrationAmlStackTest is Helpers {
         MockAggregatorV3 feed = new MockAggregatorV3();
         feed.setRound(1e8, block.timestamp);
         vm.prank(hookGovernor);
-        harness.setPriceFeed(address(0), address(feed));
+        AmlHookGovernance(address(harness)).setPriceFeed(address(0), address(feed));
     }
 
     function _seedClean(address wallet) internal {
@@ -163,7 +163,7 @@ contract IntegrationAmlStackTest is Helpers {
         MockAggregatorV3 feed = new MockAggregatorV3();
         feed.setRound(1e8, block.timestamp);
         vm.prank(hookGovernor);
-        harness.setPriceFeed(address(token), address(feed));
+        AmlHookGovernance(address(harness)).setPriceFeed(address(token), address(feed));
 
         (HookDecision dust, uint24 dustFee,) = harness.evaluate(walletC, address(token), 999 ether);
         assertEq(uint8(dust), uint8(HookDecision.FEE_OVERRIDE));
@@ -184,13 +184,13 @@ contract IntegrationAmlStackTest is Helpers {
         MockAggregatorV3 feed = new MockAggregatorV3();
         feed.setRound(1e8, block.timestamp);
         vm.prank(hookGovernor);
-        harness.setPriceFeed(address(token), address(feed));
+        AmlHookGovernance(address(harness)).setPriceFeed(address(token), address(feed));
 
         vm.startPrank(complianceOfficer);
-        harness.proposeUnscoredThresholds(2_000e8, 50_000e8);
-        harness.applyUnscoredThresholds(2_000e8, 50_000e8);
-        harness.proposeFloorFees(50, 1_500);
-        harness.applyFloorFees(50, 1_500);
+        AmlHookGovernance(address(harness)).proposeUnscoredThresholds(2_000e8, 50_000e8);
+        AmlHookGovernance(address(harness)).applyUnscoredThresholds(2_000e8, 50_000e8);
+        AmlHookGovernance(address(harness)).proposeFloorFees(50, 1_500);
+        AmlHookGovernance(address(harness)).applyFloorFees(50, 1_500);
         vm.stopPrank();
 
         (HookDecision dust, uint24 dustFee,) = harness.evaluate(walletC, address(token), 1_500 ether);
@@ -212,7 +212,7 @@ contract IntegrationAmlStackTest is Helpers {
         MockAggregatorV3 feed = new MockAggregatorV3();
         feed.setRound(1e8, block.timestamp);
         vm.prank(hookGovernor);
-        harness.setPriceFeed(address(usdc), address(feed));
+        AmlHookGovernance(address(harness)).setPriceFeed(address(usdc), address(feed));
 
         (HookDecision mid, uint24 fee,) = harness.evaluate(walletC, address(usdc), 1_000 * 10 ** 6);
         assertEq(uint8(mid), uint8(HookDecision.FEE_OVERRIDE));

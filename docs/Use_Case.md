@@ -1,6 +1,17 @@
 # AML Hook — Use case
 
-This walkthrough is the product demo of the whitepaper. Every decision below is the same mapping `RiskPolicy.decide` applies on-chain (score bands plus floors A–D, including Floor C). The frontend talks to the API; the API calls `AmlHook.previewSwap` on Anvil so quotes cannot drift from the hook.
+This walkthrough is the product demo of the whitepaper. Every decision below is the same mapping `RiskPolicy.decide` applies on-chain (score bands plus floors A–D, including Floor C). The frontend talks to the API; the API calls `AmlHook.previewSwap` on **Anvil** so quotes cannot drift from the hook.
+
+Two environments:
+
+| | Guided demo (this file) | Live pool |
+| --- | --- | --- |
+| Chain | Anvil `31337` | Ethereum Sepolia `11155111` |
+| UI / API | Next.js + `apps/api` (MetaMask **simulator** — not the browser extension) | Not wired. `getDeployment` is 31337-only |
+| Pool | `previewSwap` + `observeSwap` + FeeEscrow. `MockPoolManager` | Official Uniswap v4 PoolManager + seeded liquidity |
+| Addresses | `contracts/deployments/31337.json` | [`Sepolia.md`](Sepolia.md) |
+
+A judge who connects a **new** EOA to the Sepolia pool (app.uniswap.org) is Wallet E: no oracle row → Floor A/C/D. The **Sepolia faucet** (paste address in the MetaMask panel, or `POST /demo/mint` `{ address }`) only mints 10,000 MockUSDC + 1 MockWETH. It does not publish a score. Elevated fee or revert by size is intentional until `_ORACLE_KEEPER` writes a clean row. The first Sepolia mint used Uniswap's `PoolModifyLiquidityTest` as the subject (untrusted router); it needed a published 0–30 score before add, because a never-scored mint on an empty pool is 100% impact and the 8% `take` reverts.
 
 The Compliance Officer Agent emits `finalScore` and `recommendedFeeBps` (Claude when `ANTHROPIC_API_KEY` is set; skill interpreter otherwise). N-hop math lives in skill `uhi10-use-case`. The keeper publishes that row to `ComplianceOracle`. `POST /transfers` and `POST /swaps` wait until the agent has written. The 3-minute keeper tick only stamps the last score. `beforeSwap` never calls the agent.
 
@@ -33,7 +44,7 @@ Use this table as the map while running the demo. Each row points to the matchin
 | 12 | FEE_OVERRIDE paths | Escrow hold 24h / 48h | — | On-chain FeeEscrow | Differential |
 | 13 | Operator | Opinion stage | — | COA (Compliance Officer Agent) file | — |
 
-How to run it: from the repo root, `npm run deploy:local`, then start the API and the frontend. Without Anvil the API returns `503` `{ error: "deploy_local" }`. Connect A–F from the wallet picker, move USDC in the MetaMask panel (A–E only — F has no P2P), use the size chips and the two swap-card controls, and swap. Local quotes use `MockUsdFeed` ($1 USDC, $1,000 ETH). The API exposes the same Anvil ledger on `POST /transfers`, `POST /swaps`, `POST /demo/elapse`, `POST /demo/price-feed`, and `GET /escrow`. A demo swap is `previewSwap` + `observeSwap` + a FeeEscrow deposit on FEE_OVERRIDE — not a live Uniswap `PoolManager` fill.
+How to run it: from the repo root, `npm run deploy:local`, then start the API and the frontend. Without Anvil the API returns `503` `{ error: "deploy_local" }`. Connect A–F from the wallet picker, move USDC in the MetaMask panel (A–E only — F has no P2P), or mint more MockUSDC / MockWETH with **Mint 10,000 USDC** / **Mint 1 ETH** (also `POST /demo/mint`). Use the size chips and the two swap-card controls, and swap. Local quotes use `MockUsdFeed` ($1 USDC, $1,000 ETH). Demo ETH is mintable MockWETH, not native gas. The API exposes the same Anvil ledger on `POST /transfers`, `POST /swaps`, `POST /demo/mint`, `POST /demo/elapse`, `POST /demo/price-feed`, and `GET /escrow`. A demo swap is `previewSwap` + `observeSwap` + a FeeEscrow deposit on FEE_OVERRIDE — not a live Uniswap `PoolManager` fill.
 
 ## 2. The six wallets
 
@@ -97,7 +108,7 @@ A second inbound from a closer source replaces the farther hop. Clean-to-clean P
 
 ## 4. Walkthrough
 
-Reference for executing the demo step by step. Anvil must already be running (`npm run deploy:local`). Use the frontend (Connect + MetaMask panel) or the API. Amounts match the Anvil A–E wallets (#1–#5). Wallet F is a live OFAC SDN ETH identifier (not Anvil #6). On the swap card: **Advance 5 min** (Floor B) and **Unbind price feed** (uses `lastFx` after a prior quote: silent under 30 minutes, `PriceFallbackUsed` until 24h after that; `MagnitudeQuoteFailed` only if that token was never quoted or the cache is older than 24h). Restart data reseeds A–F on-chain.
+Reference for executing the demo step by step. Anvil must already be running (`npm run deploy:local`). Use the frontend (Connect + MetaMask panel) or the API. Amounts match the Anvil A–E wallets (#1–#5). Extra MockUSDC / MockWETH: MetaMask **Mint** buttons or `POST /demo/mint`. Wallet F is a live OFAC SDN ETH identifier (not Anvil #6) and cannot mint. On the swap card: **Advance 5 min** (Floor B) and **Unbind price feed** (uses `lastFx` after a prior quote: silent under 30 minutes, `PriceFallbackUsed` until 24h after that; `MagnitudeQuoteFailed` only if that token was never quoted or the cache is older than 24h). Restart data reseeds A–F on-chain.
 
 ### Step 0 — Clean swap (D, or B / C)
 

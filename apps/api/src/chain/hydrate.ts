@@ -7,8 +7,9 @@ import { resetOracle } from "../oracle/index.js";
 import { getStore, setWallets } from "../store.js";
 import { DEMO_WALLETS, WALLET_IDS, bindOfacDemoWallet } from "./accounts.js";
 import { requireChain } from "./clients.js";
+import { isLocalAnvil } from "./config.js";
 import { readRisk } from "./evaluate.js";
-import { balanceUsdc, ethDisplay, seedBalances } from "./ledger.js";
+import { balanceEth, balanceUsdc, seedBalances } from "./ledger.js";
 
 let seeded = false;
 
@@ -17,7 +18,7 @@ export async function hydrateWallets(): Promise<Wallet[]> {
   await bindOfacDemoWallet();
   if (!seeded) {
     const opening = await balanceUsdc(DEMO_WALLETS.A.address);
-    if (opening === 0) {
+    if (opening === 0 && isLocalAnvil()) {
       await seedBalances();
       await resetOracle();
     }
@@ -27,15 +28,16 @@ export async function hydrateWallets(): Promise<Wallet[]> {
   const next = { ...current };
   for (const id of WALLET_IDS) {
     const address = DEMO_WALLETS[id].address;
-    const [usdc, risk] = await Promise.all([
+    const [usdc, eth, risk] = await Promise.all([
       balanceUsdc(address),
+      balanceEth(address),
       readRisk(address),
     ]);
     next[id] = {
       ...current[id],
       address,
       usdc,
-      eth: ethDisplay(id),
+      eth,
       neverScored: id === "F" ? false : risk.updatedAt === 0,
       ofacSubject: Boolean(DEMO_WALLETS[id].ofacSubject),
     };

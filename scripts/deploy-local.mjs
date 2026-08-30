@@ -5,8 +5,8 @@
  *   node scripts/deploy-local.mjs
  *
  * Or manually:
- *   anvil
- *   cd contracts && forge script script/Deploy.sol:Deploy --rpc-url http://127.0.0.1:8545 --broadcast
+ *   anvil --disable-code-size-limit
+ *   cd contracts && forge script script/Deploy.sol:Deploy --rpc-url http://127.0.0.1:8545 --broadcast --disable-code-size-limit
  *   node scripts/sync-deployment.mjs
  */
 
@@ -20,13 +20,16 @@ const contracts = join(root, "contracts");
 const rpc = "http://127.0.0.1:8545";
 const anvilKey =
   "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+const anvil0 = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
+const anvil6 = "0x976EA74026E726554dB657fA54763abd0C3a0aa9";
+const anvil7 = "0x14dC79964da2C08b23698B3D3cc7Ca32193d9955";
+const anvil9 = "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720";
 
 function forgeBin() {
   try {
     execSync("forge --version", { stdio: "ignore" });
     return "forge";
   } catch {
-    // WSL foundry default
     return null;
   }
 }
@@ -44,8 +47,22 @@ async function rpcUp() {
   }
 }
 
+function localForgeEnv() {
+  const env = { ...process.env };
+  env.PRIVATE_KEY = anvilKey;
+  env.ADMIN = anvil0;
+  env.ORACLE_KEEPER = anvil0;
+  env.COMPLIANCE_OFFICER = anvil0;
+  env.REGISTRY_KEEPER = anvil6;
+  env.HOOK_GOVERNOR = anvil7;
+  env.ATTESTOR = anvil9;
+  delete env.FEE_TOKEN;
+  delete env.WETH_TOKEN;
+  delete env.POOL_MANAGER;
+  return env;
+}
+
 async function main() {
-  // On Windows without native Foundry, delegate to WSL script (anvil + forge + sync).
   if (!forgeBin() && process.platform === "win32") {
     console.log("No native forge — using WSL Foundry (scripts/deploy-local-wsl.sh) …");
     execSync("wsl -e bash scripts/deploy-local-wsl.sh", {
@@ -57,12 +74,16 @@ async function main() {
   }
 
   if (!(await rpcUp())) {
-    console.log("Starting Anvil on :8545 …");
-    const anvilProc = spawn("anvil", ["--host", "127.0.0.1", "--port", "8545"], {
-      stdio: "ignore",
-      detached: true,
-      shell: true,
-    });
+    console.log("Starting Anvil on :8545 (code-size limit off) …");
+    const anvilProc = spawn(
+      "anvil",
+      ["--host", "127.0.0.1", "--port", "8545", "--disable-code-size-limit"],
+      {
+        stdio: "ignore",
+        detached: true,
+        shell: true,
+      },
+    );
     anvilProc.unref();
     for (let i = 0; i < 40; i++) {
       await new Promise((r) => setTimeout(r, 250));
@@ -78,8 +99,8 @@ async function main() {
 
   console.log("Deploying AML stack …");
   execSync(
-    `forge script script/Deploy.sol:Deploy --rpc-url ${rpc} --broadcast --private-key ${anvilKey}`,
-    { cwd: contracts, stdio: "inherit", shell: true },
+    `forge script script/Deploy.sol:Deploy --rpc-url ${rpc} --broadcast --disable-code-size-limit --private-key ${anvilKey}`,
+    { cwd: contracts, stdio: "inherit", shell: true, env: localForgeEnv() },
   );
 
   if (!existsSync(join(contracts, "deployments/31337.json"))) {

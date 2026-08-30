@@ -13,7 +13,8 @@ The product thesis and the executable scenario live in `docs/`. Read those befor
 | Document | Contents |
 | --- | --- |
 | [`docs/Whitepaper.md`](docs/Whitepaper.md) | Problem, architecture, roles, FeeEscrow, latency floors, regulatory framing, and competitive map |
-| [`docs/Use_Case.md`](docs/Use_Case.md) | Five-wallet run of the whitepaper: exploit, N-hop, D floors (B/C/inflow/$15k), E bands + window + feed, Opinion |
+| [`docs/Use_Case.md`](docs/Use_Case.md) | Six-wallet run of the whitepaper: exploit, N-hop, D floors (B/C/inflow/$15k), E bands + window + feed, Opinion |
+| [`docs/Sepolia.md`](docs/Sepolia.md) | Live Ethereum Sepolia pool + hook addresses (official PoolManager). Demo UI stays on Anvil |
 
 Supporting notes:
 
@@ -59,6 +60,7 @@ Closer hop wins. Pool swaps never raise a score. Peer-to-peer transfers do.
 
 ```
 User → trusted router → PoolManager → AmlHook
+                                         ├─ AmlHookSatellite    DELEGATECALL: Logic + LP/swap guards
                                          ├─ AmlHookLogic        subject, L1–L3, USD quote
                                          ├─ AmlHookSettlement   differential → FeeEscrow
                                          ├─ SanctionRegistry    Layer 1
@@ -66,9 +68,15 @@ User → trusted router → PoolManager → AmlHook
                                          └─ RiskPolicy          Layer 3  (CALL `decide`; wraps RiskPolicyLib)
 ```
 
+`AmlHook` is a thin CREATE2 shell (EIP-170). Evaluation lives in `AmlHookSatellite`.
+The hook must inherit Activity / Governance **before** Settlement so satellite
+storage slots match (`UnitAmlHookStorageLayoutTest`). Live Sepolia addresses:
+[`docs/Sepolia.md`](docs/Sepolia.md).
+
 | Contract | Responsibility |
 | --- | --- |
-| `AmlHook` | Uniswap callbacks only |
+| `AmlHook` | Uniswap callbacks; DELEGATECALL to the satellite |
+| `AmlHookSatellite` | Swap / LP evaluation + governance setters (same storage prefix as the hook) |
 | `AmlHookLogic` | Resolve subject, sanctions, score, latency floors, Chainlink USD |
 | `AmlHookSettlement` | Take the fee differential. Does not decide risk |
 | `SanctionRegistry` | Static list. New hits are commit-reveal |
@@ -118,7 +126,7 @@ curl http://127.0.0.1:4000/health
 | Contracts | [`contracts/`](contracts/README.md) | Foundry. `forge test` · `script/Deploy.sol` |
 | API / keeper | [`apps/api/`](apps/api/README.md) | Anvil adapter + COA + signed `updateScore` |
 | Frontend | [`apps/frontend/`](apps/frontend/README.md) | Six-stage demo |
-| SDK | [`packages/sdk/`](packages/sdk/README.md) | ABIs + `getDeployment(31337)` |
+| SDK | [`packages/sdk/`](packages/sdk/README.md) | ABIs + `getDeployment(31337)` only. Sepolia JSON is `contracts/deployments/11155111.json` |
 | Headless flows | [`test/`](test/README.md) | HTTP scripts against the API. Not Forge |
 
 `test/` is Node against the API. `contracts/test/` is Solidity (`forge test`).
@@ -129,7 +137,7 @@ curl http://127.0.0.1:4000/health
 | --- | --- |
 | AccessManager, SanctionRegistry, ComplianceOracle, RiskPolicy, AmlHook, FeeEscrow | Deployed contracts |
 | Liquidity sanctions gate | On-chain for add **and** remove. Pause blocks add and swaps, not a clean LP exit. Demo UI is still swap-only |
-| PoolManager | Local `MockPoolManager` unless `POOL_MANAGER` is set. Demo swap is `previewSwap` + `observeSwap` + FeeEscrow deposit — not a live Uniswap fill |
+| PoolManager | Anvil: `MockPoolManager` unless `POOL_MANAGER` is set. Sepolia: official Uniswap v4 `0xE03A1074…3543` — live initialize + liquidity (`docs/Sepolia.md`). The guided demo swap is still `previewSwap` + `observeSwap` + FeeEscrow on Anvil |
 | `updateScore` | Signed tx (keeper #0 + attestor #9) |
 | Demo balances, P2P, quotes, escrow rows | Anvil. P2P is ERC-20 `transfer` |
 | USD quotes | `lastFx` if younger than 30 minutes; else one Chainlink round per token (`lastFx` until 24h if the live round is missing). Anvil: `MockUsdFeed` ($1 fee token, $1000 ETH). Live chain: official Chainlink ETH/USD + USDC/USD. Extra tokens: governor `setPriceFeed` |
@@ -143,9 +151,9 @@ npm run deploy:local
 ```
 
 1. Starts Anvil on `:8545`.
-2. Deploys AccessManager, L1/L2/L3, AmlHook (CREATE2), and FeeEscrow. Uses `MockPoolManager` unless `POOL_MANAGER` is set. On Anvil binds `MockUsdFeed` ($1 fee token, $1000 ETH). On a live chain binds official Chainlink ETH/USD, WETH, and USDC/USD. Seeds wallets A–E (Anvil #1–#5). The API then binds Wallet F to a live OFAC SDN ETH address and mints USDC to it.
+2. Deploys AccessManager, L1/L2/L3, AmlHook (CREATE2), and FeeEscrow. Uses `MockPoolManager` unless `POOL_MANAGER` is set. Deploys mintable `MockUSDC` (6 decimals) and `MockWETH` (18 decimals, priced at $1,000) unless `FEE_TOKEN` / `WETH_TOKEN` are set. On Anvil binds `MockUsdFeed` ($1 USDC, $1000 ETH). On a live chain binds official Chainlink ETH/USD, WETH, and USDC/USD. Seeds wallets A–E (Anvil #1–#5). The API then binds Wallet F to a live OFAC SDN ETH address and mints USDC to it.
 3. Wires roles. Anvil account #0 is the default admin / keepers / governor / compliance officer. Anvil #9 is the local attestor. Production requires a distinct `ATTESTOR`, a Safe as `ADMIN` or `FEE_ESCROW_OWNER`, a dedicated `COMPLIANCE_OFFICER` (48h grant delay), and a dedicated `COMPLIANCE_RESERVE` (never the LP fund). Floor B default is 5 minutes (`DEFAULT_STALENESS` / `MAX_SCORE_AGE`). Institutional pools may tighten to 120 seconds.
-4. Writes `contracts/deployments/31337.json` (hook, escrow, fee token, feeds, wallets, attestor) and copies it into `packages/sdk/deployments/`.
+4. Writes `contracts/deployments/31337.json` (hook, escrow, `feeToken`, `wethToken`, feeds, wallets, attestor) and copies it into `packages/sdk/deployments/`.
 5. Writes `apps/api/.env.local`.
 
 ```ts
@@ -158,7 +166,7 @@ const d = getDeployment(31337);
 
 ```text
 aml-hook/
-├── docs/               Whitepaper and use case
+├── docs/               Whitepaper, use case, Sepolia addresses
 ├── contracts/          Foundry — src/contracts · interfaces · AccessManager deploy
 ├── apps/api/           Anvil adapter, COA, keeper
 ├── apps/frontend/      Next.js demo
@@ -170,7 +178,8 @@ aml-hook/
 
 ## Open work
 
-- Wire a real Uniswap v4 PoolManager and pool (local `MockPoolManager` is a placeholder).
-- Surface add / remove liquidity in the demo. The on-chain sanctions gate (add and remove) is already there.
+- Point the demo API / frontend / SDK at Sepolia (`getDeployment` is 31337-only; `sync-deployment.mjs` is Anvil).
+- Surface add / remove liquidity in the demo UI. The on-chain gate (add and remove) and a seeded Sepolia pool are already there.
+- Auto-publish a COA score for arbitrary new addresses on the live pool (never-scored Floor A/C/D). The Anvil demo uses pre-seeded A–E; Wallet E stays unpublished on purpose.
 - Production KYT vendor feeds (Chainalysis, TRM, OFAC SDN HTTP, etc.).
 - Broader e2e beyond the current Forge suite.

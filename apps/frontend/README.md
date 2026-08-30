@@ -39,7 +39,7 @@ On-screen titles (serif, same size on every stage): **Swap**, **Hook execution**
 
 REVERT is `beforeSwap` only — no `afterSwap` emit for that attempt.
 
-**Navbar:** Uniswap logo, **MetaMask Simulator** text link, theme switch, **Connect** pill. Connect always shows that label (title has the address when a wallet is connected). Wallet D shows **Score 0** until contaminated; **Latency** while keeper-pending. Wallet E stays **Unknown** and starts empty. P2P USDC transfers run from the MetaMask simulator panel.
+**Navbar:** Uniswap logo, **MetaMask Simulator** text link, theme switch, **Connect** pill. Connect always shows that label (title has the address when a wallet is connected). Wallet D shows **Score 0** until contaminated; **Latency** while keeper-pending. Wallet E stays **Unknown** and starts empty. P2P USDC transfers and **Mint 10,000 USDC** / **Mint 1 ETH** (MockUSDC / MockWETH) run from the MetaMask simulator panel under Tokens. Wallet F cannot mint or send P2P. The same panel has a **Sepolia faucet** (paste a public address → 10,000 MockUSDC + 1 MockWETH). That path does not connect MetaMask and does not change A–F.
 
 ### The six use-case wallets
 
@@ -77,7 +77,7 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 1. Connect **Wallet D** → swap → ALLOW 0.30% (published score 0)
 2. Connect **Wallet A** → swap → `WalletBlocked` (score 100, not listed)
 3. Connect **Wallet F** → swap → `SanctionHit` (live OFAC SDN; no P2P)
-4. Open **MetaMask Simulator** → Send USDC **A→B**, then **B→C**
+4. Open **MetaMask Simulator** → optional **Mint 10,000 USDC** / **Mint 1 ETH** on A–E → Send USDC **A→B**, then **B→C**
 5. Swap with **B** → FEE_OVERRIDE 8%; with **C** → FEE_OVERRIDE 3%
 6. On **D**, swap $1,000, then **Advance 5 min** with no keeper write → 3% on a $1,000 swap (Floor B mid). A healthy keeper stamps `updatedAt` every **3 minutes** without calling the agent; Floor B only arms at **5 minutes** if that stamp is late.
 7. Restart. Send **10,000** C→D (C still clean) → D swap → 3% (inflow, no hop). Restart. Send **15,000** C→D → D swap → 8%
@@ -93,6 +93,10 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 ## Related docs (repo root)
 
 - `docs/Whitepaper.md` — product + AccessManager roles (§3.5)
-- `docs/Use_Case.md` — A–F demo narrative
-- `contracts/README.md` — Foundry layout (`src/contracts/…`, `script/Deploy.sol`)
+- `docs/Use_Case.md` — A–F demo narrative (Anvil). Sepolia pool: `docs/Sepolia.md`
+- `contracts/README.md` — Foundry layout (`src/contracts/…`, `script/Deploy.sol`, `CreatePool.s.sol`)
 - `apps/api/README.md` — Anvil adapter + COA + signed `updateScore`
+
+This UI never talks to a live MetaMask extension. **Connect** picks demo wallets A–F. The **Sepolia faucet** only mints MockUSDC / MockWETH to a pasted address via the API.
+
+**Judges — never-scored is intentional.** The faucet does not publish `ComplianceOracle`. Unless `_ORACLE_KEEPER` writes a clean score for that address, a swap on the Sepolia pool (app.uniswap.org) is Wallet E: Floor A/C/D — 3% under $1,000, 8% from $1,000–$14,999 (or revert if the ticket is more than 20% of pool liquidity), revert at ≥ $15,000. That is the product, not a broken mint.

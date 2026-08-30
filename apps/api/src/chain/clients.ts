@@ -1,5 +1,5 @@
 /**
- * Shared viem clients for the local Anvil stack.
+ * Shared viem clients for Anvil or Sepolia.
  */
 
 import {
@@ -10,13 +10,14 @@ import {
   type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { anvil } from "viem/chains";
-import { getChainConfig } from "./config.js";
+import { anvil, sepolia } from "viem/chains";
+import { getChainConfig, isLocalAnvil, SEPOLIA_CHAIN_ID } from "./config.js";
 import { ChainUnavailableError } from "./errors.js";
 
 function chain() {
   const cfg = getChainConfig();
-  return { ...anvil, id: cfg.chainId };
+  const base = cfg.chainId === SEPOLIA_CHAIN_ID ? sepolia : anvil;
+  return { ...base, id: cfg.chainId };
 }
 
 export function publicClient() {
@@ -44,8 +45,16 @@ export function keeperWallet() {
   return walletClient(getChainConfig().keeperKey);
 }
 
+export function registryWallet() {
+  return walletClient(getChainConfig().registryKeeperKey);
+}
+
+export function governorWallet() {
+  return walletClient(getChainConfig().hookGovernorKey);
+}
+
 /**
- * Ping Anvil. Throws ChainUnavailableError if the RPC is down or the hook has no code.
+ * Ping the configured RPC. Throws ChainUnavailableError if it is down or the hook has no code.
  */
 export async function requireChain(): Promise<void> {
   try {
@@ -83,6 +92,9 @@ export async function chainHealth(): Promise<{
 }
 
 export async function anvilRpc(method: string, params: unknown[] = []): Promise<unknown> {
+  if (!isLocalAnvil()) {
+    throw new Error(`${method} is Anvil-only and cannot run on chain ${getChainConfig().chainId}.`);
+  }
   const cfg = getChainConfig();
   const res = await fetch(cfg.rpcUrl, {
     method: "POST",

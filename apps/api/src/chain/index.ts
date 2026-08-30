@@ -1,7 +1,7 @@
 export { DEMO_WALLETS, POOL_SINK, WALLET_IDS, idFromAddress, bindOfacDemoWallet, hasSigner } from "./accounts.js";
 export { publishScore, signAttestation } from "./attestor.js";
 export { chainHealth, requireChain } from "./clients.js";
-export { getChainConfig, clearChainConfig } from "./config.js";
+export { getChainConfig, clearChainConfig, isLocalAnvil } from "./config.js";
 export {
   readPolicyKnobs,
   getPolicyKnobsSync,
@@ -31,7 +31,10 @@ export {
 export { hydrateWallets } from "./hydrate.js";
 export {
   balanceUsdc,
+  balanceEth,
   ethDisplay,
+  mintEth,
+  mintUsdc,
   resetEthCredits,
   seedBalances,
   transferUsdc,

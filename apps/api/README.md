@@ -1,6 +1,6 @@
 # AML Hook · API (Anvil adapter)
 
-TypeScript API that talks to the local stack. It does not own the ledger. Balances, scores, quotes, and FeeEscrow rows live on Anvil. Without `npm run deploy:local` every chain route returns `503` `{ error: "deploy_local" }`.
+TypeScript API that talks to the **local Anvil** stack. It does not own the ledger. Balances, scores, quotes, and FeeEscrow rows live on Anvil. Without `npm run deploy:local` every chain route returns `503` `{ error: "deploy_local" }`. It does not read `contracts/deployments/11155111.json` or submit txs on Sepolia — that pool is documented in [`docs/Sepolia.md`](../../docs/Sepolia.md).
 
 **Oracle COA:** with `ANTHROPIC_API_KEY` in `apps/api/.env`, Claude emits `finalScore`, `recommendedFeeBps`, and the Opinion (tools: `consult_skill` / `uhi10-use-case`, `search_regulations`, `screen_ofac`). The keeper writes `ComplianceOracle`; quotes and swaps read `AmlHook.previewSwap`. On every evaluation the COA screens the subject against the live OFAC SDN ETH list and, on an exact match, writes `SanctionRegistry` — the swap still only reads that mapping. Tests and `OFAC_LIVE=0` skip Treasury. There are still **no** live calls to OpenSanctions, Etherscan, GoPlus, Chainalysis, or TRM. Seed waits on Claude when the key is set (A–D and F). E stays unpublished. The 3-minute keeper tick only stamps the last score (no Claude). If the agent is down, that tick still keeps `updatedAt` inside Floor B's 5-minute window. If both are down, Floor B fires.
 
@@ -50,6 +50,7 @@ Restart the API after every `deploy:local` so it loads `.env.local`.
 | `POST` | `/transfers` | P2P USDC on Anvil → wait for agent score → keeper publish (tainted inbound to D defers keeper) |
 | `POST` | `/swaps` | `previewSwap` + `observeSwap` + wait for agent + FeeEscrow deposit on FEE_OVERRIDE |
 | `POST` | `/demo/elapse` | `evm_increaseTime` + `evm_mine` (`{ seconds: 301 }` → Floor B) |
+| `POST` | `/demo/mint` | Demo: mint to A–E (`{ walletId, token, amount }`). Judge faucet: `{ address }` mints 10,000 MockUSDC + 1 MockWETH to that Sepolia EOA (does not write a score). F / both fields rejected. |
 | `POST` | `/demo/price-feed` | Bind / unbind USDC/USD (`{ bound: false }` → silent `lastFx` if quoted in the last 30 min; `PriceFallbackUsed` until 24h after that; else `MagnitudeQuoteFailed`) |
 | `GET` | `/escrow` | Live FeeEscrow rows |
 | `POST` | `/escrow/:id/checkpoint2` | Checkpoint 2 reads oracle/list (no keeper bool) |
@@ -123,7 +124,7 @@ curl -X POST http://localhost:4000/swaps ^
 - Receive from the other after it was tainted by A → ~42 / 3% (2-hop); closer hop wins  
 - Clean **C → D** (or B while clean) is **not** a hop: ~10k → **FEE_OVERRIDE 3%** (inflow); ≥ $15,000 → **FEE_OVERRIDE 8%**  
 - **Wallet E** (no oracle row, starts empty): fund from **C** (no hop). Floor A is this swap; Floor D is the bag C sent; stricter fee wins. C→E $500 → 3%; $10k then $1k swap → 8% (A mid); $15k bag → 8% on a small swap (D); this swap ≥ $15,000 → `UnscoredMagnitudeBlocked`; 24h sum → `DailyAggregationBlocked`; no live feed uses `lastFx` (silent under 30 min; `PriceFallbackUsed` until 24h after that); never quoted or cache > 24h → `MagnitudeQuoteFailed`  
-- **1 ETH = 1,000 USDC** on Anvil only (`MockUsdFeed` at local deploy). Live Deploy binds official Chainlink ETH/USD and USDC/USD. On-chain floors are USD-8 (`1_000e8` / `15_000e8`), not native ether. `_COMPLIANCE_OFFICER` can retune those floors after a 48h confirm.
+- **1 ETH = 1,000 USDC** on Anvil only (`MockUsdFeed` at local deploy). Demo ETH is mintable `MockWETH` (18 decimals), not native Anvil ETH. Live Deploy binds official Chainlink ETH/USD and USDC/USD. On-chain floors are USD-8 (`1_000e8` / `15_000e8`), not native ether. `_COMPLIANCE_OFFICER` can retune those floors after a 48h confirm.
 
 ## Anvil identities + keeper
 
@@ -134,7 +135,7 @@ cd apps/api
 npm run dev
 ```
 
-`.env.local` (from `scripts/sync-deployment.mjs`) sets RPC, hook, oracle, FeeEscrow, fee token, feeds, `COMPLIANCE_TREASURY_ADDRESS` / `COMPLIANCE_RESERVE` / `LP_COMPENSATION_FUND`, `KEEPER_PRIVATE_KEY` (Anvil **#0**), and `ATTESTOR_PRIVATE_KEY` (Anvil **#9**).
+`.env.local` (from `scripts/sync-deployment.mjs`) sets RPC, hook, oracle, FeeEscrow, fee token, `WETH_TOKEN_ADDRESS`, feeds, `COMPLIANCE_TREASURY_ADDRESS` / `COMPLIANCE_RESERVE` / `LP_COMPENSATION_FUND`, `KEEPER_PRIVATE_KEY` (Anvil **#0**), and `ATTESTOR_PRIVATE_KEY` (Anvil **#9**).
 
 | Account | Role |
 |---|---|
@@ -148,4 +149,4 @@ npm run dev
 Check: `GET /health` → `ok` / `mode: "anvil"` / `chain.ok`.  
 Trail: `GET /oracle/publishes` → `status: "submitted"` + `txHash`.
 
-See also [`contracts/README.md`](../../contracts/README.md) for `script/Deploy.sol` env overrides (`ORACLE_KEEPER`, `HOOK_GOVERNOR`, `COMPLIANCE_OFFICER`, `ATTESTOR`, …).
+See also [`contracts/README.md`](../../contracts/README.md) for `script/Deploy.sol` env overrides (`ORACLE_KEEPER`, `HOOK_GOVERNOR`, `COMPLIANCE_OFFICER`, `ATTESTOR`, …). On Sepolia, `updateScore` is the same split: only `_ORACLE_KEEPER` submits; the attestor signs `attestationHash` including the publishing block's `timestamp`.

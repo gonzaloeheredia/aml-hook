@@ -35,7 +35,9 @@ No live OpenSanctions / Etherscan / Chainalysis calls. Facts come from Anvil
 wallets, P2P ERC-20 transfers, `SwapObserved` / `WalletBlocked`, live OFAC SDN
 (ETH addresses), and `SanctionRegistry`. N-hop decay (`100 × 0.65^hops`) is the A–F backbone in
 skill `uhi10-use-case`; the agent applies it — TypeScript does not precompute
-65/42 when live.
+65/42 when live. This runner does not score Sepolia addresses. The live pool
+(`docs/Sepolia.md`) needs a separate keeper/attestor if a new wallet must leave
+the never-scored band.
 
 ## FEE_OVERRIDE vs FeeEscrow (aligned with contracts)
 

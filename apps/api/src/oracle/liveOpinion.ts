@@ -78,8 +78,10 @@ Do not invent an SDN hit. Demo wallets A–E are not OFAC-listed unless
 \`ofac.subject.match\` is true (Wallet A is an exploit, not an SDN match).
 Wallet F is the live OFAC SDN subject — expect subjectMatch true and a
 SanctionRegistry write. The swap fail-closes SanctionHit, not WalletBlocked.
-If the frozen score looks inconsistent with wallets A–F, call \`consult_skill\`
-with name \`uhi10-use-case\` — do not change the published score.
+If the frozen score looks inconsistent with wallets A–F or the use-case
+floors, call \`consult_skill\` with name \`uhi10-use-case\` (and
+\`uhi10-sepolia\` if the subject is not an Anvil A–E key) — do not change
+the published score. Never-scored is Floor A, not a COA 0.
 Cite only documents returned by that tool (git corpus). Never fill norms from
 training memory. If the tool returns nothing, declare a coverage gap.
 
@@ -144,14 +146,14 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: "consult_skill",
     description:
-      "Load a COA skill from agents/oracle-coa/skills. When hop decay, Wallet A vs OFAC, unpublished E, deferred D, afterSwap accumulation, or fee bps is unclear, call with name uhi10-use-case. Omit name to list skills.",
+      "Load a COA skill from agents/oracle-coa/skills. When hop decay, Wallet A vs OFAC, unpublished E, Wallet F SanctionHit, deferred D, LP floors, or fee bps is unclear, call with name uhi10-use-case. For Sepolia / non-demo subjects call uhi10-sepolia. Omit name to list skills.",
     input_schema: {
       type: "object",
       properties: {
         name: {
           type: "string",
           description:
-            "Kebab-case skill id, e.g. uhi10-use-case, fact-scoring, task-swap-decision",
+            "Kebab-case skill id, e.g. uhi10-use-case, uhi10-sepolia, fact-scoring, task-swap-decision",
         },
       },
     },
