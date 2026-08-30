@@ -410,6 +410,209 @@ export const oracleAbi = [
   },
 ] as const;
 
+export const vaultAbi = [
+  {
+    type: "function",
+    name: "accrue",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "token", type: "address" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "accrueFromEscrow",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "escrowId", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "closeEpoch",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "merkleRoot", type: "bytes32" },
+      { name: "endBlock", type: "uint64" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "claim",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "epoch", type: "uint256" },
+      { name: "account", type: "address" },
+      { name: "token", type: "address" },
+      { name: "amount", type: "uint256" },
+      { name: "proof", type: "bytes32[]" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "recycleUnclaimed",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "epoch", type: "uint256" },
+      { name: "token", type: "address" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "epochId",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "epochPot",
+    stateMutability: "view",
+    inputs: [
+      { name: "id", type: "uint256" },
+      { name: "token", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "epochInfo",
+    stateMutability: "view",
+    inputs: [{ name: "id", type: "uint256" }],
+    outputs: [
+      { name: "opened", type: "uint64" },
+      { name: "closed", type: "uint64" },
+      { name: "claimBy", type: "uint64" },
+      { name: "root", type: "bytes32" },
+      { name: "endBlk", type: "uint64" },
+    ],
+  },
+  {
+    type: "function",
+    name: "claimed",
+    stateMutability: "view",
+    inputs: [
+      { name: "epoch", type: "uint256" },
+      { name: "token", type: "address" },
+      { name: "account", type: "address" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "accounted",
+    stateMutability: "view",
+    inputs: [{ name: "token", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;
+
+export const treasuryAbi = [
+  {
+    type: "function",
+    name: "balances",
+    stateMutability: "view",
+    inputs: [
+      { name: "account", type: "uint8" },
+      { name: "token", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "nextPayoutId",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "getPayout",
+    stateMutability: "view",
+    inputs: [{ name: "payoutId", type: "uint256" }],
+    outputs: [
+      {
+        name: "",
+        type: "tuple",
+        components: [
+          { name: "account", type: "uint8" },
+          { name: "token", type: "address" },
+          { name: "amount", type: "uint256" },
+          { name: "to", type: "address" },
+          { name: "fileHash", type: "bytes32" },
+          { name: "memo", type: "string" },
+          { name: "proposedAt", type: "uint64" },
+          { name: "escrowId", type: "uint256" },
+          { name: "fingerprint", type: "bytes32" },
+          { name: "status", type: "uint8" },
+        ],
+      },
+    ],
+  },
+  {
+    type: "function",
+    name: "proposePayout",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "account", type: "uint8" },
+      { name: "token", type: "address" },
+      { name: "amount", type: "uint256" },
+      { name: "to", type: "address" },
+      { name: "fileHash", type: "bytes32" },
+      { name: "memo", type: "string" },
+      { name: "escrowId", type: "uint256" },
+      { name: "fingerprint", type: "bytes32" },
+    ],
+    outputs: [{ name: "payoutId", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "executePayout",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "payoutId", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "cancelPayout",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "payoutId", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "setDestination",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "dest", type: "address" },
+      { name: "allowed", type: "bool" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "allowedDestinations",
+    stateMutability: "view",
+    inputs: [{ name: "dest", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "PAYOUT_DELAY",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint64" }],
+  },
+  {
+    type: "function",
+    name: "lpCompensationFund",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+] as const;
+
 export const registryAbi = [
   {
     type: "function",

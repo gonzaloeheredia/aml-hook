@@ -310,6 +310,98 @@ export function postEscrowRecover(id: number) {
   );
 }
 
+export type ApiCompensationLeaf = {
+  account: string;
+  amountUsdc: number;
+  proof: string[];
+  claimed: boolean;
+};
+
+export type ApiCompensationEpoch = {
+  id: number;
+  openedAt: number;
+  closedAt: number;
+  claimUntil: number;
+  merkleRoot: string;
+  potUsdc: number;
+  open: boolean;
+  leaves: ApiCompensationLeaf[];
+};
+
+export type ApiCompensation = {
+  vault: string;
+  recipients: string[];
+  accountedUsdc: number;
+  balanceUsdc: number;
+  openEpochId: number;
+  epochs: ApiCompensationEpoch[];
+};
+
+export function fetchCompensation(account?: string) {
+  const q = account ? `?account=${encodeURIComponent(account)}` : "";
+  return request<ApiCompensation>(`/compensation${q}`);
+}
+
+export function postCompensationCloseEpoch() {
+  return request<{ ok: boolean; txHash: string; epochId: number } & ApiCompensation>(
+    `/compensation/close-epoch`,
+    { method: "POST" },
+  );
+}
+
+export function postCompensationClaim(epochId: number, account: string) {
+  return request<{ ok: boolean; txHash: string } & ApiCompensation>(`/compensation/claim`, {
+    method: "POST",
+    body: JSON.stringify({ epochId, account }),
+  });
+}
+
+export type ApiTreasuryPayout = {
+  id: number;
+  account: "LP_PRINCIPAL" | "ILLICIT_RISK_FEE";
+  amountUsdc: number;
+  to: string;
+  memo: string;
+  proposedAt: number;
+  status: "Pending" | "Executed" | "Cancelled";
+};
+
+export type ApiTreasury = {
+  treasury: string;
+  payoutDelaySec: number;
+  lpPrincipalUsdc: number;
+  illicitRiskFeeUsdc: number;
+  payouts: ApiTreasuryPayout[];
+};
+
+export function fetchTreasury() {
+  return request<ApiTreasury>(`/treasury`);
+}
+
+export function postTreasuryPropose(body: {
+  account: "LP_PRINCIPAL" | "ILLICIT_RISK_FEE";
+  amountUsdc: number;
+  to: string;
+  memo?: string;
+}) {
+  return request<{ ok: boolean; payoutId: number } & ApiTreasury>(`/treasury/propose`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function postTreasuryExecute(id: number) {
+  return request<{ ok: boolean; txHash: string } & ApiTreasury>(`/treasury/${id}/execute`, {
+    method: "POST",
+  });
+}
+
+export function postTreasuryCancel(id: number) {
+  return request<{ ok: boolean; txHash: string } & ApiTreasury>(`/treasury/${id}/cancel`, {
+    method: "POST",
+  });
+}
+
 /** GET /wallets */
 export function fetchWallets() {
   return request<{ wallets: ApiWallet[] }>(`/wallets`);

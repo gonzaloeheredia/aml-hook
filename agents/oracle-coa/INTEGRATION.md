@@ -47,7 +47,7 @@ the never-scored band.
 | `afterAddLiquidity` on 31–70 / never-scored 3%/8% | Hook takes the **full** override → `FeeEscrow.deposit` (`RiskFee`) |
 | Blocked LP remove | Principal → `LpPrincipal`; `feesAccrued` → `RiskFee`. Both 48h. |
 | FeeEscrow keeper | Checkpoint 1/2 / default after COA off-chain review (COA never writes escrow) |
-| Clean Checkpoint 2 | Risk fee → LP compensation fund. Principal → LP wallet. |
+| Clean Checkpoint 2 | Risk fee → LpCompensationVault (LP claim after epoch). Principal → LP wallet. |
 | Illicit recover | `ILLICIT_RISK_FEE` vs `LP_PRINCIPAL` by kind |
 
 | Layer | Behavior |

@@ -10,7 +10,7 @@ TypeScript API that talks to the configured chain. It does not own the ledger. B
 
 **Quotes:** `GET /wallets/:id/quote` and swap settlement call `AmlHook.previewSwap` — the same L1→L3 path `beforeSwap` uses. There is no TypeScript policy fallback.
 
-**FEE_OVERRIDE settlement:** the COA publishes `recommendedFeeBps` as total intended friction. A demo swap is `previewSwap` + `observeSwap` (activity / baseline / `SwapObserved`). On FEE_OVERRIDE the API mints the extra slice and calls `FeeEscrow.deposit` (`EscrowKind.RiskFee`). That is not a live Uniswap `PoolManager` fill. A later clean risk-fee exit goes to the LP compensation fund; a clean LP-principal row returns to the LP wallet. Checkpoint 2 reads the on-chain list and oracle (score ≥ 71). A confirmed-illicit row is recovered to ComplianceTreasury `ILLICIT_RISK_FEE` or `LP_PRINCIPAL` by kind (whitepaper §8.3).
+**FEE_OVERRIDE settlement:** the COA publishes `recommendedFeeBps` as total intended friction. A demo swap is `previewSwap` + `observeSwap` (activity / baseline / `SwapObserved`). On FEE_OVERRIDE the API mints the extra slice and calls `FeeEscrow.deposit` (`EscrowKind.RiskFee`). That is not a live Uniswap `PoolManager` fill. A later clean risk-fee exit goes to `LpCompensationVault`. `POST /compensation/close-epoch` publishes a merkle root over `COMPENSATION_LPS`; `POST /compensation/claim` pays the LP. A clean LP-principal row returns to the LP wallet. Checkpoint 2 reads the on-chain list and oracle (score ≥ 71). A confirmed-illicit row is recovered to ComplianceTreasury; `POST /treasury/propose` then `POST /treasury/:id/execute` (48h) pays an allowlisted destination (whitepaper §8.3).
 
 The keeper writes when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band changes, **or** on a 3-minute heartbeat (same score, new `updatedAt`), **or** when the last write is at least as old as Floor B (`STALENESS_MS` = 5 minutes). That freshness stamp stops a stable clean wallet from looking stale. Floor B: stale + no swap yet this hour → 3%; stale + prior activity → pass / 3% / 8% by swap+window USD. `updateScore` is signed by Anvil **#9** (attestor) over `attestationHash`. An empty signature is rejected.
 
@@ -59,6 +59,15 @@ Restart the API after every `deploy:local` so it loads `.env.local`.
 | `GET` | `/escrow` | Live FeeEscrow rows |
 | `POST` | `/escrow/:id/checkpoint2` | Checkpoint 2 reads oracle/list (no keeper bool) |
 | `POST` | `/escrow/:id/recover` | Recover Blocked → compliance reserve |
+| `GET` | `/compensation` | Vault balance, open/closed epochs, claim leaves (`?account=`) |
+| `POST` | `/compensation/accrue/:id` | Book a released FeeEscrow RiskFee row into the open epoch |
+| `POST` | `/compensation/close-epoch` | Accrue + merkle over `COMPENSATION_LPS` + `closeEpoch` |
+| `POST` | `/compensation/claim` | `{ epochId, account }` — keeper submits the merkle claim |
+| `GET` | `/treasury` | Ledger balances + payout queue |
+| `POST` | `/treasury/destinations` | Allowlist an authority address |
+| `POST` | `/treasury/propose` | `{ account, amountUsdc, to, memo }` |
+| `POST` | `/treasury/:id/execute` | After 48h (`/demo/elapse` on Anvil) |
+| `POST` | `/treasury/:id/cancel` | Release a pending payout reserve |
 | `GET` | `/transfers` | Transfer history |
 | `GET` | `/events` | Hook trail (`SwapObserved` / blocked) |
 | `POST` | `/reset` | Mint + `syncBaseline` + agent seed A–D (Claude wait when key set; E unpublished) |
@@ -139,7 +148,7 @@ cd apps/api
 npm run dev
 ```
 
-`.env.local` (from `scripts/sync-deployment.mjs`) sets RPC, hook, oracle, FeeEscrow, fee token, `WETH_TOKEN_ADDRESS`, feeds, `COMPLIANCE_TREASURY_ADDRESS` / `COMPLIANCE_RESERVE` / `LP_COMPENSATION_FUND`, `KEEPER_PRIVATE_KEY` (Anvil **#0**), and `ATTESTOR_PRIVATE_KEY` (Anvil **#9**).
+`.env.local` (from `scripts/sync-deployment.mjs`) sets RPC, hook, oracle, FeeEscrow, fee token, `WETH_TOKEN_ADDRESS`, feeds, treasury / vault / `COMPENSATION_LPS`, `KEEPER_PRIVATE_KEY` (Anvil **#0**), and `ATTESTOR_PRIVATE_KEY` (Anvil **#9**).
 
 | Account | Role |
 |---|---|

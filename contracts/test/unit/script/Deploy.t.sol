@@ -8,6 +8,7 @@ import {AmlHookLogic} from "contracts/hooks/AmlHookLogic.sol";
 import {ChainlinkFeeds} from "libraries/ChainlinkFeeds.sol";
 import {ComplianceOracle} from "contracts/oracles/ComplianceOracle.sol";
 import {FeeEscrow} from "contracts/escrow/FeeEscrow.sol";
+import {ComplianceTreasury} from "contracts/treasury/ComplianceTreasury.sol";
 import {SanctionRegistry} from "contracts/registries/SanctionRegistry.sol";
 import {Roles} from "libraries/Roles.sol";
 import {Deploy} from "script/Deploy.sol";
@@ -247,9 +248,10 @@ contract UnitDeployTest is Helpers {
         address configurer = address(deployment);
 
         assertEq(escrow.owner(), owner);
-        assertEq(escrow.lpCompensationFund(), owner);
+        assertEq(escrow.lpCompensationFund(), address(deployment.lpCompensationVault()));
         assertEq(escrow.complianceReserve(), address(deployment.complianceTreasury()));
         assertTrue(escrow.complianceReserve() != escrow.lpCompensationFund());
+        assertEq(deployment.complianceTreasury().lpCompensationFund(), address(deployment.lpCompensationVault()));
         assertEq(escrow.bootstrapper(), address(0));
         assertFalse(escrow.keepers(configurer));
         assertFalse(escrow.depositors(configurer));

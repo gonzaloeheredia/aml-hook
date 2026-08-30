@@ -45,7 +45,8 @@ Official PoolManager address comes from the installed Uniswap artifact
 | ComplianceOracle | `0xED5ED80715D886e4cE808269e69fcDFBeD22733B` |
 | RiskPolicy | `0x4427FD537B0c7486fCaE7128a406FcD941723aD8` |
 | FeeEscrow | `0xB8487ea37DF8576d6219ae1C61FF72D17F445925` |
-| ComplianceTreasury | `0x0281A79ce8234C9601472118a45C343a53C06650` |
+| ComplianceTreasury (genesis, receive-only) | `0x0281A79ce8234C9601472118a45C343a53C06650` |
+| LpCompensationVault / tesorería v2 | Additive — `forge script script/WireFunds.s.sol` as FeeEscrow owner. Writes `deployments/11155111-funds.json`. Does not redeploy the hook or the pool. |
 | Trusted router (Universal Router) | `0x3A9D48AB9751398BbFa63ad67599Bb04e4BdF98b` |
 | ETH/USD | `0x694AA1769357215DE4FAC081bf1f309aDC325306` |
 | USDC/USD (`TOKEN_USD_FEED` on MockUSDC) | `0xA2F78ab2355fe2f984D808B5CeE7FD0A93D5270E` |
@@ -83,6 +84,19 @@ TOKEN_USD_FEED=0xA2F78ab2355fe2f984D808B5CeE7FD0A93D5270E
 forge script script/Deploy.sol:Deploy --rpc-url $SEPOLIA_RPC_URL --broadcast --slow
 forge script script/CreatePool.s.sol:CreatePool --rpc-url $SEPOLIA_RPC_URL --broadcast --slow
 ```
+
+To attach the product funds without redeploying the hook or pool (FeeEscrow owner):
+
+```bash
+FEE_ESCROW=0xB8487ea37DF8576d6219ae1C61FF72D17F445925 \
+AML_HOOK=0x943Af5f4aC70869b1F794FE3C8277de0f4AecfC7 \
+SANCTION_REGISTRY=0xBf46E7dad8286FC3e487C22b27F17D734814df5d \
+COMPLIANCE_ORACLE=0xED5ED80715D886e4cE808269e69fcDFBeD22733B \
+WETH_TOKEN=0x51f63BD627B0a43497E474Ffa93C1108Eb853F2a \
+forge script script/WireFunds.s.sol:WireFunds --rpc-url $SEPOLIA_RPC_URL --broadcast --slow
+```
+
+That writes `deployments/11155111-funds.json` and retargets FeeEscrow destinations.
 
 `AmlHook` + `AmlHookSatellite` stay under the 24 576-byte EIP-170 cap
 (~22.9 kB each). Evaluation runs via `DELEGATECALL`. Inheritance on `AmlHook`

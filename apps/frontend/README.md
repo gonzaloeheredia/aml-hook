@@ -18,7 +18,7 @@ On-screen titles (serif, same size on every stage): **Swap**, **Hook execution**
 |---|---|---|---|
 | 1 | **Swap** | Swap | Connect wallet + `Get started` |
 | 2 | **Hook** | Hook execution | Hook lifecycle (`beforeSwap`) |
-| 3 | **Fees** | Fee summary | Pool standard fee + FeeEscrow (FEE_OVERRIDE differential, LP-add risk fee, seized principal) · **EscrowPanel** (live Anvil rows, Warp 48h / 7d, checkpoint 2, recover by kind) · **Sold (USDC)** / **Bought (ETH)** |
+| 3 | **Fees** | Fee summary | Pool standard fee + FeeEscrow · **EscrowPanel** (checkpoint 2 / recover) · **FundsPanel** (close epoch / LP claim / treasury propose-execute) · **Sold (USDC)** / **Bought (ETH)** |
 | 4 | **Stats** | AML stats | Score gauge, report overview, detection data |
 | 5 | **Opinion** | AML Analysis | Legal / technical opinion (A–E) from **oracle COA** via `/compliance` |
 | 6 | **Event** | Event | `afterSwap` pool-chain payload only |

@@ -5,6 +5,7 @@ Mirrors `src/` so each production surface has a matching unit folder:
 ```
 src/contracts/                  test/unit/
 ├── escrow/                     ├── escrow/
+├── compensation/               ├── compensation/
 ├── treasury/                   ├── treasury/
 ├── external/                   ├── external/
 ├── hooks/                      ├── hooks/
@@ -19,7 +20,8 @@ script/                         test/unit/script/
 | Folder | Covers |
 |---|---|
 | `unit/escrow/` | `FeeEscrow` lifecycle + admin + fuzz (Checkpoint 2 reads oracle/list; clean default → LP fund; blocked recover → treasury `ILLICIT_RISK_FEE`) |
-| `unit/treasury/` | `ComplianceTreasury` two-account ledger (`LP_PRINCIPAL` vs `ILLICIT_RISK_FEE`) |
+| `unit/compensation/` | `LpCompensationVault` accrue / epoch merkle claim / illicit refuse / recycle |
+| `unit/treasury/` | `ComplianceTreasury` two-account ledger plus delayed allowlisted payouts |
 | `unit/external/` | Official `v4-periphery` BaseHook gating / `HookNotImplemented` |
 | `unit/policies/` | `RiskPolicyLib.decide` / `RiskPolicy.decide` (swaps) and `LpPolicyLib.decide` / `LpPolicy.decide` (LP: known score ignores Floor B; never-scored matches swap A/C/D). |
 | `unit/hooks/` | `AmlHook`, `AmlHookLogic` (incl. 30-minute hot `lastFx` skip, one Chainlink read per token when the cache is older, 24h fallback, missing-feed fail-closed, three never-scored bands), resolve-wallet, FeeEscrow take path, afterSwap cache. `AmlHookLogic.Admin` covers constructor defaults, pause, governor setters. `AmlHookLogic.Fuzz` matches `evaluate` to `RiskPolicy.decide` (published score, never-scored USD, Floor B/C). `AmlHookLogic.ComplianceParams` covers `_COMPLIANCE_OFFICER` propose / 48h confirm, FATF $1,000 floor, pair ordering, and live fees / USD / pool-impact flowing into `evaluate`. `AmlHook.Liquidity` covers LP add fees, never-scored Floor A, pause (clean mint allowed), seized remove → FeeEscrow 48h. `AmlHook.StorageLayout` locks satellite slot 1 = `sanctionRegistry` (not `complianceTreasury`). |

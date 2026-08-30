@@ -82,7 +82,9 @@ storage slots match (`UnitAmlHookStorageLayoutTest`). Live Sepolia addresses:
 | `SanctionRegistry` | Static list. New hits are commit-reveal |
 | `ComplianceOracle` | Stored score, hop, origin, fee, timestamp |
 | `RiskPolicy` / `RiskPolicyLib` | Score + floors → decision. Hook **calls** `RiskPolicy.decide` (external). `RiskPolicyLib` is the pure mapping inside that contract. Also used off-chain as preview. No external calls from the policy itself |
-| `FeeEscrow` | 48h hold of the extra fee. Clean / early / default → LP compensation fund. Confirmed illicit → compliance reserve. Own access list |
+| `FeeEscrow` | 48h hold of the extra fee. Clean / early / default → `LpCompensationVault` (LP merkle claim). Confirmed illicit → ComplianceTreasury (delayed authority payout). Own access list |
+| `LpCompensationVault` | Accrues clean risk fees. Keeper closes an epoch; LPs claim. Listed / score ≥ 71 cannot claim. |
+| `ComplianceTreasury` | `LP_PRINCIPAL` + `ILLICIT_RISK_FEE`. `proposePayout` / `executePayout` (48h) to an allowlisted destination — never the vault. |
 | `AccessManager` | Shared authority for registry, oracle, hook governor, and compliance officer |
 
 Subject resolution uses a trusted router (`IMsgSender.msgSender()`). Uniswap `hookData` is ignored. An untrusted initiator reverts before any layer runs.
@@ -150,8 +152,8 @@ npm run deploy:local
 ```
 
 1. Starts Anvil on `:8545`.
-2. Deploys AccessManager, L1/L2/L3, AmlHook (CREATE2), and FeeEscrow. Uses `MockPoolManager` unless `POOL_MANAGER` is set. Deploys mintable `MockUSDC` (6 decimals) and `MockWETH` (18 decimals, priced at $1,000) unless `FEE_TOKEN` / `WETH_TOKEN` are set. On Anvil binds `MockUsdFeed` ($1 USDC, $1000 ETH). On a live chain binds official Chainlink ETH/USD, WETH, and USDC/USD. Seeds wallets A–E (Anvil #1–#5).
-3. Wires roles. Anvil account #0 is the default admin / keepers / governor / compliance officer. Anvil #9 is the local attestor. Production requires a distinct `ATTESTOR`, a Safe as `ADMIN` or `FEE_ESCROW_OWNER`, a dedicated `COMPLIANCE_OFFICER` (48h grant delay), and a dedicated `COMPLIANCE_RESERVE` (never the LP fund). Floor B default is 5 minutes (`DEFAULT_STALENESS` / `MAX_SCORE_AGE`). Institutional pools may tighten to 120 seconds.
+2. Deploys AccessManager, L1/L2/L3, AmlHook (CREATE2), FeeEscrow, `LpCompensationVault`, and `ComplianceTreasury`. Uses `MockPoolManager` unless `POOL_MANAGER` is set. Deploys mintable `MockUSDC` (6 decimals) and `MockWETH` (18 decimals, priced at $1,000) unless `FEE_TOKEN` / `WETH_TOKEN` are set. On Anvil binds `MockUsdFeed` ($1 USDC, $1000 ETH). On a live chain binds official Chainlink ETH/USD, WETH, and USDC/USD. Seeds wallets A–E (Anvil #1–#5).
+3. Wires roles. Anvil account #0 is the default admin / keepers / governor / compliance officer. Anvil #9 is the local attestor. Production requires a distinct `ATTESTOR`, a Safe as `ADMIN` or `FEE_ESCROW_OWNER`, a dedicated `COMPLIANCE_OFFICER` (48h grant delay), and a dedicated ComplianceTreasury (never the LP vault). Floor B default is 5 minutes (`DEFAULT_STALENESS` / `MAX_SCORE_AGE`). Institutional pools may tighten to 120 seconds.
 4. Writes `contracts/deployments/31337.json` (hook, escrow, `feeToken`, `wethToken`, feeds, wallets, attestor) and copies it into `packages/sdk/deployments/`.
 5. Writes `apps/api/.env.local`.
 

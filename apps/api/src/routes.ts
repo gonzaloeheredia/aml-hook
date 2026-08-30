@@ -19,6 +19,15 @@ import {
   readPolicyKnobs,
   recoverBlocked,
   requireChain,
+  compensationOverview,
+  accrueFromEscrow,
+  closeCompensationEpoch,
+  claimCompensation,
+  treasuryOverview,
+  setTreasuryDestination,
+  proposeTreasuryPayout,
+  executeTreasuryPayout,
+  cancelTreasuryPayout,
   resolveCheckpoint2,
   seedBalances,
   setPriceFeedBound,
@@ -542,6 +551,119 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }
     },
   );
+
+  app.get<{ Querystring: { account?: string } }>("/compensation", async (req, reply) => {
+    try {
+      const account = req.query.account && isAddress(req.query.account)
+        ? getAddress(req.query.account)
+        : undefined;
+      return await compensationOverview(account);
+    } catch (err) {
+      return sendChainError(reply, err);
+    }
+  });
+
+  app.post<{ Params: { id: string } }>("/compensation/accrue/:id", async (req, reply) => {
+    try {
+      const hash = await accrueFromEscrow(Number(req.params.id));
+      return { ok: true, txHash: hash, ...(await compensationOverview()) };
+    } catch (err) {
+      return sendChainError(reply, err);
+    }
+  });
+
+  app.post("/compensation/close-epoch", async (_req, reply) => {
+    try {
+      return { ok: true, ...(await closeCompensationEpoch()) };
+    } catch (err) {
+      return sendChainError(reply, err);
+    }
+  });
+
+  app.post<{ Body: { epochId?: number; account?: string } }>(
+    "/compensation/claim",
+    async (req, reply) => {
+      try {
+        const epochId = Number(req.body?.epochId);
+        const account = req.body?.account;
+        if (!Number.isFinite(epochId) || !account || !isAddress(account)) {
+          return reply.code(400).send({ error: "epochId and account required" });
+        }
+        const hash = await claimCompensation(epochId, getAddress(account));
+        return { ok: true, txHash: hash, ...(await compensationOverview(getAddress(account))) };
+      } catch (err) {
+        return sendChainError(reply, err);
+      }
+    },
+  );
+
+  app.get("/treasury", async (_req, reply) => {
+    try {
+      return await treasuryOverview();
+    } catch (err) {
+      return sendChainError(reply, err);
+    }
+  });
+
+  app.post<{ Body: { dest?: string; allowed?: boolean } }>(
+    "/treasury/destinations",
+    async (req, reply) => {
+      try {
+        const dest = req.body?.dest;
+        if (!dest || !isAddress(dest)) {
+          return reply.code(400).send({ error: "dest required" });
+        }
+        const hash = await setTreasuryDestination(getAddress(dest), req.body?.allowed !== false);
+        return { ok: true, txHash: hash, ...(await treasuryOverview()) };
+      } catch (err) {
+        return sendChainError(reply, err);
+      }
+    },
+  );
+
+  app.post<{
+    Body: {
+      account?: "LP_PRINCIPAL" | "ILLICIT_RISK_FEE";
+      amountUsdc?: number;
+      to?: string;
+      memo?: string;
+      escrowId?: number;
+    };
+  }>("/treasury/propose", async (req, reply) => {
+    try {
+      const account = req.body?.account === "LP_PRINCIPAL" ? "LP_PRINCIPAL" : "ILLICIT_RISK_FEE";
+      const to = req.body?.to;
+      if (!to || !isAddress(to)) return reply.code(400).send({ error: "to required" });
+      const res = await proposeTreasuryPayout({
+        account,
+        amountUsdc: req.body?.amountUsdc,
+        to,
+        memo: req.body?.memo,
+        escrowId: req.body?.escrowId,
+      });
+      return { ok: true, ...res, ...(await treasuryOverview()) };
+    } catch (err) {
+      return sendChainError(reply, err);
+    }
+  });
+
+  app.post<{ Params: { id: string } }>("/treasury/:id/execute", async (req, reply) => {
+    try {
+      const hash = await executeTreasuryPayout(Number(req.params.id));
+      return { ok: true, txHash: hash, ...(await treasuryOverview()) };
+    } catch (err) {
+      return sendChainError(reply, err);
+    }
+  });
+
+  app.post<{ Params: { id: string } }>("/treasury/:id/cancel", async (req, reply) => {
+    try {
+      const hash = await cancelTreasuryPayout(Number(req.params.id));
+      return { ok: true, txHash: hash, ...(await treasuryOverview()) };
+    } catch (err) {
+      return sendChainError(reply, err);
+    }
+  });
 
   app.post<{ Params: { id: string } }>("/escrow/:id/recover", async (req, reply) => {
     try {

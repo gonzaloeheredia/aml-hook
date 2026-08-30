@@ -28,6 +28,20 @@ export {
   escrowDestinations,
   type EscrowRow,
 } from "./escrow.js";
+export {
+  compensationOverview,
+  accrueOpenEpoch,
+  accrueFromEscrow,
+  closeCompensationEpoch,
+  claimCompensation,
+} from "./compensation.js";
+export {
+  treasuryOverview,
+  setTreasuryDestination,
+  proposeTreasuryPayout,
+  executeTreasuryPayout,
+  cancelTreasuryPayout,
+} from "./treasury.js";
 export { hydrateWallets } from "./hydrate.js";
 export {
   balanceUsdc,

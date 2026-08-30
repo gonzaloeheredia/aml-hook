@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AmlStats, LegalOpinion } from "@/components/AuditReport";
 import { ConnectModal } from "@/components/ConnectModal";
 import { EscrowPanel } from "@/components/EscrowPanel";
+import { FundsPanel } from "@/components/FundsPanel";
 import { FeeSummary } from "@/components/FeeSummary";
 import { FlowSimulator } from "@/components/FlowSimulator";
 import { MetaMaskPanel } from "@/components/MetaMaskPanel";
@@ -907,6 +908,10 @@ export default function HomePage() {
                       tradedEth={liveStats.tradedEth}
                     />
                     <EscrowPanel
+                      apiOnline={apiStatus === "online"}
+                      tick={demoTick + liveStats.count}
+                    />
+                    <FundsPanel
                       apiOnline={apiStatus === "online"}
                       tick={demoTick + liveStats.count}
                     />

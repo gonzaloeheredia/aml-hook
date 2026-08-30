@@ -120,10 +120,10 @@ the FeeEscrow keeper alone submits transfers after an off-chain sanity check.
 | Moment | Keeper call | RiskFee destination | LpPrincipal destination |
 |---|---|---|---|
 | 0–24h | (optional COA; no write) | Still held | Still held |
-| Checkpoint 1 (≥24h, <48h) | `releaseEarly` | `lpCompensationFund` | LP wallet |
+| Checkpoint 1 (≥24h, <48h) | `releaseEarly` | `LpCompensationVault` | LP wallet |
 | Checkpoint 2 ≥48h, list or oracle score ≥ 71 | `resolveCheckpoint2` (no bool) | Blocked; later recover → `ILLICIT_RISK_FEE` | Blocked; later recover → `LP_PRINCIPAL` |
-| Checkpoint 2 ≥48h, clean on-chain | `resolveCheckpoint2` | `lpCompensationFund` | LP wallet |
-| No resolution after window | `releaseDefault` | `lpCompensationFund` | LP wallet |
+| Checkpoint 2 ≥48h, clean on-chain | `resolveCheckpoint2` | `LpCompensationVault` | LP wallet |
+| No resolution after window | `releaseDefault` | `LpCompensationVault` | LP wallet |
 
 Every escrow deposit should be linkable to the supporting `ScoreResult`
 (`auditHash` / origin tx). `recommendedFeeBps` from this skill is what the

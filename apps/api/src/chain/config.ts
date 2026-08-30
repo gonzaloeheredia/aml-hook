@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Address, Hex } from "viem";
-import { ATTESTOR_KEY, KEEPER_KEY } from "./accounts.js";
+import { ATTESTOR_KEY, KEEPER_ADDRESS, KEEPER_KEY } from "./accounts.js";
 import { ChainUnavailableError } from "./errors.js";
 
 export const ANVIL_CHAIN_ID = 31337;
@@ -31,6 +31,8 @@ export type ChainConfig = {
   hookGovernorKey: Hex;
   complianceReserve: Address;
   lpCompensationFund: Address;
+  lpCompensationVault: Address;
+  compensationLps: Address[];
 };
 
 type DeploymentJson = {
@@ -47,6 +49,8 @@ type DeploymentJson = {
   complianceReserve?: string;
   ComplianceTreasury?: string;
   lpCompensationFund?: string;
+  LpCompensationVault?: string;
+  admin?: string;
 };
 
 function envChainId(): number {
@@ -77,6 +81,18 @@ function addr(envName: string, fallback?: string): Address | undefined {
   const v = (process.env[envName] ?? fallback ?? "").trim();
   if (!v || !v.startsWith("0x")) return undefined;
   return v as Address;
+}
+
+function parseCompensationLps(admin?: string): Address[] {
+  const raw = (process.env.COMPENSATION_LPS ?? "").trim();
+  if (raw) {
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.startsWith("0x") && s.length === 42) as Address[];
+  }
+  if (admin && admin.startsWith("0x") && admin.length === 42) return [admin as Address];
+  return [KEEPER_ADDRESS];
 }
 
 function hexKey(envName: string, fallback?: string): Hex | undefined {
@@ -146,8 +162,11 @@ export function getChainConfig(): ChainConfig {
     hookGovernorKey: hexKey("HOOK_GOVERNOR_PRIVATE_KEY") ?? keeperKey,
     complianceReserve: addr("COMPLIANCE_RESERVE", d?.ComplianceTreasury ?? d?.complianceReserve) ??
       ("0x0000000000000000000000000000000000000000" as Address),
-    lpCompensationFund: addr("LP_COMPENSATION_FUND", d?.lpCompensationFund) ??
+    lpCompensationFund: addr("LP_COMPENSATION_FUND", d?.lpCompensationFund ?? d?.LpCompensationVault) ??
       ("0x0000000000000000000000000000000000000000" as Address),
+    lpCompensationVault: addr("LP_COMPENSATION_VAULT", d?.LpCompensationVault ?? d?.lpCompensationFund) ??
+      ("0x0000000000000000000000000000000000000000" as Address),
+    compensationLps: parseCompensationLps(d?.admin),
   };
   return cached;
 }

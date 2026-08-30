@@ -12,6 +12,7 @@ import {ComplianceOracle} from "../src/contracts/oracles/ComplianceOracle.sol";
 import {RiskPolicy} from "../src/contracts/policies/RiskPolicy.sol";
 import {FeeEscrow} from "../src/contracts/escrow/FeeEscrow.sol";
 import {ComplianceTreasury} from "../src/contracts/treasury/ComplianceTreasury.sol";
+import {LpCompensationVault} from "../src/contracts/compensation/LpCompensationVault.sol";
 import {AmlHook} from "../src/contracts/hooks/AmlHook.sol";
 import {AmlHookGovernance} from "../src/contracts/hooks/AmlHookGovernance.sol";
 import {AmlHookLogic} from "../src/contracts/hooks/AmlHookLogic.sol";
@@ -60,10 +61,10 @@ import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
     ///      - POOL_MANAGER: real PoolManager address (else MockPoolManager)
     ///      - FEE_TOKEN: FeeEscrow custody asset (else MockUSDC, 6 decimals)
     ///      - WETH_TOKEN: mintable demo ETH (else MockWETH, 18 decimals)
-    ///      - LP_COMPENSATION_FUND: where a clean extra fee goes (early / clean / default). Defaults
-    ///        to FEE_ESCROW_OWNER / ADMIN, never to the deploying key when those differ.
-    ///      Recovered illicit fees go to ComplianceTreasury (wired as FeeEscrow.complianceReserve),
-    ///      never to the LP compensation fund.
+    ///      Clean risk-fee releases go to LpCompensationVault (FeeEscrow.lpCompensationFund).
+    ///      Recovered illicit fees go to ComplianceTreasury (FeeEscrow.complianceReserve).
+    ///      The two contracts cannot be the same address. LP_COMPENSATION_FUND env is unused
+    ///      on a fresh Deploy — the vault is always created.
     ///      - FEE_ESCROW_OWNER: FeeEscrow `owner` from genesis (defaults to ADMIN). Production MUST
     ///        be a Gnosis Safe; the deployer is only a one-shot `bootstrapper` for the hook depositor.
 ///      - ETH_USD_FEED / TOKEN_USD_FEED (alias USD_FEED): override Chainlink AggregatorV3
@@ -159,6 +160,9 @@ contract Deploy is Script {
 
     /// @notice Ledged compliance fund (LP_PRINCIPAL + ILLICIT_RISK_FEE). Also FeeEscrow.complianceReserve.
     ComplianceTreasury public complianceTreasury;
+
+    /// @notice Clean risk-fee destination. LPs claim per closed epoch (merkle).
+    LpCompensationVault public lpCompensationVault;
 
     /// @notice PoolManager used by the hook (real or MockPoolManager)
     address public poolManager;
@@ -322,17 +326,26 @@ contract Deploy is Script {
             console2.log("MockPoolManager", poolManagerAddr);
         }
         poolManager = poolManagerAddr;
-        address lpFund = vm.envOr("LP_COMPENSATION_FUND", address(0));
-        if (lpFund == address(0)) lpFund = feeEscrowOwner;
-        if (lpFund == configurer && configurer != feeEscrowOwner) revert Deploy_LpFundIsConfigurer(configurer);
         complianceTreasury = new ComplianceTreasury(feeEscrowOwner, configurer);
+        lpCompensationVault = new LpCompensationVault(feeEscrowOwner, configurer, address(complianceTreasury));
+        address lpFund = address(lpCompensationVault);
         address reserve = address(complianceTreasury);
+        if (lpFund == configurer && configurer != feeEscrowOwner) revert Deploy_LpFundIsConfigurer(configurer);
         if (reserve == configurer && configurer != feeEscrowOwner) {
             revert Deploy_ComplianceReserveIsConfigurer(configurer);
         }
         if (reserve == lpFund) revert Deploy_DestinationsMustDiffer(reserve);
         feeEscrow = new FeeEscrow(feeEscrowOwner, feeTokenAddr, lpFund, reserve, configurer);
         feeEscrow.setComplianceSources(sanctionRegistry, complianceOracle);
+        if (feeEscrowOwner == configurer && wethTokenAddr != address(0)) {
+            feeEscrow.setAllowedFeeToken(wethTokenAddr, true);
+        }
+        complianceTreasury.setLpCompensationFund(lpFund);
+        if (feeEscrowOwner == configurer) {
+            complianceTreasury.setDestination(feeEscrowOwner, true);
+        }
+        lpCompensationVault.setEscrow(address(feeEscrow));
+        lpCompensationVault.setComplianceSources(sanctionRegistry, complianceOracle);
 
         uint160 flags = uint160(
             Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
@@ -447,6 +460,7 @@ contract Deploy is Script {
         console2.log("FeeEscrow", address(feeEscrow));
         console2.log("FeeEscrowOwner", feeEscrowOwner);
         console2.log("LpCompensationFund", feeEscrow.lpCompensationFund());
+        console2.log("LpCompensationVault", address(lpCompensationVault));
         console2.log("ComplianceTreasury", address(complianceTreasury));
         console2.log("ComplianceReserve", feeEscrow.complianceReserve());
         console2.log("AmlHook", address(hook));
@@ -722,6 +736,9 @@ contract Deploy is Script {
             '",\n',
             '  "lpCompensationFund": "',
             vm.toString(feeEscrow.lpCompensationFund()),
+            '",\n',
+            '  "LpCompensationVault": "',
+            vm.toString(address(lpCompensationVault)),
             '",\n',
             '  "complianceReserve": "',
             vm.toString(feeEscrow.complianceReserve()),

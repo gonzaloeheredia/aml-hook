@@ -13,6 +13,7 @@ contracts/
 │   │   ├── policies/         RiskPolicy · LpPolicy     (Layer 3 swap / LP)
 │   │   ├── registries/       SanctionRegistry          (Layer 1)
 │   │   ├── escrow/           FeeEscrow
+│   │   ├── compensation/     LpCompensationVault
 │   │   └── treasury/         ComplianceTreasury
 │   ├── interfaces/           Same role subfolders (hooks/oracles/… + external/)
 │   └── libraries/            RiskPolicyLib · LpPolicyLib · HookDecision · Roles · FeeBps · UsdQuote · ChainlinkFeeds · LiquidityCache
@@ -23,8 +24,8 @@ contracts/
 │   ├── integration/          AmlStack
 │   ├── mocks/                MockERC20 · MockAggregatorV3 · BareBaseHook
 │   └── utils/                Helpers (AccessManager wiring + hook deploy)
-├── script/                   Deploy.sol · CreatePool.s.sol (+ mocks/)
-├── deployments/              31337.json (Anvil) · 11155111.json + 11155111-pool.json (Sepolia)
+├── script/                   Deploy.sol · WireFunds.s.sol · CreatePool.s.sol (+ mocks/)
+├── deployments/              31337.json (Anvil) · 11155111.json + 11155111-pool.json + 11155111-funds.json (Sepolia)
 ├── lib/                      forge-std · v4-core · v4-periphery · openzeppelin-contracts
 ├── foundry.toml
 └── remappings.txt
@@ -53,8 +54,9 @@ User → Router → PoolManager → AmlHook          (Uniswap callbacks; DELEGAT
 | **AmlHookSatellite** | Evaluation + governance bytecode. Same `poolManager` immutable as the hook. Must not be listed first as Settlement on `AmlHook` or `sanctionRegistry` aliases `complianceTreasury`. |
 | **AmlHookLogic** | Subject resolve, L1→L3, mitigations A–D, Chainlink USD-8 quotes (`priceFeeds`). LP adds use `LpPolicyLib`. `_HOOK_GOVERNOR` retunes operational knobs, feeds, Floor B (`setActivityWindow` / `setStalenessThreshold`), and Floor C (`setDailyWindow`). `_COMPLIANCE_OFFICER` proposes / confirms USD floors, floor fees, and the pool-impact cut (48h delay). Neither invents scores. |
 | **AmlHookSettlement** | Differential take + escrow deposit / `failedDeposits` / claim / retry. Seized LP principal and fees → FeeEscrow (kinds `LpPrincipal` / `RiskFee`). Does not decide risk. |
-| **FeeEscrow** | 48h hold of the FEE_OVERRIDE differential, LP-add risk fee, and seized LP principal/fees. Own owner / keepers / depositors (not AccessManager). Checkpoint 2 reads `SanctionRegistry` / `ComplianceOracle` (no keeper bool). Clean risk fee → `lpCompensationFund`. Clean principal → the LP wallet. List or score ≥ 71 → Blocked; recover books ComplianceTreasury `ILLICIT_RISK_FEE` or `LP_PRINCIPAL` by kind. Never the pool. |
-| **ComplianceTreasury** | Two accounts: `LP_PRINCIPAL` (recovered seized capital) and `ILLICIT_RISK_FEE` (recovered risk fee). Events `PrincipalPosted` / `ComplianceCredited`. |
+| **FeeEscrow** | 48h hold of the FEE_OVERRIDE differential, LP-add risk fee, and seized LP principal/fees. Own owner / keepers / depositors (not AccessManager). Checkpoint 2 reads `SanctionRegistry` / `ComplianceOracle` (no keeper bool). Clean risk fee → `LpCompensationVault`. Clean principal → the LP wallet. List or score ≥ 71 → Blocked; recover books ComplianceTreasury `ILLICIT_RISK_FEE` or `LP_PRINCIPAL` by kind. Never the pool. |
+| **LpCompensationVault** | Receives clean `RiskFee` releases. Keeper closes an epoch with a merkle root of LP shares; `claim` is permissionless and refuses a listed or score ≥ 71 wallet. Unclaimed pot recycles after 90 days. |
+| **ComplianceTreasury** | Two accounts: `LP_PRINCIPAL` and `ILLICIT_RISK_FEE`. Recover notify from FeeEscrow. Owner `proposePayout` / `executePayout` (48h) to an allowlisted authority destination — never the LP vault. Events `PrincipalPosted` / `ComplianceCredited` / `PayoutProposed` / `PayoutExecuted`. |
 
 Subject resolution (§3.5): trusted routers (`hookGovernor` `setTrustedRouter`) report the end-user via
 `IMsgSender.msgSender()` as the **only** swap subject (`TrustedRouterSubjectFailed` if the call reverts or
@@ -186,7 +188,7 @@ Deployer = Anvil account #0 (local defaults for admin / registry keeper / oracle
 |---|---|
 | `ATTESTOR` | Required. Distinct ECDSA attestor. No default — missing value fails the script. |
 | `ADMIN` or `FEE_ESCROW_OWNER` | FeeEscrow + AccessManager admin from genesis (Safe). Not the configurer EOA. |
-| `LP_COMPENSATION_FUND` | Clean / early / default escrow destination. Defaults to the fee-escrow owner, not the deployer. |
+| `LP_COMPENSATION_FUND` | Unused on a fresh Deploy. Clean releases go to the deployed `LpCompensationVault`. Sepolia additive path: `script/WireFunds.s.sol`. |
 | `COMPLIANCE_RESERVE` | Unused. Recovered Blocked (confirmed-illicit) destination is `ComplianceTreasury` (wired as `FeeEscrow.complianceReserve`), never the LP fund. |
 | `MAX_SCORE_AGE` | Floor B `stalenessThreshold` at deploy. Script default is 5 minutes. If this is 0, the hook constructor falls back to `DEFAULT_STALENESS` (5 minutes). |
 | `REGISTRY_KEEPER` / `ORACLE_KEEPER` / `HOOK_GOVERNOR` / `COMPLIANCE_OFFICER` | Split keys. Deploy verifies they do not overlap. Officer grant is 48h. |

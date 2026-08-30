@@ -210,7 +210,7 @@ export function WhitepaperView() {
             />
             <DocRow
               label="Fee escrow"
-              value="On FEE_OVERRIDE the pool keeps 0.30%. The extra slice sits in FeeEscrow. Clean release goes to the LP compensation fund. Confirmed illicit recover goes to ComplianceTreasury — never back to the pool, never to LPs while still suspect."
+              value="On FEE_OVERRIDE the pool keeps 0.30%. The extra slice sits in FeeEscrow. Clean release goes to LpCompensationVault (LPs claim after epoch close). Confirmed illicit recover goes to ComplianceTreasury, then a delayed allowlisted payout — never back to the pool, never to LPs while still suspect."
             />
             <DocRow
               label="Latency floors"
