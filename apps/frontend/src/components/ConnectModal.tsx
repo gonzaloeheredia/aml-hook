@@ -1,7 +1,7 @@
 "use client";
 
 import { walletTone } from "@/components/WalletTag";
-import { CASE_ORDER, DEMO_CASES, type DemoCaseId } from "@/data/cases";
+import { CONNECT_ORDER, DEMO_CASES, type DemoCaseId } from "@/data/cases";
 import {
   formatFeePct,
   formatUsdFloor,
@@ -57,7 +57,7 @@ export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
           Pick the use-case account to run through the AML Hook:
         </p>
         <div className="space-y-0">
-          {CASE_ORDER.map((id) => {
+          {CONNECT_ORDER.map((id) => {
             const c = DEMO_CASES[id];
             const wallet = wallets[id];
             const tone = walletTone(wallet);
@@ -71,20 +71,24 @@ export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
                 <span
                   className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ${tone.badge}`}
                 >
-                  {id}
+                  {id === "N" ? "+" : id}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-semibold text-uni-pink">
-                    Wallet {id} · {tone.label}
+                    {id === "N" ? "New wallet" : `Wallet ${id} · ${tone.label}`}
                   </span>
                   <span className="block truncate font-mono text-xs opacity-80">
                     {shorten(wallet.address)}
                   </span>
                   <span className="mt-0.5 block text-[11px] opacity-80">
                     {wallet.neverScored
-                      ? wallet.usdc <= 0
-                        ? "Unknown · empty — fund from clean C (no hop)"
-                        : `Unknown · bag $${wallet.usdc.toLocaleString("en-US")} · Floor A/D on next swap`
+                      ? id === "N"
+                        ? wallet.usdc <= 0
+                          ? "Unknown score · 0 funds — mint on this account"
+                          : `Unknown score · bag $${wallet.usdc.toLocaleString("en-US")} · Floor A/D on next swap`
+                        : wallet.usdc <= 0
+                          ? "Unknown · empty — fund from clean C (no hop)"
+                          : `Unknown · bag $${wallet.usdc.toLocaleString("en-US")} · Floor A/D on next swap`
                       : wallet.keeperPending
                         ? `Keeper pending · next swap uses inflow ${formatFeePct(getPolicyKnobs().proportionalFeeBps)} / ${formatFeePct(getPolicyKnobs().punitiveFeeBps)} by inbound USD`
                         : wallet.hopDistance != null

@@ -59,7 +59,7 @@ import type { WalletId } from "./types.js";
 const FAUCET_USDC = 10_000;
 const FAUCET_ETH = 1;
 
-const WALLET_IDS_HINT = "A, B, C, D, or E";
+const WALLET_IDS_HINT = "A, B, C, D, E, or N";
 
 type TransferBody = {
   from?: string;
@@ -109,7 +109,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       publisher: getPublisherStatus(),
       chain,
       policy,
-      wallets: ["A", "B", "C", "D", "E"],
+      wallets: ["A", "B", "C", "D", "E", "N"],
     };
   });
 

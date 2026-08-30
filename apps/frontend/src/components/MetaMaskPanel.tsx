@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  ETH_USD,
   bandLabelForUsd,
   dustExampleUsd,
   inflowAmountPresets,
@@ -38,29 +37,9 @@ type Props = {
     token: "usdc" | "eth",
     amount: number,
   ) => Promise<string | null>;
-  /** Judge faucet: mint 10,000 MockUSDC + 1 MockWETH to a pasted Sepolia address. */
-  onFaucet: (address: string) => Promise<{
-    error: string | null;
-    usdcTx?: string;
-    ethTx?: string;
-    address?: string;
-  }>;
-  /** Optional API connectivity hint shown in the panel header */
-  apiLabel?: string | null;
 };
 
 type View = "home" | "accounts" | "send";
-
-/**
- * Formats USD for MetaMask-style balance rows (whole dollars).
- */
-function formatUsd(n: number) {
-  return n.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  });
-}
 
 /**
  * Formats a whole USDC amount without currency symbol.
@@ -89,8 +68,6 @@ export function MetaMaskPanel({
   onSendTransfer,
   onUseInUniswap,
   onMint,
-  onFaucet,
-  apiLabel,
 }: Props) {
   const [view, setView] = useState<View>("home");
   const [toId, setToId] = useState<SimWalletId>("B");
@@ -98,15 +75,6 @@ export function MetaMaskPanel({
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [minting, setMinting] = useState<"usdc" | "eth" | null>(null);
-  const [mintTarget, setMintTarget] = useState<"self" | "other">("self");
-  const [faucetAddress, setFaucetAddress] = useState("");
-  const [faucetBusy, setFaucetBusy] = useState(false);
-  const [faucetError, setFaucetError] = useState<string | null>(null);
-  const [faucetResult, setFaucetResult] = useState<{
-    address: string;
-    usdcTx: string;
-    ethTx: string;
-  } | null>(null);
   const [lastMove, setLastMove] = useState<{
     from: SimWalletId;
     to: SimWalletId;
@@ -114,7 +82,6 @@ export function MetaMaskPanel({
   } | null>(null);
 
   const active = wallets[activeId];
-  const totalUsd = active.usdc + active.eth * ETH_USD;
 
   const recipients = useMemo(
     () =>
@@ -134,7 +101,6 @@ export function MetaMaskPanel({
   useEffect(() => {
     setLastMove(null);
     setError(null);
-    setMintTarget("self");
   }, [activeId]);
 
   const parsedAmount = Math.round(Number(String(amount).replace(/,/g, "")));
@@ -178,31 +144,7 @@ export function MetaMaskPanel({
     if (err) setError(err);
   };
 
-  const handleFaucet = async () => {
-    const next = faucetAddress.trim();
-    if (!/^0x[a-fA-F0-9]{40}$/.test(next)) {
-      setFaucetError("Paste a 0x Sepolia address (40 hex chars).");
-      return;
-    }
-    setFaucetBusy(true);
-    setFaucetError(null);
-    const res = await onFaucet(next);
-    setFaucetBusy(false);
-    if (res.error) {
-      setFaucetError(res.error);
-      return;
-    }
-    if (res.address && res.usdcTx && res.ethTx) {
-      setFaucetResult({
-        address: res.address,
-        usdcTx: res.usdcTx,
-        ethTx: res.ethTx,
-      });
-    }
-  };
-
   const hasUsdc = active.usdc > 0;
-  const mintPrimary = !hasUsdc;
 
   return (
     <div
@@ -235,7 +177,7 @@ export function MetaMaskPanel({
               <span
                 className={`flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold ${walletTone(active).badge}`}
               >
-                {activeId}
+                {activeId === "N" ? "+" : activeId}
               </span>
                 <span className="max-w-[9rem] truncate">{active.accountLabel}</span>
                 <span className="text-white/40">▾</span>
@@ -248,9 +190,6 @@ export function MetaMaskPanel({
                 ✕
               </button>
             </div>
-            {apiLabel && (
-              <p className="mt-1 truncate px-2 text-[10px] text-white/35">{apiLabel}</p>
-            )}
           </div>
 
           {view === "accounts" ? (
@@ -279,7 +218,7 @@ export function MetaMaskPanel({
                       <span
                         className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold ${tone.badge}`}
                       >
-                        {id}
+                        {id === "N" ? "+" : id}
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-semibold text-white">
@@ -297,7 +236,7 @@ export function MetaMaskPanel({
                           {formatUsdc(w.usdc)}
                         </span>
                         <span className="block text-[11px] text-white/45">
-                          {formatUsd(w.usdc + w.eth * ETH_USD)}
+                          {Number(w.eth.toFixed(4))} ETH
                         </span>
                       </span>
                     </button>
@@ -345,7 +284,7 @@ export function MetaMaskPanel({
                         : "border-white/10 bg-white/[0.04] text-white/70"
                     }`}
                   >
-                    Account {id}
+                    {id === "N" ? "New wallet" : `Account ${id}`}
                     <div className="font-mono text-[10px] opacity-60">
                       {shorten(wallets[id].address)}
                     </div>
@@ -465,10 +404,13 @@ export function MetaMaskPanel({
           ) : (
             <div className="flex flex-1 flex-col overflow-y-auto">
               <div className="px-5 pb-2 pt-6 text-center">
-                <div className="text-4xl font-bold tracking-tight text-white">
-                  {formatUsd(totalUsd)}
+                <div className="font-serif text-[28px] font-normal tracking-tight text-white">
+                  {formatUsdc(active.usdc)}
                 </div>
-                <div className="mt-1 text-sm text-[#28A745]">
+                <div className="mt-1 text-sm text-white/45">
+                  {Number(active.eth.toFixed(4))} ETH
+                </div>
+                <div className="mt-2 text-sm text-[#28A745]">
                   {active.hopDistance == null && !active.exploitConfirmed
                     ? "Clean ledger · ready for baseline swap"
                     : active.exploitConfirmed
@@ -498,7 +440,6 @@ export function MetaMaskPanel({
                     symbol="USDC"
                     name="Mock USDC"
                     amount={formatUsdc(active.usdc)}
-                    usd={formatUsd(active.usdc)}
                     tone="#2775CA"
                     hint={active.usdc <= 0 ? "No funds. Mint to get started" : undefined}
                   />
@@ -506,7 +447,6 @@ export function MetaMaskPanel({
                     symbol="ETH"
                     name="Mock ETH"
                     amount={`${Number(active.eth.toFixed(4))} ETH`}
-                    usd={formatUsd(active.eth * ETH_USD)}
                     tone="#627EEA"
                     hint={active.eth <= 0 ? "No funds. Mint to get started" : undefined}
                   />
@@ -514,99 +454,23 @@ export function MetaMaskPanel({
 
                 <div className="mt-5">
                   <div className="mb-2 text-sm font-semibold text-white">Mint tokens</div>
-                  <div className="rounded-2xl border border-white/10 bg-[#121214] p-2">
-                    <div className="grid grid-cols-2 gap-1 rounded-xl bg-[#1A1A1C] p-1">
-                      <button
-                        type="button"
-                        onClick={() => setMintTarget("self")}
-                        className={`rounded-lg py-2 text-xs font-semibold transition ${
-                          mintTarget === "self"
-                            ? "bg-white text-black"
-                            : "text-white/50 hover:text-white"
-                        }`}
-                      >
-                        This account
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setMintTarget("other")}
-                        className={`rounded-lg py-2 text-xs font-semibold transition ${
-                          mintTarget === "other"
-                            ? "bg-white text-black"
-                            : "text-white/50 hover:text-white"
-                        }`}
-                      >
-                        Another address
-                      </button>
-                    </div>
-
-                    {mintTarget === "self" ? (
-                      <div className="mt-2 grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          disabled={minting !== null}
-                          onClick={() => void handleMint("usdc", 10_000)}
-                          className={`rounded-2xl px-3 py-2.5 text-xs font-semibold disabled:opacity-40 ${
-                            mintPrimary
-                              ? "bg-[#E8E4D9] text-black hover:brightness-110"
-                              : "border border-white/10 bg-[#1A1A1C] text-white hover:bg-[#242426]"
-                          }`}
-                        >
-                          {minting === "usdc" ? "Minting…" : "Mint 10,000 USDC"}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={minting !== null}
-                          onClick={() => void handleMint("eth", 1)}
-                          className={`rounded-2xl px-3 py-2.5 text-xs font-semibold disabled:opacity-40 ${
-                            mintPrimary
-                              ? "bg-[#E8E4D9] text-black hover:brightness-110"
-                              : "border border-white/10 bg-[#1A1A1C] text-white hover:bg-[#242426]"
-                          }`}
-                        >
-                          {minting === "eth" ? "Minting…" : "Mint 1 ETH"}
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="mt-3 px-1 pb-1">
-                        <p className="text-[11px] leading-snug text-white/40">
-                          Paste a public Sepolia address. Mints 10,000 MockUSDC + 1
-                          MockWETH. Does not connect that wallet here. A new address
-                          is never-scored on the pool until a keeper publishes a row.
-                        </p>
-                        <input
-                          type="text"
-                          spellCheck={false}
-                          autoComplete="off"
-                          placeholder="0x…"
-                          value={faucetAddress}
-                          onChange={(e) => setFaucetAddress(e.target.value)}
-                          className="mt-2 w-full rounded-2xl border border-white/10 bg-[#0B0B0C] px-3 py-2.5 font-mono text-xs text-white placeholder:text-white/25"
-                        />
-                        <button
-                          type="button"
-                          disabled={faucetBusy}
-                          onClick={() => void handleFaucet()}
-                          className="mt-2 w-full rounded-2xl border border-white/10 bg-[#1A1A1C] px-3 py-2.5 text-xs font-semibold text-white hover:bg-[#242426] disabled:opacity-40"
-                        >
-                          {faucetBusy
-                            ? "Minting…"
-                            : "Mint 10,000 USDC + 1 ETH"}
-                        </button>
-                        {faucetError && (
-                          <p className="mt-2 text-center text-xs text-[#FF6B6B]">
-                            {faucetError}
-                          </p>
-                        )}
-                        {faucetResult && (
-                          <p className="mt-2 break-all text-center text-[11px] text-white/45">
-                            Sent to {shorten(faucetResult.address)}. USDC{" "}
-                            {shorten(faucetResult.usdcTx)} · ETH{" "}
-                            {shorten(faucetResult.ethTx)}
-                          </p>
-                        )}
-                      </div>
-                    )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={minting !== null}
+                      onClick={() => void handleMint("usdc", 1_000)}
+                      className="border border-white/10 bg-transparent px-3 py-2.5 text-xs font-medium text-white/70 transition hover:text-white disabled:opacity-40"
+                    >
+                      {minting === "usdc" ? "Minting…" : "Mint 1,000 USDC"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={minting !== null}
+                      onClick={() => void handleMint("eth", 1)}
+                      className="border border-white/10 bg-transparent px-3 py-2.5 text-xs font-medium text-white/70 transition hover:text-white disabled:opacity-40"
+                    >
+                      {minting === "eth" ? "Minting…" : "Mint 1 ETH"}
+                    </button>
                   </div>
                 </div>
                 {error && view === "home" && (
@@ -614,44 +478,32 @@ export function MetaMaskPanel({
                 )}
               </div>
 
-              <div className="mt-4 px-4">
-                {hasUsdc ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setError(null);
-                      setView("send");
-                    }}
-                    className="flex w-full flex-col items-center gap-2 rounded-2xl bg-[#E8E4D9] px-2 py-3 text-black transition hover:brightness-110"
-                  >
-                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/10 text-base">
-                      ➤
-                    </span>
-                    <span className="text-[11px] font-semibold">Send USDC (P2P)</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setError(null);
-                      setView("send");
-                    }}
-                    className="w-full rounded-2xl border border-white/10 bg-transparent py-3 text-xs font-medium text-white/40 transition hover:bg-white/[0.04] hover:text-white/60"
-                  >
-                    Send USDC (P2P)
-                  </button>
-                )}
+              <div className="mt-6 px-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError(null);
+                    setView("send");
+                  }}
+                  className={`w-full bg-transparent py-2.5 text-[15px] font-medium transition ${
+                    hasUsdc
+                      ? "text-white/70 hover:text-white"
+                      : "text-white/30 hover:text-white/50"
+                  }`}
+                >
+                  Send USDC (P2P)
+                </button>
               </div>
 
-              <div className="mt-auto border-t border-white/10 p-4">
+              <div className="mt-auto border-t border-white/10 px-4 py-4">
                 <button
                   type="button"
                   onClick={() => onUseInUniswap(activeId)}
-                  className="w-full rounded-2xl bg-[#E8E4D9] py-3.5 text-sm font-semibold text-black transition hover:brightness-110"
+                  className="w-full bg-transparent py-2.5 text-[15px] font-medium text-white/70 transition hover:text-white"
                 >
-                  Go to Uniswap
+                  Go to Swap Simulator
                 </button>
-                <p className="mt-2 text-center text-[11px] text-white/55">
+                <p className="mt-1 text-center text-[11px] leading-snug text-white/35">
                   Connects this account to the pool so beforeSwap reads the live hop score.
                 </p>
               </div>
@@ -670,14 +522,12 @@ function TokenRow({
   symbol,
   name,
   amount,
-  usd,
   tone,
   hint,
 }: {
   symbol: string;
   name: string;
   amount: string;
-  usd: string;
   tone: string;
   hint?: string;
 }) {
@@ -691,16 +541,11 @@ function TokenRow({
       </span>
       <div className="min-w-0 flex-1">
         <div className="text-sm font-semibold text-white">{name}</div>
-        <div className="text-xs text-white/45">{amount}</div>
-      </div>
-      <div className="shrink-0 text-right">
-        <div className="text-sm font-semibold text-white">{usd}</div>
         {hint && (
-          <div className="mt-0.5 max-w-[9.5rem] text-[10px] leading-snug text-white/35">
-            {hint}
-          </div>
+          <div className="mt-0.5 text-[10px] leading-snug text-white/35">{hint}</div>
         )}
       </div>
+      <div className="shrink-0 text-right text-sm font-medium text-white">{amount}</div>
     </div>
   );
 }
