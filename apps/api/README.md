@@ -1,6 +1,6 @@
 # AML Hook · API (Anvil adapter)
 
-TypeScript API that talks to the local stack. It does not own the ledger. Balances, scores, quotes, and FeeEscrow rows live on Anvil. Without `npm run deploy:local` every chain route returns `503` `{ error: "deploy_local" }`.
+TypeScript API that talks to the **local Anvil** stack. It does not own the ledger. Balances, scores, quotes, and FeeEscrow rows live on Anvil. Without `npm run deploy:local` every chain route returns `503` `{ error: "deploy_local" }`. It does not read `contracts/deployments/11155111.json` or submit txs on Sepolia — that pool is documented in [`docs/Sepolia.md`](../../docs/Sepolia.md).
 
 **Oracle COA:** with `ANTHROPIC_API_KEY` in `apps/api/.env`, Claude emits `finalScore`, `recommendedFeeBps`, and the Opinion (tools: `consult_skill` / `uhi10-use-case`, `search_regulations`, `screen_ofac`). The keeper writes `ComplianceOracle`; quotes and swaps read `AmlHook.previewSwap`. On every evaluation the COA screens the subject against the live OFAC SDN ETH list and, on an exact match, writes `SanctionRegistry` — the swap still only reads that mapping. Tests and `OFAC_LIVE=0` skip Treasury. There are still **no** live calls to OpenSanctions, Etherscan, GoPlus, Chainalysis, or TRM. Seed waits on Claude when the key is set (A–D and F). E stays unpublished. The 3-minute keeper tick only stamps the last score (no Claude). If the agent is down, that tick still keeps `updatedAt` inside Floor B's 5-minute window. If both are down, Floor B fires.
 
@@ -149,4 +149,4 @@ npm run dev
 Check: `GET /health` → `ok` / `mode: "anvil"` / `chain.ok`.  
 Trail: `GET /oracle/publishes` → `status: "submitted"` + `txHash`.
 
-See also [`contracts/README.md`](../../contracts/README.md) for `script/Deploy.sol` env overrides (`ORACLE_KEEPER`, `HOOK_GOVERNOR`, `COMPLIANCE_OFFICER`, `ATTESTOR`, …).
+See also [`contracts/README.md`](../../contracts/README.md) for `script/Deploy.sol` env overrides (`ORACLE_KEEPER`, `HOOK_GOVERNOR`, `COMPLIANCE_OFFICER`, `ATTESTOR`, …). On Sepolia, `updateScore` is the same split: only `_ORACLE_KEEPER` submits; the attestor signs `attestationHash` including the publishing block's `timestamp`.

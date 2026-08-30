@@ -44,15 +44,19 @@ interface IAmlHookSatellite {
 ///         called via DELEGATECALL so the satellite runs in AmlHook's storage context.
 ///
 /// @dev Storage layout prefix (matches AmlHookSatellite exactly, enabling safe DELEGATECALL):
-///      [0..] Pausable, AccessManaged, AmlHookGovernanceBase, AmlHookActivity state vars
-///      [N..] ReentrancyGuard._status
-///      [N+1..] AmlHookSettlement state vars
+///      [0]   AccessManaged + Pausable (packed)
+///      [1..] AmlHookGovernanceBase + AmlHookActivity
+///      [N..] AmlHookSettlement (feeEscrow, treasury, seize / failed-deposit)
 ///      [M]   AmlHook._initialized + _satellite (packed)
+///
+///      Settlement MUST come last in the inheritance list. Listing it first put
+///      `complianceTreasury` in the satellite's `sanctionRegistry` slot, so every
+///      DELEGATECALL guard called `isSanctioned` on the treasury and reverted.
 ///
 ///      Governance setters (setStalenessThreshold, proposeX / applyX, etc.) and logic
 ///      view functions (previewSwap, observeSwap, syncBaseline) are routed to the satellite
 ///      through the fallback, which DELEGATECALL-forwards any unknown selector.
-contract AmlHook is AmlHookSettlement, AmlHookActivity, AmlHookGovernance {
+contract AmlHook is AmlHookActivity, AmlHookGovernance, AmlHookSettlement {
     using PoolIdLibrary for PoolKey;
 
     bool private _initialized;

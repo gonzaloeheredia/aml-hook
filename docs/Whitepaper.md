@@ -301,22 +301,90 @@ Yellow carries the weight. These are swaps the hook allowed that still deserve a
 
 ## 8. Technical appendix
 
-This section details the contract architecture, roles, numeric thresholds, and the walkthrough of a swap. It is written for integrators and technical reviewers; it is not required to understand the product or its business case, covered in sections 1 to 7.
+This section is the on-chain map a reviewer can check. The product and the
+business case are sections 1–7. Numeric floors and FATF cites are §8.4.
 
-### 8.1 Modules and roles
+Two environments — do not grade one as if it were the other:
+
+| | Guided demo | Live pool |
+| --- | --- | --- |
+| Chain | Anvil `31337` | Ethereum Sepolia `11155111` |
+| UI / API | Next.js + `apps/api` (simulator, not MetaMask) | Not wired. `getDeployment` is 31337-only |
+| PoolManager | `MockPoolManager` | Official Uniswap v4 PoolManager |
+| Quotes | `AmlHook.previewSwap` | Real `PoolManager` fill (e.g. app.uniswap.org) |
+| Addresses | `contracts/deployments/31337.json` | [`docs/Sepolia.md`](Sepolia.md) |
+
+A new EOA against the Sepolia pool is Wallet E (no oracle row → Floor A/C/D). The demo does not auto-publish that address.
+
+### 8.1 Contract architecture
+
+Uniswap v4 puts every pool in one PoolManager. The pool key carries a hook
+address. That address must implement the Uniswap callbacks and stay under
+**24,576 bytes** (EIP-170). Full evaluation plus governance does not fit, so
+the hook is two contracts that share one state:
 
 ```
-User → Router → PoolManager → AML Hook
-                                 ├─ Decision logic (sanctions, score, policy, prices)
-                                 ├─ Settlement (extra fee → FeeEscrow)
-                                 └─ Sanctions registry (liquidity path too)
+User → Router → official PoolManager → AmlHook          ← only address in the pool key
+                                         │ DELEGATECALL
+                                         ▼
+                                   AmlHookSatellite     ← evaluation + governor / officer setters
+                                         │
+                    ┌────────────────────┼────────────────────┐
+                    ▼                    ▼                    ▼
+           SanctionRegistry     ComplianceOracle         RiskPolicy
+                 (L1)                  (L2)                  (L3)
+                                         │
+                                         ▼
+              AmlHookSettlement → FeeEscrow → (later) ComplianceTreasury
 ```
 
-The hook is the Uniswap callback. On swaps it **calls** `RiskPolicy.decide`. On add liquidity it resolves the LP, then `LpPolicyLib` (known score → 0 / 3% / 8% with no Floor B; never-scored → the same A/C/D tree as a swap). Pause does not block a clean mint. On remove, pause does not run: a clean LP can still exit. A listed or 71–100 wallet does not revert the remove; the hook takes the full delta. Principal and `feesAccrued` are deposited to FeeEscrow (Active, kinds `LpPrincipal` / `RiskFee`). Checkpoint 2 reads the list and the oracle — no keeper bool.
+| Address | What a reviewer should see |
+| --- | --- |
+| **AmlHook** | Thin CREATE2 shell. Uniswap calls only this address (`beforeSwap` / `afterSwap` / add / remove, plus return-delta flags so the hook can `take` extra fee or seize an LP exit). It owns storage and settlement. |
+| **AmlHookSatellite** | Evaluation and governance bytecode. Uniswap never calls it. The hook `DELEGATECALL`s it: the satellite's code runs, but every read/write hits **the hook**. One state. Not a second oracle and not a second list. |
+| **SanctionRegistry** | Layer 1 list. A hit stops the swap or LP add before the score is read (`SanctionHit`). |
+| **ComplianceOracle** | Layer 2 store. `_ORACLE_KEEPER` submits `updateScore`; a distinct attestor signs `attestationHash` (must include that block's `block.timestamp`). The hook never writes this. |
+| **RiskPolicy** | Layer 3. Pure mapping. The hook **calls** `decide` on swaps. Same library as off-chain preview. |
+| **LpPolicy / LpPolicyLib** | Layer 3 for liquidity. Known score ignores Floor B. Never-scored reuses swap A/C/D. |
+| **FeeEscrow** | 48h hold of the extra risk fee and of a seized LP exit. Own owner / keeper — not AccessManager. |
+| **ComplianceTreasury** | Two ledgers after illicit recovery: `LP_PRINCIPAL` and `ILLICIT_RISK_FEE`. They cannot mix. |
+| **AccessManager** | Shared authority for keepers, governor, and compliance officer. |
+
+`DELEGATECALL` is why inheritance order is a review fact, not a style note.
+The satellite's first slots are AccessManaged / Pausable, then
+`sanctionRegistry`. The hook must declare the same prefix: **Activity →
+Governance → Settlement last**. A reversed list put `complianceTreasury` in
+the `sanctionRegistry` slot. Every guard then called `isSanctioned` on the
+treasury and reverted. That happened on an earlier Sepolia hook (`0xf558…`).
+The live hook is in `docs/Sepolia.md`. The unit test
+`AmlHook.StorageLayout.t.sol` locks slot 1 = `sanctionRegistry`.
+
+**What runs on each Uniswap callback**
+
+| Callback | Hook (this address) | Satellite (`DELEGATECALL`) |
+| --- | --- | --- |
+| `beforeSwap` | Dispatch only | Resolve subject → L1 → L2 → USD quote → `RiskPolicy.decide`. Cache the decision. |
+| `afterSwap` | `take` extra fee → FeeEscrow if FEE_OVERRIDE | Close the cache, update activity / USD window, emit the audit event |
+| `beforeAddLiquidity` | Cache the LP subject | L1 + known-score `LpPolicyLib`. Listed or 71–100 cannot add. |
+| `afterAddLiquidity` | Full 3%/8% `take` into FeeEscrow on FEE_OVERRIDE | Never-scored A/C/D once token deltas exist (empty-pool mint ≈ 100% impact) |
+| `beforeRemoveLiquidity` | Cache seize / allow | L1 or score ≥ 71 → seize (pause does not run) |
+| `afterRemoveLiquidity` | Seize principal + fees into FeeEscrow 48h | — |
+| Unknown selector (`fallback`) | Forward | Governor / officer setters, `previewSwap`, `observeSwap` |
+
+On add, pause does not block a clean mint. On remove, a listed or 71–100
+wallet does not revert: the hook takes the full delta. Principal and
+`feesAccrued` go to FeeEscrow (Active, kinds `LpPrincipal` / `RiskFee`).
+Checkpoint 2 reads the list and the oracle — no keeper bool.
+
+A never-scored first mint on an empty pool is 100% impact. Floor A mid takes
+8%; `PoolManager.take` reverts if the manager holds nothing. The first
+Sepolia seed therefore needed a published 0–30 row on the **untrusted**
+liquidity caller (`PoolModifyLiquidityTest`), not on the LP EOA. That write
+is an operator seed, not a finding that the test router is a clean trader.
 
 **Who may write what**
 
-Two authority boxes. Sanctions, the score store, and hook settings sit on a shared AccessManager (keepers, governor, compliance officer). FeeEscrow has its own owner, keeper, depositor, and auditor. The risk policy is a pure mapping: no roles. The hook itself has no extra role; it only forwards Uniswap callbacks.
+Two authority boxes. Sanctions, the score store, and hook settings sit on a shared AccessManager (keepers, governor, compliance officer). FeeEscrow has its own owner, keeper, depositor, and auditor. The risk policy is a pure mapping: no roles. The hook itself has no extra role: Uniswap callbacks plus settlement `take`. Evaluation lives in the satellite.
 
 | Role | May | May not |
 | --- | --- | --- |
@@ -339,9 +407,10 @@ A new sanction uses commit-reveal (`MIN_REVEAL_DELAY` = 10 blocks) so the addres
 
 | Contract | Job | Does not |
 | --- | --- | --- |
-| AML Hook | Uniswap callbacks only | Decide risk or hold lists |
-| Decision logic | Read sanctions, score, policy, and USD prices; emit swap events; apply latency floors | Compute the behavioral score off-chain; take tokens |
-| Settlement | Take the extra fee and seize a blocked LP exit | Decide allow / fee / revert |
+| AmlHook | Uniswap callbacks; own storage; `take` into FeeEscrow | Compute the off-chain score; hold the sanctions list |
+| AmlHookSatellite | Evaluation + governance **in the hook's storage** | Own a second copy of that state; receive Uniswap callbacks |
+| AmlHookLogic (inside the satellite) | Read sanctions, score, policy, and USD prices; emit swap events; apply latency floors | Compute the behavioral score off-chain; take tokens |
+| AmlHookSettlement (on the hook) | Take the extra fee and seize a blocked LP exit | Decide allow / fee / revert |
 | Sanctions registry | Layer 1 list | Score wallets |
 | Compliance oracle | Store the keeper-written score, hop, origin, fee, and timestamp | Decide the swap |
 | Risk policy | Map swap score + floors + USD size → allow / fee / revert | Store anything |
@@ -352,14 +421,14 @@ A new sanction uses commit-reveal (`MIN_REVEAL_DELAY` = 10 blocks) so the addres
 
 FeeEscrow destinations are two distinct addresses. The extra fee never returns to the pool as swap yield. Sending it to LPs on the same swap would make them take proceeds of a still-suspect flow. Every clean **risk-fee** exit — early release, clean checkpoint, or default after 48 hours — goes to the LP compensation fund. A clean **LP-principal** row pays the LP wallet. Checkpoint 2 does not take a keeper bool: it reads `SanctionRegistry` and `ComplianceOracle` (list hit or score ≥ 71). A confirmed-illicit row stays blocked in escrow while the operator produces the file, then owner recovery (7-day floor) or permissionless recovery (default 90 days) sends it to ComplianceTreasury: `ILLICIT_RISK_FEE` for risk-fee rows, `LP_PRINCIPAL` for seized capital. Seized LP principal enters FeeEscrow for those 48 hours (it is not posted to tesorería in the remove tx). Those two treasury accounts cannot be mixed. The LP fund and the treasury cannot be the same address. Ownership is two-step and starts as the admin or a dedicated escrow owner, not the deploying key. The hook is registered as depositor once at deploy, then that bootstrap key is cleared.
 
-**Read path before the swap.** Before the swap executes, the hook runs this sequence:
+**Read path before the swap.** PoolManager calls **AmlHook**. The hook
+`DELEGATECALL`s the satellite. The satellite then:
 
-1. PoolManager calls the hook.
-2. The hook resolves the end-user, through the trusted router only. Hook data is never used as identity.
-3. It checks the sanctions list. A failed or missing check blocks the swap (fail-closed).
-4. It reads the wallet's stored score.
-5. It derives three signals from pool-local state — whether the score is stale, how much activity the wallet has had in the current window, and any inflow not yet reflected in the score — and converts this swap plus the running window to USD (`lastFx` if younger than 30 minutes; otherwise one Chainlink round per token).
-6. It applies the risk policy to that combination of score and signals.
+1. Resolves the end-user through the trusted router only. Hook data is never used as identity.
+2. Checks the sanctions list. A failed or missing check blocks the swap (fail-closed).
+3. Reads the wallet's stored score on `ComplianceOracle`.
+4. Derives three signals from pool-local state — whether the score is stale, how much activity the wallet has had in the current window, and any inflow not yet reflected in the score — and converts this swap plus the running window to USD (`lastFx` if younger than 30 minutes; otherwise one Chainlink round per token).
+5. Calls `RiskPolicy.decide` on that combination of score and signals.
 
 The exact USD thresholds for each case (unknown wallet, published-clean wallet with a new inflow, no live round and no `lastFx` within 24 hours) are in the master decision table, section 8.4. A revert is a custom error; how reverted swaps are logged and indexed is covered in section 8.2.
 
@@ -369,9 +438,12 @@ The exact USD thresholds for each case (unknown wallet, published-clean wallet w
 
 **Fallback.** A last published row is used only when `updatedAt > 0`. A wallet the keeper has never written (`updatedAt == 0`) is unknown — Mitigation A — not a silent-oracle ALLOW. The USD price feed is separate: `lastFx` younger than 30 minutes skips Chainlink; otherwise one round per token, cached. If this block has no usable live round, the hook multiplies this swap's amounts by that last price, until the cache is older than 24 hours. Only then does a missing feed fail-close. Do not confuse the score store with the token/USD feed.
 
-**Smart accounts and routers.** Institutional funds use Safes. The address the pool sees is often the router, not the user. Scoring the router would either bless every swap or block the pool. The hook never treats the router as the subject.
+**Smart accounts and routers.** Institutional funds use Safes. The address the pool sees is often the router, not the user. Scoring a **trusted** router would either bless every swap or block the pool. The hook never treats a trusted router as the subject.
 
-Subject resolution has one path. The governor maintains a trusted-router list. When the initiator is trusted, the hook asks that router for the end-user. An ordinary wallet is accepted. A contract is accepted only if it is a trusted multisig whose owners pass the sanctions check (all clean, or any clean, as configured). Hook data cannot declare the user. If the router is untrusted, or the lookup fails, the swap reverts before any layer runs.
+Subject resolution has one path. The governor maintains a trusted-router list. When the initiator is trusted, the hook asks that router for the end-user. An ordinary wallet is accepted. A contract is accepted only if it is a trusted multisig whose owners pass the sanctions check (all clean, or any clean, as configured). Hook data cannot declare the user.
+
+- **Swap.** If the router is untrusted, or the lookup fails, the swap reverts before any layer runs (`MissingSwapSubject`).
+- **Liquidity.** An untrusted caller **is** the subject. On Sepolia the first mint used Uniswap's `PoolModifyLiquidityTest`, not the LP EOA. A never-scored mint on an empty pool is 100% impact: Floor A can take 8% and `PoolManager.take` reverts until a 0–30 oracle row exists for that caller.
 
 Owner screening on-chain is sanctions only. After owners pass, the subject remains the Safe. The hook reads the Safe's own score row. When the keeper computes that row, a signer with no history must pull the aggregate up. An unscored signer is treated as unknown, the same way Wallet E is treated.
 
@@ -568,15 +640,18 @@ Uniswap v4 puts every pool in one PoolManager. That single execution point is wh
 1. **Sign.** The user signs. The transaction goes to a router. No compliance yet.
 2. **Lock.** The router unlocks the PoolManager.
 3. **Swap call.** Inside the lock the router calls swap. Direction and size matter for later USD quotes. Hook data is ignored as identity.
-4. **Hook bits.** The pool key carries the hook address. AML Hook needs before-swap, after-swap, after-swap return-delta (so it can take the extra fee without rewriting the LP fee), before-add, after-add, after-add return-delta (so a never-scored or 31–70 mint can take the full 3%/8% into FeeEscrow), before-remove, after-remove, and after-remove return-delta (so a blocked LP exit can take principal and fees without crediting the LP).
-5. **Before the swap.** Resolve the end-user from a trusted router. Sanction match → revert. Else read the score, derive latency signals, quote USD (`lastFx` if younger than 30 minutes, else Chainlink once per token), decide via `RiskPolicy.decide`. Unknown wallet: 3% / 8% / revert by this swap. Published clean with inbound, a stale first swap of the hour (3%), or a stale score plus prior activity: pass / 3% / 8% by USD (B and D do not revert). High score → revert. Floor C (24-hour sum crossing $15,000) → revert. Medium score → continue at the standard pool fee and remember the override. Low score, fresh write, no floor → continue at 0.30%.
+4. **Hook bits.** The pool key carries **AmlHook** (not the satellite). Permissions: before-swap, after-swap, after-swap return-delta (take the extra fee without rewriting the LP fee), before-add, after-add, after-add return-delta (never-scored or 31–70 mint takes the full 3%/8% into FeeEscrow), before-remove, after-remove, and after-remove return-delta (blocked LP exit takes principal and fees without crediting the LP).
+5. **Before the swap.** PoolManager calls AmlHook. The hook `DELEGATECALL`s the satellite. The satellite resolves the end-user from a trusted router, then L1 → score → latency signals → USD (`lastFx` if younger than 30 minutes, else Chainlink once per token) → `RiskPolicy.decide`. Unknown wallet: 3% / 8% / revert by this swap. Published clean with inbound, a stale first swap of the hour (3%), or a stale score plus prior activity: pass / 3% / 8% by USD (B and D do not revert). High score → revert. Floor C (24-hour sum crossing $15,000) → revert. Medium score → continue at the standard pool fee and remember the override. Low score, fresh write, no floor → continue at 0.30%.
 6. **Pool math.** Ticks, price, output. Tokens have not moved yet.
-7. **After the swap.** Update activity and the USD window, refresh the last balance, emit the audit event. On fee-override, take the extra slice into escrow. A failed deposit does not unwind the swap.
+7. **After the swap.** The hook `DELEGATECALL`s the satellite again to close the cache, update activity and the USD window, and emit the audit event. **AmlHook** (not the satellite) then `take`s the extra slice into FeeEscrow on fee-override. A failed deposit does not unwind the swap.
 8. **Settle.** The router pays and withdraws, or leaves a credit in the PoolManager.
 9. **Close the lock.** Any leftover obligation reverts the whole transaction.
 10. **Confirm.** About twelve seconds on Ethereum, about one second on most L2s (Layer 2 networks).
 
-The hook touches two of those ten steps: 5 and 7. The rest is a normal Uniswap v4 pool. Step 7 is where memory of the swap is written for the next decision.
+AmlHook sits on two of those ten steps: 5 and 7. The satellite runs the
+evaluation inside those two; settlement (`take`) stays on the hook. The rest
+is a normal Uniswap v4 pool. Step 7 is where memory of the swap is written
+for the next decision.
 
 ### 8.6 Tooling
 

@@ -93,6 +93,8 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 ## Related docs (repo root)
 
 - `docs/Whitepaper.md` — product + AccessManager roles (§3.5)
-- `docs/Use_Case.md` — A–F demo narrative
-- `contracts/README.md` — Foundry layout (`src/contracts/…`, `script/Deploy.sol`)
+- `docs/Use_Case.md` — A–F demo narrative (Anvil). Sepolia pool: `docs/Sepolia.md`
+- `contracts/README.md` — Foundry layout (`src/contracts/…`, `script/Deploy.sol`, `CreatePool.s.sol`)
 - `apps/api/README.md` — Anvil adapter + COA + signed `updateScore`
+
+This UI never talks to a live MetaMask extension or to Sepolia. **Connect** picks demo wallets A–F. A reviewer who opens the Sepolia pool in app.uniswap.org with a fresh address is never-scored (Floor A/C/D) unless `_ORACLE_KEEPER` publishes a row.

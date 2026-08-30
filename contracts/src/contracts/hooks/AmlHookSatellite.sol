@@ -20,16 +20,15 @@ import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 ///         (AmlHookLogic), governance setters (AmlHookGovernance), and the external
 ///         wrapper selectors that AmlHook's callbacks dispatch to.
 ///
-/// @dev Storage layout (inherited base order, most-base first):
-///      [0] AccessManaged._authority
-///      [1] Pausable._paused
-///      [2..] AmlHookGovernanceBase state vars
-///      [N..] AmlHookActivity state vars
-///      (AmlHookLogic / AmlHookGovernance / AmlHookSatellite add no storage)
+/// @dev Storage layout (inherited base order):
+///      [0] AccessManaged + Pausable (packed)
+///      [1] AmlHookGovernanceBase.sanctionRegistry
+///      [2..] remaining GovernanceBase + AmlHookActivity
+///      (AmlHookLogic / AmlHookSatellite add no storage)
 ///
-///      AmlHook shares the same prefix (AccessManaged → Pausable →
-///      AmlHookGovernanceBase → AmlHookActivity), so DELEGATECALL accesses
-///      the correct slots for every variable this satellite reads or writes.
+///      AmlHook must list Activity / Governance before Settlement so this prefix
+///      lands in the same slots. DELEGATECALL then reads `sanctionRegistry` rather
+///      than `complianceTreasury`.
 ///
 ///      The poolManager immutable is embedded in this bytecode and must equal
 ///      AmlHook's poolManager; pass the same address to the constructor.

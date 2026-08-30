@@ -2,7 +2,7 @@
 
 This folder is **not** the Foundry suite — Solidity tests live in [`contracts/test/`](../contracts/test/).
 
-Scripts here exercise the same API routes the frontend uses (`/swaps`, `/transfers`, `/compliance`, `/escrow`) **without opening a browser**. Those routes hit Anvil: quotes are `previewSwap` (local `MockUsdFeed`: $1 USDC, $1,000 ETH), P2P is ERC-20 `transfer`, FEE_OVERRIDE deposits into `FeeEscrow`. Need Anvil + API (`npm run deploy:local`, then `apps/api`).
+Scripts here exercise the same API routes the frontend uses (`/swaps`, `/transfers`, `/compliance`, `/escrow`) **without opening a browser**. Those routes hit Anvil: quotes are `previewSwap` (local `MockUsdFeed`: $1 USDC, $1,000 ETH), P2P is ERC-20 `transfer`, FEE_OVERRIDE deposits into `FeeEscrow`. Need Anvil + API (`npm run deploy:local`, then `apps/api`). They do not touch the Sepolia pool ([`docs/Sepolia.md`](../docs/Sepolia.md)).
 
 Foundry Solidity tests (mirroring `contracts/src/`) live in [`contracts/test/`](../contracts/test/) — see that folder's README for the layout.
 

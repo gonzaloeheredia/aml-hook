@@ -31,7 +31,8 @@ apps/api/src/oracle/           # Runtime (live Claude if key set)
 
 There is **no** Python `agent.py` in this repo. Skills are English markdown
 in `skills/`. Live Claude loads them with `consult_skill` (use `uhi10-use-case`
-when A–F constraints are unclear). Tests and `COA_LIVE=0` use `factScoring.ts`.
+when A–F constraints are unclear; `uhi10-sepolia` for the live pool). Tests
+and `COA_LIVE=0` use `factScoring.ts`.
 
 ---
 
@@ -43,8 +44,10 @@ Run the full pipeline on an address: resolve originator attribution, screen
 sanctions, gather on-chain evidence, apply domain skills, run `fact-scoring`,
 and produce a 0–100 score with ternary hook output.
 
-The signed score is written to `ComplianceOracle`. `AMLHook.beforeSwap` reads
-it with no extra latency.
+The signed score is written to `ComplianceOracle` on the chain the API is
+wired to (Anvil in the UHI10 demo). `AMLHook.beforeSwap` reads it with no extra
+latency. Sepolia uses the same `updateScore` split (`_ORACLE_KEEPER` + attestor)
+but this pack is not pointed at `11155111` — see `docs/Sepolia.md`.
 
 Entry point: `reevaluateWallet()` in `apps/api/src/oracle/agent.ts`.
 
@@ -150,7 +153,8 @@ DIMENSION 1: DOMAIN                     DIMENSION 2: TASK TYPE
 ├── typology-detection                   └── task-regulatory-report
 ├── cross-pool-intelligence
 ├── protocol-obligations
-└── uhi10-use-case                       (A–F demo validations; consult when unsure)
+├── uhi10-use-case                       (A–F demo validations; consult when unsure)
+└── uhi10-sepolia                        (Sepolia live pool; never-scored EOA = Wallet E)
 
 ── SCORING ──                            ── SYSTEM CONTROL ──
 └── fact-scoring                         ├── model-validation

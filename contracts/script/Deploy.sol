@@ -46,6 +46,9 @@ import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
 ///        nothing in-tx: principal and feesAccrued sit in FeeEscrow 48h (clean principal
 ///        returns to the LP; illicit recover books tesorería `LP_PRINCIPAL` vs `ILLICIT_RISK_FEE`).
 ///      - MOCK: PoolManager defaults to MockPoolManager (no live Uniswap swaps).
+///        Sepolia: set POOL_MANAGER to the official manager (docs/Sepolia.md).
+///      - REAL: AmlHookSatellite (DELEGATECALL). AmlHook must inherit Activity /
+///        Governance before Settlement or satellite slot 1 is complianceTreasury.
 ///      - MOCK: MockTrustedRouter only when the chain has no canonical Universal Router
 ///        (Anvil). On Uniswap-supported chains, Deploy registers the app.uniswap.org
 ///        Universal Router (+ 2.1.1 when distinct) via setTrustedRouter.
@@ -63,9 +66,11 @@ import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
     ///      never to the LP compensation fund.
     ///      - FEE_ESCROW_OWNER: FeeEscrow `owner` from genesis (defaults to ADMIN). Production MUST
     ///        be a Gnosis Safe; the deployer is only a one-shot `bootstrapper` for the hook depositor.
-    ///      - ETH_USD_FEED / TOKEN_USD_FEED (alias USD_FEED): override Chainlink AggregatorV3
-    ///        proxies. Unset → official Data Feed for the chain (ETH/USD, USDC/USD, WETH).
-    ///        Anvil (31337) has no official feed and falls back to MockUsdFeed ($1 USDC, $1000 ETH).
+///      - ETH_USD_FEED / TOKEN_USD_FEED (alias USD_FEED): override Chainlink AggregatorV3
+///        proxies. Unset → official Data Feed for the chain (ETH/USD, USDC/USD, WETH).
+///        Anvil (31337) has no official feed and falls back to MockUsdFeed ($1 USDC, $1000 ETH).
+///        MockUSDC is not canonical USDC — set TOKEN_USD_FEED on live chains or the
+///        fee token has no USD binding.
     ///      - TRUSTED_ROUTER: extra router to trust in addition to the canonical Universal Router
     ///      - PRIVATE_KEY: broadcaster (defaults to Anvil account #0)
     ///      - ADMIN / REGISTRY_KEEPER / ORACLE_KEEPER / HOOK_GOVERNOR / COMPLIANCE_OFFICER: default

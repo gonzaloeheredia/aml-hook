@@ -12,7 +12,10 @@ mode, and defines the workflow. Does not analyze substance: classifies and route
 
 **Demo runtime:** FULL on seed and new contamination; INCREMENTAL after
 `SwapObserved`. Live Claude waits on `POST /transfers` and `POST /swaps`.
-`COA_LIVE=0` / tests use the skill interpreter.
+`COA_LIVE=0` / tests use the skill interpreter. This API is Anvil `31337`
+only. A Sepolia LP add / swap is out of band: classify the hook-resolved
+subject (`uhi10-sepolia`), do not auto-PRECOMPUTE a new EOA (Wallet E), and
+do not import the Anvil A–F ledger.
 
 ---
 

@@ -13,6 +13,7 @@ node scripts/deploy-local.mjs
 Writes:
 
 - `packages/sdk/deployments/31337.json` — AccessManager, L1/L2/L3, AmlHook, FeeEscrow, ComplianceTreasury, `feeToken` (MockUSDC), `wethToken` (MockWETH), `usdFeed` / `ethUsdFeed`, demo wallets A–E (Anvil #1–#5), attestor, role holders (`hookGovernor`, `complianceOfficer`, keepers), poolManager. Wallet F is a live OFAC SDN ETH address bound by the API, not this JSON.
+- Sepolia (`11155111`) is **not** in this package. `getDeployment(11155111)` returns `null`. Use [`contracts/deployments/11155111.json`](../../contracts/deployments/11155111.json) and [`docs/Sepolia.md`](../../docs/Sepolia.md).
 - `apps/api/.env.local` — RPC, hook, oracle, escrow, fee token, `WETH_TOKEN_ADDRESS`, feeds, `COMPLIANCE_TREASURY_ADDRESS` / `COMPLIANCE_RESERVE` / `LP_COMPENSATION_FUND`, keeper (Anvil #0), attestor (Anvil #9)
 
 ```ts

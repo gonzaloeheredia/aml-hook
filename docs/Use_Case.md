@@ -1,6 +1,17 @@
 # AML Hook — Use case
 
-This walkthrough is the product demo of the whitepaper. Every decision below is the same mapping `RiskPolicy.decide` applies on-chain (score bands plus floors A–D, including Floor C). The frontend talks to the API; the API calls `AmlHook.previewSwap` on Anvil so quotes cannot drift from the hook.
+This walkthrough is the product demo of the whitepaper. Every decision below is the same mapping `RiskPolicy.decide` applies on-chain (score bands plus floors A–D, including Floor C). The frontend talks to the API; the API calls `AmlHook.previewSwap` on **Anvil** so quotes cannot drift from the hook.
+
+Two environments:
+
+| | Guided demo (this file) | Live pool |
+| --- | --- | --- |
+| Chain | Anvil `31337` | Ethereum Sepolia `11155111` |
+| UI / API | Next.js + `apps/api` (MetaMask **simulator** — not the browser extension) | Not wired. `getDeployment` is 31337-only |
+| Pool | `previewSwap` + `observeSwap` + FeeEscrow. `MockPoolManager` | Official Uniswap v4 PoolManager + seeded liquidity |
+| Addresses | `contracts/deployments/31337.json` | [`Sepolia.md`](Sepolia.md) |
+
+A judge who connects a **new** EOA to the Sepolia pool (app.uniswap.org) is Wallet E: no oracle row → Floor A/C/D. The demo does not auto-publish scores for that address. The first Sepolia mint used Uniswap's `PoolModifyLiquidityTest` as the subject (untrusted router); it needed a published 0–30 score before add, because a never-scored mint on an empty pool is 100% impact and the 8% `take` reverts.
 
 The Compliance Officer Agent emits `finalScore` and `recommendedFeeBps` (Claude when `ANTHROPIC_API_KEY` is set; skill interpreter otherwise). N-hop math lives in skill `uhi10-use-case`. The keeper publishes that row to `ComplianceOracle`. `POST /transfers` and `POST /swaps` wait until the agent has written. The 3-minute keeper tick only stamps the last score. `beforeSwap` never calls the agent.
 
