@@ -308,10 +308,10 @@ Two environments — do not grade one as if it were the other:
 
 | | Guided demo | Live pool |
 | --- | --- | --- |
-| Chain | Anvil `31337` | Ethereum Sepolia `11155111` |
-| UI / API | Next.js + `apps/api` (simulator, not MetaMask) | Not wired. `getDeployment` is 31337-only |
+| Chain | Anvil `31337` (local default) | Ethereum Sepolia `11155111` |
+| UI / API | Next.js + `apps/api` (simulator, not MetaMask). Hosted API can set `ORACLE_CHAIN_ID=11155111` | Same API: faucet + keeper/COA write this chain. SDK `getDeployment` is still 31337-only |
 | PoolManager | `MockPoolManager` | Official Uniswap v4 PoolManager |
-| Quotes | `AmlHook.previewSwap` | Real `PoolManager` fill (e.g. app.uniswap.org) |
+| Quotes | `AmlHook.previewSwap` (demo swap card, either chain) | Real `PoolManager` fill (e.g. app.uniswap.org) |
 | Addresses | `contracts/deployments/31337.json` | [`docs/Sepolia.md`](Sepolia.md) |
 
 A new EOA against the Sepolia pool is Wallet E (no oracle row → Floor A/C/D). The demo does not auto-publish that address.

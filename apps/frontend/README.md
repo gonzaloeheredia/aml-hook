@@ -3,12 +3,12 @@
 Hackathon UI for **Uniswap Hook Incubator 10 (UHI10)**.  
 Institutional six-stage demo of the AML Hook use case: **exploit `WalletBlocked` (Wallet A, score 100, not listed)**, **live OFAC SDN `SanctionHit` (Wallet F)**, **N-hop decay**, **oracle-latency / inflow (Wallet D)**, **never-scored USD bands (Wallet E, funded by C)**, and ternary **ALLOW / FEE_OVERRIDE / REVERT**. Newsreader + Inter, ink/cream surfaces, Uniswap logo kept. Dark is the default; the round control in the navbar toggles light.
 
-> Scores come from Anvil via the API: the COA emits `finalScore` / fee, the
+> Scores come from the API chain: the COA emits `finalScore` / fee, the
 > keeper publishes `ComplianceOracle`, and `AmlHook.previewSwap` reads that
 > row. Opinion is `GET /compliance` (Claude when the API has a key). Live
 > OFAC SDN is screened by the API COA (writer → `SanctionRegistry`). No
 > OpenSanctions / Etherscan / GoPlus HTTP from this UI.  
-> The UI talks only to the API at `NEXT_PUBLIC_API_URL` (default `http://localhost:4000`). If Anvil is down the API returns `503` `{ error: "deploy_local" }` — there is no offline `withHopOverlay` policy.
+> The UI talks only to the API at `NEXT_PUBLIC_API_URL` (default `http://localhost:4000`). Local Anvil mode returns `503` `{ error: "deploy_local" }` if the chain is down — there is no offline `withHopOverlay` policy. Hosted Sepolia: set `NEXT_PUBLIC_API_URL` to that API.
 
 ## Guided stages
 
@@ -59,7 +59,7 @@ The UI waits on `POST /transfers` and `POST /swaps` until that publish lands. Cl
 # repo root — required. Starts Anvil, deploys the stack, writes apps/api/.env.local
 npm run deploy:local
 
-# Terminal 1 — API (Anvil adapter)
+# Terminal 1 — API (local Anvil)
 cd apps/api
 npm install
 npm run dev
@@ -87,15 +87,15 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 ## Data source
 
 - Static case templates: `src/data/cases.ts`
-- Live ledger / compliance / escrow: `src/lib/api.ts` → `apps/api` → Anvil
+- Live ledger / compliance / escrow: `src/lib/api.ts` → `apps/api` → Anvil (local) or Sepolia (`ORACLE_CHAIN_ID=11155111`)
 - Keys stay on the API. The browser never sees keeper or attestor keys.
 
 ## Related docs (repo root)
 
 - `docs/Whitepaper.md` — product + AccessManager roles (§3.5)
-- `docs/Use_Case.md` — A–F demo narrative (Anvil). Sepolia pool: `docs/Sepolia.md`
+- `docs/Use_Case.md` — A–F demo narrative. Sepolia pool: `docs/Sepolia.md`
 - `contracts/README.md` — Foundry layout (`src/contracts/…`, `script/Deploy.sol`, `CreatePool.s.sol`)
-- `apps/api/README.md` — Anvil adapter + COA + signed `updateScore`
+- `apps/api/README.md` — COA + signed `updateScore` (Anvil or Sepolia)
 
 This UI never talks to a live MetaMask extension. **Connect** picks demo wallets A–F. The **Sepolia faucet** only mints MockUSDC / MockWETH to a pasted address via the API.
 

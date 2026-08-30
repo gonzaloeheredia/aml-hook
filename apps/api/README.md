@@ -1,6 +1,10 @@
-# AML Hook · API (Anvil adapter)
+# AML Hook · API (keeper + COA)
 
-TypeScript API that talks to the **local Anvil** stack. It does not own the ledger. Balances, scores, quotes, and FeeEscrow rows live on Anvil. Without `npm run deploy:local` every chain route returns `503` `{ error: "deploy_local" }`. It does not read `contracts/deployments/11155111.json` or submit txs on Sepolia — that pool is documented in [`docs/Sepolia.md`](../../docs/Sepolia.md).
+TypeScript API that talks to the configured chain. It does not own the ledger. Balances, scores, quotes, and FeeEscrow rows live on-chain.
+
+**Anvil (`ORACLE_CHAIN_ID` unset or `31337`).** Without `npm run deploy:local` every chain route returns `503` `{ error: "deploy_local" }`. Addresses come from `apps/api/.env.local` (written by `sync-deployment.mjs`) or Anvil defaults.
+
+**Sepolia (`ORACLE_CHAIN_ID=11155111`).** Reads [`contracts/deployments/11155111.json`](../../contracts/deployments/11155111.json) (env overrides win). Requires `ORACLE_RPC_URL`, `KEEPER_PRIVATE_KEY`, and `ATTESTOR_PRIVATE_KEY` — no Anvil key fallback. Public address template: [`.env.sepolia.example`](.env.sepolia.example). Pool write-up: [`docs/Sepolia.md`](../../docs/Sepolia.md). `/demo/elapse` is Anvil-only.
 
 **Oracle COA:** with `ANTHROPIC_API_KEY` in `apps/api/.env`, Claude emits `finalScore`, `recommendedFeeBps`, and the Opinion (tools: `consult_skill` / `uhi10-use-case`, `search_regulations`, `screen_ofac`). The keeper writes `ComplianceOracle`; quotes and swaps read `AmlHook.previewSwap`. On every evaluation the COA screens the subject against the live OFAC SDN ETH list and, on an exact match, writes `SanctionRegistry` — the swap still only reads that mapping. Tests and `OFAC_LIVE=0` skip Treasury. There are still **no** live calls to OpenSanctions, Etherscan, GoPlus, Chainalysis, or TRM. Seed waits on Claude when the key is set (A–D and F). E stays unpublished. The 3-minute keeper tick only stamps the last score (no Claude). If the agent is down, that tick still keeps `updatedAt` inside Floor B's 5-minute window. If both are down, Floor B fires.
 
@@ -38,7 +42,7 @@ Restart the API after every `deploy:local` so it loads `.env.local`.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/health` | `mode: "anvil"`, `agent.score` / `agent.opinion`, `keeperTickMs`, `chain.ok` |
+| `GET` | `/health` | `mode: "anvil"` or `"sepolia"`, `agent.score` / `agent.opinion`, `keeperTickMs`, `chain.ok` |
 | `GET` | `/wallets` | All wallets + live `previewSwap` quote |
 | `GET` | `/wallets/:id` | One wallet (`A`–`E`) + quote |
 | `GET` | `/wallets/:id/compliance` | **Oracle opinion** for Opinion UI |
@@ -78,7 +82,7 @@ P2P transfer or afterSwap / WalletBlocked
   opinion → GET /compliance → Opinion stage (includes live SDN result)
 ```
 
-See [`.env.example`](.env.example) for required Anvil env vars. Put `ANTHROPIC_API_KEY` in `apps/api/.env` (gitignored). Do not put it in `.env.example` or `.env.local`.
+See [`.env.example`](.env.example) for required Anvil env vars and [`.env.sepolia.example`](.env.sepolia.example) for Sepolia public addresses. Put `ANTHROPIC_API_KEY` in `apps/api/.env` (gitignored) or the host panel. Do not put it in `.env.example`, `.env.sepolia.example`, or `.env.local`.
 
 ### Example — compliance opinion (oracle-backed)
 
@@ -146,7 +150,7 @@ npm run dev
 
 `KEEPER_PRIVATE_KEY` must hold AccessManager role `_ORACLE_KEEPER` (role id `2`) or `updateScore` reverts with `AccessManagedUnauthorized`. `ATTESTOR_PRIVATE_KEY` must be the oracle attestor or the signature is rejected.
 
-Check: `GET /health` → `ok` / `mode: "anvil"` / `chain.ok`.  
+Check: `GET /health` → `ok` / `mode: "anvil"` or `"sepolia"` / `chain.ok`.  
 Trail: `GET /oracle/publishes` → `status: "submitted"` + `txHash`.
 
-See also [`contracts/README.md`](../../contracts/README.md) for `script/Deploy.sol` env overrides (`ORACLE_KEEPER`, `HOOK_GOVERNOR`, `COMPLIANCE_OFFICER`, `ATTESTOR`, …). On Sepolia, `updateScore` is the same split: only `_ORACLE_KEEPER` submits; the attestor signs `attestationHash` including the publishing block's `timestamp`.
+See also [`contracts/README.md`](../../contracts/README.md) for `script/Deploy.sol` env overrides (`ORACLE_KEEPER`, `HOOK_GOVERNOR`, `COMPLIANCE_OFFICER`, `ATTESTOR`, …). On Sepolia, `updateScore` is the same split: only `_ORACLE_KEEPER` submits; the attestor signs `attestationHash` including the publishing block's `timestamp`. Live role addresses: [`docs/Sepolia.md`](../../docs/Sepolia.md).

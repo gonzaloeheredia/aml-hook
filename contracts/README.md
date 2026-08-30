@@ -224,6 +224,6 @@ The CREATE2 address mined by `Deploy.sol` changed versus earlier deploys: the fl
 
 | Layer | Role |
 |---|---|
-| `apps/api` | Anvil adapter — COA (Claude or skill interpreter) → signed `updateScore` (keeper #0 + attestor #9); `previewSwap` / `observeSwap`; defers D for latency demo |
+| `apps/api` | COA (Claude or skill interpreter) → signed `updateScore`; `previewSwap` / `observeSwap`; defers D for latency demo. Anvil: keeper #0 + attestor #9. Sepolia: `ORACLE_CHAIN_ID=11155111` + role keys |
 | `contracts/` | On-chain ALLOW / FEE_OVERRIDE / REVERT + §8.4 floors + Chainlink USD magnitude. Anvil uses `MockPoolManager` unless `POOL_MANAGER` is set. Sepolia uses the official Uniswap v4 manager |
 | `packages/sdk` | Shared ABIs / addresses for api + frontend |

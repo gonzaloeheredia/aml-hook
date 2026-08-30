@@ -24,7 +24,7 @@ is an add/remove caller.
 | | Guided demo (`Use_Case.md`) | Live pool (`uhi10-sepolia`) |
 |---|---|---|
 | Chain | Anvil `31337` | Ethereum Sepolia `11155111` |
-| This API / UI | Wired. Simulator. Quotes = `previewSwap` | Not wired |
+| This API / UI | Wired. Simulator. Quotes = `previewSwap` | Same API when `ORACLE_CHAIN_ID=11155111` (faucet + keeper). Quotes still `previewSwap`. SDK `getDeployment` is 31337-only |
 | Pool | `MockPoolManager` | Official Uniswap v4 PoolManager |
 | A–E keys | Anvil #1–#5 | Do **not** map these EOAs onto Sepolia |
 | New unscoped EOA | Out of demo | Wallet **E** until a keeper writes |

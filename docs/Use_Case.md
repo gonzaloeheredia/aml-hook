@@ -1,14 +1,14 @@
 # AML Hook — Use case
 
-This walkthrough is the product demo of the whitepaper. Every decision below is the same mapping `RiskPolicy.decide` applies on-chain (score bands plus floors A–D, including Floor C). The frontend talks to the API; the API calls `AmlHook.previewSwap` on **Anvil** so quotes cannot drift from the hook.
+This walkthrough is the product demo of the whitepaper. Every decision below is the same mapping `RiskPolicy.decide` applies on-chain (score bands plus floors A–D, including Floor C). The frontend talks to the API; the API calls `AmlHook.previewSwap` on the configured chain so quotes cannot drift from the hook.
 
 Two environments:
 
 | | Guided demo (this file) | Live pool |
 | --- | --- | --- |
-| Chain | Anvil `31337` | Ethereum Sepolia `11155111` |
-| UI / API | Next.js + `apps/api` (MetaMask **simulator** — not the browser extension) | Not wired. `getDeployment` is 31337-only |
-| Pool | `previewSwap` + `observeSwap` + FeeEscrow. `MockPoolManager` | Official Uniswap v4 PoolManager + seeded liquidity |
+| Chain | Anvil `31337` (local default) | Ethereum Sepolia `11155111` |
+| UI / API | Next.js + `apps/api` (MetaMask **simulator** — not the browser extension). Local: `deploy:local`. Hosted: `NEXT_PUBLIC_API_URL` → API with `ORACLE_CHAIN_ID=11155111` | Same UI/API: judge faucet + keeper/COA write this chain. SDK `getDeployment` is still 31337-only |
+| Pool | `previewSwap` + `observeSwap` + FeeEscrow. `MockPoolManager` | Official Uniswap v4 PoolManager + seeded liquidity (app.uniswap.org). The demo swap card is still preview, not a live fill |
 | Addresses | `contracts/deployments/31337.json` | [`Sepolia.md`](Sepolia.md) |
 
 A judge who connects a **new** EOA to the Sepolia pool (app.uniswap.org) is Wallet E: no oracle row → Floor A/C/D. The **Sepolia faucet** (paste address in the MetaMask panel, or `POST /demo/mint` `{ address }`) only mints 10,000 MockUSDC + 1 MockWETH. It does not publish a score. Elevated fee or revert by size is intentional until `_ORACLE_KEEPER` writes a clean row. The first Sepolia mint used Uniswap's `PoolModifyLiquidityTest` as the subject (untrusted router); it needed a published 0–30 score before add, because a never-scored mint on an empty pool is 100% impact and the 8% `take` reverts.

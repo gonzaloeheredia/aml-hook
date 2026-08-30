@@ -44,7 +44,7 @@ Wallet E / Floor A+D. Do not describe Floor A as “score 0”.
 | | Guided demo | Live pool |
 |---|---|---|
 | Chain | Anvil `31337` | Ethereum Sepolia `11155111` |
-| This runtime (`apps/api`) | Wired. MetaMask **simulator**. Quotes = `previewSwap` | **Not wired.** `getDeployment` is 31337-only |
+| This runtime (`apps/api`) | Wired. MetaMask **simulator**. Quotes = `previewSwap` | Same runtime when `ORACLE_CHAIN_ID=11155111` (faucet + keeper). Quotes still `previewSwap`. SDK `getDeployment` is 31337-only |
 | Pool | `MockPoolManager` + observeSwap + FeeEscrow | Official Uniswap v4 PoolManager + seeded liquidity |
 | Subjects | Demo wallets A–E (Anvil #1–#5) and live SDN F | Any EOA / untrusted router that hits the hook |
 | Addresses | `contracts/deployments/31337.json` | `docs/Sepolia.md` |

@@ -2,9 +2,11 @@
 
 Uniswap v4 pool on **chain 11155111** with the AML hook attached to the official
 PoolManager. Tokens are the mintable MockUSDC / MockWETH from this repo (not
-canonical Circle USDC / WETH). The guided frontend and API remain **Anvil-only**;
-this document is the on-chain artifact for reviewers who open the pool on
-Sepolia (e.g. app.uniswap.org).
+canonical Circle USDC / WETH). Reviewers open this pool on Sepolia (e.g.
+app.uniswap.org). The hosted API (`ORACLE_CHAIN_ID=11155111`) reads
+[`contracts/deployments/11155111.json`](../contracts/deployments/11155111.json)
+and can publish scores / mint the faucet here. The guided UI is still the
+A–F **simulator** (`previewSwap`, not a live Uniswap fill).
 
 Addresses are also written by `script/Deploy.sol` to
 [`contracts/deployments/11155111.json`](../contracts/deployments/11155111.json)
@@ -114,9 +116,15 @@ row for that EOA, app.uniswap.org will treat the wallet as never-scored — elev
 fee or revert by size, not a failed faucet. See [`Use_Case.md`](Use_Case.md) §
 environments.
 
-## What is not on Sepolia
+## What is not a live Uniswap fill
 
-The Next.js demo, `apps/api`, and `@aml-hook/sdk` `getDeployment` only know
-Anvil `31337`. `sync-deployment.mjs` does not copy `11155111.json` into the
-SDK. A judge running `npm run deploy:local` is on MockPoolManager + MockUsdFeed,
-not this pool.
+`@aml-hook/sdk` `getDeployment` and `sync-deployment.mjs` stay on Anvil
+`31337`. The API does **not** go through the SDK: it reads this JSON (or
+env overrides) when `ORACLE_CHAIN_ID=11155111`. See
+[`apps/api/.env.sepolia.example`](../apps/api/.env.sepolia.example) for
+public addresses; RPC and keys stay in the host panel.
+
+A judge running `npm run deploy:local` is on MockPoolManager + MockUsdFeed,
+not this pool. The Next.js swap card is still `previewSwap` + `observeSwap`
++ FeeEscrow even when the API points here. A real swap is app.uniswap.org
+against this PoolManager. `/demo/elapse` is Anvil-only.

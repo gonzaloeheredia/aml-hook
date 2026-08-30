@@ -9,9 +9,10 @@ Canonical addresses: `docs/Sepolia.md` and
 `contracts/deployments/11155111.json`. This skill tells you **how to behave**.
 It does not replace `uhi10-use-case` (A–F math still applies).
 
-This API (`apps/api`) is **Anvil-only**. A score you emit here is not
-broadcast to Sepolia unless an operator separately runs `_ORACLE_KEEPER` +
-attestor. Demo quotes are `previewSwap`, not PoolManager fills.
+When `ORACLE_CHAIN_ID=11155111`, this API publishes to this pool: the keeper
+submits `updateScore` and the attestor signs `attestationHash`. Demo quotes
+are still `previewSwap`, not PoolManager fills. Do not copy Anvil A–F hops
+onto Sepolia EOAs.
 
 ---
 

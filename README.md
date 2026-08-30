@@ -14,14 +14,14 @@ The product thesis and the executable scenario live in `docs/`. Read those befor
 | --- | --- |
 | [`docs/Whitepaper.md`](docs/Whitepaper.md) | Problem, architecture, roles, FeeEscrow, latency floors, regulatory framing, and competitive map |
 | [`docs/Use_Case.md`](docs/Use_Case.md) | Six-wallet run of the whitepaper: exploit, N-hop, D floors (B/C/inflow/$15k), E bands + window + feed, Opinion |
-| [`docs/Sepolia.md`](docs/Sepolia.md) | Live Ethereum Sepolia pool + hook addresses (official PoolManager). Demo UI stays on Anvil |
+| [`docs/Sepolia.md`](docs/Sepolia.md) | Live Ethereum Sepolia pool + hook addresses (official PoolManager). Hosted API can write that chain; SDK `getDeployment` stays 31337 |
 
 Supporting notes:
 
 | Document | Contents |
 | --- | --- |
 | [`contracts/README.md`](contracts/README.md) | Foundry layout, call path, roles |
-| [`apps/api/README.md`](apps/api/README.md) | Anvil adapter and keeper |
+| [`apps/api/README.md`](apps/api/README.md) | Keeper + COA (Anvil local, Sepolia when `ORACLE_CHAIN_ID=11155111`) |
 | [`apps/frontend/README.md`](apps/frontend/README.md) | Guided UI |
 | [`agents/oracle-coa/`](agents/oracle-coa/) | COA skill specs |
 | [`corpus/README.md`](corpus/README.md) | Versioned FATF / FinCEN / Treasury / Wolfsberg corpus |
@@ -91,7 +91,7 @@ Writes are split so a score keeper cannot move escrow, and an escrow keeper cann
 
 ## Demo wallets
 
-The frontend talks to the API. The API reads and writes the use-case ledger on Anvil (wallets A–E = accounts #1–#5; Wallet F is a live OFAC SDN ETH address, not Anvil #6).
+The frontend talks to the API. Locally the API reads and writes the use-case ledger on Anvil (wallets A–E = accounts #1–#5; Wallet F is a live OFAC SDN ETH address, not Anvil #6). Hosted, the same UI can point at a Sepolia API (`NEXT_PUBLIC_API_URL`); the A–F picker stays a simulator.
 
 | Wallet | Starting state | What to try |
 | --- | --- | --- |
@@ -124,7 +124,7 @@ curl http://127.0.0.1:4000/health
 | Package | Path | Role |
 | --- | --- | --- |
 | Contracts | [`contracts/`](contracts/README.md) | Foundry. `forge test` · `script/Deploy.sol` |
-| API / keeper | [`apps/api/`](apps/api/README.md) | Anvil adapter + COA + signed `updateScore` |
+| API / keeper | [`apps/api/`](apps/api/README.md) | COA + signed `updateScore` (Anvil or Sepolia) |
 | Frontend | [`apps/frontend/`](apps/frontend/README.md) | Six-stage demo |
 | SDK | [`packages/sdk/`](packages/sdk/README.md) | ABIs + `getDeployment(31337)` only. Sepolia JSON is `contracts/deployments/11155111.json` |
 | Headless flows | [`test/`](test/README.md) | HTTP scripts against the API. Not Forge |
@@ -137,9 +137,9 @@ curl http://127.0.0.1:4000/health
 | --- | --- |
 | AccessManager, SanctionRegistry, ComplianceOracle, RiskPolicy, AmlHook, FeeEscrow | Deployed contracts |
 | Liquidity sanctions gate | On-chain for add **and** remove. Pause blocks add and swaps, not a clean LP exit. Demo UI is still swap-only |
-| PoolManager | Anvil: `MockPoolManager` unless `POOL_MANAGER` is set. Sepolia: official Uniswap v4 `0xE03A1074…3543` — live initialize + liquidity (`docs/Sepolia.md`). The guided demo swap is still `previewSwap` + `observeSwap` + FeeEscrow on Anvil |
-| `updateScore` | Signed tx (keeper #0 + attestor #9) |
-| Demo balances, P2P, quotes, escrow rows | Anvil. P2P is ERC-20 `transfer` |
+| PoolManager | Anvil: `MockPoolManager` unless `POOL_MANAGER` is set. Sepolia: official Uniswap v4 `0xE03A1074…3543` — live initialize + liquidity (`docs/Sepolia.md`). The guided demo swap is still `previewSwap` + `observeSwap` + FeeEscrow (either chain) |
+| `updateScore` | Signed tx. Local: keeper #0 + attestor #9. Sepolia: `_ORACLE_KEEPER` + attestor in [`docs/Sepolia.md`](docs/Sepolia.md) |
+| Demo balances, P2P, quotes, escrow rows | Anvil for the A–F walkthrough. P2P is ERC-20 `transfer`. Sepolia judge faucet: `POST /demo/mint` `{ address }` |
 | USD quotes | `lastFx` if younger than 30 minutes; else one Chainlink round per token (`lastFx` until 24h if the live round is missing). Anvil: `MockUsdFeed` ($1 fee token, $1000 ETH). Live chain: official Chainlink ETH/USD + USDC/USD. Extra tokens: governor `setPriceFeed` |
 | Policy knobs (USD floors, floor fees, pool-impact) | `_COMPLIANCE_OFFICER` propose → 48h confirm. Score cuts 31 / 55 / 71 stay fixed |
 | COA score + Opinion | Live Claude when `ANTHROPIC_API_KEY` is in `apps/api/.env`. Skill interpreter if the key is off. Live OFAC SDN screen; COA writes `SanctionRegistry` on an exact match. No Chainalysis / TRM |
@@ -168,7 +168,7 @@ const d = getDeployment(31337);
 aml-hook/
 ├── docs/               Whitepaper, use case, Sepolia addresses
 ├── contracts/          Foundry — src/contracts · interfaces · AccessManager deploy
-├── apps/api/           Anvil adapter, COA, keeper
+├── apps/api/           COA, keeper (Anvil or Sepolia)
 ├── apps/frontend/      Next.js demo
 ├── packages/sdk/       ABIs and Anvil addresses
 ├── agents/oracle-coa/  COA skill specs
@@ -178,7 +178,7 @@ aml-hook/
 
 ## Open work
 
-- Point the demo API / frontend / SDK at Sepolia (`getDeployment` is 31337-only; `sync-deployment.mjs` is Anvil).
+- SDK `getDeployment` is 31337-only; `sync-deployment.mjs` is Anvil. The API reads `contracts/deployments/11155111.json` directly.
 - Surface add / remove liquidity in the demo UI. The on-chain gate (add and remove) and a seeded Sepolia pool are already there.
 - Auto-publish a COA score for arbitrary new addresses on the live pool (never-scored Floor A/C/D). The Anvil demo uses pre-seeded A–E; Wallet E stays unpublished on purpose.
 - Production KYT vendor feeds (Chainalysis, TRM, OFAC SDN HTTP, etc.).
