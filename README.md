@@ -4,8 +4,6 @@ Uniswap v4 hook that evaluates the swap subject at execution and returns a terna
 
 The hook does not compute risk on-chain. The Compliance Officer Agent emits a score; an off-chain keeper writes it into `ComplianceOracle`. `beforeSwap` reads that row, applies sanctions and latency floors, and either lets the swap through, takes a risk differential into `FeeEscrow`, or reverts. Liquidity add and remove resolve the LP via a trusted router’s `msgSender()` (or the direct sender). Listed or score ≥ 71 cannot add. Known 31–70 pays a 3%/8% mint fee; never-scored adds reuse Floor A/C/D. On a blocked remove the LP receives nothing in-tx: principal and fees wait 48h in `FeeEscrow` (clean principal returns to the LP). Pause stops swaps, not a clean mint or exit.
 
-Built for UHI10.
-
 ## Documentation
 
 The product thesis and the executable scenario live in `docs/`. Read those before the contracts.
@@ -140,7 +138,7 @@ curl http://127.0.0.1:4000/health
 | Liquidity sanctions gate | On-chain for add **and** remove. Pause blocks add and swaps, not a clean LP exit. Demo UI is still swap-only |
 | PoolManager | Anvil: `MockPoolManager` unless `POOL_MANAGER` is set. Sepolia: official Uniswap v4 `0xE03A1074…3543` — live initialize + liquidity (`docs/Sepolia.md`). The guided demo swap is still `previewSwap` + `observeSwap` + FeeEscrow (either chain) |
 | `updateScore` | Signed tx. Local: keeper #0 + attestor #9. Sepolia: `_ORACLE_KEEPER` + attestor in [`docs/Sepolia.md`](docs/Sepolia.md) |
-| Demo balances, P2P, quotes, escrow rows | Anvil for the A–E walkthrough. P2P is ERC-20 `transfer`. Sepolia judge faucet: `POST /demo/mint` `{ address }` |
+| Demo balances, P2P, quotes, escrow rows | Anvil for the A–E walkthrough. P2P is ERC-20 `transfer`. Sepolia faucet: `POST /demo/mint` `{ address }` |
 | USD quotes | `lastFx` if younger than 30 minutes; else one Chainlink round per token (`lastFx` until 24h if the live round is missing). Anvil: `MockUsdFeed` ($1 fee token, $1000 ETH). Live chain: official Chainlink ETH/USD + USDC/USD. Extra tokens: governor `setPriceFeed` |
 | Policy knobs (USD floors, floor fees, pool-impact) | `_COMPLIANCE_OFFICER` propose → 48h confirm. Score cuts 31 / 55 / 71 stay fixed |
 | COA score + Opinion | Live Claude when `ANTHROPIC_API_KEY` is in `apps/api/.env`. Skill interpreter if the key is off. Live OFAC SDN screen; COA writes `SanctionRegistry` on an exact match. No Chainalysis / TRM |

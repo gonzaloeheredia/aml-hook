@@ -3,7 +3,7 @@ pragma solidity ^0.8.26;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-/// @notice Judge-facing mintable USDC stand-in (6 decimals, like Circle USDC).
+/// @notice Mintable USDC stand-in (6 decimals, like Circle USDC).
 /// @dev Anyone can `mint`. Constructor seeds the deployer with 1_000_000 USDC.
 contract MockUSDC is ERC20 {
     constructor() ERC20("Mock USDC", "USDC") {

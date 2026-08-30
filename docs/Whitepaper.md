@@ -309,7 +309,7 @@ Two environments — do not grade one as if it were the other:
 | | Guided demo | Live pool |
 | --- | --- | --- |
 | Chain | Anvil `31337` (local default) | Ethereum Sepolia `11155111` |
-| UI / API | Next.js + `apps/api` (simulator, not the MetaMask extension). Swap card: **Advance 5 min**. Mint in the panel is 1,000 USDC / 1 ETH. Hosted API can set `ORACLE_CHAIN_ID=11155111` | Same API: judge faucet is `POST /demo/mint` `{ address }` (not a panel control) + keeper/COA write this chain. SDK `getDeployment` is still 31337-only |
+| UI / API | Next.js + `apps/api` (simulator, not the MetaMask extension). Swap card: **Advance 5 min**. Mint in the panel is 1,000 USDC / 1 ETH. Hosted API can set `ORACLE_CHAIN_ID=11155111` | Same API: faucet is `POST /demo/mint` `{ address }` (not a panel control) + keeper/COA write this chain. SDK `getDeployment` is still 31337-only |
 | PoolManager | `MockPoolManager` | Official Uniswap v4 PoolManager |
 | Quotes | `AmlHook.previewSwap` (demo swap card, either chain) | Real `PoolManager` fill (e.g. app.uniswap.org) |
 | Addresses | `contracts/deployments/31337.json` | [`docs/Sepolia.md`](Sepolia.md) |
@@ -450,7 +450,7 @@ Owner screening on-chain is sanctions only. After owners pass, the subject remai
 
 ### 8.2 Reporting
 
-After each successful swap the hook emits a structured event: address, amount, time, score, decision, fee. When USD came from a heartbeat-stale live round or from `lastFx` after a failed live read (not the 30-minute hot cache), it also emits `PriceFallbackUsed`. The UHI10 prototype indexes those events in the API in-memory log (`GET /events`). Production can point The Graph at the same ABI; the jury evaluates the hook's decisions, not the indexer.
+After each successful swap the hook emits a structured event: address, amount, time, score, decision, fee. When USD came from a heartbeat-stale live round or from `lastFx` after a failed live read (not the 30-minute hot cache), it also emits `PriceFallbackUsed`. The prototype indexes those events in the API in-memory log (`GET /events`). Production can point The Graph at the same ABI; what matters is the hook's decisions, not the indexer.
 
 Reverted swaps do not keep those events. Index the error on the failed transaction instead.
 
@@ -700,7 +700,7 @@ Identity sits outside the current oracle surface. The hook reads sanctions and t
 
 Production: Chainlink Functions / CCIP (Cross-Chain Interoperability Protocol), or an equivalent signed job. Prototype: a server signs with a dedicated attestor key. The oracle keeper submits the transaction. The governor rotates the attestor.
 
-The Graph can be the production reporting side. The prototype uses the API event log (`GET /events`). The jury scores the decision, not the indexer.
+The Graph can be the production reporting side. The prototype uses the API event log (`GET /events`). Evaluation is of the hook's decision, not the indexer.
 
 #### 8.6.5 Community reports (later)
 

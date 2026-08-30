@@ -54,7 +54,7 @@ Restart the API after every `deploy:local` so it loads `.env.local`.
 | `POST` | `/transfers` | P2P USDC on Anvil → wait for agent score → keeper publish (tainted inbound to D defers keeper) |
 | `POST` | `/swaps` | `previewSwap` + `observeSwap` + wait for agent + FeeEscrow deposit on FEE_OVERRIDE |
 | `POST` | `/demo/elapse` | `evm_increaseTime` + `evm_mine` (`{ seconds: 301 }` → Floor B) |
-| `POST` | `/demo/mint` | Demo: mint to A–E (`{ walletId, token, amount }`). Judge faucet: `{ address }` mints 10,000 MockUSDC + 1 MockWETH to that Sepolia EOA (does not write a score). F / both fields rejected. |
+| `POST` | `/demo/mint` | Demo: mint to A–E (`{ walletId, token, amount }`). Faucet: `{ address }` mints 1,000 MockUSDC + 1 MockWETH to that Sepolia EOA (does not write a score). F / both fields rejected. |
 | `POST` | `/demo/price-feed` | Bind / unbind USDC/USD (`{ bound: false }` → silent `lastFx` if quoted in the last 30 min; `PriceFallbackUsed` until 24h after that; else `MagnitudeQuoteFailed`) |
 | `GET` | `/escrow` | Live FeeEscrow rows |
 | `POST` | `/escrow/:id/checkpoint2` | Checkpoint 2 reads oracle/list (no keeper bool) |

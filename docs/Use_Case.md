@@ -7,11 +7,11 @@ Two environments:
 | | Guided demo (this file) | Live pool |
 | --- | --- | --- |
 | Chain | Anvil `31337` (local default) | Ethereum Sepolia `11155111` |
-| UI / API | Next.js + `apps/api` (MetaMask **simulator** — not the browser extension). Local: `deploy:local`. Hosted: `NEXT_PUBLIC_API_URL` → API with `ORACLE_CHAIN_ID=11155111` | Same UI/API: judge faucet is `POST /demo/mint` `{ address }` (not in the panel) + keeper/COA write this chain. SDK `getDeployment` is still 31337-only |
+| UI / API | Next.js + `apps/api` (MetaMask **simulator** — not the browser extension). Local: `deploy:local`. Hosted: `NEXT_PUBLIC_API_URL` → API with `ORACLE_CHAIN_ID=11155111` | Same UI/API: faucet is `POST /demo/mint` `{ address }` (not in the panel) + keeper/COA write this chain. SDK `getDeployment` is still 31337-only |
 | Pool | `previewSwap` + `observeSwap` + FeeEscrow. `MockPoolManager` | Official Uniswap v4 PoolManager + seeded liquidity (app.uniswap.org). The demo swap card is still preview, not a live fill |
 | Addresses | `contracts/deployments/31337.json` | [`Sepolia.md`](Sepolia.md) |
 
-A judge who connects a **new** EOA to the Sepolia pool (app.uniswap.org) is Wallet E: no oracle row → Floor A/C/D. The judge faucet is API-only (`POST /demo/mint` `{ address }`): 10,000 MockUSDC + 1 MockWETH. It is not in the MetaMask panel and does not publish a score. Elevated fee or revert by size is intentional until `_ORACLE_KEEPER` writes a clean row. The first Sepolia mint used Uniswap's `PoolModifyLiquidityTest` as the subject (untrusted router); it needed a published 0–30 score before add, because a never-scored mint on an empty pool is 100% impact and the 8% `take` reverts.
+A **new** EOA that connects to the Sepolia pool (app.uniswap.org) is Wallet E: no oracle row → Floor A/C/D. The faucet is API-only (`POST /demo/mint` `{ address }`): 1,000 MockUSDC + 1 MockWETH. It is not in the MetaMask panel and does not publish a score. Elevated fee or revert by size is intentional until `_ORACLE_KEEPER` writes a clean row. The first Sepolia mint used Uniswap's `PoolModifyLiquidityTest` as the subject (untrusted router); it needed a published 0–30 score before add, because a never-scored mint on an empty pool is 100% impact and the 8% `take` reverts.
 
 The Compliance Officer Agent emits `finalScore` and `recommendedFeeBps` (Claude when `ANTHROPIC_API_KEY` is set; skill interpreter otherwise). N-hop math lives in skill `uhi10-use-case`. The keeper publishes that row to `ComplianceOracle`. `POST /transfers` and `POST /swaps` wait until the agent has written. The 3-minute keeper tick only stamps the last score. `beforeSwap` never calls the agent.
 
@@ -236,14 +236,20 @@ Already-held clean funds never count as inbound. This is not a revert — only u
 
 ### Step 10 — Unknown wallet E
 
-E starts **empty**. In MetaMask, switch to **C** and send USDC to **E**. That is the only funding path in this walkthrough. A is the exploit origin — do not send A → E. E never takes a hop.
+E starts **empty**. Two funding paths, same Floor A/D effect: the hook compares E's current ERC-20 balance to a stored baseline — it does not watch Transfer events. A mint and a C → E transfer of the same size look the same.
 
-Floor A looks at **this swap**. Floor D looks at the **unpublished bag** C just sent (baseline 0 → the whole bag is inbound). The stricter fee wins. Use the size chips after C has funded E. Crossing $15,000 across several swaps in 24 hours is Floor C (`DailyAggregationBlocked`), not A.
+- **C → E (this walkthrough).** In MetaMask, switch to **C** and send USDC to **E**. Use this path for the exact sizes below ($500 / $10,000 / $15,000).
+- **Mint.** Panel **Mint 1,000 USDC** / **Mint 1 ETH**, or `POST /demo/mint`. Fixed 1,000 MockUSDC + 1 MockWETH — same as C → E $1,000, not the $500 / $10,000 / $15,000 acts.
 
-| C → E then E swap | Decision | Fee / error |
+A is the exploit origin — do not send A → E. That would be a hop, not an unknown-wallet test. E never takes a hop when funded from clean C or from a mint.
+
+Floor A looks at **this swap**. Floor D looks at the **unpublished bag** (baseline 0 → the whole bag is inbound). The stricter fee wins. Use the size chips after E is funded. Crossing $15,000 across several swaps in 24 hours is Floor C (`DailyAggregationBlocked`), not A.
+
+| Fund E then E swap | Decision | Fee / error |
 | --- | --- | --- |
 | C→E $500, E swaps $500 | FEE_OVERRIDE | 3% (A dust; bag under $1,000) |
 | C→E $10,000, E swaps $1,000 | FEE_OVERRIDE | 8% (A mid; D mid 3% loses) |
+| Mint 1,000 USDC to E, E swaps $1,000 | FEE_OVERRIDE | 8% (A mid; D mid 3% on the $1,000 bag) |
 | C→E $15,000, E swaps $500 | FEE_OVERRIDE | 8% (D large on the bag) |
 | C→E $15,000, E swaps $10,000 then $5,000 | REVERT | `DailyAggregationBlocked` |
 | C→E $15,000, E swaps $15,000 | REVERT | `UnscoredMagnitudeBlocked` |

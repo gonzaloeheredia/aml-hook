@@ -65,7 +65,7 @@ import {
 } from "./store.js";
 import type { WalletId } from "./types.js";
 
-const FAUCET_USDC = 10_000;
+const FAUCET_USDC = 1_000;
 const FAUCET_ETH = 1;
 
 const WALLET_IDS_HINT = "A, B, C, D, or E";
@@ -457,7 +457,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     if (addressRaw && idRaw) {
       return reply.code(400).send({
-        error: "Pass address (judge faucet) or walletId (A–E demo), not both",
+        error: "Pass address (faucet) or walletId (A–E demo), not both",
       });
     }
 
@@ -487,7 +487,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const amount = Number(req.body?.amount);
     if (!isWalletId(idRaw)) {
       return reply.code(400).send({
-        error: `walletId must be ${WALLET_IDS_HINT}, or pass address for the judge faucet`,
+        error: `walletId must be ${WALLET_IDS_HINT}, or pass address for the faucet`,
       });
     }
     if (token !== "usdc" && token !== "eth") {

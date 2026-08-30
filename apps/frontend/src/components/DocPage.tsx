@@ -172,9 +172,10 @@ type StepProps = {
   action: string;
   rows?: { label: string; value: string }[];
   note?: string;
+  explain?: string;
 };
 
-export function DocStep({ n, title, action, rows, note }: StepProps) {
+export function DocStep({ n, title, action, rows, note, explain }: StepProps) {
   return (
     <article className="border-t hair pt-10">
       <div className="label-kicker">Step {n}</div>
@@ -191,10 +192,19 @@ export function DocStep({ n, title, action, rows, note }: StepProps) {
           ))}
         </div>
       ) : null}
-      {note ? (
-        <p className="mt-6 text-[15px] font-normal leading-relaxed text-uni-muted">
-          {note}
-        </p>
+      {note || explain ? (
+        <div className="mt-6 space-y-3">
+          {note ? (
+            <p className="text-[15px] font-normal leading-relaxed text-uni-muted">
+              {note}
+            </p>
+          ) : null}
+          {explain ? (
+            <p className="text-[15px] font-normal leading-relaxed text-uni-muted">
+              {explain}
+            </p>
+          ) : null}
+        </div>
       ) : null}
     </article>
   );

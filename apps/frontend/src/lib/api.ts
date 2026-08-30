@@ -500,7 +500,7 @@ export function postDemoMint(
   });
 }
 
-/** POST /demo/mint — judge faucet: 10,000 MockUSDC + 1 MockWETH to an arbitrary address. */
+/** POST /demo/mint — faucet: 1,000 MockUSDC + 1 MockWETH to an arbitrary address. */
 export function postDemoFaucet(address: string) {
   return request<{
     ok: boolean;

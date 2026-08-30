@@ -422,4 +422,4 @@ documentary KYC, identity OSINT.
 ---
 
 *AML Hook — Compliance Officer Agent v3.0 (oracle-coa)*
-*Gonzalo Emanuel Heredia — Uniswap Hook Incubator, Cohort 10*
+*Gonzalo Emanuel Heredia*

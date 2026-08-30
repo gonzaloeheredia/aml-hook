@@ -20,6 +20,8 @@ const STEPS = [
       { label: "Fee", value: "0.30%" },
     ],
     note: "D starts with 5,000 USDC and a published clean row. Size of already-held funds does not revert.",
+    explain:
+      "D already holds this money and it's already scored clean. Nothing new to flag, so the swap goes through at the pool's normal fee.",
   },
   {
     n: "1",
@@ -32,6 +34,8 @@ const STEPS = [
       { label: "Settlement", value: "None. Funds stay in A." },
     ],
     note: "A is not on OFAC. The officer wrote score 100 from an external exploit finding. A can still send USDC off-pool to B or C. Do not send A → E.",
+    explain:
+      "A's score of 100 blocks any pool swap outright — the funds never move, they just stay in A. A can still move funds off-pool; only swaps are blocked.",
   },
   {
     n: "2",
@@ -44,6 +48,8 @@ const STEPS = [
       { label: "Fee band", value: "8%" },
       { label: "On-chain write", value: "ComplianceOracle" },
     ],
+    explain:
+      "This transfer is what carries the risk forward. An off-chain engine sees it and scores B as 1 hop from A (~65); the keeper publishes that score on-chain.",
   },
   {
     n: "3",
@@ -55,6 +61,8 @@ const STEPS = [
       { label: "Fee", value: "8%" },
       { label: "Escrow", value: "Differential above 0.30%" },
     ],
+    explain:
+      "A score of 55-70 doesn't block the swap, but charges a steep 8% fee as a penalty for being close to the tainted source. The extra fee goes to escrow, not lost.",
   },
   {
     n: "4",
@@ -66,6 +74,8 @@ const STEPS = [
       { label: "Fee band", value: "3%" },
       { label: "Closer hop wins", value: "A → C is still 1 hop / 65 / 8%" },
     ],
+    explain:
+      "Same mechanism, one hop further. Two hops from A dilutes the score to ~42. A closer hop always wins over a farther one if both exist.",
   },
   {
     n: "5",
@@ -77,6 +87,8 @@ const STEPS = [
       { label: "Fee", value: "3%" },
       { label: "Optional reverse", value: "Clean B after tainted C → 42 / 3%" },
     ],
+    explain:
+      "Same idea as Step 3, but the lower score falls in the cheaper FEE_OVERRIDE band: 3% instead of 8%. Farther from the tainted source, smaller penalty.",
   },
   {
     n: "6",
@@ -90,6 +102,8 @@ const STEPS = [
       { label: "Rule", value: "Prior 24h + this swap ≥ $15,000" },
     ],
     note: "A first $15,000 ticket of the day is Floor A/B/D, not C. D works the same after two sized swaps that add to $15,000.",
+    explain:
+      "The C → E transfer never touches the hook — it is a plain ERC-20 transfer, not a swap, so no floor applies to it. Floor C only accumulates E's own swap volume against the pool: $10,000 + $5,000 = $15,000 crosses the threshold. The revert is on E's cumulative swaps, not on the incoming transfer.",
   },
   {
     n: "7",
@@ -103,6 +117,8 @@ const STEPS = [
       { label: "Fee", value: "3% on $1,000 (mid). Under $1,000 passes." },
     ],
     note: "B never reverts. $15,000 or more → 8%. A healthy keeper stamps updatedAt so a stable clean wallet does not look stale.",
+    explain:
+      "This isn't about D doing anything suspicious — it tests what happens when the score-writer goes quiet. D's score is still 0, just not refreshed in over 5 minutes, so the hook charges a small precautionary fee instead of trusting a possibly-stale row. This floor never blocks, only charges more.",
   },
   {
     n: "8",
@@ -116,6 +132,8 @@ const STEPS = [
       { label: "Fee", value: "3%" },
     ],
     note: "Do not use A here: A → D is a hop. Floor D: under $1,000 passes; $1,000–$14,999 → 3%; $15,000+ → 8%. D does not revert.",
+    explain:
+      "D is already published clean (score 0). C's transfer never touches the hook — it's a plain wallet-to-wallet transfer. That new money just hasn't been assessed yet. When D swaps, the hook checks for unassessed inbound funds: mid-size inflow (Step 8) costs 3% extra, large inflow (Step 9) costs 8% extra. D never reverts here — a clean source paying more while new money settles is not the same as an unscored wallet being blocked (Floor A).",
   },
   {
     n: "9",
@@ -129,19 +147,23 @@ const STEPS = [
       { label: "Fee", value: "8%" },
     ],
     note: "Already-held clean funds never count as inbound. Only unknown-wallet Floor A blocks at $15,000.",
+    explain:
+      "D is already published clean (score 0). C's transfer never touches the hook — it's a plain wallet-to-wallet transfer. That new money just hasn't been assessed yet. When D swaps, the hook checks for unassessed inbound funds: mid-size inflow (Step 8) costs 3% extra, large inflow (Step 9) costs 8% extra. D never reverts here — a clean source paying more while new money settles is not the same as an unscored wallet being blocked (Floor A).",
   },
   {
     n: "10",
     title: "E - New Wallet",
     action:
-      "E starts empty. Switch to C in MetaMask Simulator and send USDC to E. Then connect E and swap. Do not send A → E.",
+      "E starts empty. Fund E from clean C (P2P) or mint 1,000 USDC + 1 ETH to E. Then connect E and swap. Do not send A → E.",
     rows: [
       { label: "C→E $500, E swaps $500", value: "FEE_OVERRIDE 3%" },
-      { label: "C→E $10k, E swaps $1,000", value: "FEE_OVERRIDE 8%" },
+      { label: "C→E $10k or mint $1k, E swaps $1,000", value: "FEE_OVERRIDE 8%" },
       { label: "C→E $15k, E swaps $15,000", value: "REVERT UnscoredMagnitudeBlocked" },
       { label: "Price feed", value: "POST /demo/price-feed after a prior quote → lastFx cache" },
     ],
     note: "Floor A looks at this swap. Floor D looks at the unpublished bag. The stricter fee wins. Restart between sizes so C’s 50,000 USDC covers each act.",
+    explain:
+      "E can be funded two ways. C → E is a plain ERC-20 transfer; a faucet mint writes tokens straight to E. Neither path touches the hook. Floor A/D compares E's current balance to a stored baseline, so a mint and a C → E transfer of the same size have the same effect. Use C → E for the $500 / $10,000 / $15,000 sizes: the mint (panel and faucet) is a fixed 1,000 MockUSDC + 1 MockWETH. Fund from C, not A — A → E would be a hop, not an unknown-wallet test.",
   },
   {
     n: "11",
@@ -154,6 +176,8 @@ const STEPS = [
       { label: "24h window", value: "BSA CTR analogy (Floor C)" },
       { label: "Who retunes", value: "Officer proposes USD floors; governor retunes windows" },
     ],
+    explain:
+      "No demo action here — this is why these numbers exist. $1,000 comes from FATF guidance on virtual assets; $15,000 from FATF Recommendation 10; the 24-hour window echoes the US BSA's CTR concept. The compliance officer proposes dollar floors; the hook governor tunes time windows.",
   },
   {
     n: "12",
@@ -166,6 +190,8 @@ const STEPS = [
       { label: "48h illicit", value: "ILLICIT_RISK_FEE / LP_PRINCIPAL" },
       { label: "Never to pool", value: "User output already settled in-block" },
     ],
+    explain:
+      "The extra fee from any FEE_OVERRIDE swap doesn't go straight to LPs — it sits in escrow for 24-48 hours. If nothing bad is confirmed, it releases to LPs or back to principal. If the wallet is later confirmed sanctioned or high-risk, it moves to the compliance treasury instead. The swap itself already settled; only this extra fee waits.",
   },
   {
     n: "13",
@@ -178,11 +204,13 @@ const STEPS = [
       { label: "OFAC", value: "COA screens SDN; swap only reads the mapping" },
       { label: "Events", value: "Successful swaps emit SwapObserved" },
     ],
+    explain:
+      "After any FEE_OVERRIDE or REVERT, an Opinion documents why. With a Claude key configured, an AI model drafts it against real regulatory sources; without one, a simpler rule-based fallback fills the same structure. This screen also checks the wallet against the official OFAC sanctions list and records any match on-chain.",
   },
 ] as const;
 
 /**
- * Judge walkthrough, laid out like the Opinion module.
+ * Guided walkthrough, laid out like the Opinion module.
  */
 export function UseOfCaseView() {
   return (
@@ -225,7 +253,7 @@ export function UseOfCaseView() {
             ["6", "E or D", "$10k then $5k in 24h", "REVERT · Floor C"],
             ["7", "D", "Advance 5 min, swap", "FEE_OVERRIDE · Floor B"],
             ["8–9", "C → D", "Clean inbound, then swap", "3% / 8% Floor D"],
-            ["10", "C → E", "Fund unknown, then swap", "A / D bands or REVERT"],
+            ["10", "C → E or mint", "Fund unknown, then swap", "A / D bands or REVERT"],
             ["11–13", "Officer", "Floors, escrow, Opinion", "Review · recover · file"],
           ]}
         />
@@ -252,6 +280,7 @@ export function UseOfCaseView() {
               action={step.action}
               rows={[...step.rows]}
               note={"note" in step ? step.note : undefined}
+              explain={"explain" in step ? step.explain : undefined}
             />
           ))}
         </div>

@@ -31,7 +31,7 @@ is an add/remove caller.
 
 On Anvil: never publish E. Do not fund E from A.
 
-On Sepolia: a judge EOA vs the live pool is Floor A/C/D until
+On Sepolia: a new EOA vs the live pool is Floor A/C/D until
 `_ORACLE_KEEPER` + attestor write. You do not auto-publish that address.
 
 ---

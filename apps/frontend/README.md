@@ -1,6 +1,5 @@
 # AML Hook · Frontend demo
 
-Hackathon UI for **Uniswap Hook Incubator 10 (UHI10)**.  
 Institutional six-stage demo of the AML Hook use case: **exploit `WalletBlocked` (Wallet A, score 100, not listed)**, **N-hop decay**, **oracle-latency / inflow (Wallet D)**, **never-scored USD bands (Wallet E, funded by C)**, and ternary **ALLOW / FEE_OVERRIDE / REVERT**. Named-address OFAC (`SanctionHit`) is hook Layer 1 (whitepaper), not a demo wallet. Newsreader + Inter, ink/cream surfaces, Uniswap logo kept. Dark is the default; the round control in the navbar toggles light.
 
 > Scores come from the API chain: the COA emits `finalScore` / fee, the
@@ -39,7 +38,7 @@ On-screen titles (serif, same size on every stage): **Swap**, **Hook execution**
 
 REVERT is `beforeSwap` only — no `afterSwap` emit for that attempt.
 
-**Navbar:** Uniswap logo, **MetaMask Simulator** text link, theme switch, **Connect** pill. After connect the pill shows **Wallet A–E**; click it to switch or disconnect. Wallet D shows **Score 0** until contaminated; **Latency** while keeper-pending. Wallet E stays **Unknown** and starts empty. P2P USDC transfers and **Mint 1,000 USDC** / **Mint 1 ETH** (MockUSDC / MockWETH) run from the MetaMask simulator panel under Tokens, to the open account only. The judge faucet is API-only (`POST /demo/mint` `{ address }` → 10,000 MockUSDC + 1 MockWETH). That path does not connect MetaMask and does not change A–E.
+**Navbar:** Uniswap logo, **MetaMask Simulator** text link, theme switch, **Connect** pill. After connect the pill shows **Wallet A–E**; click it to switch or disconnect. Wallet D shows **Score 0** until contaminated; **Latency** while keeper-pending. Wallet E stays **Unknown** and starts empty. P2P USDC transfers and **Mint 1,000 USDC** / **Mint 1 ETH** (MockUSDC / MockWETH) run from the MetaMask simulator panel under Tokens, to the open account only. The faucet is API-only (`POST /demo/mint` `{ address }` → 1,000 MockUSDC + 1 MockWETH). That path does not connect MetaMask and does not change A–E.
 
 ### The five use-case wallets
 
@@ -95,6 +94,6 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 - `contracts/README.md` — Foundry layout (`src/contracts/…`, `script/Deploy.sol`, `CreatePool.s.sol`)
 - `apps/api/README.md` — COA + signed `updateScore` (Anvil or Sepolia)
 
-This UI never talks to a live MetaMask extension. **Connect** picks demo wallets A–E. The judge faucet only mints MockUSDC / MockWETH to an address via `POST /demo/mint`.
+This UI never talks to a live MetaMask extension. **Connect** picks demo wallets A–E. The faucet only mints MockUSDC / MockWETH to an address via `POST /demo/mint`.
 
-**Judges — never-scored is intentional.** The faucet does not publish `ComplianceOracle`. Unless `_ORACLE_KEEPER` writes a clean score for that address, a swap on the Sepolia pool (app.uniswap.org) is Wallet E: Floor A/C/D — 3% under $1,000, 8% from $1,000–$14,999 (or revert if the ticket is more than 20% of pool liquidity), revert at ≥ $15,000. That is the product, not a broken mint.
+**Never-scored is intentional.** The faucet does not publish `ComplianceOracle`. Unless `_ORACLE_KEEPER` writes a clean score for that address, a swap on the Sepolia pool (app.uniswap.org) is Wallet E: Floor A/C/D — 3% under $1,000, 8% from $1,000–$14,999 (or revert if the ticket is more than 20% of pool liquidity), revert at ≥ $15,000. That is the product, not a broken mint.

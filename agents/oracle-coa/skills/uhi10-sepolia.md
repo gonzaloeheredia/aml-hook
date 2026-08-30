@@ -25,7 +25,7 @@ onto Sepolia EOAs.
 | Listed SDN | Live OFAC SDN exact-address match → `SanctionRegistry` `0xBf46E7dad8286FC3e487C22b27F17D734814df5d` → hook `SanctionHit`. Not a use-case wallet. Do not invent hops from a listed address |
 | B / C / D hops | Only after observed P2P / facts on **these** addresses. Do not import the Anvil ledger |
 
-A judge who opens the pool on app.uniswap.org with a fresh EOA is Wallet E:
+A fresh EOA that opens the pool on app.uniswap.org is Wallet E:
 Floor A/C/D. **Do not auto-publish** a score for that address.
 
 ---
