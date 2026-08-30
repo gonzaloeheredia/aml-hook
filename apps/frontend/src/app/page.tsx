@@ -829,7 +829,7 @@ export default function HomePage() {
             swift={slideSwift}
           >
           {stage === "swap" && (
-            <div className="mb-20 text-center md:mb-28">
+            <div className="mb-10 text-center md:mb-14">
               <h1 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 Swap
               </h1>
@@ -837,7 +837,7 @@ export default function HomePage() {
           )}
 
           {stage === "hook" && (
-            <div className="mb-20 text-center md:mb-28">
+            <div className="mb-10 text-center md:mb-14">
               <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 Hook execution
               </h2>
@@ -845,7 +845,7 @@ export default function HomePage() {
           )}
 
           {stage === "fees" && (
-            <div className="mb-20 text-center md:mb-28">
+            <div className="mb-10 text-center md:mb-14">
               <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 Fee summary
               </h2>
@@ -853,7 +853,7 @@ export default function HomePage() {
           )}
 
           {stage === "stats" && (
-            <div className="mb-20 text-center md:mb-28">
+            <div className="mb-10 text-center md:mb-14">
               <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 AML stats
               </h2>
@@ -861,7 +861,7 @@ export default function HomePage() {
           )}
 
           {stage === "opinion" && (
-            <div className="mb-20 text-center md:mb-28">
+            <div className="mb-10 text-center md:mb-14">
               <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 AML Analysis
               </h2>
@@ -869,7 +869,7 @@ export default function HomePage() {
           )}
 
           {stage === "event" && (
-            <div className="mb-20 text-center md:mb-28">
+            <div className="mb-10 text-center md:mb-14">
               <h2 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
                 Event
               </h2>
