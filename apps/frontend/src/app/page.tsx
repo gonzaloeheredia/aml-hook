@@ -14,6 +14,7 @@ import { OnChainAccumulator } from "@/components/OnChainAccumulator";
 import { StageMorph } from "@/components/StageMorph";
 import { StageRail, type DemoStage } from "@/components/StageRail";
 import { StageSideNav } from "@/components/StageSideNav";
+import { SepoliaFaucet } from "@/components/SepoliaFaucet";
 import { SwapWidget } from "@/components/SwapWidget";
 import { walletTone } from "@/components/WalletTag";
 import { DEMO_CASES, type DemoCaseId } from "@/data/cases";
@@ -909,6 +910,7 @@ export default function HomePage() {
                         void handleAdvanceClock();
                       }}
                     />
+                    <SepoliaFaucet onFaucet={handleFaucet} />
                   </div>
               )}
 
@@ -1025,7 +1027,6 @@ export default function HomePage() {
         onActiveChange={setSimActiveId}
         onSendTransfer={handleSendTransfer}
         onMint={handleMint}
-        onFaucet={handleFaucet}
         onUseInUniswap={handleUseInUniswap}
         apiLabel={apiLabel}
       />
