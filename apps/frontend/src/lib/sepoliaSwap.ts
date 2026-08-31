@@ -26,6 +26,7 @@ import {
 import {
   assertSepoliaChain,
   sepoliaPublicClient,
+  sepoliaSimClient,
   sepoliaWalletClient,
 } from "@/lib/sepoliaWallet";
 
@@ -76,35 +77,41 @@ const POOL_KEY_COMPONENTS = [
   { name: "hooks", type: "address" },
 ] as const;
 
-/** Official app.uniswap.org UR on Sepolia predates minHopPriceX36. */
-function encodeExactIn(amountIn: bigint, withMinHop: boolean): Hex {
-  const components = [
-    { name: "poolKey", type: "tuple", components: [...POOL_KEY_COMPONENTS] },
-    { name: "zeroForOne", type: "bool" },
-    { name: "amountIn", type: "uint128" },
-    { name: "amountOutMinimum", type: "uint128" },
-    ...(withMinHop ? [{ name: "minHopPriceX36", type: "uint256" }] : []),
-    { name: "hookData", type: "bytes" },
-  ];
-  const value: Record<string, unknown> = {
-    poolKey: POOL_KEY,
-    zeroForOne: false,
-    amountIn,
-    amountOutMinimum: BigInt(0),
-    hookData: "0x",
-  };
-  if (withMinHop) value.minHopPriceX36 = BigInt(0);
-  return encodeAbiParameters([{ type: "tuple", components }], [value]);
+/** Sepolia app UR (0x3A9D48…) decodes ExactInputSingleParams without minHopPriceX36. */
+function encodeExactIn(amountIn: bigint): Hex {
+  return encodeAbiParameters(
+    [
+      {
+        type: "tuple",
+        components: [
+          { name: "poolKey", type: "tuple", components: [...POOL_KEY_COMPONENTS] },
+          { name: "zeroForOne", type: "bool" },
+          { name: "amountIn", type: "uint128" },
+          { name: "amountOutMinimum", type: "uint128" },
+          { name: "hookData", type: "bytes" },
+        ],
+      },
+    ],
+    [
+      {
+        poolKey: POOL_KEY,
+        zeroForOne: false,
+        amountIn,
+        amountOutMinimum: BigInt(0),
+        hookData: "0x",
+      },
+    ],
+  );
 }
 
-function encodeV4Swap(amountIn: bigint, withMinHop: boolean): Hex {
+function encodeV4Swap(amountIn: bigint): Hex {
   const actions = encodePacked(
     ["bytes1", "bytes1", "bytes1"],
     [SWAP_EXACT_IN_SINGLE, SETTLE_ALL, TAKE_ALL],
   );
   const settle = encodeAbiParameters(
     [{ type: "address" }, { type: "uint256" }],
-    [SEPOLIA_MOCK_USDC, MAX_UINT256],
+    [SEPOLIA_MOCK_USDC, amountIn],
   );
   const take = encodeAbiParameters(
     [{ type: "address" }, { type: "uint256" }],
@@ -112,7 +119,7 @@ function encodeV4Swap(amountIn: bigint, withMinHop: boolean): Hex {
   );
   return encodeAbiParameters(
     [{ type: "bytes" }, { type: "bytes[]" }],
-    [actions, [encodeExactIn(amountIn, withMinHop), settle, take]],
+    [actions, [encodeExactIn(amountIn), settle, take]],
   );
 }
 
@@ -259,34 +266,25 @@ export async function swapUsdcForWeth(account: Address, usdc: number): Promise<H
   await ensurePermit2Allowance(account, amountIn);
 
   const wallet = sepoliaWalletClient(account);
+  const simClient = sepoliaSimClient();
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 180);
-  const encodings = [false, true] as const;
-  let args: readonly [Hex, Hex[], bigint] | null = null;
-  let lastSimErr: unknown;
-  for (const withMinHop of encodings) {
-    const candidate = [V4_SWAP, [encodeV4Swap(amountIn, withMinHop)], deadline] as const;
-    try {
-      await publicClient.simulateContract({
-        address: SEPOLIA_UNIVERSAL_ROUTER,
-        abi: UR_ABI,
-        functionName: "execute",
-        args: candidate,
-        account,
-        gas: GAS_CAP,
-      });
-      args = candidate;
-      break;
-    } catch (err) {
-      lastSimErr = err;
-    }
-  }
-  if (!args) {
-    throw new Error(decodeHookRevert(lastSimErr));
+  const args = [V4_SWAP, [encodeV4Swap(amountIn)], deadline] as const;
+  try {
+    await simClient.simulateContract({
+      address: SEPOLIA_UNIVERSAL_ROUTER,
+      abi: UR_ABI,
+      functionName: "execute",
+      args,
+      account,
+      gas: GAS_CAP,
+    });
+  } catch (err) {
+    throw new Error(decodeHookRevert(err));
   }
 
   let gas = GAS_CAP;
   try {
-    const estimated = await publicClient.estimateContractGas({
+    const estimated = await simClient.estimateContractGas({
       address: SEPOLIA_UNIVERSAL_ROUTER,
       abi: UR_ABI,
       functionName: "execute",

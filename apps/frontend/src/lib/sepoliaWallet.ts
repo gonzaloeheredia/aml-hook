@@ -9,6 +9,7 @@ import {
   formatEther,
   formatUnits,
   getAddress,
+  http,
   type Address,
   type WalletClient,
 } from "viem";
@@ -107,6 +108,14 @@ export function sepoliaPublicClient() {
   return createPublicClient({
     chain: sepolia,
     transport: custom(requireInjected()),
+  });
+}
+
+/** eth_call / estimateGas without MetaMask Infura (which strips revert data). */
+export function sepoliaSimClient() {
+  return createPublicClient({
+    chain: sepolia,
+    transport: http("https://ethereum-sepolia-rpc.publicnode.com"),
   });
 }
 
