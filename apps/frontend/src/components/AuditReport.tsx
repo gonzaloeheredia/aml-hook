@@ -17,6 +17,8 @@ type Props = {
   tradedUsd?: number;
   /** Cumulative ETH bought on settled swaps. */
   tradedEth?: number;
+  /** ISO timestamp of the swap this report is about. */
+  auditedAt?: string | null;
 };
 
 /**
@@ -34,6 +36,23 @@ function formatEth(amount: number) {
 function shorten(addr: string) {
   if (addr.length < 12) return addr;
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
+/** Formats the swap timestamp for the Audited field (date of the transaction). */
+function formatAuditedAt(iso?: string | null) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const date = d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  const time = d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${date} · ${time}`;
 }
 
 function opinionChrome(decision: Decision) {
@@ -73,6 +92,7 @@ export function AmlStats({
   swapCount = 0,
   tradedUsd = 0,
   tradedEth = 0,
+  auditedAt = null,
 }: Omit<Props, "variant">) {
   const address = connectedAddress ?? demoCase.wallet;
   const gaugeTone =
@@ -103,7 +123,7 @@ export function AmlStats({
         </div>
         <div>
           <div className="label-kicker">Audited</div>
-          <div className="mt-2 text-[15px]">Jul 26, 2026 · demo</div>
+          <div className="mt-2 text-[15px]">{formatAuditedAt(auditedAt)}</div>
         </div>
       </div>
 

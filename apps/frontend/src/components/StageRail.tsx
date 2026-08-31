@@ -14,7 +14,7 @@ export const DEMO_STAGES: {
   hint: string;
 }[] = [
   { id: "swap", label: "Swap", hint: "Get started" },
-  { id: "hook", label: "Hook", hint: "beforeSwap" },
+  { id: "hook", label: "hook execution", hint: "beforeSwap" },
   { id: "fees", label: "Fees", hint: "FeeEscrow differential" },
   { id: "stats", label: "Stats", hint: "Score · detection" },
   { id: "opinion", label: "Opinion", hint: "Legal / technical opinion" },
@@ -91,7 +91,7 @@ export function StageRail({ stage, unlockedThrough, onSelect }: Props) {
                   )}
                 </span>
                 <span
-                  className={`text-[11px] font-medium uppercase leading-none tracking-[0.08em] ${
+                  className={`text-[10px] font-medium uppercase leading-tight tracking-[0.06em] sm:text-[11px] ${
                     active ? "text-uni-pink" : "text-uni-pink/35"
                   }`}
                 >

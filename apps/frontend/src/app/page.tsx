@@ -113,6 +113,16 @@ function eventsForWallet(
   return events.filter((e) => e.walletId === walletId);
 }
 
+function lastSwapEvent(events: HookChainEvent[]) {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.eventName === "SwapObserved" || e.eventName === "WalletBlocked") {
+      return e;
+    }
+  }
+  return undefined;
+}
+
 /**
  * Hook / Fees / Opinion for E follow the last Sepolia SwapObserved, not the static template.
  */
@@ -367,12 +377,7 @@ export default function HomePage() {
         : baseCase;
     const withCopy = applyLiveCaseCopy(overlaid);
     if (caseId !== "E") return withCopy;
-    const last = [...trailEvents]
-      .reverse()
-      .find(
-        (e) =>
-          e.eventName === "SwapObserved" || e.eventName === "WalletBlocked",
-      );
+    const last = lastSwapEvent(trailEvents);
     return last ? overlayFromSepoliaEvent(withCopy, last) : withCopy;
   }, [baseCase, caseId, compliance, demoTick, trailEvents]);
 
@@ -1324,7 +1329,7 @@ export default function HomePage() {
           {stage === "swap" && (
             <div className="mb-6 text-center md:mb-8">
               <h1 className="font-serif text-balance text-4xl font-normal tracking-tight md:text-5xl">
-                Swap
+                Hook
               </h1>
             </div>
           )}
@@ -1443,6 +1448,7 @@ export default function HomePage() {
                       swapCount={liveStats.count}
                       tradedUsd={liveStats.tradedUsd}
                       tradedEth={liveStats.tradedEth}
+                      auditedAt={lastSwapEvent(trailEvents)?.timestamp ?? null}
                     />
                   </div>
               )}

@@ -53,7 +53,6 @@ export function SwapWidget({
     !livePool &&
     !blocked &&
     walletUsdc < demoCase.activity.amountUsd;
-  const [faucetAddress, setFaucetAddress] = useState(liveAddress ?? "");
   const [faucetError, setFaucetError] = useState<string | null>(null);
   const ePresets =
     demoCase.id === "E" && demoCase.amountPresets?.length
@@ -65,10 +64,6 @@ export function SwapWidget({
   useEffect(() => {
     if (!editing) setDraft(String(demoCase.activity.amountUsd));
   }, [demoCase.activity.amountUsd, editing]);
-
-  useEffect(() => {
-    if (liveAddress) setFaucetAddress(liveAddress);
-  }, [liveAddress]);
 
   const commitAmount = () => {
     if (!onAmountChange) return;
@@ -198,38 +193,20 @@ export function SwapWidget({
 
         {livePool && connected && onFaucet && (
           <div className="mt-4">
-            <label className="label-kicker" htmlFor="e-faucet-address">
-              Sepolia faucet
-            </label>
-            <div className="mt-2 flex gap-2">
-              <input
-                id="e-faucet-address"
-                type="text"
-                spellCheck={false}
-                autoComplete="off"
-                data-no-stage-nav
-                placeholder="0x… Sepolia wallet"
-                value={faucetAddress}
-                onChange={(e) => {
-                  setFaucetAddress(e.target.value.trim());
-                  setFaucetError(null);
-                }}
-                className="min-w-0 flex-1 border-b hair bg-transparent py-1.5 font-mono text-[12px] text-uni-pink outline-none"
-              />
-              <button
-                type="button"
-                data-no-stage-nav
-                disabled={faucetBusy || faucetAddress.length < 42}
-                onClick={() => {
-                  void onFaucet(faucetAddress).then((err) => {
-                    setFaucetError(err);
-                  });
-                }}
-                className="shrink-0 border-b hair px-0.5 pb-0.5 text-xs font-medium text-uni-muted transition hover:text-uni-pink disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {faucetBusy ? "Minting…" : "Mint 1,000 USDC"}
-              </button>
-            </div>
+            <button
+              type="button"
+              data-no-stage-nav
+              disabled={faucetBusy || !liveAddress || liveAddress.length < 42}
+              onClick={() => {
+                if (!liveAddress) return;
+                void onFaucet(liveAddress).then((err) => {
+                  setFaucetError(err);
+                });
+              }}
+              className="radius-action edge w-full bg-transparent py-3 text-center text-base font-medium text-uni-pink transition hover:bg-uni-pink/5 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {faucetBusy ? "Minting…" : "Mint 1,000 USDC"}
+            </button>
             {faucetError && (
               <p className="mt-2 text-xs text-uni-warn">{faucetError}</p>
             )}
