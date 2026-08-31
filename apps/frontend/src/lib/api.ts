@@ -416,9 +416,10 @@ export function fetchTransfers() {
   return request<{ transfers: TransferRecord[] }>(`/transfers`);
 }
 
-/** GET /events */
-export function fetchEvents() {
-  return request<{ events: ApiHookEvent[] }>(`/events`);
+/** GET /events — A–D default to the API trail, E to SwapObserved logs. */
+export function fetchEvents(walletId?: DemoCaseId) {
+  const q = walletId ? `?walletId=${walletId}` : "";
+  return request<{ events: ApiHookEvent[] }>(`/events${q}`);
 }
 
 /** GET /wallets/:id/compliance */

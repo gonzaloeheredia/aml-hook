@@ -19,7 +19,6 @@ import { SwapWidget } from "@/components/SwapWidget";
 import { walletTone } from "@/components/WalletTag";
 import { DEMO_CASES, type DemoCaseId } from "@/data/cases";
 import {
-  API_BASE,
   ApiError,
   fetchCompliance,
   fetchEvents,
@@ -31,6 +30,7 @@ import {
   postTransfer,
   postReset,
   postDemoElapse,
+  postDemoFaucet,
   postDemoMint,
   walletsRecord,
   type ApiCompliancePack,
@@ -51,6 +51,7 @@ import {
   type HookChainEvent,
 } from "@/lib/hookEvents";
 import { applyLiveCaseCopy } from "@/lib/liveCaseCopy";
+import { UNISWAP_SEPOLIA_POOL_URL } from "@/lib/sepoliaPool";
 import { withComplianceOverlay } from "@/lib/withComplianceOverlay";
 
 /**
@@ -78,10 +79,6 @@ const STAGE_ORDER: DemoStage[] = [
   "opinion",
   "event",
 ];
-
-function apiUnreachableMessage() {
-  return `Cannot reach the API at ${API_BASE}. Set NEXT_PUBLIC_API_URL and restart the frontend.`;
-}
 
 /**
  * Returns the later of two stages in the guided sequence.
@@ -118,6 +115,7 @@ export default function HomePage() {
   const [appView, setAppView] = useState<AppView>("hook");
   const [apiStatus, setApiStatus] = useState<ApiStatus>("connecting");
   const [apiError, setApiError] = useState<string | null>(null);
+  const [faucetBusy, setFaucetBusy] = useState(false);
   const [compliance, setCompliance] = useState<ApiCompliancePack | null>(null);
   const [swapAmountUsd, setSwapAmountUsd] = useState(
     DEMO_CASES.A.activity.amountUsd,
@@ -182,7 +180,7 @@ export default function HomePage() {
     const [walletsRes, transfersRes, eventsRes] = await Promise.all([
       fetchWallets(),
       fetchTransfers(),
-      fetchEvents(),
+      fetchEvents(caseId),
     ]);
     const wallets = walletsRecord(walletsRes.wallets);
     setSimWallets(wallets);
@@ -194,7 +192,7 @@ export default function HomePage() {
       ),
     );
     return wallets;
-  }, []);
+  }, [caseId]);
 
   /**
    * Pulls live opinion for the active wallet from the API.
@@ -224,13 +222,9 @@ export default function HomePage() {
         if (cancelled) return;
         if (health.policy) setPolicyKnobs(health.policy);
         if (!health.ok || health.chain?.ok === false) {
-          throw new ApiError(
-            health.chain?.reason ||
-              (health.mode === "sepolia"
-                ? "Sepolia RPC is down. The API is up but chain.ok is false."
-                : "Anvil stack is down. Run npm run deploy:local and restart the API."),
-            503,
-          );
+          setApiStatus("offline");
+          setApiError(null);
+          return;
         }
         await refreshLedger();
         if (cancelled) return;
@@ -238,14 +232,10 @@ export default function HomePage() {
         if (cancelled) return;
         setApiStatus("online");
         setApiError(null);
-      } catch (err) {
+      } catch {
         if (cancelled) return;
         setApiStatus("offline");
-        setApiError(
-          err instanceof ApiError
-            ? err.message
-            : `Cannot reach API at ${API_BASE}`,
-        );
+        setApiError(null);
       }
     })();
     return () => {
@@ -310,7 +300,7 @@ export default function HomePage() {
     amountUsd: number,
   ): Promise<string | null> => {
     if (apiStatus !== "online") {
-      return apiUnreachableMessage();
+      return "Request failed";
     }
     try {
       const res = await postTransfer(from, to, amountUsd);
@@ -332,7 +322,7 @@ export default function HomePage() {
     amount: number,
   ): Promise<string | null> => {
     if (apiStatus !== "online") {
-      return apiUnreachableMessage();
+      return "Request failed";
     }
     try {
       const res = await postDemoMint(id, token, amount);
@@ -370,8 +360,9 @@ export default function HomePage() {
         if (health.policy) setPolicyKnobs(health.policy);
         setSimWallets(walletsRecord(res.wallets));
         setTransfers(res.transfers);
+        const eventsRes = await fetchEvents(caseId);
         setChainEvents(
-          res.events.map((ev, i) => hookEventFromApi(ev, i + 1)),
+          eventsRes.events.map((ev, i) => hookEventFromApi(ev, i + 1)),
         );
         const pack = await refreshCompliance(caseId);
         setAddress((prev) => (connected ? pack.address : prev));
@@ -385,7 +376,7 @@ export default function HomePage() {
       }
     }
 
-    setApiError(apiUnreachableMessage());
+    setApiError(null);
     setCompliance(null);
     setDemoTick((n) => n + 1);
   }, [apiStatus, caseId, connected, pointStage, refreshCompliance]);
@@ -433,8 +424,6 @@ export default function HomePage() {
           err instanceof ApiError ? err.message : "Failed to advance clock",
         );
       }
-    } else {
-      setApiError(apiUnreachableMessage());
     }
     setDemoTick((n) => n + 1);
   }, [apiStatus, caseId, refreshCompliance]);
@@ -444,10 +433,17 @@ export default function HomePage() {
     void refreshLedger().catch(() => {
       /* keep local trail */
     });
-  }, [apiStatus, refreshLedger, stage]);
+    if (caseId !== "E") return;
+    const tick = window.setInterval(() => {
+      void refreshLedger().catch(() => {
+        /* keep local trail */
+      });
+    }, 12_000);
+    return () => window.clearInterval(tick);
+  }, [apiStatus, caseId, refreshLedger, stage]);
 
   const handleSimulate = () => {
-    if (!connected || running) return;
+    if (!connected || running || caseId === "E") return;
     if (demoCase.decision !== "block" && demoCase.activity.amountUsd <= 0)
       return;
     if (
@@ -458,6 +454,33 @@ export default function HomePage() {
     }
     goToStage("hook");
     setRunning(true);
+  };
+
+  const handleOpenPool = () => {
+    if (!connected || caseId !== "E") return;
+    window.open(UNISWAP_SEPOLIA_POOL_URL, "_blank", "noopener,noreferrer");
+    setUnlockedThrough((prev) => maxStage(prev, "event"));
+    if (apiStatus === "online") {
+      void refreshLedger().catch(() => {
+        /* Event fills after the Uniswap swap */
+      });
+    }
+  };
+
+  const handleFaucet = async (raw: string): Promise<string | null> => {
+    if (apiStatus !== "online") {
+      return "Request failed";
+    }
+    setFaucetBusy(true);
+    try {
+      await postDemoFaucet(raw);
+      setApiError(null);
+      return null;
+    } catch (err) {
+      return err instanceof ApiError ? err.message : "Faucet failed";
+    } finally {
+      setFaucetBusy(false);
+    }
   };
 
   /**
@@ -480,8 +503,7 @@ export default function HomePage() {
     setRunning(false);
     const amount = demoCase.activity.amountUsd;
 
-    if (apiStatus !== "online") {
-      setApiError(apiUnreachableMessage());
+    if (caseId === "E" || apiStatus !== "online") {
       return;
     }
 
@@ -687,13 +709,6 @@ export default function HomePage() {
           onMetaMaskClick={() => setMetaMaskOpen(true)}
         />
 
-        {appView === "hook" && (apiStatus === "offline" || apiError) && (
-          <div className="mx-auto mb-2 w-full max-w-[560px] border-l-[1.5px] border-uni-bad/50 px-4 py-2 text-sm text-uni-bad">
-            {apiError ??
-              `Cannot reach the API at ${API_BASE}.`}
-          </div>
-        )}
-
         {appView === "whitepaper" && <WhitepaperView />}
         {appView === "use-of-case" && <UseOfCaseView />}
         {appView !== "hook" ? null : (
@@ -777,6 +792,11 @@ export default function HomePage() {
                       walletEth={simWallets[caseId].eth}
                       onConnectClick={() => setModalOpen(true)}
                       onSimulate={handleSimulate}
+                      onOpenPool={
+                        caseId === "E" ? handleOpenPool : undefined
+                      }
+                      onFaucet={caseId === "E" ? handleFaucet : undefined}
+                      faucetBusy={faucetBusy}
                       onAmountChange={setSwapAmountUsd}
                       onAdvanceClock={() => {
                         void handleAdvanceClock();

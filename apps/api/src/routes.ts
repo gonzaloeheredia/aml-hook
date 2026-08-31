@@ -12,7 +12,6 @@ import {
   clearPolicyKnobsCache,
   hydrateWallets,
   listOnChainSwapObserved,
-  mergeEventTrails,
   isChainUnavailable,
   isPriceFeedBound,
   listEscrows,
@@ -54,6 +53,7 @@ import {
   walletKeeperPending,
 } from "./oracle/index.js";
 import { anthropicModel, isLiveCoaEnabled } from "./oracle/liveOpinion.js";
+import { resolveEventSource, selectEventTrail } from "./eventsQuery.js";
 import { isWalletId, walletScore } from "./scoring.js";
 import {
   appendEvent,
@@ -333,14 +333,26 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.get("/events", async () => {
-    try {
-      const chain = await listOnChainSwapObserved();
-      return { events: mergeEventTrails(listEvents(), chain) };
-    } catch {
-      return { events: listEvents() };
-    }
-  });
+  app.get<{ Querystring: { walletId?: string; source?: string } }>(
+    "/events",
+    async (req) => {
+      const walletId = String(req.query.walletId ?? "").toUpperCase();
+      const source = resolveEventSource(
+        walletId,
+        String(req.query.source ?? ""),
+      );
+      const demo = listEvents();
+      let chain = demo.filter((e) => e.source === "chain");
+      if (source !== "demo") {
+        try {
+          chain = await listOnChainSwapObserved();
+        } catch {
+          chain = [];
+        }
+      }
+      return { events: selectEventTrail(demo, chain, walletId, source) };
+    },
+  );
 
   app.post<{ Body: SwapBody }>("/swaps", async (req, reply) => {
     const idRaw = String(req.body?.walletId ?? "").toUpperCase();
@@ -372,6 +384,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           origin: wallet.originId ?? "A",
           at: new Date().toISOString(),
           kind: "WalletBlocked" as const,
+          source: "demo" as const,
         };
         appendEvent(event);
         const oracle = await reevaluateAfterBlock(idRaw);

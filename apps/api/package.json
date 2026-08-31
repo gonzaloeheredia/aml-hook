@@ -9,7 +9,7 @@
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "validate:corpus": "tsx src/oracle/validateCorpusCli.ts",
-    "test": "tsx --test --test-concurrency=1 test/unit/scoring.test.ts test/unit/units-and-publisher.test.ts test/unit/ledger.test.ts test/unit/corpus.test.ts test/unit/liveOpinion.test.ts test/unit/liveScore.test.ts test/unit/factScoring.test.ts test/unit/skills.test.ts test/unit/ofacSdn.test.ts test/unit/merkle.test.ts test/relations/policy-relations.test.ts test/integral/demo-policy.test.ts"
+    "test": "tsx --test --test-concurrency=1 test/unit/scoring.test.ts test/unit/units-and-publisher.test.ts test/unit/ledger.test.ts test/unit/corpus.test.ts test/unit/liveOpinion.test.ts test/unit/liveScore.test.ts test/unit/factScoring.test.ts test/unit/skills.test.ts test/unit/ofacSdn.test.ts test/unit/merkle.test.ts test/unit/eventsQuery.test.ts test/relations/policy-relations.test.ts test/integral/demo-policy.test.ts"
   },
   "engines": {
     "node": ">=20"

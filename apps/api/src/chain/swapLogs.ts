@@ -7,7 +7,10 @@ import { parseAbiItem, zeroAddress, type Address, type Log } from "viem";
 import { idFromAddress } from "./accounts.js";
 import { publicClient } from "./clients.js";
 import { getChainConfig } from "./config.js";
+import { mergeEventTrails } from "../eventsQuery.js";
 import type { HookEvent, HookOutput } from "../types.js";
+
+export { mergeEventTrails };
 
 const SWAP_OBSERVED = parseAbiItem(
   "event SwapObserved(address indexed wallet, uint8 score, uint8 decision, uint24 feeBps, uint8 hopDistance, address origin)",
@@ -128,31 +131,3 @@ export async function listOnChainSwapObserved(): Promise<HookEvent[]> {
   return cached;
 }
 
-/**
- * Union of the demo trail and chain logs. Same tx keeps one row; demo amount wins.
- */
-export function mergeEventTrails(memory: HookEvent[], chain: HookEvent[]): HookEvent[] {
-  const byId = new Map<string, HookEvent>();
-  const byTx = new Map<string, HookEvent>();
-
-  for (const e of chain) {
-    byId.set(e.id, e);
-    const tx = e.txHash ?? (e.id.startsWith("0x") ? e.id.split("-")[0] : "");
-    if (tx) byTx.set(tx.toLowerCase(), e);
-  }
-
-  for (const e of memory) {
-    const tx = (e.txHash ?? e.id).toLowerCase();
-    const existing = byId.get(e.id) ?? (tx.startsWith("0x") ? byTx.get(tx) : undefined);
-    if (!existing) {
-      byId.set(e.id, e);
-      continue;
-    }
-    if (e.amountUsd > 0 && existing.amountUsd === 0) {
-      const merged = { ...existing, amountUsd: e.amountUsd };
-      byId.set(existing.id, merged);
-    }
-  }
-
-  return [...byId.values()].sort((a, b) => a.at.localeCompare(b.at));
-}

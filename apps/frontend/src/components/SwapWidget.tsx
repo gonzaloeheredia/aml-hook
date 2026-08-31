@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import type { DemoCase } from "@/data/cases";
-import { bandLabelForUsd, formatFeePct } from "@/lib/hopScoring";
 
 type Props = {
   demoCase: DemoCase;
@@ -13,21 +12,15 @@ type Props = {
   walletEth: number;
   onConnectClick: () => void;
   onSimulate: () => void;
+  /** Wallet E: open the Sepolia pool on app.uniswap.org. */
+  onOpenPool?: () => void;
+  /** Wallet E: mint 1,000 MockUSDC + 1 MockWETH to a Sepolia EOA. */
+  onFaucet?: (address: string) => Promise<string | null>;
+  faucetBusy?: boolean;
   /** Sell size in USDC. */
   onAmountChange?: (amountUsd: number) => void;
   onAdvanceClock?: () => void;
 };
-
-/**
- * Size chips: case presets, or steps that fit the live USDC balance.
- */
-function amountChips(demoCase: DemoCase, walletUsdc: number): number[] {
-  if (demoCase.amountPresets?.length) return demoCase.amountPresets;
-  const bal = Math.max(0, Math.floor(walletUsdc));
-  const steps = [100, 500, 1000, 5000, 10_000].filter((n) => n <= bal);
-  if (bal > 0 && !steps.includes(bal)) steps.push(bal);
-  return steps;
-}
 
 /**
  * Swap card: USDC→ETH amounts stay in sync with MetaMask balances.
@@ -39,12 +32,25 @@ export function SwapWidget({
   walletEth,
   onConnectClick,
   onSimulate,
+  onOpenPool,
+  onFaucet,
+  faucetBusy = false,
   onAmountChange,
   onAdvanceClock,
 }: Props) {
+  const livePool = demoCase.id === "E" && Boolean(onOpenPool);
   const blocked = demoCase.decision === "block";
-  const insufficient = connected && !blocked && walletUsdc < demoCase.activity.amountUsd;
-  const chips = amountChips(demoCase, walletUsdc);
+  const insufficient =
+    connected &&
+    !livePool &&
+    !blocked &&
+    walletUsdc < demoCase.activity.amountUsd;
+  const [faucetAddress, setFaucetAddress] = useState("");
+  const [faucetError, setFaucetError] = useState<string | null>(null);
+  const ePresets =
+    demoCase.id === "E" && demoCase.amountPresets?.length
+      ? demoCase.amountPresets
+      : [];
   const [draft, setDraft] = useState(String(demoCase.activity.amountUsd));
   const [editing, setEditing] = useState(false);
 
@@ -117,42 +123,26 @@ export function SwapWidget({
             ${connected ? demoCase.activity.amountUsd.toLocaleString("en-US") : "0"}
             <span className="ml-2">{demoCase.sellToken}</span>
           </div>
-          {connected && onAmountChange && chips.length > 0 && (
-            <div className="mt-4 space-y-2">
-              <div className="flex flex-wrap gap-2">
-                {chips.map((preset) => {
-                  const active = demoCase.activity.amountUsd === preset;
-                  const live =
-                    active &&
-                    (demoCase.decision === "block"
-                      ? "revert"
-                      : formatFeePct(demoCase.appliedFeeBps));
-                  const predicted = bandLabelForUsd(preset, walletUsdc);
-                  return (
-                    <button
-                      key={preset}
-                      type="button"
-                      data-no-stage-nav
-                      onClick={() => onAmountChange(preset)}
-                      className={`px-2 py-1 text-xs font-medium transition ${
-                        active
-                          ? "radius-chip bg-uni-pink text-black"
-                          : "text-uni-muted hover:text-uni-pink"
-                      }`}
-                    >
-                      ${preset.toLocaleString("en-US")}
-                      {` · ${live ?? predicted}`}
-                    </button>
-                  );
-                })}
-              </div>
-              {demoCase.id === "E" && (
-                <p className="text-[11px] leading-snug text-uni-muted">
-                  {walletUsdc <= 0
-                    ? "E starts empty. In MetaMask, send USDC from clean C (no hop). Do not fund E from A."
-                    : "Quote from the hook. Floor A is this swap; Floor D is the bag C sent. The stricter fee wins."}
-                </p>
-              )}
+          {connected && onAmountChange && ePresets.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {ePresets.map((preset) => {
+                const active = demoCase.activity.amountUsd === preset;
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    data-no-stage-nav
+                    onClick={() => onAmountChange(preset)}
+                    className={`px-2 py-1 text-xs font-medium transition ${
+                      active
+                        ? "radius-chip bg-uni-pink text-black"
+                        : "text-uni-muted hover:text-uni-pink"
+                    }`}
+                  >
+                    ${preset.toLocaleString("en-US")}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
@@ -194,6 +184,46 @@ export function SwapWidget({
           </div>
         )}
 
+        {livePool && connected && onFaucet && (
+          <div className="mt-4">
+            <label className="label-kicker" htmlFor="e-faucet-address">
+              Sepolia faucet
+            </label>
+            <div className="mt-2 flex gap-2">
+              <input
+                id="e-faucet-address"
+                type="text"
+                spellCheck={false}
+                autoComplete="off"
+                data-no-stage-nav
+                placeholder="0x… your wallet"
+                value={faucetAddress}
+                onChange={(e) => {
+                  setFaucetAddress(e.target.value.trim());
+                  setFaucetError(null);
+                }}
+                className="min-w-0 flex-1 border-b hair bg-transparent py-1.5 font-mono text-[12px] text-uni-pink outline-none"
+              />
+              <button
+                type="button"
+                data-no-stage-nav
+                disabled={faucetBusy || faucetAddress.length < 42}
+                onClick={() => {
+                  void onFaucet(faucetAddress).then((err) => {
+                    setFaucetError(err);
+                  });
+                }}
+                className="shrink-0 border-b hair px-0.5 pb-0.5 text-xs font-medium text-uni-muted transition hover:text-uni-pink disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {faucetBusy ? "Minting…" : "Mint 1,000 USDC"}
+              </button>
+            </div>
+            {faucetError && (
+              <p className="mt-2 text-xs text-uni-warn">{faucetError}</p>
+            )}
+          </div>
+        )}
+
         {insufficient && (
           <div className="mt-4 border-l-[1.5px] border-uni-warn/50 bg-transparent py-2 pl-3 text-sm text-uni-warn">
             Insufficient USDC in MetaMask for this swap.
@@ -202,11 +232,26 @@ export function SwapWidget({
 
         <button
           type="button"
-          onClick={connected ? onSimulate : onConnectClick}
-          disabled={connected && (insufficient || (blocked === false && demoCase.activity.amountUsd <= 0))}
+          onClick={() => {
+            if (!connected) {
+              onConnectClick();
+              return;
+            }
+            if (livePool) {
+              onOpenPool?.();
+              return;
+            }
+            onSimulate();
+          }}
+          disabled={
+            connected &&
+            !livePool &&
+            (insufficient ||
+              (blocked === false && demoCase.activity.amountUsd <= 0))
+          }
           className="radius-action edge mt-4 w-full bg-transparent py-3.5 text-center text-lg font-medium text-uni-pink transition hover:bg-uni-pink/5 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Get started
+          {livePool ? "Open pool on Uniswap" : "Get started"}
         </button>
       </div>
     </div>

@@ -15,7 +15,7 @@ type Props = {
 };
 
 /**
- * Step 12: live FeeEscrow rows from Anvil. Checkpoint 2 reads the oracle/list.
+ * Step 12: live FeeEscrow rows. Checkpoint 2 reads the oracle/list.
  * Clean risk fee → LP fund; clean principal → LP wallet. Recover books
  * ComplianceTreasury ILLICIT_RISK_FEE or LP_PRINCIPAL by kind.
  */
@@ -39,13 +39,7 @@ export function EscrowPanel({ apiOnline, tick }: Props) {
     void reload();
   }, [reload, tick]);
 
-  if (!apiOnline) {
-    return (
-      <div className="surface radius-c mx-auto mt-8 w-full max-w-3xl border-t hair px-5 py-5 text-sm text-uni-muted md:-translate-x-6">
-        FeeEscrow is on Anvil. Start the API after <code>npm run deploy:local</code>.
-      </div>
-    );
-  }
+  if (!apiOnline) return null;
 
   return (
     <div className="surface radius-c mx-auto mt-8 w-full max-w-3xl border-t hair px-5 py-5 text-sm md:-translate-x-6">
