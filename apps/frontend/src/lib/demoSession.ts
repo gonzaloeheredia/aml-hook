@@ -155,6 +155,8 @@ function sanitizeWallets(raw: unknown): Record<SimWalletId, SimWallet> {
   }
   if (!isBoundWalletE(out.E.address)) {
     out.E = { ...seed.E };
+  } else {
+    out.E = { ...out.E, usdc: 0, eth: 0, neverScored: true };
   }
   return out;
 }
@@ -265,22 +267,19 @@ export function mergeSimWallets(
     const l = local[id];
     if (!a) continue;
     if (id === "E") {
-      const apiBound = isBoundWalletE(a.address);
-      const localBound = isBoundWalletE(l?.address);
-      if (!apiBound && localBound && l) {
-        out[id] = {
-          ...a,
-          address: l.address,
-          usdc: l.usdc,
-          eth: l.eth,
-          neverScored: true,
-        };
-        continue;
-      }
-      if (!apiBound) {
-        out[id] = { ...a, address: "", usdc: 0, eth: 0, neverScored: true };
-        continue;
-      }
+      const bound = isBoundWalletE(a.address)
+        ? a.address
+        : isBoundWalletE(l?.address)
+          ? l.address
+          : "";
+      out[id] = {
+        ...a,
+        address: bound,
+        usdc: 0,
+        eth: 0,
+        neverScored: true,
+      };
+      continue;
     }
     if (!staleApi || !l) {
       out[id] = a;

@@ -304,6 +304,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
       return reply.code(400).send({ error: "amountUsd must be a positive number" });
     }
+    if (fromRaw === "E" || toRaw === "E") {
+      return reply.code(400).send({
+        error: "Wallet E is the live Sepolia MetaMask account. It does not use A–D P2P.",
+      });
+    }
 
     try {
       const mockPath = isMockDemoWallet(fromRaw) || isMockDemoWallet(toRaw);

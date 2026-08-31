@@ -54,8 +54,10 @@ import {
   ethOutFromSwap,
   initialSimWallets,
   isBoundWalletE,
+  preserveLiveE,
   setPolicyKnobs,
   setPriceFeedBound,
+  withSepoliaWalletE,
   type SimWallet,
   type SimWalletId,
 } from "@/lib/hopScoring";
@@ -147,7 +149,7 @@ export default function HomePage() {
   const [swapError, setSwapError] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [liveEAddress, setLiveEAddress] = useState<string | null>(null);
-  const [nativeEth, setNativeEth] = useState(0);
+  const [nativeEth, setNativeEth] = useState<number | null>(null);
   const [compliance, setCompliance] = useState<ApiCompliancePack | null>(
     null,
   );
@@ -365,26 +367,25 @@ export default function HomePage() {
     const mergedTransfers = mergeTransfers(prev.transfers, apiTransfers);
     const mergedEvents = mergeHookEvents(prev.chainEvents, apiEvents);
     let nextWallets = mergedWallets;
-    if (caseId === "E" && live) {
+    if (live && isBoundWalletE(live)) {
       try {
         const bal = await readSepoliaBalances(live as Address);
         setNativeEth(bal.nativeEth);
-        nextWallets = {
-          ...mergedWallets,
-          E: {
-            ...mergedWallets.E,
-            address: bal.address,
-            usdc: bal.usdc,
-            eth: bal.weth,
-            neverScored: mergedWallets.E.neverScored ?? true,
-          },
-        };
+        nextWallets = withSepoliaWalletE(mergedWallets, {
+          address: bal.address,
+          usdc: bal.usdc,
+          eth: bal.weth,
+        });
       } catch {
-        nextWallets = {
-          ...mergedWallets,
-          E: { ...mergedWallets.E, address: live },
-        };
+        setNativeEth(null);
+        nextWallets = withSepoliaWalletE(mergedWallets, {
+          address: live,
+          usdc: 0,
+          eth: 0,
+        });
       }
+    } else {
+      nextWallets = withSepoliaWalletE(mergedWallets, null);
     }
     setSimWallets(nextWallets);
     setTransfers(mergedTransfers);
@@ -505,18 +506,11 @@ export default function HomePage() {
           weth = bal.weth;
           setNativeEth(bal.nativeEth);
         } catch {
-          setNativeEth(0);
+          setNativeEth(null);
         }
-        setSimWallets((prev) => ({
-          ...prev,
-          E: {
-            ...prev.E,
-            address: eoa,
-            usdc,
-            eth: weth,
-            neverScored: true,
-          },
-        }));
+        setSimWallets((prev) =>
+          withSepoliaWalletE(prev, { address: eoa, usdc, eth: weth }),
+        );
         setCaseId("E");
         setSimActiveId("E");
         setSwapAmountUsd(DEMO_CASES.E.activity.amountUsd);
@@ -573,6 +567,9 @@ export default function HomePage() {
     const cached = complianceByWalletRef.current[mapped];
     if (cached) setCompliance(cached);
     goToStage("swap", mapped);
+    if (mapped === "E") {
+      void refreshLedger();
+    }
   };
 
   const handleSendTransfer = async (
@@ -580,12 +577,18 @@ export default function HomePage() {
     to: SimWalletId,
     amountUsd: number,
   ): Promise<string | null> => {
+    if (from === "E" || to === "E") {
+      return "Wallet E is the live Sepolia MetaMask account. Mint MockUSDC on Sepolia instead.";
+    }
     if (apiStatus !== "online") {
       return "Request failed";
     }
     try {
       const res = await postTransfer(from, to, amountUsd);
-      const nextWallets = walletsRecord(res.wallets);
+      const nextWallets = preserveLiveE(
+        walletsRecord(res.wallets),
+        sessionRef.current.simWallets.E,
+      );
       const nextTransfers = mergeTransfers(sessionRef.current.transfers, [
         res.transfer,
       ]);
@@ -624,9 +627,37 @@ export default function HomePage() {
     if (apiStatus !== "online") {
       return "Request failed";
     }
+    if (id === "E") {
+      const eoa =
+        liveEAddressRef.current ?? liveEAddress ?? simWallets.E.address;
+      if (!isBoundWalletE(eoa)) {
+        return "Connect MetaMask as Wallet E before minting.";
+      }
+      try {
+        await postDemoFaucet(eoa);
+        const bal = await readSepoliaBalances(eoa as Address);
+        setNativeEth(bal.nativeEth);
+        const nextWallets = withSepoliaWalletE(sessionRef.current.simWallets, {
+          address: bal.address,
+          usdc: bal.usdc,
+          eth: bal.weth,
+        });
+        setSimWallets(nextWallets);
+        writeSession({ simWallets: nextWallets });
+        setApiError(null);
+        return null;
+      } catch (err) {
+        const msg = err instanceof ApiError ? err.message : "Mint failed";
+        setApiError(msg);
+        return msg;
+      }
+    }
     try {
       const res = await postDemoMint(id, token, amount);
-      const nextWallets = walletsRecord(res.wallets);
+      const nextWallets = preserveLiveE(
+        walletsRecord(res.wallets),
+        sessionRef.current.simWallets.E,
+      );
       setSimWallets(nextWallets);
       writeSession({ simWallets: nextWallets });
       setApiError(null);
@@ -651,7 +682,7 @@ export default function HomePage() {
     setLiveEAddress(null);
     setSwapError(null);
     setConnectError(null);
-    setNativeEth(0);
+    setNativeEth(null);
     setSwapStats(EMPTY_STATS);
     setTransfers([]);
     setChainEvents([]);
@@ -684,7 +715,10 @@ export default function HomePage() {
         const res = await postReset();
         const health = await fetchHealth();
         if (health.policy) setPolicyKnobs(health.policy);
-        const nextWallets = walletsRecord(res.wallets);
+        const nextWallets = withSepoliaWalletE(
+          walletsRecord(res.wallets),
+          null,
+        );
         const nextEvents = res.events
           ? res.events.map((ev, i) => hookEventFromApi(ev, i + 1))
           : (await fetchEvents(caseId)).events.map((ev, i) =>
@@ -1348,6 +1382,7 @@ export default function HomePage() {
         onActiveChange={setSimActiveId}
         onSendTransfer={handleSendTransfer}
         onMint={handleMint}
+        nativeEth={nativeEth}
         onUseInUniswap={handleUseInUniswap}
       />
     </main>

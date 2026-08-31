@@ -33,6 +33,38 @@ export function isBoundWalletE(address: string | undefined | null): boolean {
     lower !== RETIRED_ANVIL_E
   );
 }
+
+/** E shows only Sepolia MockUSDC / MockWETH. Never the A–D RAM bag. */
+export function withSepoliaWalletE(
+  wallets: Record<SimWalletId, SimWallet>,
+  live: { address: string; usdc: number; eth: number } | null,
+): Record<SimWalletId, SimWallet> {
+  const address =
+    live && isBoundWalletE(live.address) ? live.address : "";
+  return {
+    ...wallets,
+    E: {
+      ...wallets.E,
+      address,
+      usdc: live && address ? live.usdc : 0,
+      eth: live && address ? live.eth : 0,
+      neverScored: true,
+    },
+  };
+}
+
+/** Keep the last on-chain E overlay; drop API / P2P credits for E. */
+export function preserveLiveE(
+  wallets: Record<SimWalletId, SimWallet>,
+  liveE: SimWallet,
+): Record<SimWalletId, SimWallet> {
+  return withSepoliaWalletE(
+    wallets,
+    isBoundWalletE(liveE.address)
+      ? { address: liveE.address, usdc: liveE.usdc, eth: liveE.eth }
+      : null,
+  );
+}
 /** Default demo swap size in USDC (capped by wallet balance) */
 export const DEFAULT_SWAP_USDC = 1_000;
 /** Exploit / tainted source wallet in this demo */

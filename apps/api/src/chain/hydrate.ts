@@ -13,9 +13,20 @@ import { balanceEth, balanceUsdc } from "./ledger.js";
 
 const E_OVERLAY_MS = 2_500;
 
+function clearMemoryBagE(): void {
+  const current = getStore().wallets;
+  setWallets({
+    ...current,
+    E: { ...current.E, usdc: 0, eth: 0 },
+  });
+}
+
 async function overlayWalletE(): Promise<void> {
   const current = getStore().wallets;
-  if (!isBoundWalletE(current.E.address)) return;
+  if (!isBoundWalletE(current.E.address)) {
+    clearMemoryBagE();
+    return;
+  }
   const address = getAddress(current.E.address) as Address;
   const [usdc, eth, risk] = await Promise.all([
     balanceUsdc(address),
@@ -36,13 +47,14 @@ async function overlayWalletE(): Promise<void> {
 
 /**
  * Returns A–E. A–D are store state as-is (no balanceOf / getRisk).
- * E is optionally overlaid from chain; on failure the store row is kept.
+ * E is overlaid from chain. On failure the RAM bag is cleared so C→E
+ * credits cannot leak into the MetaMask panel.
  */
 export async function hydrateWallets(): Promise<Wallet[]> {
   try {
     await withDeadline(overlayWalletE(), E_OVERLAY_MS);
   } catch {
-    /* Sepolia down or slow: keep memory E */
+    clearMemoryBagE();
   }
   return WALLET_IDS.map((id) => getStore().wallets[id]);
 }

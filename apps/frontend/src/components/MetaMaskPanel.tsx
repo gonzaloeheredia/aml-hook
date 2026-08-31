@@ -38,6 +38,8 @@ type Props = {
     token: "usdc" | "eth",
     amount: number,
   ) => Promise<string | null>;
+  /** Native Sepolia ETH on the connected EOA (Wallet E only). */
+  nativeEth?: number | null;
 };
 
 type View = "home" | "accounts" | "send";
@@ -70,6 +72,7 @@ export function MetaMaskPanel({
   onSendTransfer,
   onUseInUniswap,
   onMint,
+  nativeEth = null,
 }: Props) {
   const [view, setView] = useState<View>("home");
   const [toId, setToId] = useState<SimWalletId>("B");
@@ -85,19 +88,26 @@ export function MetaMaskPanel({
 
   const active = wallets[activeId];
 
+  const liveE = activeId === "E";
   const recipients = useMemo(
     () =>
-      (Object.keys(wallets) as SimWalletId[]).filter((id) => id !== activeId),
+      (Object.keys(wallets) as SimWalletId[]).filter(
+        (id) => id !== activeId && id !== "E",
+      ),
     [wallets, activeId],
   );
 
-  /** Prefer C→E when E is empty; C→D for inflow; A→B for hop. */
+  /** C→D for inflow; A→B for hop. E is Sepolia-only and is not a P2P target. */
   useEffect(() => {
-    if (activeId === "C") setToId(wallets.E.usdc <= 0 ? "E" : "D");
+    if (activeId === "E") {
+      setView((v) => (v === "send" ? "home" : v));
+      return;
+    }
+    if (activeId === "C") setToId("D");
     else if (activeId === "B" && !isSenderTainted(wallets.B)) setToId("D");
     else if (activeId === "A") setToId("B");
-    else setToId((prev) => (prev === activeId ? "C" : prev));
-  }, [activeId, wallets.B, wallets.E.usdc]);
+    else setToId((prev) => (prev === activeId || prev === "E" ? "C" : prev));
+  }, [activeId, wallets.B]);
 
   /** Clear flash when switching accounts */
   useEffect(() => {
@@ -413,11 +423,15 @@ export function MetaMaskPanel({
                   {Number(active.eth.toFixed(4))} ETH
                 </div>
                 <div className="mt-2 text-sm text-[#28A745]">
-                  {active.hopDistance == null && !active.exploitConfirmed
-                    ? "Clean ledger · ready for baseline swap"
-                    : active.exploitConfirmed
-                      ? "Exploit confirmed · pool will REVERT"
-                      : `${active.hopDistance}-hop contamination · fee override expected`}
+                  {liveE
+                    ? active.usdc <= 0 && active.eth <= 0
+                      ? "Sepolia · empty. Mint MockUSDC to swap"
+                      : "Sepolia · on-chain MockUSDC / MockWETH"
+                    : active.hopDistance == null && !active.exploitConfirmed
+                      ? "Clean ledger · ready for baseline swap"
+                      : active.exploitConfirmed
+                        ? "Exploit confirmed · pool will REVERT"
+                        : `${active.hopDistance}-hop contamination · fee override expected`}
                 </div>
                 {lastMove && (lastMove.from === activeId || lastMove.to === activeId) && (
                   <div className="mt-3 rounded-full bg-white/5 px-3 py-1.5 text-xs text-white/70">
@@ -456,30 +470,54 @@ export function MetaMaskPanel({
 
                 <div className="mt-5">
                   <div className="mb-2 text-sm font-semibold text-white">Mint tokens</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      disabled={minting !== null}
-                      onClick={() => void handleMint("usdc", 1_000)}
-                      className="border border-white/10 bg-transparent px-3 py-2.5 text-xs font-medium text-white/70 transition hover:text-white disabled:opacity-40"
-                    >
-                      {minting === "usdc" ? "Minting…" : "Mint 1,000 USDC"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={minting !== null}
-                      onClick={() => void handleMint("eth", 1)}
-                      className="border border-white/10 bg-transparent px-3 py-2.5 text-xs font-medium text-white/70 transition hover:text-white disabled:opacity-40"
-                    >
-                      {minting === "eth" ? "Minting…" : "Mint 1 ETH"}
-                    </button>
-                  </div>
+                  {liveE ? (
+                    <>
+                      <p className="mb-2 text-[11px] leading-snug text-white/40">
+                        On-chain faucet: 1,000 MockUSDC + 1 MockWETH. MetaMask
+                        only lists Sepolia ETH until you import the token
+                        contracts.
+                      </p>
+                      {nativeEth != null && (
+                        <p className="mb-2 text-[11px] text-white/50">
+                          Sepolia ETH (gas): {nativeEth.toFixed(4)}
+                        </p>
+                      )}
+                      <button
+                        type="button"
+                        disabled={minting !== null}
+                        onClick={() => void handleMint("usdc", 1_000)}
+                        className="w-full border border-white/10 bg-transparent px-3 py-2.5 text-xs font-medium text-white/70 transition hover:text-white disabled:opacity-40"
+                      >
+                        {minting ? "Minting…" : "Mint 1,000 USDC"}
+                      </button>
+                    </>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        disabled={minting !== null}
+                        onClick={() => void handleMint("usdc", 1_000)}
+                        className="border border-white/10 bg-transparent px-3 py-2.5 text-xs font-medium text-white/70 transition hover:text-white disabled:opacity-40"
+                      >
+                        {minting === "usdc" ? "Minting…" : "Mint 1,000 USDC"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={minting !== null}
+                        onClick={() => void handleMint("eth", 1)}
+                        className="border border-white/10 bg-transparent px-3 py-2.5 text-xs font-medium text-white/70 transition hover:text-white disabled:opacity-40"
+                      >
+                        {minting === "eth" ? "Minting…" : "Mint 1 ETH"}
+                      </button>
+                    </div>
+                  )}
                 </div>
                 {error && view === "home" && (
                   <p className="mt-2 text-center text-xs text-[#FF6B6B]">{error}</p>
                 )}
               </div>
 
+              {!liveE && (
               <div className="mt-6 px-4">
                 <button
                   type="button"
@@ -496,6 +534,7 @@ export function MetaMaskPanel({
                   Send USDC (P2P)
                 </button>
               </div>
+              )}
 
               <div className="mt-auto border-t border-white/10 px-4 py-4">
                 <button
@@ -506,7 +545,9 @@ export function MetaMaskPanel({
                   Go to Swap Simulator
                 </button>
                 <p className="mt-1 text-center text-[11px] leading-snug text-white/35">
-                  Connects this account to the pool so beforeSwap reads the live hop score.
+                  {liveE
+                    ? "Opens the Sepolia swap. beforeSwap reads this MetaMask EOA."
+                    : "Connects this account to the pool so beforeSwap reads the live hop score."}
                 </p>
               </div>
             </div>
