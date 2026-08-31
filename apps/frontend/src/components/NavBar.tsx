@@ -29,7 +29,7 @@ type Props = {
 const VIEWS: { id: AppView; label: string }[] = [
   { id: "hook", label: "Hook" },
   { id: "whitepaper", label: "Whitepaper" },
-  { id: "use-of-case", label: "Use of case" },
+  { id: "use-of-case", label: "Use Case" },
 ];
 
 /**

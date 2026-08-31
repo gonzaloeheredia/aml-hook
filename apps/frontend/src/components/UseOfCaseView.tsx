@@ -215,29 +215,45 @@ const STEPS = [
  */
 export function UseOfCaseView() {
   return (
-    <DocShell title="Use of case">
+    <DocShell title="Use Case">
       <DocHero
         chip="Guided demo"
         heading="What to do in the hook"
-        lede="Every decision below is the same mapping RiskPolicy.decide applies on-chain. Open hook, connect A–E, move USDC in MetaMask Simulator, then swap. Quotes cannot drift from the hook."
-        asideTitle="Wallets"
+        lede="This walkthrough is the practical demonstration of the whitepaper. Every decision below follows the same mapping the hook applies on-chain, so nothing here can drift from what the contract actually does. Open the hook, connect a wallet from A to E, move USDC (USD Coin) in the MetaMask Simulator, then swap."
+        asideTitle="A–E wallets"
         asideMark="A–E"
         meta={[
-          { label: "A", value: "Exploit · score 100 · REVERT" },
-          { label: "B / C", value: "Start clean · hop receivers" },
-          { label: "D", value: "Published 0 · 5,000 USDC" },
-          { label: "E", value: "New Wallet · starts empty" },
+          {
+            label: "A",
+            value:
+              "Exploit origin. Score 100. Blocked on every swap. Mocked in the API.",
+          },
+          {
+            label: "B / C",
+            value:
+              "Start clean. Receive transfers and pass on hop risk. Mocked in the API.",
+          },
+          {
+            label: "D",
+            value:
+              "Published score 0. Starts with 5,000 USDC. Mocked in the API.",
+          },
+          {
+            label: "E",
+            value:
+              "Unknown wallet. No score published. Starts empty. Live on Sepolia testnet.",
+          },
         ]}
       />
 
       <div className="mt-12 grid gap-x-10 gap-y-8 md:grid-cols-2">
         <DocStory
           question="Where do I click?"
-          answer="Hook is the simulator. Connect opens A–E. MetaMask Simulator moves USDC off-pool and mints 1,000 MockUSDC or 1 MockWETH to the open account. Advance 5 min is on the swap card. Unbind the price feed is POST /demo/price-feed."
+          answer="The Hook screen is the simulator. Connect opens the wallet picker, A to E. The MetaMask Simulator moves USDC between wallets outside the pool, and mints (issues test tokens directly to a wallet, bypassing the hook) 1,000 MockUSDC or 1 MockWETH on request. Advance 5 min is a button on the swap card. Unbind the price feed is a separate control on the same card."
         />
         <DocStory
-          question="What must already be running?"
-          answer="From the repo root: npm run deploy:local, then the API (application programming interface) and the frontend. Without Anvil the API returns 503. Hosted production talks to the Railway API."
+          question="Environment"
+          answer="Wallets A to D are mocked in the API (application programming interface): their balances, scores, and history are preconfigured so this walkthrough can be reset and repeated on demand, which real Sepolia state does not allow. Wallet E is the exception: it runs against the actual Uniswap v4 pool on Ethereum Sepolia testnet, so its behavior can be checked on a block explorer. Nothing needs to be installed or started to run either part."
         />
       </div>
 
