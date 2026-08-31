@@ -5,7 +5,7 @@
  * On-chain scores live in ComplianceOracle when the keeper publishes via RPC.
  */
 
-import { DEMO_WALLETS } from "./chain/accounts.js";
+import { DEMO_WALLETS, isBoundWalletE } from "./chain/accounts.js";
 import { EXPLOIT_SOURCE } from "./scoring.js";
 import type { HookEvent, TransferRecord, Wallet, WalletId } from "./types.js";
 
@@ -68,10 +68,10 @@ function seedWallets(): Record<WalletId, Wallet> {
     E: {
       id: "E",
       accountLabel: "E - New Wallet",
-      role: "New wallet. Starts empty. Fund from clean C (no hop). Floor A/D by bag and swap size",
+      role: "New wallet. Connect MetaMask on Sepolia. Floor A/D by bag and swap size",
       address: DEMO_WALLETS.E.address,
       usdc: 0,
-      eth: 1,
+      eth: 0,
       hopDistance: null,
       originId: null,
       exploitConfirmed: false,
@@ -304,6 +304,21 @@ export function getWallet(id: WalletId): Wallet | null {
  */
 export function setWallets(next: Record<WalletId, Wallet>): void {
   store.wallets = next;
+}
+
+/** Bind Wallet E to a live Sepolia EOA (faucet or MetaMask). */
+export function setWalletEAddress(address: string): void {
+  if (!isBoundWalletE(address)) {
+    throw new Error("Wallet E must be a MetaMask Sepolia EOA");
+  }
+  store.wallets = {
+    ...store.wallets,
+    E: {
+      ...store.wallets.E,
+      address,
+      neverScored: true,
+    },
+  };
 }
 
 /**

@@ -7,6 +7,7 @@ import {
   inflowAmountPresets,
   inflowBandLabel,
   unknownFundPresets,
+  isBoundWalletE,
   isSenderTainted,
   previewTransfer,
   type SimWallet,
@@ -52,6 +53,7 @@ function formatUsdc(n: number) {
  * Shortens an address for list rows.
  */
 function shorten(addr: string) {
+  if (!isBoundWalletE(addr)) return "MetaMask · Sepolia";
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 

@@ -35,6 +35,7 @@ import {
   warpSeconds,
   DEFAULT_POLICY_KNOBS,
   getPolicyKnobsSync,
+  isBoundWalletE,
   isLocalAnvil,
 } from "./chain/index.js";
 import { buildCompliancePack, buildSwapQuote } from "./compliance.js";
@@ -69,6 +70,7 @@ import {
   recordAfterSwap,
   resetStore,
   setLastKnownUsdc,
+  setWalletEAddress,
   setWallets,
 } from "./store.js";
 import type { WalletId } from "./types.js";
@@ -364,7 +366,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.get<{ Querystring: { walletId?: string; source?: string } }>(
+  app.get<{ Querystring: { walletId?: string; source?: string; address?: string } }>(
     "/events",
     async (req) => {
       const walletId = String(req.query.walletId ?? "").toUpperCase();
@@ -381,7 +383,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           chain = [];
         }
       }
-      return { events: selectEventTrail(demo, chain, walletId, source) };
+      let events = selectEventTrail(demo, chain, walletId, source);
+      const addressRaw = String(req.query.address ?? "").trim();
+      if (addressRaw && isAddress(addressRaw)) {
+        const addr = getAddress(addressRaw).toLowerCase();
+        events = events.filter((e) => e.address.toLowerCase() === addr);
+      }
+      return { events };
     },
   );
 
@@ -392,6 +400,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     try {
+      if (idRaw === "E") {
+        return reply.code(400).send({
+          error:
+            "Wallet E swaps on Sepolia from the frontend (MetaMask → Universal Router)",
+        });
+      }
       if (!isMockDemoWallet(idRaw)) await hydrateWallets();
       const wallet = getWallet(idRaw);
       if (!wallet) return reply.code(404).send({ error: "Wallet not found" });
@@ -563,6 +577,24 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true, now, elapsedSeconds: elapsed };
   });
 
+  app.post<{ Body: { address?: string } }>("/demo/wallet-e", async (req, reply) => {
+    const addressRaw = String(req.body?.address ?? "").trim();
+    if (!isAddress(addressRaw)) {
+      return reply.code(400).send({ error: "address must be a 20-byte hex EOA" });
+    }
+    const address = getAddress(addressRaw);
+    if (!isBoundWalletE(address)) {
+      return reply.code(400).send({ error: "Wallet E must be the connected MetaMask EOA" });
+    }
+    setWalletEAddress(address);
+    try {
+      const wallets = await hydrateWallets();
+      return { ok: true, address, wallets };
+    } catch {
+      return { ok: true, address, wallets: listWallets() };
+    }
+  });
+
   app.post<{
     Body: { walletId?: string; address?: string; token?: string; amount?: number };
   }>("/demo/mint", async (req, reply) => {
@@ -580,9 +612,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: "address must be a 20-byte hex EOA" });
       }
       const address = getAddress(addressRaw);
+      if (!isBoundWalletE(address)) {
+        return reply.code(400).send({ error: "Wallet E must be the connected MetaMask EOA" });
+      }
       try {
+        setWalletEAddress(address);
         const usdcTx = await mintUsdc(address, FAUCET_USDC);
         const ethTx = await mintEth(address, FAUCET_ETH);
+        await hydrateWallets();
         return {
           ok: true,
           faucet: true,
@@ -613,6 +650,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     try {
       const wallet = getWallet(idRaw);
       if (!wallet) return reply.code(404).send({ error: "Wallet not found" });
+      if (idRaw === "E" && !isBoundWalletE(wallet.address)) {
+        return reply.code(400).send({
+          error: "Connect MetaMask as Wallet E before minting to that walletId",
+        });
+      }
 
       if (isMockDemoWallet(idRaw)) {
         const next = { ...getStore().wallets };

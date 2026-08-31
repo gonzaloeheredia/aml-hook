@@ -6,6 +6,7 @@ import {
   formatFeePct,
   formatUsdFloor,
   getPolicyKnobs,
+  isBoundWalletE,
   midBandExampleUsd,
   type SimWallet,
 } from "@/lib/hopScoring";
@@ -13,10 +14,11 @@ import {
 type Props = {
   open: boolean;
   onClose: () => void;
-  /** Called when the user picks Wallet A–E */
-  onConnect: (caseId: DemoCaseId) => void;
+  /** Called when the user picks Wallet A–E. E may prompt MetaMask. */
+  onConnect: (caseId: DemoCaseId) => void | Promise<void>;
   /** Live ledger: B/C/D remain green until contaminated; E remains unknown */
   wallets: Record<DemoCaseId, SimWallet>;
+  connectError?: string | null;
 };
 
 /**
@@ -30,7 +32,13 @@ function shorten(addr: string) {
  * Connect modal: wallets A–E.
  * Row border: green clean / score 0 · yellow hop, latency, or unknown · red exploit.
  */
-export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
+export function ConnectModal({
+  open,
+  onClose,
+  onConnect,
+  wallets,
+  connectError,
+}: Props) {
   if (!open) return null;
 
   return (
@@ -78,10 +86,16 @@ export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
                     {id === "E" ? "E - New Wallet" : `Wallet ${id} · ${tone.label}`}
                   </span>
                   <span className="block truncate font-mono text-xs opacity-80">
-                    {shorten(wallet.address)}
+                    {id === "E"
+                      ? isBoundWalletE(wallet.address)
+                        ? shorten(wallet.address)
+                        : "MetaMask · Sepolia"
+                      : shorten(wallet.address)}
                   </span>
                   <span className="mt-0.5 block text-[11px] opacity-80">
-                    {wallet.neverScored
+                    {id === "E"
+                      ? "Connect MetaMask on Sepolia. Swap hits the live pool."
+                      : wallet.neverScored
                       ? wallet.usdc <= 0
                           ? "New Wallet · empty. Fund from clean C (no hop)"
                           : `New Wallet · bag $${wallet.usdc.toLocaleString("en-US")} · Floor A/D on next swap`
@@ -98,10 +112,13 @@ export function ConnectModal({ open, onClose, onConnect, wallets }: Props) {
                                 : c.label}
                   </span>
                 </span>
-              </button>
-            );
+            </button>
+          );
           })}
         </div>
+        {connectError && (
+          <p className="mt-4 text-sm text-uni-warn">{connectError}</p>
+        )}
       </div>
     </div>
   );

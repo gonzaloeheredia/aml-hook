@@ -12,11 +12,15 @@ type Props = {
   walletEth: number;
   onConnectClick: () => void;
   onSimulate: () => void;
-  /** Wallet E: open the Sepolia pool on app.uniswap.org. */
-  onOpenPool?: () => void;
-  /** Wallet E: mint 1,000 MockUSDC + 1 MockWETH to a Sepolia EOA. */
+  /** Wallet E: exact-in swap on the live Sepolia pool via Universal Router. */
+  onLiveSwap?: () => void;
+  /** Wallet E: mint 1,000 MockUSDC + 1 MockWETH to the connected Sepolia EOA. */
   onFaucet?: (address: string) => Promise<string | null>;
   faucetBusy?: boolean;
+  swapBusy?: boolean;
+  swapError?: string | null;
+  nativeEth?: number;
+  liveAddress?: string | null;
   /** Sell size in USDC. */
   onAmountChange?: (amountUsd: number) => void;
   onAdvanceClock?: () => void;
@@ -32,20 +36,24 @@ export function SwapWidget({
   walletEth,
   onConnectClick,
   onSimulate,
-  onOpenPool,
+  onLiveSwap,
   onFaucet,
   faucetBusy = false,
+  swapBusy = false,
+  swapError = null,
+  nativeEth,
+  liveAddress,
   onAmountChange,
   onAdvanceClock,
 }: Props) {
-  const livePool = demoCase.id === "E" && Boolean(onOpenPool);
+  const livePool = demoCase.id === "E" && Boolean(onLiveSwap);
   const blocked = demoCase.decision === "block";
   const insufficient =
     connected &&
     !livePool &&
     !blocked &&
     walletUsdc < demoCase.activity.amountUsd;
-  const [faucetAddress, setFaucetAddress] = useState("");
+  const [faucetAddress, setFaucetAddress] = useState(liveAddress ?? "");
   const [faucetError, setFaucetError] = useState<string | null>(null);
   const ePresets =
     demoCase.id === "E" && demoCase.amountPresets?.length
@@ -57,6 +65,10 @@ export function SwapWidget({
   useEffect(() => {
     if (!editing) setDraft(String(demoCase.activity.amountUsd));
   }, [demoCase.activity.amountUsd, editing]);
+
+  useEffect(() => {
+    if (liveAddress) setFaucetAddress(liveAddress);
+  }, [liveAddress]);
 
   const commitAmount = () => {
     if (!onAmountChange) return;
@@ -196,7 +208,7 @@ export function SwapWidget({
                 spellCheck={false}
                 autoComplete="off"
                 data-no-stage-nav
-                placeholder="0x… your wallet"
+                placeholder="0x… Sepolia wallet"
                 value={faucetAddress}
                 onChange={(e) => {
                   setFaucetAddress(e.target.value.trim());
@@ -221,6 +233,11 @@ export function SwapWidget({
             {faucetError && (
               <p className="mt-2 text-xs text-uni-warn">{faucetError}</p>
             )}
+            {connected && nativeEth === 0 && (
+              <p className="mt-2 text-xs text-uni-warn">
+                This wallet needs Sepolia ETH for gas. The faucet only mints MockUSDC and MockWETH.
+              </p>
+            )}
           </div>
         )}
 
@@ -238,21 +255,31 @@ export function SwapWidget({
               return;
             }
             if (livePool) {
-              onOpenPool?.();
+              onLiveSwap?.();
               return;
             }
             onSimulate();
           }}
           disabled={
             connected &&
-            !livePool &&
-            (insufficient ||
-              (blocked === false && demoCase.activity.amountUsd <= 0))
+            (swapBusy ||
+              faucetBusy ||
+              (livePool
+                ? demoCase.activity.amountUsd <= 0
+                : insufficient ||
+                  (blocked === false && demoCase.activity.amountUsd <= 0)))
           }
           className="radius-action edge mt-4 w-full bg-transparent py-3.5 text-center text-lg font-medium text-uni-pink transition hover:bg-uni-pink/5 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {livePool ? "Open pool on Uniswap" : "Get started"}
+          {livePool
+            ? swapBusy
+              ? "Swapping on Sepolia…"
+              : "Swap on Sepolia"
+            : "Get started"}
         </button>
+        {livePool && swapError && (
+          <p className="mt-3 text-sm text-uni-warn">{swapError}</p>
+        )}
       </div>
     </div>
   );

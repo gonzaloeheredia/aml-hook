@@ -155,7 +155,7 @@ const STEPS = [
     n: "10",
     title: "E: New Wallet",
     action:
-      "E starts empty. Fund E from clean C (P2P) or mint 1,000 USDC + 1 ETH to E. Then connect E and swap. Do not send A → E.",
+      "Connect E with MetaMask on Sepolia. Mint 1,000 USDC to that EOA, then Swap on Sepolia (Universal Router → PoolManager). Do not send A → E.",
     rows: [
       { label: "C→E $500, E swaps $500", value: "FEE_OVERRIDE 3%" },
       { label: "C→E $10k or mint $1k, E swaps $1,000", value: "FEE_OVERRIDE 8%" },

@@ -417,8 +417,11 @@ export function fetchTransfers() {
 }
 
 /** GET /events — A–D default to the API trail, E to SwapObserved logs. */
-export function fetchEvents(walletId?: DemoCaseId) {
-  const q = walletId ? `?walletId=${walletId}` : "";
+export function fetchEvents(walletId?: DemoCaseId, address?: string) {
+  const params = new URLSearchParams();
+  if (walletId) params.set("walletId", walletId);
+  if (address) params.set("address", address);
+  const q = params.toString() ? `?${params.toString()}` : "";
   return request<{ events: ApiHookEvent[] }>(`/events${q}`);
 }
 
@@ -504,6 +507,17 @@ export function postDemoMint(
     method: "POST",
     body: JSON.stringify({ walletId, token, amount }),
   });
+}
+
+/** POST /demo/wallet-e: bind Wallet E to a live Sepolia EOA. */
+export function postBindWalletE(address: string) {
+  return request<{ ok: boolean; address: string; wallets: ApiWallet[] }>(
+    `/demo/wallet-e`,
+    {
+      method: "POST",
+      body: JSON.stringify({ address }),
+    },
+  );
 }
 
 /** POST /demo/mint: faucet, 1,000 MockUSDC + 1 MockWETH to an arbitrary address. */

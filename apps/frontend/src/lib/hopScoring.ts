@@ -5,7 +5,7 @@
  * - Wallet A = confirmed exploit, score 100 → WalletBlocked on pool swaps.
  * - Wallets B and C both start clean (ALLOW 0.30%, green). Swaps never add score.
  * - Wallet D = published score 0. Already-held funds ALLOW; clean C→D is inflow (no hop).
- * - Wallet E = unknown, starts empty. Clean C funds E (no hop). Floor A/D by bag and swap.
+ * - Wallet E = unknown MetaMask EOA on Sepolia. Floor A/D by bag and swap.
  * - Risk only via MetaMask P2P (peer-to-peer) hops:
  *   - Receive from A → hop 1 → score ≈ 65 → FEE_OVERRIDE 8% (yellow)
  *   - Receive from a 1-hop peer (B↔C after A tainted one) → hop 2 → ≈ 42 → 3%
@@ -22,6 +22,17 @@ export const DECAY_FACTOR = 0.65;
 export const ORIGIN_EXPLOIT_SCORE = 100;
 /** Shared ETH mark used by MetaMask ledger + Uniswap swap preview (1 ETH = 1,000 USDC) */
 export const ETH_USD = 1_000;
+/** Retired Anvil #5. Never show or bind this as Wallet E. */
+const RETIRED_ANVIL_E = "0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc";
+
+export function isBoundWalletE(address: string | undefined | null): boolean {
+  if (!address || address.length !== 42) return false;
+  const lower = address.toLowerCase();
+  return (
+    lower !== "0x0000000000000000000000000000000000000000" &&
+    lower !== RETIRED_ANVIL_E
+  );
+}
 /** Default demo swap size in USDC (capped by wallet balance) */
 export const DEFAULT_SWAP_USDC = 1_000;
 /** Exploit / tainted source wallet in this demo */
@@ -512,10 +523,10 @@ export function initialSimWallets(): Record<SimWalletId, SimWallet> {
     E: {
       id: "E",
       accountLabel: "E - New Wallet",
-      role: "New wallet. Starts empty. Fund from clean C (no hop). Floor A/D by bag and swap size",
-      address: "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
+      role: "New wallet. Connect MetaMask on Sepolia. Floor A/D by bag and swap size",
+      address: "",
       usdc: 0,
-      eth: 1,
+      eth: 0,
       hopDistance: null,
       originId: null,
       exploitConfirmed: false,

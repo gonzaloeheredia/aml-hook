@@ -9,6 +9,7 @@ import type { ApiCompliancePack } from "@/lib/api";
 import type { DemoStage } from "@/components/StageRail";
 import {
   initialSimWallets,
+  isBoundWalletE,
   type SimWallet,
   type SimWalletId,
   type TransferRecord,
@@ -152,6 +153,9 @@ function sanitizeWallets(raw: unknown): Record<SimWalletId, SimWallet> {
   for (const id of WALLET_IDS) {
     out[id] = sanitizeWallet(rec[id], seed[id]);
   }
+  if (!isBoundWalletE(out.E.address)) {
+    out.E = { ...seed.E };
+  }
   return out;
 }
 
@@ -260,6 +264,24 @@ export function mergeSimWallets(
     const a = api[id];
     const l = local[id];
     if (!a) continue;
+    if (id === "E") {
+      const apiBound = isBoundWalletE(a.address);
+      const localBound = isBoundWalletE(l?.address);
+      if (!apiBound && localBound && l) {
+        out[id] = {
+          ...a,
+          address: l.address,
+          usdc: l.usdc,
+          eth: l.eth,
+          neverScored: true,
+        };
+        continue;
+      }
+      if (!apiBound) {
+        out[id] = { ...a, address: "", usdc: 0, eth: 0, neverScored: true };
+        continue;
+      }
+    }
     if (!staleApi || !l) {
       out[id] = a;
       continue;

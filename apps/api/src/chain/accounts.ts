@@ -1,10 +1,14 @@
 /**
- * Local Anvil identities for the A–E demo.
+ * Local Anvil identities for the A–D guided demo.
+ * Wallet E is the MetaMask EOA bound at runtime (no Foundry key).
  * Keys stay on the API. The browser never sees them.
  */
 
-import type { Address, Hex } from "viem";
+import { zeroAddress, type Address, type Hex } from "viem";
 import type { WalletId } from "../types.js";
+
+/** Retired Anvil #5 label. Never treat this as Wallet E. */
+const RETIRED_ANVIL_E = "0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc";
 
 /** Anvil #0: deployer / oracle keeper / hook governor / FeeEscrow owner. */
 export const KEEPER_KEY =
@@ -51,12 +55,18 @@ export const DEMO_WALLETS: Record<WalletId, DemoAccount> = {
     eth: 2,
   },
   E: {
-    address: "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
-    key: "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba",
+    address: zeroAddress,
     usdc: 0,
-    eth: 1,
+    eth: 0,
   },
 };
+
+/** True when E has a live Sepolia EOA (MetaMask), not the unbound / retired Anvil row. */
+export function isBoundWalletE(address: string | undefined): boolean {
+  if (!address || address.length !== 42) return false;
+  const lower = address.toLowerCase();
+  return lower !== zeroAddress.toLowerCase() && lower !== RETIRED_ANVIL_E;
+}
 
 /** Where a demo "swap" sends USDC. Not a PoolManager. */
 export const POOL_SINK =
@@ -70,7 +80,9 @@ export function hasSigner(id: WalletId): boolean {
 
 export function idFromAddress(address: string): WalletId | null {
   const lower = address.toLowerCase();
+  if (lower === zeroAddress || lower === RETIRED_ANVIL_E) return null;
   for (const id of WALLET_IDS) {
+    if (id === "E") continue;
     if (DEMO_WALLETS[id].address.toLowerCase() === lower) return id;
   }
   return null;

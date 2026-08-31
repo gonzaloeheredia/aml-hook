@@ -89,14 +89,13 @@ contract Deploy is Script {
     uint256 constant LOCAL_ATTESTOR_PK =
         0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6;
 
-    /// @dev Anvil accounts #1–#5. Demo wallets A–E. API holds the matching keys locally.
+    /// @dev Anvil accounts #1–#4. Demo wallets A–D. API holds the matching keys locally.
     ///      A is not listed: the COA emits score 100 (`WalletBlocked`); the keeper publishes it.
-    ///      E starts empty and stays unpublished.
+    ///      Wallet E is a MetaMask EOA on Sepolia (not an Anvil key).
     address public constant DEMO_WALLET_A = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
     address constant DEMO_WALLET_B = 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC;
     address constant DEMO_WALLET_C = 0x90F79bf6EB2c4f870365E785982E1f101E93b906;
     address constant DEMO_WALLET_D = 0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65;
-    address constant DEMO_WALLET_E = 0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc;
 
     /// @notice Thrown when a function ended up behind a different role than intended
     error Deploy_WrongFunctionRole(address target, bytes4 selector, uint64 expected, uint64 actual);
@@ -782,9 +781,6 @@ contract Deploy is Script {
             '",\n',
             '    "D": "',
             vm.toString(DEMO_WALLET_D),
-            '",\n',
-            '    "E": "',
-            vm.toString(DEMO_WALLET_E),
             '"\n',
             "  }\n",
             "}\n"

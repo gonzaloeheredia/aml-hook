@@ -3,10 +3,9 @@
 import { useEffect } from "react";
 
 /**
- * This demo never calls the real MetaMask extension.
- * MetaMask's injected `inpage.js` can still reject with
- * "Failed to connect to MetaMask", which Next.js surfaces as an overlay.
- * Swallow only that extension noise so the simulated wallet UI keeps working.
+ * A–D never call the injected wallet. Wallet E does (Sepolia swap).
+ * MetaMask's `inpage.js` can still reject with "Failed to connect to MetaMask"
+ * on A–D. Swallow only that extension noise so the simulated picker keeps working.
  */
 export function IgnoreMetaMaskNoise() {
   useEffect(() => {

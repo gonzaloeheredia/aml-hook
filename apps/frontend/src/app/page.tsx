@@ -29,6 +29,7 @@ import {
   postTransfer,
   postReset,
   postDemoElapse,
+  postBindWalletE,
   postDemoFaucet,
   postDemoMint,
   walletsRecord,
@@ -52,6 +53,7 @@ import {
   caseIdForSimWallet,
   ethOutFromSwap,
   initialSimWallets,
+  isBoundWalletE,
   setPolicyKnobs,
   setPriceFeedBound,
   type SimWallet,
@@ -63,8 +65,10 @@ import {
   type HookChainEvent,
 } from "@/lib/hookEvents";
 import { applyLiveCaseCopy } from "@/lib/liveCaseCopy";
-import { UNISWAP_SEPOLIA_POOL_URL } from "@/lib/sepoliaPool";
+import { connectSepoliaAccount, readSepoliaBalances } from "@/lib/sepoliaWallet";
+import { swapUsdcForWeth } from "@/lib/sepoliaSwap";
 import { withComplianceOverlay } from "@/lib/withComplianceOverlay";
+import type { Address } from "viem";
 
 /**
  * Demo page: guided stages with horizontal slides.
@@ -139,6 +143,11 @@ export default function HomePage() {
   const [apiStatus, setApiStatus] = useState<ApiStatus>("connecting");
   const [apiError, setApiError] = useState<string | null>(null);
   const [faucetBusy, setFaucetBusy] = useState(false);
+  const [swapBusy, setSwapBusy] = useState(false);
+  const [swapError, setSwapError] = useState<string | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const [liveEAddress, setLiveEAddress] = useState<string | null>(null);
+  const [nativeEth, setNativeEth] = useState(0);
   const [compliance, setCompliance] = useState<ApiCompliancePack | null>(
     null,
   );
@@ -156,6 +165,7 @@ export default function HomePage() {
   const unlockedRef = useRef(unlockedThrough);
   const visitedRef = useRef<Set<DemoStage>>(new Set<DemoStage>(["swap"]));
   const persistPausedRef = useRef(true);
+  const liveEAddressRef = useRef<string | null>(null);
   const complianceByWalletRef = useRef(complianceByWallet);
   const sessionRef = useRef<DemoSessionSnapshot>({
     v: 1,
@@ -189,7 +199,14 @@ export default function HomePage() {
 
   const liveStats = mergeStats(
     swapStats[caseId],
-    statsFromEvents(chainEvents, caseId),
+    statsFromEvents(
+      caseId === "E" && liveEAddress
+        ? chainEvents.filter(
+            (e) => e.address.toLowerCase() === liveEAddress.toLowerCase(),
+          )
+        : chainEvents,
+      caseId,
+    ),
   );
 
   const writeSession = useCallback((patch?: Partial<DemoSessionSnapshot>) => {
@@ -221,7 +238,17 @@ export default function HomePage() {
       const pack = snap.complianceByWallet[snap.caseId];
       if (pack) setCompliance(pack);
       if (snap.connected) {
-        setAddress(snap.simWallets[snap.caseId]?.address ?? null);
+        const restored = snap.simWallets[snap.caseId]?.address ?? null;
+        if (snap.caseId === "E" && !isBoundWalletE(restored)) {
+          setConnected(false);
+          setAddress(null);
+        } else {
+          setAddress(restored);
+          if (snap.caseId === "E" && restored) {
+            liveEAddressRef.current = restored;
+            setLiveEAddress(restored);
+          }
+        }
       }
       if (snap.swapAmountUsd > 0) setSwapAmountUsd(snap.swapAmountUsd);
       setStage(snap.stage);
@@ -316,10 +343,11 @@ export default function HomePage() {
    * Railway process restart cannot wipe the in-tab walkthrough.
    */
   const refreshLedger = useCallback(async () => {
+    const live = liveEAddressRef.current;
     const [walletsRes, transfersRes, eventsRes] = await Promise.all([
       fetchWallets(),
       fetchTransfers(),
-      fetchEvents(caseId),
+      fetchEvents(caseId, caseId === "E" ? live ?? undefined : undefined),
     ]);
     const apiWallets = walletsRecord(walletsRes.wallets);
     const apiEvents = eventsRes.events.map((ev, i) =>
@@ -336,15 +364,37 @@ export default function HomePage() {
     const mergedWallets = mergeSimWallets(prev.simWallets, apiWallets, stale);
     const mergedTransfers = mergeTransfers(prev.transfers, apiTransfers);
     const mergedEvents = mergeHookEvents(prev.chainEvents, apiEvents);
-    setSimWallets(mergedWallets);
+    let nextWallets = mergedWallets;
+    if (caseId === "E" && live) {
+      try {
+        const bal = await readSepoliaBalances(live as Address);
+        setNativeEth(bal.nativeEth);
+        nextWallets = {
+          ...mergedWallets,
+          E: {
+            ...mergedWallets.E,
+            address: bal.address,
+            usdc: bal.usdc,
+            eth: bal.weth,
+            neverScored: mergedWallets.E.neverScored ?? true,
+          },
+        };
+      } catch {
+        nextWallets = {
+          ...mergedWallets,
+          E: { ...mergedWallets.E, address: live },
+        };
+      }
+    }
+    setSimWallets(nextWallets);
     setTransfers(mergedTransfers);
     setChainEvents(mergedEvents);
     writeSession({
-      simWallets: mergedWallets,
+      simWallets: nextWallets,
       transfers: mergedTransfers,
       chainEvents: mergedEvents,
     });
-    return mergedWallets;
+    return nextWallets;
   }, [caseId, writeSession]);
 
   /**
@@ -435,7 +485,59 @@ export default function HomePage() {
     };
   }, [apiStatus, caseId, refreshCompliance]);
 
-  const handleConnect = (id: DemoCaseId) => {
+  const handleConnect = async (id: DemoCaseId) => {
+    setConnectError(null);
+    if (id === "E") {
+      try {
+        const eoa = await connectSepoliaAccount();
+        liveEAddressRef.current = eoa;
+        setLiveEAddress(eoa);
+        try {
+          await postBindWalletE(eoa);
+        } catch {
+          /* Railway may not have /demo/wallet-e yet; local overlay still applies */
+        }
+        let usdc = 0;
+        let weth = 0;
+        try {
+          const bal = await readSepoliaBalances(eoa);
+          usdc = bal.usdc;
+          weth = bal.weth;
+          setNativeEth(bal.nativeEth);
+        } catch {
+          setNativeEth(0);
+        }
+        setSimWallets((prev) => ({
+          ...prev,
+          E: {
+            ...prev.E,
+            address: eoa,
+            usdc,
+            eth: weth,
+            neverScored: true,
+          },
+        }));
+        setCaseId("E");
+        setSimActiveId("E");
+        setSwapAmountUsd(DEMO_CASES.E.activity.amountUsd);
+        setAddress(eoa);
+        setConnected(true);
+        setRunning(false);
+        setModalOpen(false);
+        const cached = complianceByWalletRef.current.E;
+        if (cached) setCompliance(cached);
+        goToStage("swap", "E");
+        void refreshLedger().catch(() => undefined);
+        void refreshCompliance("E").catch(() => undefined);
+        return;
+      } catch (err) {
+        setConnectError(err instanceof Error ? err.message : "MetaMask connect failed");
+        return;
+      }
+    }
+
+    liveEAddressRef.current = null;
+    setLiveEAddress(null);
     const wallet = simWallets[id];
     setCaseId(id);
     setSimActiveId(id);
@@ -452,6 +554,10 @@ export default function HomePage() {
   const handleDisconnect = () => {
     setConnected(false);
     setRunning(false);
+    liveEAddressRef.current = null;
+    setLiveEAddress(null);
+    setSwapError(null);
+    setConnectError(null);
   };
 
   const handleUseInUniswap = (id: SimWalletId) => {
@@ -541,6 +647,11 @@ export default function HomePage() {
     setRunning(false);
     setModalOpen(false);
     setMetaMaskOpen(false);
+    liveEAddressRef.current = null;
+    setLiveEAddress(null);
+    setSwapError(null);
+    setConnectError(null);
+    setNativeEth(0);
     setSwapStats(EMPTY_STATS);
     setTransfers([]);
     setChainEvents([]);
@@ -713,14 +824,33 @@ export default function HomePage() {
     setRunning(true);
   };
 
-  const handleOpenPool = () => {
-    if (!connected || caseId !== "E") return;
-    window.open(UNISWAP_SEPOLIA_POOL_URL, "_blank", "noopener,noreferrer");
-    bumpUnlock("event", "E");
-    if (apiStatus === "online") {
-      void refreshLedger().catch(() => {
-        /* Event fills after the Uniswap swap */
-      });
+  const handleLiveSwap = async () => {
+    if (!connected || caseId !== "E" || swapBusy) return;
+    const eoa = liveEAddressRef.current ?? liveEAddress;
+    if (!eoa) {
+      setSwapError("Connect Wallet E with MetaMask on Sepolia first.");
+      return;
+    }
+    const amount = demoCase.activity.amountUsd;
+    if (amount <= 0) {
+      setSwapError("Enter a USDC amount greater than 0.");
+      return;
+    }
+    setSwapBusy(true);
+    setSwapError(null);
+    try {
+      await swapUsdcForWeth(eoa as Address, amount);
+      bumpUnlock("event", "E");
+      bumpUnlock("fees", "E");
+      goToStage("event", "E");
+      if (apiStatus === "online") {
+        await refreshLedger();
+        await refreshCompliance("E", amount);
+      }
+    } catch (err) {
+      setSwapError(err instanceof Error ? err.message : "Swap failed");
+    } finally {
+      setSwapBusy(false);
     }
   };
 
@@ -730,7 +860,13 @@ export default function HomePage() {
     }
     setFaucetBusy(true);
     try {
-      await postDemoFaucet(raw);
+      const res = await postDemoFaucet(raw);
+      if (res.address) {
+        liveEAddressRef.current = res.address;
+        setLiveEAddress(res.address);
+        setAddress(res.address);
+      }
+      await refreshLedger();
       setApiError(null);
       return null;
     } catch (err) {
@@ -1074,15 +1210,21 @@ export default function HomePage() {
                       walletEth={simWallets[caseId].eth}
                       onConnectClick={() => setModalOpen(true)}
                       onSimulate={handleSimulate}
-                      onOpenPool={
-                        caseId === "E" ? handleOpenPool : undefined
-                      }
+                      onLiveSwap={caseId === "E" ? () => void handleLiveSwap() : undefined}
                       onFaucet={caseId === "E" ? handleFaucet : undefined}
                       faucetBusy={faucetBusy}
+                      swapBusy={swapBusy}
+                      swapError={swapError}
+                      nativeEth={nativeEth}
+                      liveAddress={liveEAddress}
                       onAmountChange={setSwapAmountUsd}
-                      onAdvanceClock={() => {
-                        void handleAdvanceClock();
-                      }}
+                      onAdvanceClock={
+                        caseId === "E"
+                          ? undefined
+                          : () => {
+                              void handleAdvanceClock();
+                            }
+                      }
                     />
                   </div>
               )}
@@ -1195,6 +1337,7 @@ export default function HomePage() {
         onClose={() => setModalOpen(false)}
         onConnect={handleConnect}
         wallets={simWallets}
+        connectError={connectError}
       />
 
       <MetaMaskPanel
