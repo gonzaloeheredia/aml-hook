@@ -148,6 +148,9 @@ export type ApiHookEvent = {
   origin: string;
   at: string;
   kind: "SwapObserved" | "WalletBlocked";
+  txHash?: string;
+  blockNumber?: number;
+  source?: "chain" | "demo";
 };
 
 export type ApiSwapQuote = {

@@ -22,7 +22,10 @@ function afterSwapRows(event: HookChainEvent) {
     { label: "fee", value: event.fee },
     {
       label: "amount_usdc",
-      value: `${event.amountUsd.toLocaleString("en-US")} USDC`,
+      value:
+        event.source === "chain" && event.amountUsd === 0
+          ? "n/a"
+          : `${event.amountUsd.toLocaleString("en-US")} USDC`,
     },
   ];
   if (event.hopDistance != null) {
@@ -32,6 +35,9 @@ function afterSwapRows(event: HookChainEvent) {
     rows.push({ label: "origin", value: event.origin });
   }
   rows.push({ label: "timestamp", value: event.timestamp });
+  if (event.txHash.startsWith("0x") && event.txHash.length >= 66) {
+    rows.push({ label: "tx", value: event.txHash });
+  }
   return rows;
 }
 
@@ -86,8 +92,9 @@ export function OnChainAccumulator({ events, showTitle = true }: Props) {
         </p>
       ) : (
         <p className="mt-1 text-xs text-uni-muted">
-          No afterSwap emit yet. Complete a swap that reaches afterSwap
-          (ALLOW or FEE_OVERRIDE) to write the audit record.
+          No afterSwap emit yet. A pool swap that reaches afterSwap
+          (ALLOW or FEE_OVERRIDE) writes SwapObserved on Sepolia. Event
+          reads that log. REVERT never emits.
         </p>
       )}
     </div>

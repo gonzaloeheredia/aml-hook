@@ -43,6 +43,7 @@ export {
   cancelTreasuryPayout,
 } from "./treasury.js";
 export { hydrateWallets } from "./hydrate.js";
+export { listOnChainSwapObserved, mergeEventTrails } from "./swapLogs.js";
 export {
   balanceUsdc,
   balanceEth,

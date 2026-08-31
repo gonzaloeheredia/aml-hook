@@ -25,6 +25,7 @@ export type HookChainEvent = {
   timestamp: string;
   txHash: string;
   blockNumber: number;
+  source?: "chain" | "demo";
 };
 
 /**
@@ -91,10 +92,16 @@ export function hookEventFromApi(
     origin: string;
     at: string;
     kind: "SwapObserved" | "WalletBlocked";
+    txHash?: string;
+    blockNumber?: number;
+    source?: "chain" | "demo";
   },
   eventIndex: number,
 ): HookChainEvent {
   const blocked = event.kind === "WalletBlocked";
+  const tx = event.txHash && event.txHash.startsWith("0x")
+    ? event.txHash
+    : fakeTxHash(event.address, eventIndex);
   return {
     id: event.id,
     hookPhase: blocked ? "beforeSwap" : "afterSwap",
@@ -109,8 +116,9 @@ export function hookEventFromApi(
     hopDistance: event.hopDistance,
     origin: event.origin,
     timestamp: event.at,
-    txHash: fakeTxHash(event.address, eventIndex),
-    blockNumber: 22_814_500 + eventIndex * 17,
+    txHash: tx,
+    blockNumber: event.blockNumber ?? 22_814_500 + eventIndex * 17,
+    source: event.source,
   };
 }
 
@@ -136,7 +144,11 @@ export function formatEventPayload(event: HookChainEvent): string {
     `  score: ${event.score}`,
     `  decision: ${event.decision}`,
     `  fee: ${event.fee}`,
-    `  amount_usdc: ${event.amountUsd}`,
+    `  amount_usdc: ${
+      event.source === "chain" && event.amountUsd === 0
+        ? "n/a"
+        : event.amountUsd
+    }`,
   ];
   if (event.hopDistance != null) {
     lines.push(`  hop_distance: ${event.hopDistance}`);
@@ -145,5 +157,8 @@ export function formatEventPayload(event: HookChainEvent): string {
     lines.push(`  origin: ${event.origin}`);
   }
   lines.push(`  timestamp: ${event.timestamp}`);
+  if (event.txHash.startsWith("0x") && event.txHash.length >= 66) {
+    lines.push(`  tx: ${event.txHash}`);
+  }
   return `{\n${lines.join(",\n")}\n}`;
 }

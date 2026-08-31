@@ -11,6 +11,8 @@ import {
   chainHealth,
   clearPolicyKnobsCache,
   hydrateWallets,
+  listOnChainSwapObserved,
+  mergeEventTrails,
   isChainUnavailable,
   isPriceFeedBound,
   listEscrows,
@@ -331,7 +333,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.get("/events", async () => ({ events: listEvents() }));
+  app.get("/events", async () => {
+    try {
+      const chain = await listOnChainSwapObserved();
+      return { events: mergeEventTrails(listEvents(), chain) };
+    } catch {
+      return { events: listEvents() };
+    }
+  });
 
   app.post<{ Body: SwapBody }>("/swaps", async (req, reply) => {
     const idRaw = String(req.body?.walletId ?? "").toUpperCase();
@@ -403,6 +412,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         origin: wallet.originId ?? "n/a",
         at: new Date().toISOString(),
         kind: "SwapObserved" as const,
+        txHash: settled.observeTx ?? undefined,
+        source: "demo" as const,
       };
       appendEvent(event);
 

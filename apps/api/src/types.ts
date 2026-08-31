@@ -75,6 +75,10 @@ export type HookEvent = {
   origin: string;
   at: string;
   kind: "SwapObserved" | "WalletBlocked";
+  /** Sepolia / Anvil tx when the row came from SwapObserved logs or observeSwap. */
+  txHash?: string;
+  blockNumber?: number;
+  source?: "chain" | "demo";
 };
 
 /** Fields of the technical compliance opinion (section A). */
