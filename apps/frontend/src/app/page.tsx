@@ -32,6 +32,7 @@ import {
   postBindWalletE,
   postDemoFaucet,
   postDemoMint,
+  toSimWallet,
   walletsRecord,
   type ApiCompliancePack,
 } from "@/lib/api";
@@ -844,8 +845,100 @@ export default function HomePage() {
     return () => window.clearInterval(tick);
   }, [apiStatus, caseId, refreshLedger, stage]);
 
-  const handleSimulate = () => {
-    if (!connected || running || caseId === "E") return;
+  const settleDemoSwap = useCallback(async () => {
+    if (caseId === "E" || apiStatus !== "online") return;
+    const amount = demoCase.activity.amountUsd;
+    const res = await postSwap(caseId, amount);
+    const ev = res.event ?? {
+      id: `ev-local-${Date.now()}`,
+      walletId: caseId,
+      address: res.wallet.address,
+      score: res.quote.score,
+      decision: res.quote.hookOutput,
+      feeBps: res.quote.feeBps,
+      amountUsd: res.quote.usdcIn,
+      hopDistance: res.wallet.hopDistance ?? null,
+      origin: res.wallet.originId ?? "n/a",
+      at: new Date().toISOString(),
+      kind: res.settled ? "SwapObserved" : "WalletBlocked",
+    } as const;
+    const nextEvents = mergeHookEvents(sessionRef.current.chainEvents, [
+      hookEventFromApi(ev, sessionRef.current.chainEvents.length + 1),
+    ]);
+    setChainEvents(nextEvents);
+    const ethOut =
+      !res.settled || res.quote.decision === "block"
+        ? 0
+        : ethOutFromSwap(amount, res.quote.feeBps);
+    const current = sessionRef.current.swapStats[caseId];
+    const nextStats = {
+      ...sessionRef.current.swapStats,
+      [caseId]: {
+        count: current.count + 1,
+        tradedUsd: current.tradedUsd + (ethOut > 0 ? amount : 0),
+        tradedEth: current.tradedEth + ethOut,
+      },
+    };
+    setSwapStats(nextStats);
+    const nextWallets = {
+      ...sessionRef.current.simWallets,
+      [caseId]: {
+        ...sessionRef.current.simWallets[caseId],
+        ...toSimWallet(res.wallet),
+      },
+    };
+    setSimWallets(nextWallets);
+    let nextPacks = { ...sessionRef.current.complianceByWallet };
+    const prevPack = nextPacks[caseId];
+    const fromQuote: ApiCompliancePack | undefined = prevPack
+      ? {
+          ...prevPack,
+          score: res.quote.score,
+          decision: res.quote.decision,
+          hookOutput: res.quote.hookOutput,
+          appliedFeeBps: res.quote.feeBps,
+          feePercent: res.quote.feePercent,
+          hopDistance: res.wallet.hopDistance ?? prevPack.hopDistance,
+          originId: res.wallet.originId ?? prevPack.originId,
+          usdc: res.wallet.usdc,
+          eth: res.wallet.eth,
+          keeperPending:
+            res.wallet.keeperPending ?? prevPack.keeperPending,
+          latencyMitigation:
+            res.quote.latencyMitigation ?? prevPack.latencyMitigation,
+          revertReason: res.quote.revertReason ?? prevPack.revertReason,
+        }
+      : undefined;
+    if (res.compliance) {
+      const chosen = preferFresherCompliance(fromQuote ?? prevPack, res.compliance);
+      nextPacks = { ...nextPacks, [chosen.walletId]: chosen };
+      setComplianceByWallet(nextPacks);
+      setCompliance(chosen);
+    } else if (fromQuote) {
+      nextPacks = { ...nextPacks, [caseId]: fromQuote };
+      setComplianceByWallet(nextPacks);
+      setCompliance(fromQuote);
+    }
+    setApiError(null);
+    writeSession({
+      simWallets: nextWallets,
+      chainEvents: nextEvents,
+      swapStats: nextStats,
+      complianceByWallet: nextPacks,
+    });
+    void refreshLedger().catch(() => undefined);
+    void refreshCompliance(caseId).catch(() => undefined);
+  }, [
+    apiStatus,
+    caseId,
+    demoCase.activity.amountUsd,
+    refreshCompliance,
+    refreshLedger,
+    writeSession,
+  ]);
+
+  const handleSimulate = async () => {
+    if (!connected || running || swapBusy || caseId === "E") return;
     if (demoCase.decision !== "block" && demoCase.activity.amountUsd <= 0)
       return;
     if (
@@ -853,6 +946,19 @@ export default function HomePage() {
       simWallets[caseId].usdc < demoCase.activity.amountUsd
     ) {
       return;
+    }
+    if (apiStatus === "online") {
+      setSwapBusy(true);
+      try {
+        await settleDemoSwap();
+      } catch (err) {
+        setApiError(
+          err instanceof ApiError ? err.message : "Swap settlement failed",
+        );
+        return;
+      } finally {
+        setSwapBusy(false);
+      }
     }
     goToStage("hook");
     setRunning(true);
@@ -926,87 +1032,12 @@ export default function HomePage() {
     [bumpUnlock, caseId, pointStage],
   );
 
-  const handleFlowComplete = useCallback(async () => {
+  const handleFlowComplete = useCallback(() => {
     setRunning(false);
     if (caseId !== "E") {
       bumpUnlock("fees", caseId);
     }
-    const amount = demoCase.activity.amountUsd;
-
-    if (caseId === "E" || apiStatus !== "online") {
-      return;
-    }
-
-    try {
-      const res = await postSwap(caseId, amount);
-      const ev = res.event ?? {
-        id: `ev-local-${Date.now()}`,
-        walletId: caseId,
-        address: res.wallet.address,
-        score: res.quote.score,
-        decision: res.quote.hookOutput,
-        feeBps: res.quote.feeBps,
-        amountUsd: res.quote.usdcIn,
-        hopDistance: res.wallet.hopDistance ?? null,
-        origin: res.wallet.originId ?? "n/a",
-        at: new Date().toISOString(),
-        kind: res.settled ? "SwapObserved" : "WalletBlocked",
-      } as const;
-      const nextEvents = mergeHookEvents(sessionRef.current.chainEvents, [
-        hookEventFromApi(ev, sessionRef.current.chainEvents.length + 1),
-      ]);
-      setChainEvents(nextEvents);
-      const ethOut =
-        !res.settled || res.quote.decision === "block"
-          ? 0
-          : ethOutFromSwap(amount, res.quote.feeBps);
-      const current = sessionRef.current.swapStats[caseId];
-      const nextStats = {
-        ...sessionRef.current.swapStats,
-        [caseId]: {
-          count: current.count + 1,
-          tradedUsd: current.tradedUsd + (ethOut > 0 ? amount : 0),
-          tradedEth: current.tradedEth + ethOut,
-        },
-      };
-      setSwapStats(nextStats);
-      let nextPacks = { ...sessionRef.current.complianceByWallet };
-      if (res.compliance) {
-        const chosen = preferFresherCompliance(
-          nextPacks[res.compliance.walletId],
-          res.compliance,
-        );
-        nextPacks = { ...nextPacks, [chosen.walletId]: chosen };
-        setComplianceByWallet(nextPacks);
-        setCompliance(chosen);
-      }
-      setApiError(null);
-      writeSession({
-        chainEvents: nextEvents,
-        swapStats: nextStats,
-        complianceByWallet: nextPacks,
-      });
-      await refreshLedger();
-      await refreshCompliance(caseId);
-    } catch (err) {
-      setApiError(
-        err instanceof ApiError ? err.message : "Swap settlement failed",
-      );
-      try {
-        await refreshLedger();
-      } catch {
-        /* keep local trail */
-      }
-    }
-  }, [
-    apiStatus,
-    bumpUnlock,
-    caseId,
-    demoCase,
-    refreshCompliance,
-    refreshLedger,
-    writeSession,
-  ]);
+  }, [bumpUnlock, caseId]);
 
   const handleStageSelect = (next: DemoStage) => {
     if (next === "swap" && !connected) {

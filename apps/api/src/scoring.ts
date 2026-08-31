@@ -77,10 +77,14 @@ export function hopScore(wallet: Wallet): number {
  * When the live agent is on, never invent a hop formula score.
  */
 export function walletScore(wallet: Wallet): number {
+  const hop = hopScore(wallet);
   const oracle = getOracleScore(wallet.id);
+  if (isMockDemoWallet(wallet.id)) {
+    return Math.max(oracle ?? 0, hop);
+  }
   if (oracle != null) return oracle;
   if (isLiveCoaEnabled()) return 0;
-  return hopScore(wallet);
+  return hop;
 }
 
 /**

@@ -323,7 +323,10 @@ export function preferFresherCompliance(
   const cachedHop = cached.hopDistance;
   const inHop = incoming.hopDistance;
   if (cachedHop != null && inHop == null) return cached;
-  if (cached.score > incoming.score) return cached;
+  if (inHop != null && (cachedHop == null || inHop < cachedHop)) return incoming;
+  if (cached.score > incoming.score && (inHop == null || inHop === cachedHop)) {
+    return cached;
+  }
   return incoming;
 }
 

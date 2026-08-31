@@ -55,7 +55,8 @@ export function displayDeltaBps(inflowUsd: number, walletUsdc: number): number {
 
 /**
  * In-memory beforeSwap preview for wallets A–D. No hook eth_call.
- * Score prefers memory COA, else hopScore. Floors stay on the store clock.
+ * Score is the higher of memory COA and hopScore so a stale clean COA
+ * row cannot hide A→B contamination. Floors stay on the store clock.
  */
 function resolveMockSwapDecision(
   wallet: Wallet,
@@ -81,7 +82,7 @@ function resolveMockSwapDecision(
   const knobs = getPolicyKnobsSync();
   const usdcIn = swapUsdcAmount(wallet, preferredUsdc);
   const memoryScore = getOracleScore(wallet.id);
-  const score = memoryScore ?? hopScore(wallet);
+  const score = Math.max(memoryScore ?? 0, hopScore(wallet));
   let decision = decisionFromScore(score);
   let feeBps = feeBpsFromHop(score, wallet.hopDistance, knobs);
   let latencyMitigation: LatencyMitigation = null;

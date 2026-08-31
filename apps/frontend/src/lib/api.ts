@@ -218,7 +218,7 @@ export function walletsRecord(
     out[w.id] = {
       ...out[w.id],
       ...toSimWallet(w),
-      lastKnownUsdc: out[w.id].lastKnownUsdc,
+      lastKnownUsdc: w.lastKnownUsdc ?? out[w.id].lastKnownUsdc,
     };
   }
   return out;
