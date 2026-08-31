@@ -44,13 +44,13 @@ const PERMIT2_ABI = parseAbi([
 ]);
 
 const HOOK_ERRORS = parseAbi([
-  "error UnscoredMagnitudeBlocked()",
-  "error DailyAggregationBlocked()",
-  "error UnscoredPoolImpactBlocked()",
-  "error MagnitudeQuoteFailed()",
+  "error UnscoredMagnitudeBlocked(address wallet, uint256 assessedUsd, uint256 threshold)",
+  "error DailyAggregationBlocked(address wallet, uint256 assessedUsd, uint256 threshold)",
+  "error UnscoredPoolImpactBlocked(address wallet, uint256 poolImpactBps, uint256 threshold)",
+  "error MagnitudeQuoteFailed(address token, bytes32 reason)",
   "error MissingSwapSubject()",
   "error SanctionHit(address wallet)",
-  "error WalletBlocked(address wallet)",
+  "error WalletBlocked(address wallet, uint8 score, string reason)",
 ]);
 
 const POOL_KEY = {
@@ -68,45 +68,36 @@ const PERMIT_TTL_SEC = 30 * 24 * 60 * 60;
 const GAS_CAP = BigInt(8_000_000);
 const APPROVE_GAS = BigInt(80_000);
 
-function encodeExactIn(amountIn: bigint): Hex {
-  return encodeAbiParameters(
-    [
-      {
-        type: "tuple",
-        components: [
-          {
-            name: "poolKey",
-            type: "tuple",
-            components: [
-              { name: "currency0", type: "address" },
-              { name: "currency1", type: "address" },
-              { name: "fee", type: "uint24" },
-              { name: "tickSpacing", type: "int24" },
-              { name: "hooks", type: "address" },
-            ],
-          },
-          { name: "zeroForOne", type: "bool" },
-          { name: "amountIn", type: "uint128" },
-          { name: "amountOutMinimum", type: "uint128" },
-          { name: "minHopPriceX36", type: "uint256" },
-          { name: "hookData", type: "bytes" },
-        ],
-      },
-    ],
-    [
-      {
-        poolKey: POOL_KEY,
-        zeroForOne: false,
-        amountIn,
-        amountOutMinimum: BigInt(0),
-        minHopPriceX36: BigInt(0),
-        hookData: "0x",
-      },
-    ],
-  );
+const POOL_KEY_COMPONENTS = [
+  { name: "currency0", type: "address" },
+  { name: "currency1", type: "address" },
+  { name: "fee", type: "uint24" },
+  { name: "tickSpacing", type: "int24" },
+  { name: "hooks", type: "address" },
+] as const;
+
+/** Official app.uniswap.org UR on Sepolia predates minHopPriceX36. */
+function encodeExactIn(amountIn: bigint, withMinHop: boolean): Hex {
+  const components = [
+    { name: "poolKey", type: "tuple", components: [...POOL_KEY_COMPONENTS] },
+    { name: "zeroForOne", type: "bool" },
+    { name: "amountIn", type: "uint128" },
+    { name: "amountOutMinimum", type: "uint128" },
+    ...(withMinHop ? [{ name: "minHopPriceX36", type: "uint256" }] : []),
+    { name: "hookData", type: "bytes" },
+  ];
+  const value: Record<string, unknown> = {
+    poolKey: POOL_KEY,
+    zeroForOne: false,
+    amountIn,
+    amountOutMinimum: BigInt(0),
+    hookData: "0x",
+  };
+  if (withMinHop) value.minHopPriceX36 = BigInt(0);
+  return encodeAbiParameters([{ type: "tuple", components }], [value]);
 }
 
-function encodeV4Swap(amountIn: bigint): Hex {
+function encodeV4Swap(amountIn: bigint, withMinHop: boolean): Hex {
   const actions = encodePacked(
     ["bytes1", "bytes1", "bytes1"],
     [SWAP_EXACT_IN_SINGLE, SETTLE_ALL, TAKE_ALL],
@@ -121,17 +112,38 @@ function encodeV4Swap(amountIn: bigint): Hex {
   );
   return encodeAbiParameters(
     [{ type: "bytes" }, { type: "bytes[]" }],
-    [actions, [encodeExactIn(amountIn), settle, take]],
+    [actions, [encodeExactIn(amountIn, withMinHop), settle, take]],
   );
 }
 
+function flattenRevert(err: unknown): string {
+  const parts: string[] = [];
+  const seen = new Set<unknown>();
+  const visit = (value: unknown) => {
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    if (typeof value === "string") {
+      parts.push(value);
+      return;
+    }
+    if (typeof value !== "object") return;
+    const o = value as Record<string, unknown>;
+    if (typeof o.errorName === "string") parts.push(o.errorName);
+    if (typeof o.shortMessage === "string") parts.push(o.shortMessage);
+    if (typeof o.message === "string") parts.push(o.message);
+    if (typeof o.details === "string") parts.push(o.details);
+    if (Array.isArray(o.metaMessages)) {
+      for (const m of o.metaMessages) visit(m);
+    }
+    if (o.data !== undefined) visit(o.data);
+    if (o.cause) visit(o.cause);
+  };
+  visit(err);
+  return parts.join(" | ");
+}
+
 function decodeHookRevert(err: unknown): string {
-  const raw =
-    err && typeof err === "object" && "shortMessage" in err
-      ? String((err as { shortMessage: unknown }).shortMessage)
-      : err instanceof Error
-        ? err.message
-        : String(err ?? "Swap failed");
+  const raw = flattenRevert(err);
   const data =
     err && typeof err === "object" && "data" in err
       ? String((err as { data: unknown }).data)
@@ -146,6 +158,9 @@ function decodeHookRevert(err: unknown): string {
     "WalletBlocked",
   ] as const) {
     if (data.includes(name) || raw.includes(name)) {
+      if (name === "MagnitudeQuoteFailed") {
+        return "Hook reverted: MagnitudeQuoteFailed. Bind demo FX (1 MockETH = 1,000 MockUSD) with BindDemoFx.s.sol.";
+      }
       return `Hook reverted: ${name}`;
     }
   }
@@ -245,18 +260,28 @@ export async function swapUsdcForWeth(account: Address, usdc: number): Promise<H
 
   const wallet = sepoliaWalletClient(account);
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 180);
-  const args = [V4_SWAP, [encodeV4Swap(amountIn)], deadline] as const;
-  try {
-    await publicClient.simulateContract({
-      address: SEPOLIA_UNIVERSAL_ROUTER,
-      abi: UR_ABI,
-      functionName: "execute",
-      args,
-      account,
-      gas: GAS_CAP,
-    });
-  } catch (err) {
-    throw new Error(decodeHookRevert(err));
+  const encodings = [false, true] as const;
+  let args: readonly [Hex, Hex[], bigint] | null = null;
+  let lastSimErr: unknown;
+  for (const withMinHop of encodings) {
+    const candidate = [V4_SWAP, [encodeV4Swap(amountIn, withMinHop)], deadline] as const;
+    try {
+      await publicClient.simulateContract({
+        address: SEPOLIA_UNIVERSAL_ROUTER,
+        abi: UR_ABI,
+        functionName: "execute",
+        args: candidate,
+        account,
+        gas: GAS_CAP,
+      });
+      args = candidate;
+      break;
+    } catch (err) {
+      lastSimErr = err;
+    }
+  }
+  if (!args) {
+    throw new Error(decodeHookRevert(lastSimErr));
   }
 
   let gas = GAS_CAP;
