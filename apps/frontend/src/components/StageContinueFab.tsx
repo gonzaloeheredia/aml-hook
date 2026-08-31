@@ -4,15 +4,20 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { DEMO_STAGES, type DemoStage } from "@/components/StageRail";
 
 const ORDER = DEMO_STAGES.map((s) => s.id);
-const SIDE_MIN = 128;
-const GAP = 12;
 
 type Side = "prev" | "next";
 
-type Box = {
-  mode: "side" | "dock";
-  prevX: number;
-  nextX: number;
+const EDGE_STYLE = {
+  prev: {
+    left: 16,
+    top: "50%",
+    transform: "translateY(-50%)",
+  } satisfies CSSProperties,
+  next: {
+    right: 16,
+    top: "50%",
+    transform: "translateY(-50%)",
+  } satisfies CSSProperties,
 };
 
 type Props = {
@@ -97,7 +102,7 @@ function FabButton({
 }
 
 /**
- * Prev / next controls at a fixed viewport height, beside the module.
+ * Prev / next controls pinned to the viewport edges at mid-screen.
  */
 export function StageContinueFab({
   stage,
@@ -106,7 +111,7 @@ export function StageContinueFab({
   onPrev,
   onNext,
 }: Props) {
-  const [box, setBox] = useState<Box | null>(null);
+  const [visible, setVisible] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
 
   useEffect(() => {
@@ -119,35 +124,14 @@ export function StageContinueFab({
 
       const el = document.querySelector("[data-stage-module]");
       if (!(el instanceof HTMLElement)) {
-        setBox(null);
+        setVisible(false);
         return;
       }
 
       const r = el.getBoundingClientRect();
       const visibleTop = Math.max(r.top, 96);
       const visibleBottom = Math.min(r.bottom, window.innerHeight - 28);
-      if (visibleBottom - visibleTop < 48) {
-        setBox(null);
-        return;
-      }
-
-      const roomLeft = r.left >= SIDE_MIN;
-      const roomRight = window.innerWidth - r.right >= SIDE_MIN;
-
-      if (roomLeft && roomRight) {
-        setBox({
-          mode: "side",
-          prevX: r.left - GAP,
-          nextX: r.right + GAP,
-        });
-        return;
-      }
-
-      setBox({
-        mode: "dock",
-        prevX: Math.max(16, r.left + 8),
-        nextX: Math.min(window.innerWidth - 16, r.right - 8),
-      });
+      setVisible(visibleBottom - visibleTop >= 48);
     };
 
     measure();
@@ -176,7 +160,7 @@ export function StageContinueFab({
     };
   }, [stage]);
 
-  if (disabled || !box || stage === "swap") return null;
+  if (disabled || !visible || stage === "swap") return null;
 
   const idx = ORDER.indexOf(stage);
   const unlockedIdx = ORDER.indexOf(unlockedThrough);
@@ -186,32 +170,6 @@ export function StageContinueFab({
   const opinionGate = stage === "opinion" ? atBottom : true;
   const nextActive = Boolean(next && nextUnlocked && opinionGate);
 
-  const prevStyle: CSSProperties =
-    box.mode === "side"
-      ? {
-          left: box.prevX,
-          top: "50%",
-          transform: "translate(-100%, -50%)",
-        }
-      : {
-          left: 16,
-          top: "50%",
-          transform: "translateY(-50%)",
-        };
-
-  const nextStyle: CSSProperties =
-    box.mode === "side"
-      ? {
-          left: box.nextX,
-          top: "50%",
-          transform: "translateY(-50%)",
-        }
-      : {
-          right: 16,
-          top: "50%",
-          transform: "translateY(-50%)",
-        };
-
   return (
     <>
       {prev && (
@@ -220,7 +178,7 @@ export function StageContinueFab({
           label={labelFor(prev)}
           active
           onClick={onPrev}
-          style={prevStyle}
+          style={EDGE_STYLE.prev}
         />
       )}
       {next && nextUnlocked && (
@@ -236,7 +194,7 @@ export function StageContinueFab({
                 : labelFor(next)
           }
           onClick={onNext}
-          style={nextStyle}
+          style={EDGE_STYLE.next}
         />
       )}
     </>
