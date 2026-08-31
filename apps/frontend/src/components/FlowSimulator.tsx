@@ -205,8 +205,6 @@ function StepWheel({ progress }: { progress: number }) {
   );
 }
 
-const AFTER_FLOW_HOLD_MS = 3000;
-
 type StepId = keyof DemoCase["stepTimesSec"];
 
 /**
@@ -301,8 +299,8 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
 
   /**
    * Step-through animation: each node stays active for that layer's real
-   * execution time (`stepTimesSec`) while its wheel fills, then the canvas
-   * holds 3s so the completed graph can be read before Fees.
+   * execution time (`stepTimesSec`) while its wheel fills. Settlement
+   * runs when the graph completes; the user clicks to open Fees.
    */
   useEffect(() => {
     if (!running) return;
@@ -336,10 +334,7 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
           setDone(true);
           setActiveIndex(total - 1);
           setElapsedMs(0);
-          timeout = setTimeout(() => {
-            if (cancelled) return;
-            onCompleteRef.current();
-          }, AFTER_FLOW_HOLD_MS);
+          onCompleteRef.current();
           return;
         }
         stepStarted = performance.now();

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type { DemoCase } from "@/data/cases";
 import { bandLabelForUsd, formatFeePct } from "@/lib/hopScoring";
 
@@ -12,10 +13,21 @@ type Props = {
   walletEth: number;
   onConnectClick: () => void;
   onSimulate: () => void;
-  /** Size chips for Wallet E (and any case with amountPresets). */
+  /** Sell size in USDC. */
   onAmountChange?: (amountUsd: number) => void;
   onAdvanceClock?: () => void;
 };
+
+/**
+ * Size chips: case presets, or steps that fit the live USDC balance.
+ */
+function amountChips(demoCase: DemoCase, walletUsdc: number): number[] {
+  if (demoCase.amountPresets?.length) return demoCase.amountPresets;
+  const bal = Math.max(0, Math.floor(walletUsdc));
+  const steps = [100, 500, 1000, 5000, 10_000].filter((n) => n <= bal);
+  if (bal > 0 && !steps.includes(bal)) steps.push(bal);
+  return steps;
+}
 
 /**
  * Swap card: USDC→ETH amounts stay in sync with MetaMask balances.
@@ -32,6 +44,22 @@ export function SwapWidget({
 }: Props) {
   const blocked = demoCase.decision === "block";
   const insufficient = connected && !blocked && walletUsdc < demoCase.activity.amountUsd;
+  const chips = amountChips(demoCase, walletUsdc);
+  const [draft, setDraft] = useState(String(demoCase.activity.amountUsd));
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    if (!editing) setDraft(String(demoCase.activity.amountUsd));
+  }, [demoCase.activity.amountUsd, editing]);
+
+  const commitAmount = () => {
+    if (!onAmountChange) return;
+    setEditing(false);
+    const n = Math.max(0, Math.floor(Number(draft.replace(/[^\d]/g, "")) || 0));
+    const next = blocked ? n : Math.min(n, Math.max(0, Math.floor(walletUsdc)));
+    setDraft(String(next));
+    onAmountChange(next);
+  };
 
   return (
     <div className="w-full">
@@ -46,9 +74,34 @@ export function SwapWidget({
             )}
           </div>
           <div className="flex items-end justify-between gap-3">
-            <div className="value-hero text-uni-pink">
-              {connected ? demoCase.swapSell : "0"}
-            </div>
+            {connected && onAmountChange ? (
+              <input
+                type="text"
+                inputMode="numeric"
+                data-no-stage-nav
+                aria-label="Sell amount in USDC"
+                value={editing ? draft : demoCase.swapSell}
+                onFocus={() => {
+                  setEditing(true);
+                  setDraft(String(demoCase.activity.amountUsd));
+                }}
+                onChange={(e) => {
+                  setEditing(true);
+                  setDraft(e.target.value.replace(/[^\d]/g, ""));
+                }}
+                onBlur={commitAmount}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.currentTarget.blur();
+                  }
+                }}
+                className="value-hero min-w-0 flex-1 bg-transparent text-uni-pink outline-none"
+              />
+            ) : (
+              <div className="value-hero text-uni-pink">
+                {connected ? demoCase.swapSell : "0"}
+              </div>
+            )}
             <button
               type="button"
               className="mb-1 flex items-center gap-2 border-b hair px-1 pb-1 text-sm font-medium"
@@ -64,10 +117,10 @@ export function SwapWidget({
             ${connected ? demoCase.activity.amountUsd.toLocaleString("en-US") : "0"}
             <span className="ml-2">{demoCase.sellToken}</span>
           </div>
-          {connected && demoCase.amountPresets && onAmountChange && (
+          {connected && onAmountChange && chips.length > 0 && (
             <div className="mt-4 space-y-2">
               <div className="flex flex-wrap gap-2">
-                {demoCase.amountPresets.map((preset) => {
+                {chips.map((preset) => {
                   const active = demoCase.activity.amountUsd === preset;
                   const live =
                     active &&
@@ -79,6 +132,7 @@ export function SwapWidget({
                     <button
                       key={preset}
                       type="button"
+                      data-no-stage-nav
                       onClick={() => onAmountChange(preset)}
                       className={`px-2 py-1 text-xs font-medium transition ${
                         active

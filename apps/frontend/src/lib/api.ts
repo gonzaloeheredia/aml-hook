@@ -1,6 +1,7 @@
 /**
  * HTTP client for the AML Hook in-memory demo API (`apps/api/`).
- * Default base: http://localhost:4000. Override with NEXT_PUBLIC_API_URL.
+ * Default base: http://localhost:4000. Hosted Sepolia: set NEXT_PUBLIC_API_URL
+ * to the Railway API (e.g. https://aml-hook-api-production.up.railway.app).
  */
 
 import type { DemoCaseId } from "@/data/cases";
@@ -450,6 +451,7 @@ export function postSwap(walletId: DemoCaseId, amountUsd?: number) {
     reason?: string;
     quote: ApiSwapQuote;
     wallet: ApiWallet;
+    event?: ApiHookEvent;
     ethReceived?: number;
     compliance: ApiCompliancePack;
     keeperCatchUp?: { published: boolean; score: number; feeBps: number } | null;

@@ -351,25 +351,27 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       );
 
       if (quote.decision === "block") {
-        appendEvent({
+        const event = {
           id: `ev-${Date.now()}`,
           walletId: idRaw,
           address: wallet.address,
           score: quote.score,
-          decision: "REVERT",
+          decision: "REVERT" as const,
           feeBps: 0,
           amountUsd: quote.usdcIn,
           hopDistance: wallet.hopDistance,
           origin: wallet.originId ?? "A",
           at: new Date().toISOString(),
-          kind: "WalletBlocked",
-        });
+          kind: "WalletBlocked" as const,
+        };
+        appendEvent(event);
         const oracle = await reevaluateAfterBlock(idRaw);
         return {
           settled: false,
           reason: quote.revertReason ?? "REVERT: previewSwap fail-closed",
           quote,
           wallet,
+          event,
           oracle: oracle.scoreResult,
           onChainPublish: oracle.onChainPublish,
           compliance: await buildCompliancePack(wallet),
@@ -389,7 +391,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         preview: { decision: quote.decision, feeBps: quote.feeBps },
       });
 
-      appendEvent({
+      const event = {
         id: settled.observeTx ?? `ev-${Date.now()}`,
         walletId: idRaw,
         address: wallet.address,
@@ -400,8 +402,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         hopDistance: wallet.hopDistance,
         origin: wallet.originId ?? "n/a",
         at: new Date().toISOString(),
-        kind: "SwapObserved",
-      });
+        kind: "SwapObserved" as const,
+      };
+      appendEvent(event);
 
       const catchUp = walletKeeperPending(idRaw)
         ? await catchUpKeeper(idRaw)
@@ -419,6 +422,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           keeperPending: walletKeeperPending(idRaw),
         },
         ethReceived: quote.ethOut,
+        event,
         observeTx: settled.observeTx,
         spendTx: settled.spendTx,
         escrowTx: settled.escrowTx,

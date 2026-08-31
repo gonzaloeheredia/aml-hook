@@ -115,6 +115,18 @@ export function hookEventFromApi(
 }
 
 /**
+ * Union by id so a later empty GET /events does not wipe a swap just recorded.
+ */
+export function mergeHookEvents(
+  prev: HookChainEvent[],
+  incoming: HookChainEvent[],
+): HookChainEvent[] {
+  const byId = new Map(prev.map((e) => [e.id, e]));
+  for (const e of incoming) byId.set(e.id, e);
+  return [...byId.values()];
+}
+
+/**
  * Pretty-print the afterSwap payload (use-case fields).
  * `amount_usdc` is the swap notional in USDC.
  */

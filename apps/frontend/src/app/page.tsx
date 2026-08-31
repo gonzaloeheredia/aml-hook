@@ -47,6 +47,7 @@ import {
 } from "@/lib/hopScoring";
 import {
   hookEventFromApi,
+  mergeHookEvents,
   type HookChainEvent,
 } from "@/lib/hookEvents";
 import { applyLiveCaseCopy } from "@/lib/liveCaseCopy";
@@ -54,7 +55,7 @@ import { withComplianceOverlay } from "@/lib/withComplianceOverlay";
 
 /**
  * Demo page: guided stages with horizontal slides.
- * Swap → Hook (auto), then Fees → AML stats → Opinion → Event (click / wheel).
+ * Get started opens Hook. Later modules advance only on click (rail, chevron, or half-screen).
  * Event has a Back to Swap control; ledger balances persist until Restart data.
  */
 type SwapStats = { count: number; tradedUsd: number; tradedEth: number };
@@ -78,9 +79,9 @@ const STAGE_ORDER: DemoStage[] = [
   "event",
 ];
 
-/** After landing on Fees, wait out the forward slide plus this hold, then Stats. */
-const FEES_TO_STATS_MS = 3000;
-const OPINION_TO_EVENT_MS = 15_000;
+function apiUnreachableMessage() {
+  return `Cannot reach the API at ${API_BASE}. Set NEXT_PUBLIC_API_URL and restart the frontend.`;
+}
 
 /**
  * Returns the later of two stages in the guided sequence.
@@ -124,7 +125,6 @@ export default function HomePage() {
   const [demoTick, setDemoTick] = useState(0);
 
   const wheelLockRef = useRef(false);
-  const feesHoldRef = useRef(false);
   const stageRef = useRef(stage);
   const unlockedRef = useRef(unlockedThrough);
   const visitedRef = useRef<Set<DemoStage>>(new Set<DemoStage>(["swap"]));
@@ -187,8 +187,11 @@ export default function HomePage() {
     const wallets = walletsRecord(walletsRes.wallets);
     setSimWallets(wallets);
     setTransfers(transfersRes.transfers);
-    setChainEvents(
-      eventsRes.events.map((ev, i) => hookEventFromApi(ev, i + 1)),
+    setChainEvents((prev) =>
+      mergeHookEvents(
+        prev,
+        eventsRes.events.map((ev, i) => hookEventFromApi(ev, i + 1)),
+      ),
     );
     return wallets;
   }, []);
@@ -223,7 +226,9 @@ export default function HomePage() {
         if (!health.ok || health.chain?.ok === false) {
           throw new ApiError(
             health.chain?.reason ||
-              "Anvil stack is down. Run npm run deploy:local and restart the API.",
+              (health.mode === "sepolia"
+                ? "Sepolia RPC is down. The API is up but chain.ok is false."
+                : "Anvil stack is down. Run npm run deploy:local and restart the API."),
             503,
           );
         }
@@ -305,7 +310,7 @@ export default function HomePage() {
     amountUsd: number,
   ): Promise<string | null> => {
     if (apiStatus !== "online") {
-      return "Anvil is required. Run npm run deploy:local and start the API.";
+      return apiUnreachableMessage();
     }
     try {
       const res = await postTransfer(from, to, amountUsd);
@@ -327,7 +332,7 @@ export default function HomePage() {
     amount: number,
   ): Promise<string | null> => {
     if (apiStatus !== "online") {
-      return "Anvil is required. Run npm run deploy:local and start the API.";
+      return apiUnreachableMessage();
     }
     try {
       const res = await postDemoMint(id, token, amount);
@@ -380,7 +385,7 @@ export default function HomePage() {
       }
     }
 
-    setApiError("Anvil is required. Run npm run deploy:local and start the API.");
+    setApiError(apiUnreachableMessage());
     setCompliance(null);
     setDemoTick((n) => n + 1);
   }, [apiStatus, caseId, connected, pointStage, refreshCompliance]);
@@ -429,10 +434,17 @@ export default function HomePage() {
         );
       }
     } else {
-      setApiError("Anvil is required. Run npm run deploy:local and start the API.");
+      setApiError(apiUnreachableMessage());
     }
     setDemoTick((n) => n + 1);
   }, [apiStatus, caseId, refreshCompliance]);
+
+  useEffect(() => {
+    if (stage !== "event" || apiStatus !== "online") return;
+    void refreshLedger().catch(() => {
+      /* keep local trail */
+    });
+  }, [apiStatus, refreshLedger, stage]);
 
   const handleSimulate = () => {
     if (!connected || running) return;
@@ -449,115 +461,78 @@ export default function HomePage() {
   };
 
   /**
-   * Opens AML stats and unlocks the Opinion module.
+   * Enters a module and unlocks the next one so the user can click forward.
    */
-  const enterStats = useCallback(() => {
-    setAuditRevealKey((k) => k + 1);
-    pointStage("stats");
-    setUnlockedThrough((prev) => maxStage(prev, "opinion"));
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [pointStage]);
-
-  /**
-   * Lands on Fees after the hook run. Holds 3s after the forward slide,
-   * then advances to Stats.
-   */
-  const landOnFees = useCallback(() => {
-    pointStage("fees");
-    setUnlockedThrough((prev) => maxStage(prev, "fees"));
-    feesHoldRef.current = true;
-    wheelLockRef.current = true;
-    const settleMs = 2000;
-    window.setTimeout(() => {
-      feesHoldRef.current = false;
-      wheelLockRef.current = false;
-      if (stageRef.current !== "fees") return;
-      enterStats();
-    }, settleMs + FEES_TO_STATS_MS);
-  }, [pointStage, enterStats]);
-
-  /**
-   * Opens Opinion. Event stays locked until the 15s scroll window elapses.
-   */
-  const enterOpinion = useCallback(() => {
-    setAuditRevealKey((k) => k + 1);
-    pointStage("opinion");
-    setUnlockedThrough((prev) => maxStage(prev, "opinion"));
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [pointStage]);
-
-  /**
-   * First visit to Opinion: wait for the slide, then 15s to scroll the file,
-   * then unlock Event and advance. Revisit (Event already seen): just unlock.
-   */
-  useEffect(() => {
-    if (stage !== "opinion") return;
-
-    if (visitedRef.current.has("event")) {
-      setUnlockedThrough((prev) => maxStage(prev, "event"));
-      return;
-    }
-
-    const settleMs = slideSwift ? 420 : 6000;
-    const t = window.setTimeout(() => {
-      if (stageRef.current !== "opinion") return;
-      setUnlockedThrough((prev) => maxStage(prev, "event"));
-      pointStage("event");
+  const arriveAt = useCallback(
+    (arrived: DemoStage) => {
+      if (arrived === "stats" || arrived === "opinion") {
+        setAuditRevealKey((k) => k + 1);
+      }
+      pointStage(arrived);
+      const nxt = STAGE_ORDER[STAGE_ORDER.indexOf(arrived) + 1];
+      setUnlockedThrough((prev) => maxStage(prev, nxt ?? arrived));
       window.scrollTo({ top: 0, behavior: "smooth" });
-    }, settleMs + OPINION_TO_EVENT_MS);
-
-    return () => window.clearTimeout(t);
-  }, [stage, slideSwift, pointStage]);
+    },
+    [pointStage],
+  );
 
   const handleFlowComplete = useCallback(async () => {
     setRunning(false);
     const amount = demoCase.activity.amountUsd;
 
     if (apiStatus !== "online") {
-      setApiError("Anvil is required. Run npm run deploy:local and start the API.");
-      landOnFees();
+      setApiError(apiUnreachableMessage());
       return;
     }
 
-    if (apiStatus === "online") {
+    try {
+      const res = await postSwap(caseId, amount);
+      const ev = res.event ?? {
+        id: `ev-local-${Date.now()}`,
+        walletId: caseId,
+        address: res.wallet.address,
+        score: res.quote.score,
+        decision: res.quote.hookOutput,
+        feeBps: res.quote.feeBps,
+        amountUsd: res.quote.usdcIn,
+        hopDistance: res.wallet.hopDistance ?? null,
+        origin: res.wallet.originId ?? "n/a",
+        at: new Date().toISOString(),
+        kind: res.settled ? "SwapObserved" : "WalletBlocked",
+      } as const;
+      setChainEvents((prev) =>
+        mergeHookEvents(prev, [hookEventFromApi(ev, prev.length + 1)]),
+      );
+      await refreshLedger();
+      const pack = await refreshCompliance(caseId);
+      const ethOut =
+        pack.decision === "block"
+          ? 0
+          : ethOutFromSwap(amount, pack.appliedFeeBps);
+      setSwapStats((prev) => {
+        const current = prev[caseId];
+        return {
+          ...prev,
+          [caseId]: {
+            count: current.count + 1,
+            tradedUsd: current.tradedUsd + (ethOut > 0 ? amount : 0),
+            tradedEth: current.tradedEth + ethOut,
+          },
+        };
+      });
+      setApiError(null);
+      setUnlockedThrough((prev) => maxStage(prev, "fees"));
+    } catch (err) {
+      setApiError(
+        err instanceof ApiError ? err.message : "Swap settlement failed",
+      );
       try {
-        await postSwap(caseId, amount);
         await refreshLedger();
-        const pack = await refreshCompliance(caseId);
-        const ethOut =
-          pack.decision === "block"
-            ? 0
-            : ethOutFromSwap(amount, pack.appliedFeeBps);
-        setSwapStats((prev) => {
-          const current = prev[caseId];
-          return {
-            ...prev,
-            [caseId]: {
-              count: current.count + 1,
-              tradedUsd: current.tradedUsd + (ethOut > 0 ? amount : 0),
-              tradedEth: current.tradedEth + ethOut,
-            },
-          };
-        });
-        setApiError(null);
-        landOnFees();
-        return;
-      } catch (err) {
-        setApiError(
-          err instanceof ApiError ? err.message : "Swap settlement failed",
-        );
-        landOnFees();
+      } catch {
+        /* keep local trail */
       }
     }
-  }, [
-    address,
-    apiStatus,
-    caseId,
-    demoCase,
-    landOnFees,
-    refreshCompliance,
-    refreshLedger,
-  ]);
+  }, [apiStatus, caseId, demoCase, refreshCompliance, refreshLedger]);
 
   const handleStageSelect = (next: DemoStage) => {
     if (next === "swap" && !connected) {
@@ -571,12 +546,8 @@ export default function HomePage() {
       pointStage(next);
       return;
     }
-    if (next === "stats") {
-      enterStats();
-      return;
-    }
-    if (next === "opinion") {
-      enterOpinion();
+    if (next === "fees" || next === "stats" || next === "opinion") {
+      arriveAt(next);
       return;
     }
     pointStage(next);
@@ -601,42 +572,24 @@ export default function HomePage() {
         return false;
       }
 
-      if (next === "stats" && cur !== "stats") {
-        setAuditRevealKey((k) => k + 1);
-        pointStage("stats");
-        setUnlockedThrough((prev) => maxStage(prev, "opinion"));
-        window.scrollTo({ top: 0, behavior: "smooth" });
-        return true;
-      }
-
-      if (next === "opinion" && cur !== "opinion") {
-        setAuditRevealKey((k) => k + 1);
-        pointStage("opinion");
-        setUnlockedThrough((prev) => maxStage(prev, "opinion"));
-        window.scrollTo({ top: 0, behavior: "smooth" });
+      if (dir > 0) {
+        arriveAt(next);
         return true;
       }
 
       pointStage(next);
-      if (dir > 0) {
-        setUnlockedThrough((prev) => maxStage(prev, next));
-      }
       window.scrollTo({ top: 0, behavior: "smooth" });
       return true;
     },
-    [pointStage],
+    [arriveAt, pointStage],
   );
 
   /**
-   * All stages: click advances by half-screen (left=prev, right=next).
-   * Wheel still scrolls vertically first; stage change only at scroll edges.
-   * Opinion → Event: click only, right half, after scrolling to the end of the module.
+   * Click advances by half-screen (left=prev, right=next). Wheel only scrolls.
    */
   useEffect(() => {
     if (appView !== "hook" || modalOpen || metaMaskOpen) return;
 
-    const TOP_EPS = 40;
-    const DELTA_THRESHOLD = 48;
     const SLIDE_MS = 2000;
     const OPINION_SLIDE_MS = SLIDE_MS * 3;
     const SWIFT_MS = 420;
@@ -648,8 +601,6 @@ export default function HomePage() {
       "opinion",
       "event",
     ]);
-    let acc = 0;
-
     const lockNav = (ms: number) => {
       wheelLockRef.current = true;
       window.setTimeout(() => {
@@ -657,20 +608,8 @@ export default function HomePage() {
       }, ms);
     };
 
-    const scrollEdges = () => {
-      const maxScroll = Math.max(
-        0,
-        document.documentElement.scrollHeight - window.innerHeight,
-      );
-      const scrollY = window.scrollY;
-      return {
-        atTop: scrollY <= TOP_EPS,
-        atBottom: scrollY >= maxScroll - TOP_EPS,
-      };
-    };
-
     const tryMove = (dir: 1 | -1) => {
-      if (wheelLockRef.current || feesHoldRef.current) return false;
+      if (wheelLockRef.current) return false;
       const cur = stageRef.current;
       const idx = STAGE_ORDER.indexOf(cur);
       const next = STAGE_ORDER[idx + dir];
@@ -706,53 +645,12 @@ export default function HomePage() {
 
       if (cur === "event" && !goPrev) return;
 
-      // Opinion → Event: only right-half click at the end of the module
-      if (cur === "opinion" && !goPrev) {
-        const { atBottom } = scrollEdges();
-        if (!atBottom) return;
-      }
-
       tryMove(goPrev ? -1 : 1);
     };
 
-    const onWheel = (e: WheelEvent) => {
-      if (wheelLockRef.current) {
-        e.preventDefault();
-        return;
-      }
-
-      const cur = stageRef.current;
-      if (!MANUAL.has(cur)) return;
-
-      const { atTop, atBottom } = scrollEdges();
-      const goingDown = e.deltaY > 0;
-      const goingUp = e.deltaY < 0;
-
-      if ((goingDown && !atBottom) || (goingUp && !atTop)) {
-        acc = 0;
-        return;
-      }
-
-      // Opinion never advances to Event via wheel: scroll-read, then click
-      if (cur === "opinion" && goingDown) {
-        e.preventDefault();
-        acc = 0;
-        return;
-      }
-
-      e.preventDefault();
-      acc += e.deltaY;
-      if (Math.abs(acc) < DELTA_THRESHOLD) return;
-      const dir: 1 | -1 = acc > 0 ? 1 : -1;
-      acc = 0;
-      tryMove(dir);
-    };
-
     window.addEventListener("click", onClick);
-    window.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       window.removeEventListener("click", onClick);
-      window.removeEventListener("wheel", onWheel);
     };
   }, [appView, modalOpen, metaMaskOpen, moveStageBy]);
 
@@ -789,10 +687,10 @@ export default function HomePage() {
           onMetaMaskClick={() => setMetaMaskOpen(true)}
         />
 
-        {appView === "hook" && apiStatus === "offline" && (
+        {appView === "hook" && (apiStatus === "offline" || apiError) && (
           <div className="mx-auto mb-2 w-full max-w-[560px] border-l-[1.5px] border-uni-bad/50 px-4 py-2 text-sm text-uni-bad">
             {apiError ??
-              `Run \`npm run deploy:local\`, then start apps/api (${API_BASE}).`}
+              `Cannot reach the API at ${API_BASE}.`}
           </div>
         )}
 
@@ -936,7 +834,7 @@ export default function HomePage() {
               {stage === "event" && (
                   <div data-stage-module className="relative mx-auto w-full max-w-[1000px] px-2 pb-24 sm:px-3">
                     <OnChainAccumulator
-                      events={chainEvents}
+                      events={chainEvents.filter((e) => e.walletId === caseId)}
                       showTitle={false}
                     />
                     <div className="mt-8 flex justify-center">
