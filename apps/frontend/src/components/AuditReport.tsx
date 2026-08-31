@@ -11,7 +11,22 @@ type Props = {
    * `opinion`: Compliance Officer legal / technical opinion.
    */
   variant: "stats" | "opinion";
+  /** Settled swap count for this wallet (A–D from local demo stats). */
+  swapCount?: number;
+  /** Cumulative USDC sold on settled swaps. */
+  tradedUsd?: number;
+  /** Cumulative ETH bought on settled swaps. */
+  tradedEth?: number;
 };
+
+/**
+ * Formats ETH amounts the same way as FeeSummary.
+ */
+function formatEth(amount: number) {
+  if (amount <= 0) return "0 ETH";
+  const rounded = Math.round(amount * 10_000) / 10_000;
+  return `${rounded.toLocaleString("en-US", { maximumFractionDigits: 4 })} ETH`;
+}
 
 /**
  * Truncates a wallet address for compact display in the metadata row.
@@ -52,7 +67,13 @@ function walletInitials(addr: string, fallback: string) {
  * AML stats module: subject bar + overview / detection cards.
  * Compact layout so the full module fits one viewport without scrolling.
  */
-export function AmlStats({ demoCase, connectedAddress }: Omit<Props, "variant">) {
+export function AmlStats({
+  demoCase,
+  connectedAddress,
+  swapCount = 0,
+  tradedUsd = 0,
+  tradedEth = 0,
+}: Omit<Props, "variant">) {
   const address = connectedAddress ?? demoCase.wallet;
   const gaugeTone =
     demoCase.decision === "block"
@@ -150,6 +171,27 @@ export function AmlStats({ demoCase, connectedAddress }: Omit<Props, "variant">)
                   : demoCase.typology.split(" ")[0]}
               </div>
               <div className="label-kicker mt-2">Typology</div>
+            </div>
+          </div>
+
+          <div className="mt-8 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
+            <div>
+              <div className="label-kicker">Swaps settled</div>
+              <div className="mt-1 font-serif text-[22px] leading-none tracking-tight text-uni-pink tabular-nums">
+                {swapCount}
+              </div>
+            </div>
+            <div>
+              <div className="label-kicker">Sold (USDC)</div>
+              <div className="mt-1 font-serif text-[22px] leading-none tracking-tight text-uni-pink">
+                {tradedUsd.toLocaleString("en-US")} USDC
+              </div>
+            </div>
+            <div>
+              <div className="label-kicker">Bought (ETH)</div>
+              <div className="mt-1 font-serif text-[22px] leading-none tracking-tight text-uni-pink">
+                {formatEth(tradedEth)}
+              </div>
             </div>
           </div>
 
@@ -552,12 +594,21 @@ export function AuditReport({
   demoCase,
   connectedAddress,
   variant = "stats",
+  swapCount,
+  tradedUsd,
+  tradedEth,
 }: Props & { variant?: "stats" | "opinion" }) {
   if (variant === "opinion") {
     return <LegalOpinion demoCase={demoCase} />;
   }
   return (
-    <AmlStats demoCase={demoCase} connectedAddress={connectedAddress} />
+    <AmlStats
+      demoCase={demoCase}
+      connectedAddress={connectedAddress}
+      swapCount={swapCount}
+      tradedUsd={tradedUsd}
+      tradedEth={tradedEth}
+    />
   );
 }
 

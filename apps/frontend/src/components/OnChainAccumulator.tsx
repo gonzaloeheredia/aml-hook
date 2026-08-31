@@ -8,6 +8,8 @@ type Props = {
   events: HookChainEvent[];
   /** When false, the page owns the stage title (Event). */
   showTitle?: boolean;
+  /** A–D use the API demo trail; E reads Sepolia SwapObserved. */
+  trail?: "demo" | "chain";
 };
 
 /**
@@ -42,28 +44,34 @@ function afterSwapRows(event: HookChainEvent) {
 }
 
 /**
- * Pool blockchain record: only the afterSwap SwapObserved payload
- * from the project use-case document.
+ * Latest hook emit: SwapObserved (afterSwap) or WalletBlocked (beforeSwap).
  */
-export function OnChainAccumulator({ events, showTitle = true }: Props) {
-  const afterSwapEvents = events.filter((e) => e.hookPhase === "afterSwap");
-  const last = afterSwapEvents.length
-    ? afterSwapEvents[afterSwapEvents.length - 1]
-    : null;
-  const blockedOnly =
-    !last && events.some((e) => e.eventName === "WalletBlocked");
+export function OnChainAccumulator({
+  events,
+  showTitle = true,
+  trail = "demo",
+}: Props) {
+  const last = events.length ? events[events.length - 1] : null;
+  const blocked = last?.eventName === "WalletBlocked";
+  const demo = trail === "demo";
 
   return (
     <div className="surface radius-g border-l hair px-7 py-8 md:translate-x-8 md:px-10 md:py-10">
       {showTitle ? (
         <div className="label-kicker mb-6">
-          afterSwap · SwapObserved
+          {blocked ? "beforeSwap · WalletBlocked" : "afterSwap · SwapObserved"}
         </div>
       ) : null}
 
       {last ? (
         <>
-          <div className="label-kicker mb-5">On-chain payload</div>
+          <div className="label-kicker mb-5">
+            {blocked
+              ? "REVERT · beforeSwap"
+              : demo
+                ? "Demo trail payload"
+                : "On-chain payload"}
+          </div>
           <div className="grid gap-x-10 gap-y-5 sm:grid-cols-2">
             {afterSwapRows(last).map((row) => (
               <div key={row.label}>
@@ -84,17 +92,11 @@ export function OnChainAccumulator({ events, showTitle = true }: Props) {
             </pre>
           </div>
         </>
-      ) : blockedOnly ? (
-        <p className="mt-1 text-xs leading-relaxed text-uni-muted">
-          <span className="font-medium text-uni-pink">REVERT</span> in{" "}
-          <span className="text-uni-pink">beforeSwap</span>. afterSwap never
-          runs, so the pool event log records nothing for this swap.
-        </p>
       ) : (
         <p className="mt-1 text-xs text-uni-muted">
-          No afterSwap emit yet. A pool swap that reaches afterSwap
-          (ALLOW or FEE_OVERRIDE) writes SwapObserved on Sepolia. Event
-          reads that log. REVERT never emits.
+          {demo
+            ? "No demo event yet. Get started writes SwapObserved (ALLOW / FEE_OVERRIDE) or WalletBlocked (REVERT) here."
+            : "No afterSwap emit yet. A Sepolia fill that reaches afterSwap writes SwapObserved. REVERT never emits."}
         </p>
       )}
     </div>

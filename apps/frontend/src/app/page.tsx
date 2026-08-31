@@ -63,6 +63,7 @@ import {
   type SimWalletId,
 } from "@/lib/hopScoring";
 import {
+  buildHookChainEvent,
   hookEventFromApi,
   mergeHookEvents,
   type HookChainEvent,
@@ -200,17 +201,21 @@ export default function HomePage() {
     stage,
   };
 
-  const liveStats = mergeStats(
-    swapStats[caseId],
-    statsFromEvents(
-      caseId === "E" && liveEAddress
-        ? chainEvents.filter(
-            (e) => e.address.toLowerCase() === liveEAddress.toLowerCase(),
-          )
-        : chainEvents,
-      caseId,
-    ),
-  );
+  const liveStats =
+    caseId === "E"
+      ? mergeStats(
+          swapStats.E,
+          statsFromEvents(
+            liveEAddress
+              ? chainEvents.filter(
+                  (e) =>
+                    e.address.toLowerCase() === liveEAddress.toLowerCase(),
+                )
+              : chainEvents,
+            "E",
+          ),
+        )
+      : swapStats[caseId];
 
   const writeSession = useCallback((patch?: Partial<DemoSessionSnapshot>) => {
     const next: DemoSessionSnapshot = {
@@ -350,7 +355,11 @@ export default function HomePage() {
     const [walletsRes, transfersRes, eventsRes] = await Promise.all([
       fetchWallets(),
       fetchTransfers(),
-      fetchEvents(caseId, caseId === "E" ? live ?? undefined : undefined),
+      fetchEvents(
+        caseId,
+        caseId === "E" ? live ?? undefined : undefined,
+        caseId === "E" ? "chain" : "demo",
+      ),
     ]);
     const apiWallets = walletsRecord(walletsRes.wallets);
     const apiEvents = eventsRes.events.map((ev, i) =>
@@ -722,7 +731,7 @@ export default function HomePage() {
         );
         const nextEvents = res.events
           ? res.events.map((ev, i) => hookEventFromApi(ev, i + 1))
-          : (await fetchEvents(caseId)).events.map((ev, i) =>
+          : (await fetchEvents(caseId, undefined, "demo")).events.map((ev, i) =>
               hookEventFromApi(ev, i + 1),
             );
         setSimWallets(nextWallets);
@@ -866,20 +875,6 @@ export default function HomePage() {
       hookEventFromApi(ev, sessionRef.current.chainEvents.length + 1),
     ]);
     setChainEvents(nextEvents);
-    const ethOut =
-      !res.settled || res.quote.decision === "block"
-        ? 0
-        : ethOutFromSwap(amount, res.quote.feeBps);
-    const current = sessionRef.current.swapStats[caseId];
-    const nextStats = {
-      ...sessionRef.current.swapStats,
-      [caseId]: {
-        count: current.count + 1,
-        tradedUsd: current.tradedUsd + (ethOut > 0 ? amount : 0),
-        tradedEth: current.tradedEth + ethOut,
-      },
-    };
-    setSwapStats(nextStats);
     const nextWallets = {
       ...sessionRef.current.simWallets,
       [caseId]: {
@@ -923,7 +918,6 @@ export default function HomePage() {
     writeSession({
       simWallets: nextWallets,
       chainEvents: nextEvents,
-      swapStats: nextStats,
       complianceByWallet: nextPacks,
     });
     void refreshLedger().catch(() => undefined);
@@ -937,6 +931,34 @@ export default function HomePage() {
     writeSession,
   ]);
 
+  const recordLocalDemoSwap = useCallback(() => {
+    const ev = {
+      ...buildHookChainEvent({
+        demoCase,
+        walletId: caseId,
+        address: simWallets[caseId].address,
+        eventIndex: sessionRef.current.chainEvents.length + 1,
+      }),
+      source: "demo" as const,
+    };
+    const nextEvents = mergeHookEvents(sessionRef.current.chainEvents, [ev]);
+    setChainEvents(nextEvents);
+    const blocked = demoCase.decision === "block";
+    const amount = demoCase.activity.amountUsd;
+    const ethOut = blocked ? 0 : ethOutFromSwap(amount, demoCase.appliedFeeBps);
+    const current = sessionRef.current.swapStats[caseId];
+    const nextStats = {
+      ...sessionRef.current.swapStats,
+      [caseId]: {
+        count: current.count + (blocked ? 0 : 1),
+        tradedUsd: current.tradedUsd + (blocked ? 0 : amount),
+        tradedEth: current.tradedEth + ethOut,
+      },
+    };
+    setSwapStats(nextStats);
+    writeSession({ chainEvents: nextEvents, swapStats: nextStats });
+  }, [caseId, demoCase, simWallets, writeSession]);
+
   const handleSimulate = async () => {
     if (!connected || running || swapBusy || caseId === "E") return;
     if (demoCase.decision !== "block" && demoCase.activity.amountUsd <= 0)
@@ -947,6 +969,7 @@ export default function HomePage() {
     ) {
       return;
     }
+    recordLocalDemoSwap();
     if (apiStatus === "online") {
       setSwapBusy(true);
       try {
@@ -955,7 +978,6 @@ export default function HomePage() {
         setApiError(
           err instanceof ApiError ? err.message : "Swap settlement failed",
         );
-        return;
       } finally {
         setSwapBusy(false);
       }
@@ -1322,6 +1344,9 @@ export default function HomePage() {
                     <AmlStats
                       demoCase={demoCase}
                       connectedAddress={address}
+                      swapCount={liveStats.count}
+                      tradedUsd={liveStats.tradedUsd}
+                      tradedEth={liveStats.tradedEth}
                     />
                   </div>
               )}
@@ -1337,6 +1362,7 @@ export default function HomePage() {
                     <OnChainAccumulator
                       events={chainEvents.filter((e) => e.walletId === caseId)}
                       showTitle={false}
+                      trail={caseId === "E" ? "chain" : "demo"}
                     />
                     <div className="mt-8 flex justify-center">
                       <button

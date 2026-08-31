@@ -417,10 +417,15 @@ export function fetchTransfers() {
 }
 
 /** GET /events — A–D default to the API trail, E to SwapObserved logs. */
-export function fetchEvents(walletId?: DemoCaseId, address?: string) {
+export function fetchEvents(
+  walletId?: DemoCaseId,
+  address?: string,
+  source?: "demo" | "chain" | "all",
+) {
   const params = new URLSearchParams();
   if (walletId) params.set("walletId", walletId);
   if (address) params.set("address", address);
+  if (source) params.set("source", source);
   const q = params.toString() ? `?${params.toString()}` : "";
   return request<{ events: ApiHookEvent[] }>(`/events${q}`);
 }
