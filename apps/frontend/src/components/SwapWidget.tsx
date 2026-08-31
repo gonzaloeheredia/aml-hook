@@ -19,7 +19,7 @@ type Props = {
   faucetBusy?: boolean;
   swapBusy?: boolean;
   swapError?: string | null;
-  nativeEth?: number;
+  nativeEth?: number | null;
   liveAddress?: string | null;
   /** Sell size in USDC. */
   onAmountChange?: (amountUsd: number) => void;
