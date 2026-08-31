@@ -13,7 +13,6 @@ type Box = {
   mode: "side" | "dock";
   prevX: number;
   nextX: number;
-  y: number;
 };
 
 type Props = {
@@ -98,8 +97,7 @@ function FabButton({
 }
 
 /**
- * Prev / next controls glued to the current info module.
- * Replaces the corner FAB and the side chevrons.
+ * Prev / next controls at a fixed viewport height, beside the module.
  */
 export function StageContinueFab({
   stage,
@@ -141,7 +139,6 @@ export function StageContinueFab({
           mode: "side",
           prevX: r.left - GAP,
           nextX: r.right + GAP,
-          y: (visibleTop + visibleBottom) / 2,
         });
         return;
       }
@@ -150,7 +147,6 @@ export function StageContinueFab({
         mode: "dock",
         prevX: Math.max(16, r.left + 8),
         nextX: Math.min(window.innerWidth - 16, r.right - 8),
-        y: Math.min(visibleBottom - 8, window.innerHeight - 80),
       });
     };
 
@@ -194,26 +190,26 @@ export function StageContinueFab({
     box.mode === "side"
       ? {
           left: box.prevX,
-          top: box.y,
+          top: "50%",
           transform: "translate(-100%, -50%)",
         }
       : {
-          left: box.prevX,
-          top: box.y,
-          transform: "translateY(-100%)",
+          left: 16,
+          top: "50%",
+          transform: "translateY(-50%)",
         };
 
   const nextStyle: CSSProperties =
     box.mode === "side"
       ? {
           left: box.nextX,
-          top: box.y,
+          top: "50%",
           transform: "translateY(-50%)",
         }
       : {
-          left: box.nextX,
-          top: box.y,
-          transform: "translate(-100%, -100%)",
+          right: 16,
+          top: "50%",
+          transform: "translateY(-50%)",
         };
 
   return (

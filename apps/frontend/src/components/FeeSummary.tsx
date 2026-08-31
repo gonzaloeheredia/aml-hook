@@ -50,8 +50,8 @@ export function FeeSummary({
   const feeOverride = demoCase.decision === "fee_override";
 
   return (
-    <div className="mx-auto mt-6 grid w-full max-w-3xl grid-cols-1 gap-10 sm:grid-cols-2 md:-translate-x-6">
-      <div className="surface radius-b min-h-[168px] border-l hair px-5 py-6">
+    <div className="mx-auto grid w-full grid-cols-1 gap-6 sm:grid-cols-2">
+      <div className="surface radius-b border-l hair px-5 py-6">
         <MetricRow label="Pool base fee" value={feeLabel(demoCase.baseFeeBps)} />
         <MetricRow
           label="AML fee (hook)"
@@ -74,10 +74,10 @@ export function FeeSummary({
         />
       </div>
 
-      <div className="flex min-h-[168px] flex-col justify-end px-1 py-2 sm:pl-4">
+      <div className="surface radius-b border-l hair px-5 py-6">
         <div className="label-kicker">Swaps settled</div>
         <div className="value-hero mt-2 text-uni-pink tabular-nums">{swapCount}</div>
-        <div className="mt-6 space-y-4">
+        <div className="mt-6">
           <MetricRow
             label="Sold (USDC)"
             value={`${tradedUsd.toLocaleString("en-US")} USDC`}

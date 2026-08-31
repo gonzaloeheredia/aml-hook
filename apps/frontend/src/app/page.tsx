@@ -1404,7 +1404,7 @@ export default function HomePage() {
               )}
 
               {stage === "fees" && (
-                  <div data-stage-module className="relative mx-auto w-full max-w-[1100px] px-2 pb-24 sm:px-4">
+                  <div data-stage-module className="relative mx-auto w-full max-w-[560px] pb-8">
                     <FeeSummary
                       demoCase={demoCase}
                       swapCount={liveStats.count}

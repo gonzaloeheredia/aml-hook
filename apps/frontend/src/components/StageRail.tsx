@@ -80,12 +80,8 @@ export function StageRail({ stage, unlockedThrough, onSelect }: Props) {
                 }`}
               >
                 <span className="relative z-[1] flex h-6 w-6 shrink-0 items-center justify-center bg-uni-bg">
-                  {completed ? (
+                  {completed || active ? (
                     <span className="block h-3 w-3 rounded-full bg-uni-pink" />
-                  ) : active ? (
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-uni-pink bg-transparent shadow-[0_0_10px_rgb(var(--ink)/0.35)]">
-                      <span className="block h-2 w-2 rounded-full bg-uni-pink" />
-                    </span>
                   ) : (
                     <span className="block h-6 w-6 rounded-full border border-uni-pink/30 bg-transparent" />
                   )}
