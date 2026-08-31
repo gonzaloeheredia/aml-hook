@@ -101,7 +101,7 @@ export function applyLiveCaseCopy(demoCase: DemoCase): DemoCase {
             : demoCase.id === "D"
               ? `Score 0/100 in the ALLOW band. Already-held funds swap at 0.30%. After clean C→D, inflow elevates to FEE_OVERRIDE ${mid} or ${high} by inbound USD, with no hop.`
               : demoCase.id === "E"
-                ? `Unknown wallet. Starts empty. After clean C funds E, Floor A is this swap and Floor D is the unpublished bag. The stricter fee wins. Floor A reverts this swap at ${revertFloor}.`
+                ? `Unknown until the first keeper write. After clean C funds E, Floor A is this swap and Floor D is the unpublished bag. The stricter fee wins. Floor A reverts this swap at ${revertFloor}. After updateScore 0–30, later swaps use that row.`
                 : opinion.riskAndScoring,
         decisionExecuted:
           keepSummary
@@ -109,7 +109,7 @@ export function applyLiveCaseCopy(demoCase: DemoCase): DemoCase {
             : demoCase.id === "D"
               ? `Baseline ALLOW. After clean C→D, beforeSwap floors to FEE_OVERRIDE ${mid} (${midEx} inbound) or ${high} (${revertFloor}). D remains score 0 (no hop).`
               : demoCase.id === "E"
-                ? `beforeSwap applies Floor A (this swap) and Floor D (bag). afterSwap emits SwapObserved on the fee path; a ${revertFloor} attempt reverts.`
+                ? `beforeSwap applies Floor A (this swap) and Floor D (bag) while unpublished. afterSwap emits SwapObserved; POST /oracle/E/after-swap publishes 0–30 for the next fill. A ${revertFloor} attempt reverts.`
                 : opinion.decisionExecuted,
       },
       decisionRecord: {

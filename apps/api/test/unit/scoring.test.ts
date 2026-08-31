@@ -139,7 +139,7 @@ describe("unit: scoring", () => {
         now: 1_000,
         stalenessMs: 300_000,
       }),
-      false,
+      true,
     );
     assert.equal(
       shouldPublishScore({

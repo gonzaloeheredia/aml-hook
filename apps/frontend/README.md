@@ -48,7 +48,7 @@ REVERT is `beforeSwap` only. That attempt emits no `afterSwap`.
 
 **Wallet D (score 0)** starts with 5,000 USDC published clean. Held funds → ALLOW 0.30%. Advance 5 min after a $1,000 swap (no intervening write) → 3% (B mid). Clean C→D ~10k → inflow 3% (no hop). Clean C→D $15k → inflow 8%.
 
-**Wallet E (unknown)** is a new Sepolia EOA. Faucet `POST /demo/mint` `{ address }` then **Open pool on Uniswap**. A–D P2P does not fund that EOA. Never-scored floors apply on the live hook (3% / 8% / revert by size).
+**Wallet E (unknown)** is a new Sepolia EOA. Faucet `POST /demo/mint` `{ address }` then swap on the live pool. A–D P2P does not fund that EOA. The first fill while `updatedAt == 0` uses never-scored floors (3% / 8% / revert by size). After the keeper writes 0–30, later swaps use that row.
 
 N-hop formula (A–D store + skill `uhi10-use-case`): `score = 100 × 0.65^hops` (`exposed_proportion` is 1.0 in this demo).
 `POST /transfers` and `POST /swaps` on A–D return as soon as the store updates. Closer hop wins if a wallet is contaminated more than once.
@@ -77,7 +77,7 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 4. Swap with **B** → FEE_OVERRIDE 8%; with **C** → FEE_OVERRIDE 3%
 5. On **D**, swap $1,000, then **Advance 5 min** with no keeper write → 3% on a $1,000 swap (Floor B mid). An operating keeper stamps `updatedAt` every **3 minutes** without calling the agent. Floor B only arms at **5 minutes** if that stamp is late.
 6. Restart. Send **10,000** C→D (C still clean) → D swap → 3% (inflow, no hop). Restart. Send **15,000** C→D → D swap → 8%
-7. Wallet **E**: faucet `{ address }` → **Open pool on Uniswap** (never-scored floors on the live hook)
+7. Wallet **E**: faucet `{ address }` → swap on Sepolia (first fill may still be Floor A; the keeper then publishes 0–30)
 8. From **Fees**, click forward → **AML stats** → **Opinion** → **Event**
 
 ## Data source
@@ -93,4 +93,4 @@ Static case templates live in `src/data/cases.ts`. A–D ledger and compliance f
 
 This UI never communicates with a live MetaMask extension. **Connect** picks demo wallets A–E. The faucet only mints MockUSDC / MockWETH to an address via `POST /demo/mint`.
 
-**Never-scored is intentional.** The faucet does not publish `ComplianceOracle`. Unless `_ORACLE_KEEPER` writes a clean score for that address, a swap on the Sepolia pool (app.uniswap.org) is Wallet E: Floor A/C/D. 3% under $1,000. 8% from $1,000–$14,999 (or revert if the ticket is more than 20% of pool liquidity). Revert at ≥ $15,000. That is the product design.
+**Never-scored applies only until the first keeper write.** The faucet does not publish `ComplianceOracle`. The first swap on the Sepolia pool while `updatedAt == 0` is Floor A/C/D: 3% under $1,000, 8% from $1,000–$14,999 (or revert if the ticket is more than 20% of pool liquidity), revert at ≥ $15,000. After `_ORACLE_KEEPER` publishes 0–30 (`POST /oracle/E/after-swap` or the 3-minute tick), later swaps read that score.

@@ -5,10 +5,11 @@
  * Tick is 3 minutes (`KEEPER_TICK_MS`). Floor B arms at 5 minutes
  * (`stalenessThreshold`). The tick does not call Claude. It stamps the last
  * agent score. If the agent is down, this heartbeat still keeps a published
- * row fresh. If there is no last score (`neverScored`, Wallet E), the tick
- * skips.
+ * row fresh. Unbound Wallet E is skipped; a bound EOA is published on the
+ * first write and then stamped like A–D.
  */
 
+import { isBoundWalletE } from "../chain/accounts.js";
 import { isKeeperPending, listWallets } from "../store.js";
 import { reevaluateWallet } from "./agent.js";
 
@@ -27,11 +28,11 @@ export function keeperTickMs(): number {
 }
 
 /**
- * Recomputes and publishes A–D (skips E and deferred Wallet D).
+ * Recomputes and publishes A–D and bound Wallet E (skips deferred Wallet D).
  */
 export async function runKeeperTick(): Promise<void> {
   for (const w of listWallets()) {
-    if (w.neverScored) continue;
+    if (w.id === "E" && !isBoundWalletE(w.address)) continue;
     if (isKeeperPending(w.id)) continue;
     await reevaluateWallet(w.id, "tick");
   }

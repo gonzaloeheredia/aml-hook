@@ -60,9 +60,10 @@ Opinion copy must describe **standard pool fee + escrowed differential**.
 ```
 POST /transfers  → A–D store hop + balances; COA may refresh in background
 POST /swaps      → A–D applyPoolSwap + demo event; COA fire-and-forget
+POST /oracle/:id/after-swap → reevaluate + publish bound E (first 0–30 write)
 POST /oracle/:id/catch-up → deferred D score in memory
-POST /reset      → resetStore + in-memory seed A–D (E unpublished)
-keeper tick 3m   → Sepolia freshness only (not A–D)
+POST /reset      → resetStore + in-memory seed A–D (does not clear a Sepolia E row)
+keeper tick 3m   → Sepolia freshness (bound E included; not A–D)
 ```
 
 A–D quotes and swaps use TypeScript hop + band (same mapping as `RiskPolicy.decide`).

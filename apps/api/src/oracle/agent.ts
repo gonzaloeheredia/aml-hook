@@ -5,22 +5,25 @@
  * A live-COA miss (billing, 401, timeout) falls back to that skill score so
  * GET /compliance cannot 500 the guided demo. Non-demo live subjects still
  * call Claude; on failure they keep a cached row or the skill score.
- * Tick only stamps the last agent score (no Claude). Wallet E is never published.
+ * Tick only stamps the last agent score (no Claude). Bound Wallet E is published.
  */
 
 import {
   clearKeeperPending,
   demoNow,
   getLastScoreAt,
+  getStore,
   getWallet,
   isKeeperPending,
   listEvents,
   listTransfers,
   listWallets,
   markKeeperPending,
+  setWallets,
   STALENESS_MS,
   touchScoreAt,
 } from "../store.js";
+import { isBoundWalletE } from "../chain/accounts.js";
 import { shouldPublishScore } from "../scoring.js";
 import type { WalletId } from "../types.js";
 import { buildFacts, collectSanctionFacts, counterpartiesOf, factsFromOfacScreen, scoreFromFacts } from "./factScoring.js";
@@ -275,7 +278,16 @@ async function persistEvaluation(input: {
         at: new Date().toISOString(),
       };
 
-  if (shouldWrite) touchScoreAt(wallet.id);
+  if (shouldWrite) {
+    touchScoreAt(wallet.id);
+    if (onChainPublish.status === "submitted" && wallet.neverScored) {
+      const current = getStore().wallets;
+      setWallets({
+        ...current,
+        [wallet.id]: { ...current[wallet.id], neverScored: false },
+      });
+    }
+  }
   const evaluation: OracleEvaluation = {
     scoreResult,
     opinion,
@@ -290,11 +302,11 @@ async function persistEvaluation(input: {
 }
 
 /**
- * Seeds oracle scores for A–D at process start or after reset. E stays unpublished.
+ * Seeds oracle scores for A–D at process start or after reset. Bound E is included.
  */
 export async function seedOracleAll(): Promise<void> {
   for (const w of listWallets()) {
-    if (w.neverScored) continue;
+    if (w.id === "E" && !isBoundWalletE(w.address)) continue;
     await reevaluateWallet(w.id, "seed");
   }
 }

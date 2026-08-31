@@ -476,6 +476,15 @@ export function postSwap(walletId: DemoCaseId, amountUsd?: number) {
   });
 }
 
+/** POST /oracle/:id/after-swap: publish / refresh the score after a live fill. */
+export function postOracleAfterSwap(id: DemoCaseId) {
+  return request<{
+    ok: boolean;
+    onChainPublish?: { status?: string; txHash?: string; error?: string };
+    compliance: ApiCompliancePack;
+  }>(`/oracle/${id}/after-swap`, { method: "POST" });
+}
+
 /** POST /oracle/:id/catch-up: publish deferred keeper score (Wallet D). */
 export function postKeeperCatchUp(id: DemoCaseId) {
   return request<{

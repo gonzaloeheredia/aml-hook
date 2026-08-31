@@ -259,6 +259,28 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  app.post<{ Params: { id: string } }>("/oracle/:id/after-swap", async (req, reply) => {
+    const id = req.params.id.toUpperCase();
+    if (!isWalletId(id)) {
+      return reply.code(400).send({ error: `Wallet id must be ${WALLET_IDS_HINT}` });
+    }
+    try {
+      if (!isMockDemoWallet(id)) await hydrateWallets();
+      const wallet = getWallet(id);
+      if (!wallet) return reply.code(404).send({ error: "Wallet not found" });
+      const evaluation = await reevaluateAfterSwap(id);
+      if (!isMockDemoWallet(id)) await hydrateWallets();
+      return {
+        ok: true,
+        scoreResult: evaluation.scoreResult,
+        onChainPublish: evaluation.onChainPublish,
+        compliance: await buildCompliancePack(getWallet(id)!),
+      };
+    } catch (err) {
+      return sendChainError(reply, err);
+    }
+  });
+
   app.post<{ Params: { id: string } }>("/oracle/:id/catch-up", async (req, reply) => {
     const id = req.params.id.toUpperCase();
     if (!isWalletId(id)) {

@@ -30,6 +30,7 @@ import {
   postReset,
   postDemoElapse,
   postBindWalletE,
+  postOracleAfterSwap,
   postDemoFaucet,
   postDemoMint,
   toSimWallet,
@@ -1100,8 +1101,10 @@ export default function HomePage() {
       goToStage("hook");
       setRunning(true);
       if (apiStatus === "online") {
+        void postOracleAfterSwap("E")
+          .then(() => refreshCompliance("E", amount))
+          .catch(() => refreshCompliance("E", amount));
         void refreshLedger().catch(() => undefined);
-        void refreshCompliance("E", amount).catch(() => undefined);
       }
       void refreshSepoliaEvents(eoa).catch(() => undefined);
     } catch (err) {

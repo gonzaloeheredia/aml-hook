@@ -6,7 +6,7 @@ TypeScript API. Wallets **A–D** are the in-memory guided ledger (`store.ts`): 
 
 **Sepolia (`ORACLE_CHAIN_ID=11155111`).** Reads [`contracts/deployments/11155111.json`](../../contracts/deployments/11155111.json) (env overrides win). Used for Wallet E faucet (`POST /demo/mint` `{ address }`), `/health`, and chain events. Requires `ORACLE_RPC_URL` for those routes. A dead RPC must not fail A–D. Public address template: [`.env.sepolia.example`](.env.sepolia.example). Pool write-up: [`docs/Sepolia.md`](../../docs/Sepolia.md). `/demo/elapse` is the A–D demo clock.
 
-**Oracle COA:** with `ANTHROPIC_API_KEY` in `apps/api/.env`, Claude emits `finalScore`, `recommendedFeeBps`, and the Opinion (tools: `consult_skill` / `uhi10-use-case`, `search_regulations`, `screen_ofac`). For A–D that row stays in the API cache (publish to `ComplianceOracle` is skipped). On every evaluation the COA screens OFAC SDN ETH addresses; A–D skip the `SanctionRegistry` write. Tests and `OFAC_LIVE=0` skip Treasury. There are still **no** live calls to OpenSanctions, Etherscan, GoPlus, Chainalysis, or TRM. E stays unpublished unless an operator writes.
+**Oracle COA:** with `ANTHROPIC_API_KEY` in `apps/api/.env`, Claude emits `finalScore`, `recommendedFeeBps`, and the Opinion (tools: `consult_skill` / `uhi10-use-case`, `search_regulations`, `screen_ofac`). For A–D that row stays in the API cache (publish to `ComplianceOracle` is skipped). On every evaluation the COA screens OFAC SDN ETH addresses; A–D skip the `SanctionRegistry` write. Tests and `OFAC_LIVE=0` skip Treasury. There are still **no** live calls to OpenSanctions, Etherscan, GoPlus, Chainalysis, or TRM. Bound Wallet E is published on first evaluation / after-swap (`updateScore` 0–30); later ticks reuse that row.
 
 **Quotes:** A–D are TypeScript policy (same mapping as `RiskPolicy.decide`). Wallet E / live subjects use `AmlHook.previewSwap` only when a route still needs an on-chain preview.
 
@@ -49,6 +49,7 @@ Restart the API after every `deploy:local` so it loads `.env.local`.
 | `GET` | `/wallets/:id/quote` | USDC→ETH quote (`?amountUsd=1000`). A–D: memory policy |
 | `GET` | `/oracle` | All cached ScoreResults |
 | `GET` | `/oracle/:id` | ScoreResult + opinion for one wallet |
+| `POST` | `/oracle/:id/after-swap` | Reevaluate and publish after a live E fill (first write if never-scored) |
 | `POST` | `/oracle/:id/catch-up` | Publish deferred keeper score (Wallet D latency path) |
 | `GET` | `/oracle/publishes` | Keeper `updateScore` trail (`txHash`) |
 | `POST` | `/transfers` | P2P USDC in the store when A–D is involved. Hop contamination is memory-only |
@@ -70,7 +71,7 @@ Restart the API after every `deploy:local` so it loads `.env.local`.
 | `POST` | `/treasury/:id/cancel` | Release a pending payout reserve |
 | `GET` | `/transfers` | Transfer history |
 | `GET` | `/events` | Hook trail (`SwapObserved` / blocked) |
-| `POST` | `/reset` | `resetStore` + in-memory oracle seed A–D (no Sepolia mint / `updateScore`; E unpublished) |
+| `POST` | `/reset` | `resetStore` + in-memory oracle seed A–D (no Sepolia mint / `updateScore`; does not clear a published E row) |
 
 ### Oracle flow
 
@@ -140,7 +141,7 @@ curl -X POST http://localhost:4000/swaps ^
 
 Clean **C → D** (or B while clean) is not a hop: ~10k → **FEE_OVERRIDE 3%** (inflow); ≥ $15,000 → **FEE_OVERRIDE 8%**.
 
-**Wallet E** has no oracle row. Hosted: faucet `{ address }` + Uniswap. Simulator C→E is RAM only and does not fund that EOA. Floor A is this swap. Floor D is the unpublished bag. The stricter fee wins. Bag under $1,000 → 3%. $10k then $1k swap → 8% (A mid). $15k bag → 8% on a small swap (D). This swap ≥ $15,000 → `UnscoredMagnitudeBlocked`. 24h sum → `DailyAggregationBlocked`.
+**Wallet E** starts with no oracle row. Hosted: faucet `{ address }` + Uniswap. Simulator C→E is RAM only and does not fund that EOA. Until the keeper writes, Floor A is this swap and Floor D is the unpublished bag (stricter fee wins). Bag under $1,000 → 3%. $10k then $1k swap → 8% (A mid). $15k bag → 8% on a small swap (D). This swap ≥ $15,000 → `UnscoredMagnitudeBlocked`. 24h sum → `DailyAggregationBlocked`. After `POST /demo/wallet-e` or `POST /oracle/E/after-swap`, `_ORACLE_KEEPER` publishes a clean 0–30 row; the next swap uses that score (ALLOW 0.30% if still clean and fresh).
 
 **1 ETH = 1,000 USDC** on Anvil only (`MockUsdFeed` at local deploy). Demo ETH is mintable `MockWETH` (18 decimals). It is not native Anvil ETH. Live Deploy binds official Chainlink ETH/USD and USDC/USD. On-chain floors are USD-8 (`1_000e8` / `15_000e8`), not native ether. `_COMPLIANCE_OFFICER` can retune those floors after a 48h confirm.
 

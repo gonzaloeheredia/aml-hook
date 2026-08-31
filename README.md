@@ -99,7 +99,7 @@ The frontend talks to the API. Wallets A–D are the in-memory guided ledger (ho
 | B | Clean, score 0 | Receive from A → ~65 / 8%. Receive from tainted C → ~42 / 3% |
 | C | Clean, score 0, 50,000 USDC | Fund E (unknown) or D (inflow). Receive from A → ~65 / 8% |
 | D | Published score 0, 5,000 USDC | Held funds → ALLOW. Clean C→D $10k → 3%; $15k → 8% (no hop). Advance 5 min after a swap → Floor B |
-| E | Never written, empty Sepolia EOA | Faucet `{ address }` then Uniswap. Floor A/C/D by size. A–D P2P does not fund this EOA |
+| E | Empty Sepolia EOA until first keeper write | Faucet `{ address }` then Uniswap. First fill: Floor A/C/D by size. Then `_ORACLE_KEEPER` publishes 0–30. A–D P2P does not fund this EOA |
 
 ## Quick start
 
@@ -179,6 +179,5 @@ aml-hook/
 
 - SDK `getDeployment` is 31337-only; `sync-deployment.mjs` is Anvil. The API reads `contracts/deployments/11155111.json` directly.
 - Surface add / remove liquidity in the demo UI. The on-chain gate (add and remove) and a seeded Sepolia pool are already there.
-- Auto-publish a COA score for arbitrary new addresses on the live pool (never-scored Floor A/C/D). The Anvil demo uses pre-seeded A–E; Wallet E stays unpublished on purpose.
 - Production KYT vendor feeds (Chainalysis, TRM, OFAC SDN HTTP, etc.).
 - Broader e2e beyond the current Forge suite.

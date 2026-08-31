@@ -198,9 +198,10 @@ export function shouldPublishScore(input: {
   /** Keeper heartbeat: always write so on-chain updatedAt stays fresh. */
   force?: boolean;
 }): boolean {
-  if (input.neverScored) return false;
   if (input.force) return true;
-  if (input.priorScore == null || input.lastScoreAt == null) return true;
+  if (input.neverScored || input.priorScore == null || input.lastScoreAt == null) {
+    return true;
+  }
   if (input.now - input.lastScoreAt >= input.stalenessMs) return true;
   return (
     scoreTier(input.priorScore) !== scoreTier(input.nextScore) ||

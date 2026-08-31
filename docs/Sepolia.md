@@ -62,9 +62,9 @@ keeper may submit the tx. A distinct attestor ECDSA (Elliptic Curve Digital Sign
 | --- | --- |
 | Deployer / admin / compliance officer / FeeEscrow owner | `0x01C67DDF409e70A03342854d9F22278A2aaf87d4` |
 | `_REGISTRY_KEEPER` | `0x52BF625063E299b550aB503A9b5553F27203c225` |
-| `_ORACLE_KEEPER` | `0x8132f689aB76DD5f595C7B4CC52Cab0C6e268b13` |
+| `_ORACLE_KEEPER` | `0x1dC8D5e32566FAbE56EB0CC7A5D0f80671Ab872D` |
 | `_HOOK_GOVERNOR` | `0xFeb2776Ca576e3aF775Af2DA0464be39Af13B4D6` |
-| Attestor (not a manager role) | `0xc90441a6E5B087225EC6382D6815564C6beC112c` |
+| Attestor (not a manager role) | `0x6FC381CACa9151DE11696f3ef867f76A8183e44A` |
 
 Obsolete hooks (do not use): `0xc1a2…cFc7` was bound to a 57-byte
 `MockPoolManager`. `0xf558…CFC7` used the official manager but a misaligned
@@ -126,19 +126,20 @@ Floor A/C/D (use-case Wallet E). Swaps under $1,000 take 3%. Swaps of $1,000–$
 take 8% (or revert if the ticket is more than 20% of pool liquidity). Swaps ≥ $15,000
 revert. That is the designed never-scored path. The demo faucet (`POST /demo/mint` with `{ address }`) only mints 1,000 MockUSDC + 1 MockWETH. It is not in the MetaMask panel. It
 does not call `updateScore`. Simulator A–D transfers do not move these tokens.
-Unless `_ORACLE_KEEPER` later publishes a clean
-row for that EOA (externally owned account), app.uniswap.org will treat the wallet as never-scored: elevated
-fee or revert by size. See [`Use_Case.md`](Use_Case.md) §
-environments.
+The faucet does not call `updateScore`. After the API binds that EOA
+(`POST /demo/wallet-e`) or a live fill (`POST /oracle/E/after-swap`),
+`_ORACLE_KEEPER` publishes a clean 0–30 row. Until that write lands, the
+hook treats the wallet as never-scored (3% / 8% / revert by size). See
+[`Use_Case.md`](Use_Case.md) § environments.
 
-After `_ORACLE_KEEPER` publishes a score for that EOA, Floors A/C no longer
-treat it as never-scored. **Floor D** applies on a later inbound (mint,
-then swap) the same way Steps 8–9 treat Wallet D. **Floor B** applies
-if the row goes stale: five real minutes with no `updateScore`. The swap-card
-**Advance 5 min** button and `POST /demo/elapse` move the A–D demo clock only.
-A healthy 3-minute keeper tick stamps `updatedAt` and keeps Floor B quiet. **Hop
-scoring** from Wallet A cannot be shown here: A–D hops live in API memory, not
-on this EOA. An administrative score unlocks Floor B/D. It does not create
+After that first write, Floors A/C no longer treat it as never-scored.
+**Floor D** applies on a later inbound (mint, then swap) the same way
+Steps 8–9 treat Wallet D. **Floor B** applies if the row goes stale: five
+real minutes with no `updateScore`. The swap-card **Advance 5 min** button
+and `POST /demo/elapse` move the A–D demo clock only. A healthy 3-minute
+keeper tick stamps `updatedAt` and keeps Floor B quiet. **Hop scoring**
+from Wallet A cannot be shown here: A–D hops live in API memory, not on
+this EOA. A published clean score unlocks Floor B/D. It does not create
 a hop.
 
 ## What is not a live Uniswap fill

@@ -31,10 +31,12 @@ is an add/remove caller.
 | A–D keys | Demo picker only | Do **not** map these hops onto a Sepolia EOA |
 | New unscoped EOA | Out of A–D | Wallet **E** until a keeper writes |
 
-Never publish E from the guided path. Do not fund a Sepolia EOA from A.
+Do not publish E from the A–D guided path. Do not fund a Sepolia EOA from A.
 
 On Sepolia: a new EOA vs the live pool is Floor A/C/D until
-`_ORACLE_KEEPER` + attestor write. You do not auto-publish that address.
+`_ORACLE_KEEPER` + attestor write. The keeper publishes a clean 0–30
+row after bind / after-swap; later ticks reuse it. You draft that score.
+You do not submit the tx.
 
 ---
 
@@ -46,7 +48,7 @@ On Sepolia: a new EOA vs the live pool is Floor A/C/D until
 | **B** | Starts published-clean (score 0) | Published | After inbound from A (or 1-hop peer): hop 1 → **~65 / 800 bps**. After inbound from a 1-hop peer: hop 2 → **~42 / 300 bps**. Closer hop wins. |
 | **C** | Same hop rules as B. Funds E (no hop) and D (inflow) | Published | Symmetric with B. Clean C → E does **not** write a hop on E. |
 | **D** | Published clean (score 0), starts with 5,000 USDC | Published | Tainted inbound (A or hopped peer): **defer** `updateScore` so the next swap can show Floor D on stale 0. Catch-up then writes ~65 / 800. Clean C→D does **not** add a hop. Already-held funds ALLOW at 30 bps while the row is fresh 0. |
-| **E** | Unknown. Hosted: new Sepolia EOA (faucet + Uniswap). Simulator C→E is RAM only | **Never written** | Do **not** publish a score. Hook-local Floor A (this swap) + Floor D (bag). Not a COA 0. Do not import A–D hops onto that EOA. |
+| **E** | Unknown. Hosted: new Sepolia EOA (faucet + Uniswap). Simulator C→E is RAM only | Unpublished until first keeper write | First fill: hook-local Floor A (this swap) + Floor D (bag). Then emit a clean **0–30** / 30 bps for the keeper to publish. Do not import A–D hops onto that EOA. |
 
 B and C are hop-symmetric: A→B→C and A→C→B use the same math.
 
@@ -69,10 +71,10 @@ Emit / defer exactly as the step requires. Fees in the right column are
 | 7 | D stale 5 min | Do not stamp a fake freshness to hide Floor B | FEE_OVERRIDE B mid 3% |
 | 8 | Clean C → D ~10k, then D swap | No hop. Leave 0 so Floor D can fire | D mid 3% |
 | 9 | Clean C → D $15k | No hop. Leave 0 | D large 8% |
-| 10a | Clean C → E $500, E $500 | **Do not publish E** | A dust 3% |
-| 10b | C → E $10k, E $1,000 | **Do not publish E** | A mid 8% |
-| 10c | C → E $15k, E $15k | **Do not publish E** | `UnscoredMagnitudeBlocked` |
-| 10d | E unbind feed | Still unpublished | `lastFx` / `PriceFallbackUsed` / `MagnitudeQuoteFailed` |
+| 10a | Clean C → E $500, E $500 | First fill: no row yet. Then draft 0–30 for the keeper | A dust 3% on that fill |
+| 10b | C → E $10k, E $1,000 | Same: floors first, then publish 0–30 | A mid 8% on that fill |
+| 10c | C → E $15k, E $15k | Do not invent a score to bypass the revert | `UnscoredMagnitudeBlocked` |
+| 10d | E unbind feed | Floors still apply if still unpublished | `lastFx` / `PriceFallbackUsed` / `MagnitudeQuoteFailed` |
 | 11–12 | Floors / escrow | Not yours | Officer / FeeEscrow |
 | 13 | Opinion | File for the operator CO; never file with an authority | n/a |
 
@@ -165,12 +167,12 @@ oracle, or the token contracts.
 
 1. A and `exploitConfirmed` → 100, not OFAC, unless `subjectListed`.
 2. Live SDN match / `subjectListed` → registry write; swap is `SanctionHit` at L1 (hook, not a demo wallet).
-3. E / `neverScored` → you should not be scoring; if asked, do not publish.
+3. E / `neverScored` → first keeper write is a clean 0–30 row; later ticks reuse it.
 4. Hop present → apply `100 × 0.65^hops`, then add event/sanction facts.
 5. 1-hop + a single FEE_OVERRIDE swap → still ≤ 70.
 6. `recommendedFeeBps` matches hop band (800 / 300 / 30 / 0).
 7. Floors A–D (including LP A/C) are not your score.
-8. Walkthrough step matches §2 (defer D; never write E; no hop on clean C→D/E).
+8. Walkthrough step matches §2 (defer D; first write on bound E; no hop on clean C→D/E).
 9. Sepolia or unknown EOA → `uhi10-sepolia`; treat as E until a keeper writes.
 10. Opinion sources: venues and corpus ids. **Never** this skill’s filename.
 

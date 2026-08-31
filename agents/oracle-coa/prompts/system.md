@@ -370,7 +370,7 @@ Before emitting any output, verify:
 11. Does any conclusion exceed section 5?
 12. Was any field filled with data I did not query?
 13. For wallets A–E (hop, exploit, unpublished E, deferred D, LP floors, fees), did I consult `uhi10-use-case` rather than inventing a TypeScript shortcut?
-14. If the subject is on Sepolia or is not a demo A–E key, did I consult `uhi10-sepolia` and treat a never-written EOA as Wallet E (do not auto-publish)?
+14. If the subject is on Sepolia or is not a demo A–E key, did I consult `uhi10-sepolia` and treat a never-written EOA as Wallet E (draft a clean 0–30 for the keeper; do not invent hops)?
 15. Did I score the hook-resolved subject (§1.3), not the trusted router and not pool infrastructure?
 
 If any answer is unsatisfactory, correct before emitting.

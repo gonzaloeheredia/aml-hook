@@ -62,9 +62,9 @@ Trusted swap router on this deploy (not the subject): Universal Router
 ## 3. Who may publish
 
 `ComplianceOracle.updateScore` is AccessManaged `_ORACLE_KEEPER` (id 2):
-`0x8132f689aB76DD5f595C7B4CC52Cab0C6e268b13`.
+`0x1dC8D5e32566FAbE56EB0CC7A5D0f80671Ab872D`.
 
-A distinct attestor (`0xc90441a6E5B087225EC6382D6815564C6beC112c`) ECDSA
+A distinct attestor (`0x6FC381CACa9151DE11696f3ef867f76A8183e44A`) ECDSA
 (Elliptic Curve Digital Signature Algorithm)-signs `attestationHash`. The
 hash **must** include `block.timestamp` of the publishing block. A signature
 over a guessed or previous timestamp reverts.

@@ -162,9 +162,9 @@ const STEPS = [
       { label: "C→E $15k, E swaps $15,000", value: "REVERT UnscoredMagnitudeBlocked" },
       { label: "Price feed", value: "POST /demo/price-feed after a prior quote → lastFx cache" },
     ],
-    note: "Floor A looks at this swap. Floor D looks at the unpublished bag. The stricter fee wins. Restart between sizes so C’s 50,000 USDC covers each act.",
+    note: "The first fill while unpublished uses Floor A/D. After the keeper writes 0–30, later swaps use that row. Restart between sizes so C’s 50,000 USDC covers each act.",
     explain:
-      "C → E is an ERC-20 transfer. A faucet mint writes tokens straight to E. Neither path hits the hook. Floor A sizes this swap; Floor D sizes the unpublished bag. Use C → E for the $500 / $10,000 / $15,000 acts: the mint is a fixed 1,000 MockUSDC + 1 MockWETH. Funding from A would add a hop and would leave the unknown-wallet path. After E's first score is published, E is a known wallet. Floor D is testable on Sepolia: send a new inbound, then swap (same as Steps 8–9). Floor B is also testable there: wait five real minutes with no keeper write. Advance 5 min is Anvil-only; a 3-minute tick can refresh the row and hide B. Hop scoring cannot be shown on Sepolia — A lives on Anvil, and there is no tainted sender on that chain. The published score unlocks Floor B/D. It does not create a hop.",
+      "C → E is an ERC-20 transfer. A faucet mint writes tokens straight to E. Neither path hits the hook. The first swap while updatedAt is 0 uses Floor A (this ticket) and Floor D (the unpublished bag); the stricter fee wins. After that fill, POST /oracle/E/after-swap (or the 3-minute tick) publishes a clean 0–30 score. Later swaps read that row. Use C → E for the $500 / $10,000 / $15,000 acts: the mint is a fixed 1,000 MockUSDC + 1 MockWETH. Funding from A would add a hop. Floor D after the first write is the same as Steps 8–9 (new inbound, then swap). Floor B is five real minutes with no keeper write. Advance 5 min is Anvil-only. Hop scoring cannot be shown on Sepolia.",
   },
   {
     n: "11",

@@ -51,7 +51,7 @@ That skill is docs/Use_Case.md in agent form (exploit, N-hop,
 unpublished E, D deferral, LP floors, fee bps).
 If the subject is not an Anvil A–E key or chain is 11155111, also call
 consult_skill with name uhi10-sepolia. A never-written address is Wallet E:
-do not publish it on Anvil, and do not auto-publish a new Sepolia EOA.
+do not publish it on Anvil. On Sepolia draft a clean 0–30 for the keeper.
 Do not copy Anvil hops onto Sepolia. If a weight, band, or floor is still
 unclear, consult_skill again (fact-scoring, task-swap-decision). Do not
 invent a hop table from memory when the skill is available.

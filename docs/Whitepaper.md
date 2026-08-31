@@ -313,7 +313,7 @@ Two environments. Reviewers should grade each on its own terms.
 | Quotes | TypeScript hop + band (same mapping as `RiskPolicy.decide`) | Real `beforeSwap` on the fill |
 | Addresses | Demo picker A–D | [`docs/Sepolia.md`](Sepolia.md) |
 
-A new EOA against the Sepolia pool is Wallet E (no oracle row → Floor A/C/D). The demo leaves that address unpublished until an operator writes it. A–D hops never overlay that EOA.
+A new EOA against the Sepolia pool is Wallet E (no oracle row → Floor A/C/D on the first fill). The keeper then publishes a clean 0–30 row so later swaps read that score. A–D hops never overlay that EOA.
 
 ### 8.1 Contract architecture
 
@@ -490,7 +490,7 @@ The behavioral score is computed off the swap path. The engine runs off-chain. A
 | COA evaluation | Event-driven (seed, P2P, swap). Duration = Claude or skill-interpreter runtime. Demo `POST /transfers` and `POST /swaps` wait for this write. | `_ORACLE_KEEPER` after the agent emits `finalScore` / `recommendedFeeBps` | No new facts. The last published row stays. |
 | Keeper heartbeat | **3 minutes** (`KEEPER_TICK_MS`, default 180_000). Leaves the agent uncalled. Republishes the last score so `updatedAt` stays fresh. | Same keeper + attestor | Floor B stays quiet on a stable wallet for as long as this tick runs. |
 | Floor B arm | **5 minutes** (`stalenessThreshold` / `MAX_SCORE_AGE`; contract and local-deploy default) | Nobody: the hook treats the existing row as stale | Published-clean wallet pays Floor B friction until a write lands. |
-| Never written | `updatedAt == 0` | Nobody | Floor A (unknown wallet), not B. Wallet E is this path by design. |
+| Never written | `updatedAt == 0` | Nobody until the first keeper write | Floor A (unknown wallet), not B. Wallet E is this path on the first fill; the keeper then publishes 0–30. |
 
 The 3-minute tick is shorter than the 5-minute stale window so a retail keeper that is only stamping freshness stays inside the freshness window between honest writes. Busy institutional pools that write every 30–60 seconds can tighten Floor B to 120 seconds (`setStalenessThreshold`). The floor has a lower bound near 120 seconds: validators can nudge `block.timestamp`. If both the agent and the tick are down (or slower than 5 minutes), Floor B is the intended lag, distinct from a contamination finding. The oracle allows 24 `updateScore`s per wallet per hour so a 5-minute stamp plus a few real tier changes fit.
 
