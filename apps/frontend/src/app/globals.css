@@ -300,14 +300,33 @@ html.stage-nav-cursor .stage-nav-hint {
   }
 }
 
+@keyframes stageContinueArrowPrev {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(-3px);
+  }
+}
+
 .stage-continue-fab {
   animation:
     stageContinueIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both,
     stageContinueGlow 2.2s ease-out infinite;
 }
 
+.stage-continue-fab--prev {
+  animation:
+    stageContinueIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 .stage-continue-fab__arrow {
   animation: stageContinueArrow 1.4s ease-in-out infinite;
+}
+
+.stage-continue-fab--prev .stage-continue-fab__arrow {
+  animation-name: stageContinueArrowPrev;
 }
 
 /**

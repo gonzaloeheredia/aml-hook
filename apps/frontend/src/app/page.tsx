@@ -11,9 +11,8 @@ import { UseOfCaseView } from "@/components/UseOfCaseView";
 import { WhitepaperView } from "@/components/WhitepaperView";
 import { OnChainAccumulator } from "@/components/OnChainAccumulator";
 import { StageMorph } from "@/components/StageMorph";
-import { DEMO_STAGES, StageRail, type DemoStage } from "@/components/StageRail";
+import { StageRail, type DemoStage } from "@/components/StageRail";
 import { StageContinueFab } from "@/components/StageContinueFab";
-import { StageSideNav } from "@/components/StageSideNav";
 import { SwapWidget } from "@/components/SwapWidget";
 import { walletTone } from "@/components/WalletTag";
 import { DEMO_CASES, type DemoCase, type DemoCaseId } from "@/data/cases";
@@ -83,7 +82,7 @@ import type { Address } from "viem";
 
 /**
  * Demo page: guided stages with horizontal slides.
- * Get started opens Hook. Later modules advance only on click (rail, floating control, chevron, or half-screen).
+ * Get started opens Hook. Later modules advance only on click (rail, module controls, or half-screen).
  * Event has a Back to Swap control; ledger balances persist until Restart data.
  */
 type ApiStatus = "connecting" | "online" | "offline";
@@ -93,12 +92,6 @@ type ApiStatus = "connecting" | "online" | "offline";
  */
 function maxStage(a: DemoStage, b: DemoStage): DemoStage {
   return STAGE_ORDER.indexOf(a) >= STAGE_ORDER.indexOf(b) ? a : b;
-}
-
-function nextStageLabel(stage: DemoStage): string | null {
-  const next = STAGE_ORDER[STAGE_ORDER.indexOf(stage) + 1];
-  if (!next) return null;
-  return DEMO_STAGES.find((s) => s.id === next)?.label ?? next;
 }
 
 function eventsForWallet(
@@ -355,12 +348,6 @@ export default function HomePage() {
       [wallet]: maxStage(prev[wallet], next),
     }));
   }, []);
-  const nextModule = nextStageLabel(stage);
-  const nextModuleOpen =
-    nextModule != null &&
-    STAGE_ORDER.indexOf(stage) + 1 <= STAGE_ORDER.indexOf(unlockedThrough);
-  const showContinueFab =
-    Boolean(nextModule && nextModuleOpen) && stage !== "swap";
   const baseCase = useMemo(() => {
     const raw = DEMO_CASES[caseId];
     return {
@@ -1284,19 +1271,6 @@ export default function HomePage() {
 
   return (
     <main className="relative min-h-dvh overflow-x-hidden">
-      {appView === "hook" && (
-        <StageSideNav
-          stage={stage}
-          unlockedThrough={unlockedThrough}
-          disabled={modalOpen || metaMaskOpen}
-          onPrev={() => {
-            void moveStageBy(-1);
-          }}
-          onNext={() => {
-            void moveStageBy(1);
-          }}
-        />
-      )}
       <div className="relative z-10 mx-auto w-full px-5 sm:px-8 md:px-12 lg:px-16">
         <NavBar
           view={appView}
@@ -1486,10 +1460,15 @@ export default function HomePage() {
         )}
       </div>
 
-      {appView === "hook" && showContinueFab && nextModule && (
+      {appView === "hook" && (
         <StageContinueFab
-          label={nextModule}
-          onContinue={() => {
+          stage={stage}
+          unlockedThrough={unlockedThrough}
+          disabled={modalOpen || metaMaskOpen}
+          onPrev={() => {
+            void moveStageBy(-1);
+          }}
+          onNext={() => {
             void moveStageBy(1);
           }}
         />

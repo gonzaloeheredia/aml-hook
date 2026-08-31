@@ -14,7 +14,7 @@ export const DEMO_STAGES: {
   hint: string;
 }[] = [
   { id: "swap", label: "Swap", hint: "Get started" },
-  { id: "hook", label: "hook execution", hint: "beforeSwap" },
+  { id: "hook", label: "Execution", hint: "beforeSwap" },
   { id: "fees", label: "Fees", hint: "FeeEscrow differential" },
   { id: "stats", label: "Stats", hint: "Score · detection" },
   { id: "opinion", label: "Opinion", hint: "Legal / technical opinion" },
@@ -53,12 +53,12 @@ export function StageRail({ stage, unlockedThrough, onSelect }: Props) {
       <ol className="relative mx-auto flex w-full flex-row items-start">
         <span
           aria-hidden
-          className="pointer-events-none absolute h-px"
+          className="pointer-events-none absolute h-0.5"
           style={{
             left: `${insetPct}%`,
             right: `${insetPct}%`,
-            top: 19,
-            background: `linear-gradient(to right, rgb(var(--ink) / 0.25) ${cutPct}%, rgb(var(--ink) / 0.08) ${cutPct}%)`,
+            top: 20,
+            background: `linear-gradient(to right, rgb(var(--ink) / 0.45) ${cutPct}%, rgb(var(--ink) / 0.12) ${cutPct}%)`,
           }}
         />
         {DEMO_STAGES.map((s) => {
@@ -75,24 +75,26 @@ export function StageRail({ stage, unlockedThrough, onSelect }: Props) {
                 onClick={() => unlocked && onSelect(s.id)}
                 aria-current={active ? "step" : undefined}
                 title={s.hint}
-                className={`flex w-full flex-col items-center gap-1.5 px-1 py-1.5 text-center transition ${
+                className={`flex w-full flex-col items-center gap-2 px-1 py-2 text-center transition ${
                   unlocked ? "" : "cursor-not-allowed"
                 }`}
               >
-                <span className="relative z-[1] flex h-[22px] w-[22px] shrink-0 items-center justify-center bg-uni-bg">
+                <span className="relative z-[1] flex h-6 w-6 shrink-0 items-center justify-center bg-uni-bg">
                   {completed ? (
-                    <span className="block h-2 w-2 rounded-full bg-uni-pink" />
+                    <span className="block h-3 w-3 rounded-full bg-uni-pink" />
                   ) : active ? (
-                    <span className="flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 border-uni-pink bg-transparent">
-                      <span className="block h-1.5 w-1.5 rounded-full bg-uni-pink" />
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-uni-pink bg-transparent shadow-[0_0_10px_rgb(var(--ink)/0.35)]">
+                      <span className="block h-2 w-2 rounded-full bg-uni-pink" />
                     </span>
                   ) : (
-                    <span className="block h-[22px] w-[22px] rounded-full border border-uni-pink/[0.12] bg-transparent" />
+                    <span className="block h-6 w-6 rounded-full border border-uni-pink/30 bg-transparent" />
                   )}
                 </span>
                 <span
-                  className={`text-[10px] font-medium uppercase leading-tight tracking-[0.06em] sm:text-[11px] ${
-                    active ? "text-uni-pink" : "text-uni-pink/35"
+                  className={`whitespace-nowrap text-[10px] uppercase leading-tight tracking-[0.06em] sm:text-[11px] ${
+                    active
+                      ? "font-semibold text-uni-pink"
+                      : "font-medium text-uni-pink/50"
                   }`}
                 >
                   {s.label}

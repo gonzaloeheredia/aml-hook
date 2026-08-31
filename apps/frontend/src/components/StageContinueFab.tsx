@@ -1,31 +1,44 @@
 "use client";
 
-type Props = {
-  label: string;
-  onContinue: () => void;
+import { useEffect, useState, type CSSProperties } from "react";
+import { DEMO_STAGES, type DemoStage } from "@/components/StageRail";
+
+const ORDER = DEMO_STAGES.map((s) => s.id);
+const SIDE_MIN = 128;
+const GAP = 12;
+
+type Side = "prev" | "next";
+
+type Box = {
+  mode: "side" | "dock";
+  prevX: number;
+  nextX: number;
+  y: number;
 };
 
-/**
- * Floating next-stage control. Replaces the under-rail “Click X to continue” line.
- */
-export function StageContinueFab({ label, onContinue }: Props) {
+type Props = {
+  stage: DemoStage;
+  unlockedThrough: DemoStage;
+  disabled?: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+};
+
+function labelFor(id: DemoStage | undefined) {
+  return DEMO_STAGES.find((s) => s.id === id)?.label ?? "";
+}
+
+function Arrow({ dir }: { dir: Side }) {
   return (
-    <button
-      type="button"
-      data-no-stage-nav
-      onClick={onContinue}
-      aria-label={`Continue to ${label}`}
-      className="stage-continue-fab radius-action edge surface fixed bottom-20 right-5 z-30 inline-flex items-center gap-2 border-l px-3.5 py-2.5 text-sm font-medium text-uni-pink"
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden
+      className="stage-continue-fab__arrow"
     >
-      <span>{label}</span>
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 16 16"
-        fill="none"
-        aria-hidden
-        className="stage-continue-fab__arrow"
-      >
+      {dir === "next" ? (
         <path
           d="M3 8h9M8.5 3.5 13 8l-4.5 4.5"
           stroke="currentColor"
@@ -33,7 +46,203 @@ export function StageContinueFab({ label, onContinue }: Props) {
           strokeLinecap="round"
           strokeLinejoin="round"
         />
-      </svg>
-    </button>
+      ) : (
+        <path
+          d="M13 8H4M7.5 3.5 3 8l4.5 4.5"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      )}
+    </svg>
+  );
+}
+
+function FabButton({
+  dir,
+  label,
+  active,
+  title,
+  onClick,
+  style,
+}: {
+  dir: Side;
+  label: string;
+  active: boolean;
+  title?: string;
+  onClick: () => void;
+  style: CSSProperties;
+}) {
+  return (
+    <div className="fixed z-30" style={style}>
+      <button
+        type="button"
+        data-no-stage-nav
+        disabled={!active}
+        onClick={onClick}
+        aria-label={
+          dir === "next" ? `Continue to ${label}` : `Back to ${label}`
+        }
+        title={title ?? label}
+        className={`stage-continue-fab radius-action edge surface inline-flex items-center gap-2 px-3.5 py-2.5 text-sm font-medium text-uni-pink ${
+          dir === "next" ? "border-l" : "border-r stage-continue-fab--prev"
+        } ${active ? "" : "pointer-events-none opacity-35"}`}
+      >
+        {dir === "prev" && <Arrow dir="prev" />}
+        <span>{label}</span>
+        {dir === "next" && <Arrow dir="next" />}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Prev / next controls glued to the current info module.
+ * Replaces the corner FAB and the side chevrons.
+ */
+export function StageContinueFab({
+  stage,
+  unlockedThrough,
+  disabled = false,
+  onPrev,
+  onNext,
+}: Props) {
+  const [box, setBox] = useState<Box | null>(null);
+  const [atBottom, setAtBottom] = useState(true);
+
+  useEffect(() => {
+    const measure = () => {
+      const maxScroll = Math.max(
+        0,
+        document.documentElement.scrollHeight - window.innerHeight,
+      );
+      setAtBottom(window.scrollY >= maxScroll - 40);
+
+      const el = document.querySelector("[data-stage-module]");
+      if (!(el instanceof HTMLElement)) {
+        setBox(null);
+        return;
+      }
+
+      const r = el.getBoundingClientRect();
+      const visibleTop = Math.max(r.top, 96);
+      const visibleBottom = Math.min(r.bottom, window.innerHeight - 28);
+      if (visibleBottom - visibleTop < 48) {
+        setBox(null);
+        return;
+      }
+
+      const roomLeft = r.left >= SIDE_MIN;
+      const roomRight = window.innerWidth - r.right >= SIDE_MIN;
+
+      if (roomLeft && roomRight) {
+        setBox({
+          mode: "side",
+          prevX: r.left - GAP,
+          nextX: r.right + GAP,
+          y: (visibleTop + visibleBottom) / 2,
+        });
+        return;
+      }
+
+      setBox({
+        mode: "dock",
+        prevX: Math.max(16, r.left + 8),
+        nextX: Math.min(window.innerWidth - 16, r.right - 8),
+        y: Math.min(visibleBottom - 8, window.innerHeight - 80),
+      });
+    };
+
+    measure();
+    const ro = new ResizeObserver(measure);
+    const module = document.querySelector("[data-stage-module]");
+    if (module) ro.observe(module);
+    const root = document.querySelector("main");
+    if (root) ro.observe(root);
+
+    window.addEventListener("scroll", measure, { passive: true });
+    window.addEventListener("resize", measure);
+
+    const started = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      measure();
+      if (now - started < 2200) raf = window.requestAnimationFrame(tick);
+    };
+    raf = window.requestAnimationFrame(tick);
+
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("scroll", measure);
+      window.removeEventListener("resize", measure);
+      window.cancelAnimationFrame(raf);
+    };
+  }, [stage]);
+
+  if (disabled || !box || stage === "swap") return null;
+
+  const idx = ORDER.indexOf(stage);
+  const unlockedIdx = ORDER.indexOf(unlockedThrough);
+  const prev = idx > 0 ? ORDER[idx - 1] : undefined;
+  const next = idx < ORDER.length - 1 ? ORDER[idx + 1] : undefined;
+  const nextUnlocked = next ? ORDER.indexOf(next) <= unlockedIdx : false;
+  const opinionGate = stage === "opinion" ? atBottom : true;
+  const nextActive = Boolean(next && nextUnlocked && opinionGate);
+
+  const prevStyle: CSSProperties =
+    box.mode === "side"
+      ? {
+          left: box.prevX,
+          top: box.y,
+          transform: "translate(-100%, -50%)",
+        }
+      : {
+          left: box.prevX,
+          top: box.y,
+          transform: "translateY(-100%)",
+        };
+
+  const nextStyle: CSSProperties =
+    box.mode === "side"
+      ? {
+          left: box.nextX,
+          top: box.y,
+          transform: "translateY(-50%)",
+        }
+      : {
+          left: box.nextX,
+          top: box.y,
+          transform: "translate(-100%, -100%)",
+        };
+
+  return (
+    <>
+      {prev && (
+        <FabButton
+          dir="prev"
+          label={labelFor(prev)}
+          active
+          onClick={onPrev}
+          style={prevStyle}
+        />
+      )}
+      {next && nextUnlocked && (
+        <FabButton
+          dir="next"
+          label={labelFor(next)}
+          active={nextActive}
+          title={
+            nextActive
+              ? labelFor(next)
+              : stage === "opinion"
+                ? "Scroll to end"
+                : labelFor(next)
+          }
+          onClick={onNext}
+          style={nextStyle}
+        />
+      )}
+    </>
   );
 }
