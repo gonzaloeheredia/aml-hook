@@ -3,10 +3,11 @@
  * balances / neverScored. A dead RPC must not fail the guided demo.
  */
 
+import { getAddress, type Address } from "viem";
 import type { Wallet, WalletId } from "../types.js";
 import { withDeadline } from "../demoMode.js";
 import { getStore, setWallets } from "../store.js";
-import { DEMO_WALLETS, WALLET_IDS } from "./accounts.js";
+import { WALLET_IDS, isBoundWalletE } from "./accounts.js";
 import { readRisk } from "./evaluate.js";
 import { balanceEth, balanceUsdc } from "./ledger.js";
 
@@ -14,7 +15,8 @@ const E_OVERLAY_MS = 2_500;
 
 async function overlayWalletE(): Promise<void> {
   const current = getStore().wallets;
-  const address = DEMO_WALLETS.E.address;
+  if (!isBoundWalletE(current.E.address)) return;
+  const address = getAddress(current.E.address) as Address;
   const [usdc, eth, risk] = await Promise.all([
     balanceUsdc(address),
     balanceEth(address),

@@ -77,7 +77,7 @@ export function applyLiveCaseCopy(demoCase: DemoCase): DemoCase {
     amountPresets = neverScoredAmountPresets(knobs);
     if (!keepSummary) {
       summary = [
-        "No oracle row. Starts empty. Fund from clean C in MetaMask (no hop). Do not use A.",
+        "No oracle row. Connect MetaMask on Sepolia, mint MockUSDC, then swap on the live pool. Do not fund from A.",
         `After C→E ${dust} → next ${dust} swap is ${mid}. C→E ${midEx} then ${feeFloor} swap → ${high} (A mid). C→E ${revertFloor} + small swap → ${high} (D). This swap ${revertFloor} → REVERT.`,
         `${midEx} then a remainder that crosses ${revertFloor} in 24h is Floor C. Unbind the feed with POST /demo/price-feed after a quote → last FX (silent under 30 min; same bands).`,
       ];
