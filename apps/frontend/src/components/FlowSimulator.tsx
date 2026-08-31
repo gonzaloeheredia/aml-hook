@@ -300,7 +300,7 @@ export function FlowSimulator({ demoCase, running, onComplete }: Props) {
   /**
    * Step-through animation: each node stays active for that layer's real
    * execution time (`stepTimesSec`) while its wheel fills. Settlement
-   * runs when the graph completes; the user clicks to open Fees.
+   * runs when the graph completes. Fees stays locked until then; the user clicks to open it.
    */
   useEffect(() => {
     if (!running) return;

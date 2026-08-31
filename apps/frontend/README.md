@@ -18,7 +18,7 @@ On-screen titles (serif, same size on every stage): **Swap**, **Hook execution**
 | 5 | **Opinion** | AML Analysis | Legal / technical opinion (A–E) from **oracle COA** via `/compliance` |
 | 6 | **Event** | Event | A–D: API demo trail. E: on-chain `SwapObserved` |
 
-Auto navigation moves Swap → Hook on **Get started**. After the Hook animation, A–D open Fees immediately. Later stages still wait for a click (hint under the rail).
+**Get started** opens Hook. After the graph finishes, A–D unlock Fees; the floating control (and the rail) move to the next module. No automatic jump between analysis stages.
 
 All stages accept a click on the left half of the screen for previous and the right half for next. Wheel scrolls content first and changes stage at scroll edges. Desktop also shows chevrons on the sides of the current module. The stage rail jumps to any unlocked step.
 

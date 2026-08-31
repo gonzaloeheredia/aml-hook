@@ -12,6 +12,7 @@ import { WhitepaperView } from "@/components/WhitepaperView";
 import { OnChainAccumulator } from "@/components/OnChainAccumulator";
 import { StageMorph } from "@/components/StageMorph";
 import { DEMO_STAGES, StageRail, type DemoStage } from "@/components/StageRail";
+import { StageContinueFab } from "@/components/StageContinueFab";
 import { StageSideNav } from "@/components/StageSideNav";
 import { SwapWidget } from "@/components/SwapWidget";
 import { walletTone } from "@/components/WalletTag";
@@ -67,7 +68,7 @@ import { withComplianceOverlay } from "@/lib/withComplianceOverlay";
 
 /**
  * Demo page: guided stages with horizontal slides.
- * Get started opens Hook. Later modules advance only on click (rail, chevron, or half-screen).
+ * Get started opens Hook. Later modules advance only on click (rail, floating control, chevron, or half-screen).
  * Event has a Back to Swap control; ledger balances persist until Restart data.
  */
 type ApiStatus = "connecting" | "online" | "offline";
@@ -262,6 +263,8 @@ export default function HomePage() {
   const nextModuleOpen =
     nextModule != null &&
     STAGE_ORDER.indexOf(stage) + 1 <= STAGE_ORDER.indexOf(unlockedThrough);
+  const showContinueFab =
+    Boolean(nextModule && nextModuleOpen) && stage !== "swap";
   const baseCase = useMemo(() => {
     const raw = DEMO_CASES[caseId];
     return {
@@ -756,7 +759,7 @@ export default function HomePage() {
   const handleFlowComplete = useCallback(async () => {
     setRunning(false);
     if (caseId !== "E") {
-      arriveAt("fees");
+      bumpUnlock("fees", caseId);
     }
     const amount = demoCase.activity.amountUsd;
 
@@ -833,7 +836,6 @@ export default function HomePage() {
     refreshCompliance,
     refreshLedger,
     writeSession,
-    arriveAt,
   ]);
 
   const handleStageSelect = (next: DemoStage) => {
@@ -1055,13 +1057,6 @@ export default function HomePage() {
               unlockedThrough={unlockedThrough}
               onSelect={handleStageSelect}
             />
-            {nextModule && nextModuleOpen && (
-              <p className="mt-3 text-center text-[12px] tracking-wide text-uni-muted">
-                Click{" "}
-                <span className="font-medium text-uni-pink">{nextModule}</span>{" "}
-                to continue
-              </p>
-            )}
           </div>
 
           <StageMorph
@@ -1155,6 +1150,15 @@ export default function HomePage() {
         </section>
         )}
       </div>
+
+      {appView === "hook" && showContinueFab && nextModule && (
+        <StageContinueFab
+          label={nextModule}
+          onContinue={() => {
+            void moveStageBy(1);
+          }}
+        />
+      )}
 
       {appView === "hook" && (
       <button
