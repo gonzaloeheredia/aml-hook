@@ -1,10 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AmlStats, LegalOpinion } from "@/components/AuditReport";
 import { ConnectModal } from "@/components/ConnectModal";
-import { EscrowPanel } from "@/components/EscrowPanel";
-import { FundsPanel } from "@/components/FundsPanel";
 import { FeeSummary } from "@/components/FeeSummary";
 import { FlowSimulator } from "@/components/FlowSimulator";
 import { MetaMaskPanel } from "@/components/MetaMaskPanel";
@@ -13,7 +11,7 @@ import { UseOfCaseView } from "@/components/UseOfCaseView";
 import { WhitepaperView } from "@/components/WhitepaperView";
 import { OnChainAccumulator } from "@/components/OnChainAccumulator";
 import { StageMorph } from "@/components/StageMorph";
-import { StageRail, type DemoStage } from "@/components/StageRail";
+import { DEMO_STAGES, StageRail, type DemoStage } from "@/components/StageRail";
 import { StageSideNav } from "@/components/StageSideNav";
 import { SwapWidget } from "@/components/SwapWidget";
 import { walletTone } from "@/components/WalletTag";
@@ -36,6 +34,20 @@ import {
   type ApiCompliancePack,
 } from "@/lib/api";
 import {
+  EMPTY_STATS,
+  EMPTY_UNLOCK,
+  STAGE_ORDER,
+  clearDemoSession,
+  loadDemoSession,
+  mergeSimWallets,
+  mergeTransfers,
+  preferFresherCompliance,
+  railwayLooksStale,
+  saveDemoSession,
+  type DemoSessionSnapshot,
+  type SwapStats,
+} from "@/lib/demoSession";
+import {
   caseIdForSimWallet,
   ethOutFromSwap,
   initialSimWallets,
@@ -43,7 +55,6 @@ import {
   setPriceFeedBound,
   type SimWallet,
   type SimWalletId,
-  type TransferRecord,
 } from "@/lib/hopScoring";
 import {
   hookEventFromApi,
@@ -59,32 +70,43 @@ import { withComplianceOverlay } from "@/lib/withComplianceOverlay";
  * Get started opens Hook. Later modules advance only on click (rail, chevron, or half-screen).
  * Event has a Back to Swap control; ledger balances persist until Restart data.
  */
-type SwapStats = { count: number; tradedUsd: number; tradedEth: number };
-
-const EMPTY_STATS: Record<DemoCaseId, SwapStats> = {
-  A: { count: 0, tradedUsd: 0, tradedEth: 0 },
-  B: { count: 0, tradedUsd: 0, tradedEth: 0 },
-  C: { count: 0, tradedUsd: 0, tradedEth: 0 },
-  D: { count: 0, tradedUsd: 0, tradedEth: 0 },
-  E: { count: 0, tradedUsd: 0, tradedEth: 0 },
-};
-
 type ApiStatus = "connecting" | "online" | "offline";
-
-const STAGE_ORDER: DemoStage[] = [
-  "swap",
-  "hook",
-  "fees",
-  "stats",
-  "opinion",
-  "event",
-];
 
 /**
  * Returns the later of two stages in the guided sequence.
  */
 function maxStage(a: DemoStage, b: DemoStage): DemoStage {
   return STAGE_ORDER.indexOf(a) >= STAGE_ORDER.indexOf(b) ? a : b;
+}
+
+function nextStageLabel(stage: DemoStage): string | null {
+  const next = STAGE_ORDER[STAGE_ORDER.indexOf(stage) + 1];
+  if (!next) return null;
+  return DEMO_STAGES.find((s) => s.id === next)?.label ?? next;
+}
+
+function statsFromEvents(
+  events: HookChainEvent[],
+  walletId: DemoCaseId,
+): SwapStats {
+  const settled = events.filter(
+    (e) => e.walletId === walletId && e.eventName === "SwapObserved",
+  );
+  let tradedUsd = 0;
+  let tradedEth = 0;
+  for (const e of settled) {
+    tradedUsd += e.amountUsd;
+    tradedEth += ethOutFromSwap(e.amountUsd, e.feeBps);
+  }
+  return { count: settled.length, tradedUsd, tradedEth };
+}
+
+function mergeStats(a: SwapStats, b: SwapStats): SwapStats {
+  return {
+    count: Math.max(a.count, b.count),
+    tradedUsd: Math.max(a.tradedUsd, b.tradedUsd),
+    tradedEth: Math.max(a.tradedEth, b.tradedEth),
+  };
 }
 
 export default function HomePage() {
@@ -94,42 +116,152 @@ export default function HomePage() {
   const [connected, setConnected] = useState(false);
   const [address, setAddress] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
-  const [swapStats, setSwapStats] = useState<Record<DemoCaseId, SwapStats>>(
-    EMPTY_STATS,
-  );
+  const [swapStats, setSwapStats] = useState(EMPTY_STATS);
 
   const [simWallets, setSimWallets] = useState<Record<SimWalletId, SimWallet>>(
     () => initialSimWallets(),
   );
   const [simActiveId, setSimActiveId] = useState<SimWalletId>("A");
-  const [, setTransfers] = useState<TransferRecord[]>([]);
+  const [transfers, setTransfers] = useState<
+    DemoSessionSnapshot["transfers"]
+  >([]);
   const [chainEvents, setChainEvents] = useState<HookChainEvent[]>([]);
   const [, setAuditRevealKey] = useState(0);
 
   const [stage, setStage] = useState<DemoStage>("swap");
   const [slideDir, setSlideDir] = useState<1 | -1>(1);
   const [slideSwift, setSlideSwift] = useState(false);
-  const [unlockedThrough, setUnlockedThrough] =
-    useState<DemoStage>("swap");
+  const [unlockByWallet, setUnlockByWallet] = useState(EMPTY_UNLOCK);
+  const unlockedThrough = unlockByWallet[caseId];
 
   const [appView, setAppView] = useState<AppView>("hook");
   const [apiStatus, setApiStatus] = useState<ApiStatus>("connecting");
   const [apiError, setApiError] = useState<string | null>(null);
   const [faucetBusy, setFaucetBusy] = useState(false);
-  const [compliance, setCompliance] = useState<ApiCompliancePack | null>(null);
+  const [compliance, setCompliance] = useState<ApiCompliancePack | null>(
+    null,
+  );
+  const [complianceByWallet, setComplianceByWallet] = useState<
+    Partial<Record<DemoCaseId, ApiCompliancePack>>
+  >({});
   const [swapAmountUsd, setSwapAmountUsd] = useState(
     DEMO_CASES.A.activity.amountUsd,
   );
   const [demoTick, setDemoTick] = useState(0);
+  const [sessionReady, setSessionReady] = useState(false);
 
   const wheelLockRef = useRef(false);
   const stageRef = useRef(stage);
   const unlockedRef = useRef(unlockedThrough);
   const visitedRef = useRef<Set<DemoStage>>(new Set<DemoStage>(["swap"]));
+  const persistPausedRef = useRef(true);
+  const complianceByWalletRef = useRef(complianceByWallet);
+  const sessionRef = useRef<DemoSessionSnapshot>({
+    v: 1,
+    simWallets,
+    transfers,
+    chainEvents,
+    swapStats,
+    complianceByWallet,
+    unlockByWallet,
+    caseId,
+    connected,
+    swapAmountUsd,
+    stage,
+  });
   stageRef.current = stage;
   unlockedRef.current = unlockedThrough;
+  complianceByWalletRef.current = complianceByWallet;
+  sessionRef.current = {
+    v: 1,
+    simWallets,
+    transfers,
+    chainEvents,
+    swapStats,
+    complianceByWallet,
+    unlockByWallet,
+    caseId,
+    connected,
+    swapAmountUsd,
+    stage,
+  };
 
-  const liveStats = swapStats[caseId];
+  const liveStats = mergeStats(
+    swapStats[caseId],
+    statsFromEvents(chainEvents, caseId),
+  );
+
+  const writeSession = useCallback((patch?: Partial<DemoSessionSnapshot>) => {
+    const next: DemoSessionSnapshot = {
+      ...sessionRef.current,
+      ...patch,
+      v: 1,
+    };
+    sessionRef.current = next;
+    if (persistPausedRef.current) return;
+    saveDemoSession(next);
+  }, []);
+
+  /**
+   * Hydrate from sessionStorage before paint so API refresh can merge, not clobber.
+   */
+  useLayoutEffect(() => {
+    const snap = loadDemoSession();
+    if (snap) {
+      setCaseId(snap.caseId);
+      setSimActiveId(snap.caseId);
+      setConnected(snap.connected);
+      setSimWallets(snap.simWallets);
+      setTransfers(snap.transfers);
+      setChainEvents(snap.chainEvents);
+      setSwapStats(snap.swapStats);
+      setUnlockByWallet(snap.unlockByWallet);
+      setComplianceByWallet(snap.complianceByWallet);
+      const pack = snap.complianceByWallet[snap.caseId];
+      if (pack) setCompliance(pack);
+      if (snap.connected) {
+        setAddress(snap.simWallets[snap.caseId]?.address ?? null);
+      }
+      if (snap.swapAmountUsd > 0) setSwapAmountUsd(snap.swapAmountUsd);
+      setStage(snap.stage);
+      const through = snap.unlockByWallet[snap.caseId];
+      const idx = STAGE_ORDER.indexOf(through);
+      visitedRef.current = new Set(STAGE_ORDER.slice(0, Math.max(idx, 0) + 1));
+      visitedRef.current.add(snap.stage);
+      sessionRef.current = snap;
+    }
+    persistPausedRef.current = false;
+    setSessionReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!sessionReady) return;
+    writeSession();
+  }, [
+    sessionReady,
+    writeSession,
+    simWallets,
+    transfers,
+    chainEvents,
+    swapStats,
+    complianceByWallet,
+    unlockByWallet,
+    caseId,
+    connected,
+    swapAmountUsd,
+    stage,
+  ]);
+
+  const bumpUnlock = useCallback((next: DemoStage, wallet: DemoCaseId) => {
+    setUnlockByWallet((prev) => ({
+      ...prev,
+      [wallet]: maxStage(prev[wallet], next),
+    }));
+  }, []);
+  const nextModule = nextStageLabel(stage);
+  const nextModuleOpen =
+    nextModule != null &&
+    STAGE_ORDER.indexOf(stage) + 1 <= STAGE_ORDER.indexOf(unlockedThrough);
   const baseCase = useMemo(() => {
     const raw = DEMO_CASES[caseId];
     return {
@@ -167,14 +299,18 @@ export default function HomePage() {
   /**
    * Advances the guided stage and expands the unlock frontier.
    */
-  const goToStage = useCallback((next: DemoStage) => {
-    pointStage(next);
-    setUnlockedThrough((prev) => maxStage(prev, next));
-  }, [pointStage]);
+  const goToStage = useCallback(
+    (next: DemoStage, wallet: DemoCaseId = caseId) => {
+      pointStage(next);
+      bumpUnlock(next, wallet);
+    },
+    [bumpUnlock, caseId, pointStage],
+  );
 
   /**
    * Loads wallets, transfers, and events from the backend.
-   * Returns the live A–E map so callers can cap the next swap to remaining USDC.
+   * On-chain USDC/ETH win. Events / transfers / hop overlay are merged so a
+   * Railway process restart cannot wipe the in-tab walkthrough.
    */
   const refreshLedger = useCallback(async () => {
     const [walletsRes, transfersRes, eventsRes] = await Promise.all([
@@ -182,20 +318,34 @@ export default function HomePage() {
       fetchTransfers(),
       fetchEvents(caseId),
     ]);
-    const wallets = walletsRecord(walletsRes.wallets);
-    setSimWallets(wallets);
-    setTransfers(transfersRes.transfers);
-    setChainEvents((prev) =>
-      mergeHookEvents(
-        prev,
-        eventsRes.events.map((ev, i) => hookEventFromApi(ev, i + 1)),
-      ),
+    const apiWallets = walletsRecord(walletsRes.wallets);
+    const apiEvents = eventsRes.events.map((ev, i) =>
+      hookEventFromApi(ev, i + 1),
     );
-    return wallets;
-  }, [caseId]);
+    const apiTransfers = transfersRes.transfers;
+    const prev = sessionRef.current;
+    const stale = railwayLooksStale(
+      prev.chainEvents,
+      apiEvents,
+      prev.transfers,
+      apiTransfers,
+    );
+    const mergedWallets = mergeSimWallets(prev.simWallets, apiWallets, stale);
+    const mergedTransfers = mergeTransfers(prev.transfers, apiTransfers);
+    const mergedEvents = mergeHookEvents(prev.chainEvents, apiEvents);
+    setSimWallets(mergedWallets);
+    setTransfers(mergedTransfers);
+    setChainEvents(mergedEvents);
+    writeSession({
+      simWallets: mergedWallets,
+      transfers: mergedTransfers,
+      chainEvents: mergedEvents,
+    });
+    return mergedWallets;
+  }, [caseId, writeSession]);
 
   /**
-   * Pulls live opinion for the active wallet from the API.
+   * Pulls live opinion for a wallet. Cached pack wins when Railway reseeds.
    */
   const refreshCompliance = useCallback(
     async (id: DemoCaseId, amountUsd?: number) => {
@@ -207,14 +357,26 @@ export default function HomePage() {
         /* keep last knobs */
       }
       const pack = await fetchCompliance(id, amountUsd ?? swapAmountUsd);
-      setCompliance(pack);
-      return pack;
+      const chosen = preferFresherCompliance(
+        sessionRef.current.complianceByWallet[id],
+        pack,
+      );
+      setComplianceByWallet((prev) => ({ ...prev, [id]: chosen }));
+      setCompliance(chosen);
+      writeSession({
+        complianceByWallet: {
+          ...sessionRef.current.complianceByWallet,
+          [id]: chosen,
+        },
+      });
+      return chosen;
     },
-    [swapAmountUsd],
+    [swapAmountUsd, writeSession],
   );
 
-  /** Bootstrap API connection on mount. */
+  /** Bootstrap API after the session snapshot is in memory. */
   useEffect(() => {
+    if (!sessionReady) return;
     let cancelled = false;
     (async () => {
       try {
@@ -228,7 +390,7 @@ export default function HomePage() {
         }
         await refreshLedger();
         if (cancelled) return;
-        await refreshCompliance("A");
+        await refreshCompliance(sessionRef.current.caseId);
         if (cancelled) return;
         setApiStatus("online");
         setApiError(null);
@@ -241,10 +403,12 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [refreshCompliance, refreshLedger]);
+  }, [refreshCompliance, refreshLedger, sessionReady]);
 
   /** Keep compliance in sync when the selected wallet changes (API online). */
   useEffect(() => {
+    const cached = complianceByWalletRef.current[caseId];
+    if (cached) setCompliance(cached);
     if (apiStatus !== "online") return;
     let cancelled = false;
     (async () => {
@@ -254,6 +418,10 @@ export default function HomePage() {
         setAddress((prev) => prev ?? pack.address);
       } catch (err) {
         if (cancelled) return;
+        if (cached) {
+          setCompliance(cached);
+          return;
+        }
         setApiError(
           err instanceof ApiError ? err.message : "Failed to load compliance",
         );
@@ -273,7 +441,9 @@ export default function HomePage() {
     setConnected(true);
     setRunning(false);
     setModalOpen(false);
-    goToStage("swap");
+    const cached = complianceByWalletRef.current[id];
+    if (cached) setCompliance(cached);
+    goToStage("swap", id);
   };
 
   const handleDisconnect = () => {
@@ -291,7 +461,9 @@ export default function HomePage() {
     setConnected(true);
     setRunning(false);
     setMetaMaskOpen(false);
-    goToStage("swap");
+    const cached = complianceByWalletRef.current[mapped];
+    if (cached) setCompliance(cached);
+    goToStage("swap", mapped);
   };
 
   const handleSendTransfer = async (
@@ -304,8 +476,27 @@ export default function HomePage() {
     }
     try {
       const res = await postTransfer(from, to, amountUsd);
-      setSimWallets(walletsRecord(res.wallets));
-      setTransfers((prev) => [...prev, res.transfer]);
+      const nextWallets = walletsRecord(res.wallets);
+      const nextTransfers = mergeTransfers(sessionRef.current.transfers, [
+        res.transfer,
+      ]);
+      setSimWallets(nextWallets);
+      setTransfers(nextTransfers);
+      let nextPacks = { ...sessionRef.current.complianceByWallet };
+      if (res.recipientCompliance) {
+        const recipient = preferFresherCompliance(
+          nextPacks[res.recipientCompliance.walletId],
+          res.recipientCompliance,
+        );
+        nextPacks = { ...nextPacks, [recipient.walletId]: recipient };
+        setComplianceByWallet(nextPacks);
+        if (recipient.walletId === caseId) setCompliance(recipient);
+      }
+      writeSession({
+        simWallets: nextWallets,
+        transfers: nextTransfers,
+        complianceByWallet: nextPacks,
+      });
       await refreshCompliance(caseId);
       setApiError(null);
       return null;
@@ -326,7 +517,9 @@ export default function HomePage() {
     }
     try {
       const res = await postDemoMint(id, token, amount);
-      setSimWallets(walletsRecord(res.wallets));
+      const nextWallets = walletsRecord(res.wallets);
+      setSimWallets(nextWallets);
+      writeSession({ simWallets: nextWallets });
       setApiError(null);
       return null;
     } catch (err) {
@@ -340,17 +533,36 @@ export default function HomePage() {
    * Reseeds A–E to the use-case baseline and returns the demo to Swap.
    */
   const handleRestartData = useCallback(async () => {
+    persistPausedRef.current = true;
+    clearDemoSession();
     setRunning(false);
     setModalOpen(false);
     setMetaMaskOpen(false);
     setSwapStats(EMPTY_STATS);
     setTransfers([]);
     setChainEvents([]);
+    setCompliance(null);
+    setComplianceByWallet({});
+    setSimWallets(initialSimWallets());
+    setSwapAmountUsd(DEMO_CASES[caseId].activity.amountUsd);
     visitedRef.current = new Set<DemoStage>(["swap"]);
     pointStage("swap");
-    setUnlockedThrough("swap");
+    setUnlockByWallet(EMPTY_UNLOCK);
     setAuditRevealKey((k) => k + 1);
     setDemoTick((n) => n + 1);
+    sessionRef.current = {
+      v: 1,
+      simWallets: initialSimWallets(),
+      transfers: [],
+      chainEvents: [],
+      swapStats: EMPTY_STATS,
+      complianceByWallet: {},
+      unlockByWallet: EMPTY_UNLOCK,
+      caseId,
+      connected,
+      swapAmountUsd: DEMO_CASES[caseId].activity.amountUsd,
+      stage: "swap",
+    };
     window.scrollTo({ top: 0, behavior: "smooth" });
 
     if (apiStatus === "online") {
@@ -358,28 +570,70 @@ export default function HomePage() {
         const res = await postReset();
         const health = await fetchHealth();
         if (health.policy) setPolicyKnobs(health.policy);
-        setSimWallets(walletsRecord(res.wallets));
+        const nextWallets = walletsRecord(res.wallets);
+        const nextEvents = res.events
+          ? res.events.map((ev, i) => hookEventFromApi(ev, i + 1))
+          : (await fetchEvents(caseId)).events.map((ev, i) =>
+              hookEventFromApi(ev, i + 1),
+            );
+        setSimWallets(nextWallets);
         setTransfers(res.transfers);
-        const eventsRes = await fetchEvents(caseId);
-        setChainEvents(
-          eventsRes.events.map((ev, i) => hookEventFromApi(ev, i + 1)),
-        );
+        setChainEvents(nextEvents);
+        sessionRef.current = {
+          ...sessionRef.current,
+          simWallets: nextWallets,
+          transfers: res.transfers,
+          chainEvents: nextEvents,
+        };
+        persistPausedRef.current = false;
         const pack = await refreshCompliance(caseId);
         setAddress((prev) => (connected ? pack.address : prev));
         setPriceFeedBound(true);
         setApiError(null);
+        writeSession({
+          simWallets: nextWallets,
+          transfers: res.transfers,
+          chainEvents: nextEvents,
+          swapStats: EMPTY_STATS,
+          unlockByWallet: EMPTY_UNLOCK,
+          complianceByWallet: { [pack.walletId]: pack },
+          stage: "swap",
+          swapAmountUsd: DEMO_CASES[caseId].activity.amountUsd,
+        });
         return;
       } catch (err) {
+        persistPausedRef.current = false;
         setApiError(
           err instanceof ApiError ? err.message : "Failed to restart data",
         );
+        writeSession({
+          simWallets: initialSimWallets(),
+          transfers: [],
+          chainEvents: [],
+          swapStats: EMPTY_STATS,
+          complianceByWallet: {},
+          unlockByWallet: EMPTY_UNLOCK,
+          stage: "swap",
+          swapAmountUsd: DEMO_CASES[caseId].activity.amountUsd,
+        });
+        return;
       }
     }
 
+    persistPausedRef.current = false;
     setApiError(null);
-    setCompliance(null);
+    writeSession({
+      simWallets: initialSimWallets(),
+      transfers: [],
+      chainEvents: [],
+      swapStats: EMPTY_STATS,
+      complianceByWallet: {},
+      unlockByWallet: EMPTY_UNLOCK,
+      stage: "swap",
+      swapAmountUsd: DEMO_CASES[caseId].activity.amountUsd,
+    });
     setDemoTick((n) => n + 1);
-  }, [apiStatus, caseId, connected, pointStage, refreshCompliance]);
+  }, [apiStatus, caseId, connected, pointStage, refreshCompliance, writeSession]);
 
   /**
    * Event → Swap: jump to the first screen without reseeding.
@@ -459,7 +713,7 @@ export default function HomePage() {
   const handleOpenPool = () => {
     if (!connected || caseId !== "E") return;
     window.open(UNISWAP_SEPOLIA_POOL_URL, "_blank", "noopener,noreferrer");
-    setUnlockedThrough((prev) => maxStage(prev, "event"));
+    bumpUnlock("event", "E");
     if (apiStatus === "online") {
       void refreshLedger().catch(() => {
         /* Event fills after the Uniswap swap */
@@ -493,10 +747,10 @@ export default function HomePage() {
       }
       pointStage(arrived);
       const nxt = STAGE_ORDER[STAGE_ORDER.indexOf(arrived) + 1];
-      setUnlockedThrough((prev) => maxStage(prev, nxt ?? arrived));
+      bumpUnlock(nxt ?? arrived, caseId);
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
-    [pointStage],
+    [bumpUnlock, caseId, pointStage],
   );
 
   const handleFlowComplete = useCallback(async () => {
@@ -522,28 +776,43 @@ export default function HomePage() {
         at: new Date().toISOString(),
         kind: res.settled ? "SwapObserved" : "WalletBlocked",
       } as const;
-      setChainEvents((prev) =>
-        mergeHookEvents(prev, [hookEventFromApi(ev, prev.length + 1)]),
-      );
-      await refreshLedger();
-      const pack = await refreshCompliance(caseId);
+      const nextEvents = mergeHookEvents(sessionRef.current.chainEvents, [
+        hookEventFromApi(ev, sessionRef.current.chainEvents.length + 1),
+      ]);
+      setChainEvents(nextEvents);
       const ethOut =
-        pack.decision === "block"
+        !res.settled || res.quote.decision === "block"
           ? 0
-          : ethOutFromSwap(amount, pack.appliedFeeBps);
-      setSwapStats((prev) => {
-        const current = prev[caseId];
-        return {
-          ...prev,
-          [caseId]: {
-            count: current.count + 1,
-            tradedUsd: current.tradedUsd + (ethOut > 0 ? amount : 0),
-            tradedEth: current.tradedEth + ethOut,
-          },
-        };
-      });
+          : ethOutFromSwap(amount, res.quote.feeBps);
+      const current = sessionRef.current.swapStats[caseId];
+      const nextStats = {
+        ...sessionRef.current.swapStats,
+        [caseId]: {
+          count: current.count + 1,
+          tradedUsd: current.tradedUsd + (ethOut > 0 ? amount : 0),
+          tradedEth: current.tradedEth + ethOut,
+        },
+      };
+      setSwapStats(nextStats);
+      let nextPacks = { ...sessionRef.current.complianceByWallet };
+      if (res.compliance) {
+        const chosen = preferFresherCompliance(
+          nextPacks[res.compliance.walletId],
+          res.compliance,
+        );
+        nextPacks = { ...nextPacks, [chosen.walletId]: chosen };
+        setComplianceByWallet(nextPacks);
+        setCompliance(chosen);
+      }
+      bumpUnlock("fees", caseId);
       setApiError(null);
-      setUnlockedThrough((prev) => maxStage(prev, "fees"));
+      writeSession({
+        chainEvents: nextEvents,
+        swapStats: nextStats,
+        complianceByWallet: nextPacks,
+      });
+      await refreshLedger();
+      await refreshCompliance(caseId);
     } catch (err) {
       setApiError(
         err instanceof ApiError ? err.message : "Swap settlement failed",
@@ -554,7 +823,15 @@ export default function HomePage() {
         /* keep local trail */
       }
     }
-  }, [apiStatus, caseId, demoCase, refreshCompliance, refreshLedger]);
+  }, [
+    apiStatus,
+    bumpUnlock,
+    caseId,
+    demoCase,
+    refreshCompliance,
+    refreshLedger,
+    writeSession,
+  ]);
 
   const handleStageSelect = (next: DemoStage) => {
     if (next === "swap" && !connected) {
@@ -775,6 +1052,13 @@ export default function HomePage() {
               unlockedThrough={unlockedThrough}
               onSelect={handleStageSelect}
             />
+            {nextModule && nextModuleOpen && (
+              <p className="mt-3 text-center text-[12px] tracking-wide text-uni-muted">
+                Click{" "}
+                <span className="font-medium text-uni-pink">{nextModule}</span>{" "}
+                to continue
+              </p>
+            )}
           </div>
 
           <StageMorph
@@ -824,14 +1108,6 @@ export default function HomePage() {
                       swapCount={liveStats.count}
                       tradedUsd={liveStats.tradedUsd}
                       tradedEth={liveStats.tradedEth}
-                    />
-                    <EscrowPanel
-                      apiOnline={apiStatus === "online"}
-                      tick={demoTick + liveStats.count}
-                    />
-                    <FundsPanel
-                      apiOnline={apiStatus === "online"}
-                      tick={demoTick + liveStats.count}
                     />
                   </div>
               )}
