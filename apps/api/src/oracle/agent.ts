@@ -24,9 +24,23 @@ import {
   touchScoreAt,
 } from "../store.js";
 import { isBoundWalletE } from "../chain/accounts.js";
+import { listOnChainSwapObserved } from "../chain/swapLogs.js";
+import { isMockDemoWallet, withDeadline } from "../demoMode.js";
+import {
+  chainEventsForAddress,
+  mergeEventTrails,
+  overlaySwapAmount,
+} from "../eventsQuery.js";
 import { shouldPublishScore } from "../scoring.js";
-import type { WalletId } from "../types.js";
-import { buildFacts, collectSanctionFacts, counterpartiesOf, factsFromOfacScreen, scoreFromFacts } from "./factScoring.js";
+import type { HookEvent, Wallet, WalletId } from "../types.js";
+import {
+  buildFacts,
+  capUncontaminatedWalletE,
+  collectSanctionFacts,
+  counterpartiesOf,
+  factsFromOfacScreen,
+  scoreFromFacts,
+} from "./factScoring.js";
 import { screenWalletOfac, type OfacScreenResult } from "./ofacScreen.js";
 import {
   clearScorePublishes,
@@ -41,7 +55,6 @@ import {
   setOracleEvaluation,
 } from "./store.js";
 import type { OracleEvaluation, OracleOpinion, OracleTrigger, ScoreResult } from "./types.js";
-import { isMockDemoWallet } from "../demoMode.js";
 import { applyLiveOpinionIfNeeded, isLiveCoaEnabled } from "./liveOpinion.js";
 import {
   evaluateWithLiveAgent,
@@ -76,6 +89,31 @@ const INCREMENTAL_FLOW = [
   "task-regulatory-report",
 ] as const;
 
+const E_CHAIN_EVENTS_MS = 8_000;
+
+/**
+ * A–D stay on the in-memory demo trail. E merges Sepolia SwapObserved
+ * for that EOA so the COA scores the live fills.
+ */
+async function eventsForScoring(
+  wallet: Wallet,
+  amountUsd?: number,
+): Promise<HookEvent[]> {
+  const memory = listEvents();
+  if (wallet.id !== "E" || !isBoundWalletE(wallet.address)) return memory;
+  try {
+    const chain = await withDeadline(listOnChainSwapObserved(), E_CHAIN_EVENTS_MS);
+    const mine = chainEventsForAddress(chain, wallet.address);
+    let merged = mergeEventTrails(memory, mine);
+    if (amountUsd != null) {
+      merged = overlaySwapAmount(merged, wallet.address, amountUsd);
+    }
+    return merged;
+  } catch {
+    return memory;
+  }
+}
+
 /**
  * Reevaluates one wallet through the COA skill pipeline, caches the oracle,
  * and publishes the score for the next beforeSwap.
@@ -83,6 +121,7 @@ const INCREMENTAL_FLOW = [
 export async function reevaluateWallet(
   walletId: WalletId,
   trigger: OracleTrigger,
+  opts?: { amountUsd?: number },
 ): Promise<OracleEvaluation> {
   const wallet = getWallet(walletId);
   if (!wallet) {
@@ -102,13 +141,10 @@ export async function reevaluateWallet(
 
   const skills = [...(useIncremental ? INCREMENTAL_FLOW : FULL_FLOW)];
   const flow = useIncremental ? "INCREMENTAL" : "FULL";
-  const live =
-    isLiveCoaEnabled() &&
-    !wallet.neverScored &&
-    !isMockDemoWallet(wallet.id);
+  const live = isLiveCoaEnabled() && !isMockDemoWallet(wallet.id);
 
   const transfers = listTransfers();
-  const events = listEvents();
+  const events = await eventsForScoring(wallet, opts?.amountUsd);
   const ofac = await screenWalletOfac({
     subject: wallet.address,
     counterparties: counterpartiesOf(wallet, transfers),
@@ -248,7 +284,8 @@ async function persistEvaluation(input: {
   prior: number | null;
   ofac: OfacScreenResult;
 }): Promise<OracleEvaluation> {
-  const { wallet, scoreResult, agentRun, scoreSource, prior, ofac } = input;
+  const { wallet, agentRun, scoreSource, prior, ofac } = input;
+  const scoreResult = capUncontaminatedWalletE(wallet, input.scoreResult);
   const opinion =
     input.opinion ?? buildOpinionFromScore(wallet, scoreResult, agentRun, ofac);
   const priorFee = prior == null ? null : getOracleFeeBps(wallet.id);
@@ -382,8 +419,9 @@ export function walletKeeperPending(walletId: WalletId): boolean {
  */
 export async function reevaluateAfterSwap(
   walletId: WalletId,
+  amountUsd?: number,
 ): Promise<OracleEvaluation> {
-  return reevaluateWallet(walletId, "afterSwap");
+  return reevaluateWallet(walletId, "afterSwap", { amountUsd });
 }
 
 /**
@@ -406,7 +444,6 @@ export async function ensureOracleEvaluation(
   if (
     isLiveCoaEnabled() &&
     wallet &&
-    !wallet.neverScored &&
     !isMockDemoWallet(walletId) &&
     cached?.scoreSource !== "anthropic"
   ) {

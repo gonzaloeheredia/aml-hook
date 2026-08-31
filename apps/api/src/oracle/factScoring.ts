@@ -9,6 +9,7 @@
 
 import { createHash } from "node:crypto";
 import {
+  BASE_FEE_BPS,
   DECAY_FACTOR,
   ORIGIN_EXPLOIT_SCORE,
   decisionFromScore,
@@ -95,6 +96,9 @@ export function buildFacts(
   const blocked = walletEvents.filter((e) => e.kind === "WalletBlocked");
   const hopped =
     typeof wallet.hopDistance === "number" && wallet.hopDistance >= 1;
+  /** E Floor A/B/D fees are hook-local. Do not turn that trail into COA risk. */
+  const eFloorTrail =
+    wallet.id === "E" && !hopped && !wallet.exploitConfirmed;
 
   if (swapObserved.length > 0 && !wallet.exploitConfirmed) {
     const allowN = swapObserved.filter((e) => e.decision === "ALLOW").length;
@@ -102,7 +106,9 @@ export function buildFacts(
     const usd = swapObserved.reduce((s, e) => s + e.amountUsd, 0);
     const trailPer = hopped ? 1 : 3;
     const trailCap = hopped ? 8 : 30;
-    const trail = Math.min(swapObserved.length * trailPer, trailCap);
+    const trail = eFloorTrail
+      ? 0
+      : Math.min(swapObserved.length * trailPer, trailCap);
     facts.push(
       fact(
         "SWAP_OBSERVED_TRAIL",
@@ -120,7 +126,7 @@ export function buildFacts(
         fact(
           "AFTERSWAP_FEE_OVERRIDE_SERIES",
           "DF",
-          Math.min(feeN * feePer, feeCap),
+          eFloorTrail ? 0 : Math.min(feeN * feePer, feeCap),
           "HIGH",
           "FATF Rec. 1 · Rec. 10 (EDD trail)",
           `${feeN} afterSwap FEE_OVERRIDE emit(s) accumulated on the oracle record.`,
@@ -310,6 +316,37 @@ export async function collectSanctionFacts(
   return facts;
 }
 
+const ILLICIT_FACT_TYPES = new Set([
+  "EXPLOIT_PROTOCOL_FUNDS",
+  "OFAC_DIRECT_MATCH",
+  "SANCTIONED_COUNTERPARTY",
+  "SANCTIONED_CONTRACT_INTERACTION",
+]);
+
+/**
+ * Wallet E: Floor A/B/D FEE_OVERRIDE is not contamination. Keep a clean 0
+ * unless hop, exploit, or a list hit. Claude cannot raise that published row.
+ */
+export function capUncontaminatedWalletE(
+  wallet: Wallet,
+  score: ScoreResult,
+): ScoreResult {
+  if (wallet.id !== "E" || wallet.exploitConfirmed || wallet.hopDistance != null) {
+    return score;
+  }
+  if (score.triggeringFacts.some((f) => ILLICIT_FACT_TYPES.has(f.type))) {
+    return score;
+  }
+  if (score.finalScore <= 30 && score.hookOutput === "ALLOW") return score;
+  return {
+    ...score,
+    finalScore: 0,
+    riskLevel: "STANDARD",
+    hookOutput: "ALLOW",
+    recommendedFeeBps: BASE_FEE_BPS,
+  };
+}
+
 /**
  * Runs fact-scoring and returns a ScoreResult.
  */
@@ -444,7 +481,7 @@ export function scoreFromFacts(
   });
   const auditHash = `0x${createHash("sha256").update(payload).digest("hex").slice(0, 16)}`;
 
-  return {
+  return capUncontaminatedWalletE(wallet, {
     walletId: wallet.id,
     address: wallet.address,
     finalScore,
@@ -462,7 +499,7 @@ export function scoreFromFacts(
     auditHash,
     skillsApplied,
     flow,
-  };
+  });
 }
 
 function fact(

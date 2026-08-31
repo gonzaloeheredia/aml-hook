@@ -79,3 +79,36 @@ export function selectEventTrail(
 
   return events.sort((a, b) => a.at.localeCompare(b.at));
 }
+
+/** Chain SwapObserved rows for one EOA (Wallet E). A–D never use this. */
+export function chainEventsForAddress(
+  chain: HookEvent[],
+  address: string,
+): HookEvent[] {
+  const addr = address.trim().toLowerCase();
+  if (!addr) return [];
+  return chain.filter((e) => e.address.toLowerCase() === addr);
+}
+
+/**
+ * Chain logs omit USD. Stamp the latest zero-amount SwapObserved for this EOA.
+ */
+export function overlaySwapAmount(
+  events: HookEvent[],
+  address: string,
+  amountUsd: number,
+): HookEvent[] {
+  if (!(amountUsd > 0)) return events;
+  const addr = address.trim().toLowerCase();
+  if (!addr) return events;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.kind !== "SwapObserved") continue;
+    if (e.address.toLowerCase() !== addr) continue;
+    if (e.amountUsd > 0) continue;
+    const next = events.slice();
+    next[i] = { ...e, amountUsd };
+    return next;
+  }
+  return events;
+}

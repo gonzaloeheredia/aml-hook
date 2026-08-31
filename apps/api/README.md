@@ -49,7 +49,7 @@ Restart the API after every `deploy:local` so it loads `.env.local`.
 | `GET` | `/wallets/:id/quote` | USDC→ETH quote (`?amountUsd=1000`). A–D: memory policy |
 | `GET` | `/oracle` | All cached ScoreResults |
 | `GET` | `/oracle/:id` | ScoreResult + opinion for one wallet |
-| `POST` | `/oracle/:id/after-swap` | Reevaluate and publish after a live E fill (first write if never-scored) |
+| `POST` | `/oracle/:id/after-swap` | Reevaluate E from Sepolia `SwapObserved` (`{ amountUsd }`) and publish |
 | `POST` | `/oracle/:id/catch-up` | Publish deferred keeper score (Wallet D latency path) |
 | `GET` | `/oracle/publishes` | Keeper `updateScore` trail (`txHash`) |
 | `POST` | `/transfers` | P2P USDC in the store when A–D is involved. Hop contamination is memory-only |

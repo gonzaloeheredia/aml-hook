@@ -29,7 +29,7 @@ function hopTransfer(from: "A" | "B", to: "B" | "C"): TransferRecord {
 }
 
 function swapEvent(
-  walletId: "B" | "C" | "D",
+  walletId: "B" | "C" | "D" | "E",
   decision: HookEvent["decision"],
   i = 0,
 ): HookEvent {
@@ -99,6 +99,22 @@ describe("unit: fact scoring record", () => {
     );
   });
 
+  it("Wallet E Floor A FEE_OVERRIDE trail does not raise the published score", () => {
+    const wallet = demoWallet("E", { neverScored: false });
+    const result = scoreOf(wallet, [], [
+      swapEvent("E", "FEE_OVERRIDE", 0),
+      swapEvent("E", "FEE_OVERRIDE", 1),
+      swapEvent("E", "FEE_OVERRIDE", 2),
+      swapEvent("E", "ALLOW", 3),
+    ]);
+    assert.equal(result.finalScore, 0);
+    assert.equal(result.hookOutput, "ALLOW");
+    assert.equal(result.recommendedFeeBps, 30);
+    assert.ok(
+      result.triggeringFacts.some((f) => f.type === "SWAP_OBSERVED_TRAIL"),
+    );
+  });
+
   it("clean wallet score rises with SwapObserved emits", () => {
     const wallet = demoWallet("D");
     const none = scoreOf(wallet);
@@ -131,7 +147,7 @@ describe("unit: fact scoring record", () => {
     assert.equal(result.hookOutput, "REVERT");
   });
 
-  it("keeper tick is disabled under npm test", () => {
+  it("keeper tick is disabled under the Node test runner", () => {
     assert.equal(keeperTickMs(), 0);
   });
 });

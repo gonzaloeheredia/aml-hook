@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { resolveEventSource, selectEventTrail } from "../../src/eventsQuery.js";
+import {
+  chainEventsForAddress,
+  overlaySwapAmount,
+  resolveEventSource,
+  selectEventTrail,
+} from "../../src/eventsQuery.js";
 import type { HookEvent } from "../../src/types.js";
 
 function ev(
@@ -46,6 +51,24 @@ describe("eventsQuery", () => {
     assert.deepEqual(
       e.map((row) => row.id),
       ["c1"],
+    );
+  });
+
+  it("overlays USD on the latest zero-amount E fill only", () => {
+    const eoa = "0xABC";
+    const other = ev("c0", "E", "chain");
+    other.address = "0xdef";
+    const first = ev("c1", "E", "chain");
+    first.address = eoa;
+    const latest = ev("c2", "E", "chain");
+    latest.address = eoa;
+    latest.at = "2026-01-01T00:00:09Z";
+    const stamped = overlaySwapAmount([other, first, latest], eoa, 500);
+    assert.equal(stamped[1].amountUsd, 0);
+    assert.equal(stamped[2].amountUsd, 500);
+    assert.deepEqual(
+      chainEventsForAddress(stamped, eoa).map((e) => e.id),
+      ["c1", "c2"],
     );
   });
 });

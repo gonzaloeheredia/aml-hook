@@ -1101,7 +1101,7 @@ export default function HomePage() {
       goToStage("hook");
       setRunning(true);
       if (apiStatus === "online") {
-        void postOracleAfterSwap("E")
+        void postOracleAfterSwap("E", amount)
           .then(() => refreshCompliance("E", amount))
           .catch(() => refreshCompliance("E", amount));
         void refreshLedger().catch(() => undefined);

@@ -259,7 +259,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.post<{ Params: { id: string } }>("/oracle/:id/after-swap", async (req, reply) => {
+  app.post<{ Params: { id: string }; Body: { amountUsd?: number } }>(
+    "/oracle/:id/after-swap",
+    async (req, reply) => {
     const id = req.params.id.toUpperCase();
     if (!isWalletId(id)) {
       return reply.code(400).send({ error: `Wallet id must be ${WALLET_IDS_HINT}` });
@@ -268,7 +270,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       if (!isMockDemoWallet(id)) await hydrateWallets();
       const wallet = getWallet(id);
       if (!wallet) return reply.code(404).send({ error: "Wallet not found" });
-      const evaluation = await reevaluateAfterSwap(id);
+      const amountUsd = Number(req.body?.amountUsd);
+      const evaluation = await reevaluateAfterSwap(
+        id,
+        Number.isFinite(amountUsd) && amountUsd > 0 ? amountUsd : undefined,
+      );
       if (!isMockDemoWallet(id)) await hydrateWallets();
       return {
         ok: true,

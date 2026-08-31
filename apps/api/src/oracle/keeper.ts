@@ -15,11 +15,18 @@ import { reevaluateWallet } from "./agent.js";
 
 const DEFAULT_TICK_MS = 180_000;
 
+function isNodeTestRun(): boolean {
+  return (
+    process.env.npm_lifecycle_event === "test" ||
+    process.env.NODE_TEST_CONTEXT != null
+  );
+}
+
 /**
- * Heartbeat interval. 0 disables (tests, KEEPER_TICK=0, or invalid env).
+ * Heartbeat interval. 0 disables (node:test / npm test, KEEPER_TICK=0, or invalid env).
  */
 export function keeperTickMs(): number {
-  if (process.env.npm_lifecycle_event === "test") return 0;
+  if (isNodeTestRun()) return 0;
   if (process.env.KEEPER_TICK === "0") return 0;
   const raw = process.env.KEEPER_TICK_MS;
   const n = raw == null || raw.trim() === "" ? DEFAULT_TICK_MS : Number(raw);
