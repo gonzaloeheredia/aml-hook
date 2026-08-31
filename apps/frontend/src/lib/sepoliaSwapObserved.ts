@@ -26,8 +26,8 @@ const ERC20_TRANSFER = parseAbiItem(
 );
 
 const DECISIONS = ["ALLOW", "FEE_OVERRIDE", "REVERT"] as const;
-const CHUNK = 10_000n;
-const DEFAULT_LOOKBACK = 50_000n;
+const CHUNK = BigInt(10_000);
+const DEFAULT_LOOKBACK = BigInt(50_000);
 
 export type SwapObservedDecoded = {
   wallet: Address;
@@ -66,14 +66,14 @@ export function usdcSpentInReceipt(
     ),
     strict: false,
   });
-  let total = 0n;
+  let total = BigInt(0);
   const from = wallet.toLowerCase();
   for (const log of transfers) {
     if (log.args.from?.toLowerCase() === from) {
-      total += log.args.value ?? 0n;
+      total += log.args.value ?? BigInt(0);
     }
   }
-  if (total === 0n) return 0;
+  if (total === BigInt(0)) return 0;
   return Number(formatUnits(total, USDC_DECIMALS));
 }
 
@@ -180,11 +180,11 @@ export async function listSepoliaSwapObserved(
 ): Promise<SwapObservedDecoded[]> {
   const client = sepoliaSimClient();
   const latest = await client.getBlockNumber();
-  const from = latest > DEFAULT_LOOKBACK ? latest - DEFAULT_LOOKBACK : 0n;
+  const from = latest > DEFAULT_LOOKBACK ? latest - DEFAULT_LOOKBACK : BigInt(0);
   const logs: Log[] = [];
   let start = from;
   while (start <= latest) {
-    const end = start + CHUNK - 1n > latest ? latest : start + CHUNK - 1n;
+    const end = start + CHUNK - BigInt(1) > latest ? latest : start + CHUNK - BigInt(1);
     const chunk = await client.getLogs({
       address: SEPOLIA_HOOK,
       event: SWAP_OBSERVED,
@@ -193,7 +193,7 @@ export async function listSepoliaSwapObserved(
       toBlock: end,
     });
     logs.push(...chunk);
-    start = end + 1n;
+    start = end + BigInt(1);
   }
   const byBlock = new Map<string, string>();
   const blocks = [
