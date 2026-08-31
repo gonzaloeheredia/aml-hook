@@ -387,16 +387,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           source: "demo" as const,
         };
         appendEvent(event);
-        const oracle = await reevaluateAfterBlock(idRaw);
+        void reevaluateAfterBlock(idRaw).catch((err) => {
+          console.error("reevaluateAfterBlock:", err);
+        });
         return {
           settled: false,
           reason: quote.revertReason ?? "REVERT: previewSwap fail-closed",
           quote,
           wallet,
           event,
-          oracle: oracle.scoreResult,
-          onChainPublish: oracle.onChainPublish,
-          compliance: await buildCompliancePack(wallet),
         };
       }
 
@@ -430,10 +429,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       };
       appendEvent(event);
 
-      const catchUp = walletKeeperPending(idRaw)
-        ? await catchUpKeeper(idRaw)
-        : null;
-      const oracle = catchUp ?? (await reevaluateAfterSwap(idRaw));
+      if (walletKeeperPending(idRaw)) {
+        void catchUpKeeper(idRaw).catch((err) => {
+          console.error("catchUpKeeper:", err);
+        });
+      } else {
+        void reevaluateAfterSwap(idRaw).catch((err) => {
+          console.error("reevaluateAfterSwap:", err);
+        });
+      }
       await hydrateWallets();
       const after = getWallet(idRaw)!;
 
@@ -451,16 +455,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         spendTx: settled.spendTx,
         escrowTx: settled.escrowTx,
         escrowId: settled.escrowId,
-        oracle: oracle.scoreResult,
-        onChainPublish: oracle.onChainPublish,
-        keeperCatchUp: catchUp
-          ? {
-              published: true,
-              score: catchUp.scoreResult.finalScore,
-              feeBps: catchUp.scoreResult.recommendedFeeBps,
-            }
-          : null,
-        compliance: await buildCompliancePack(after),
       };
     } catch (err) {
       return sendChainError(reply, err);

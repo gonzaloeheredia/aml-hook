@@ -755,6 +755,9 @@ export default function HomePage() {
 
   const handleFlowComplete = useCallback(async () => {
     setRunning(false);
+    if (caseId !== "E") {
+      arriveAt("fees");
+    }
     const amount = demoCase.activity.amountUsd;
 
     if (caseId === "E" || apiStatus !== "online") {
@@ -804,7 +807,6 @@ export default function HomePage() {
         setComplianceByWallet(nextPacks);
         setCompliance(chosen);
       }
-      bumpUnlock("fees", caseId);
       setApiError(null);
       writeSession({
         chainEvents: nextEvents,
@@ -831,6 +833,7 @@ export default function HomePage() {
     refreshCompliance,
     refreshLedger,
     writeSession,
+    arriveAt,
   ]);
 
   const handleStageSelect = (next: DemoStage) => {
