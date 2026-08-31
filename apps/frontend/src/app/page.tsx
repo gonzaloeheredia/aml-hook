@@ -454,10 +454,13 @@ export default function HomePage() {
         }
         await refreshLedger();
         if (cancelled) return;
-        await refreshCompliance(sessionRef.current.caseId);
-        if (cancelled) return;
         setApiStatus("online");
         setApiError(null);
+        try {
+          await refreshCompliance(sessionRef.current.caseId);
+        } catch {
+          /* Opinion / live COA may 500; A–D swaps still settle */
+        }
       } catch {
         if (cancelled) return;
         setApiStatus("offline");

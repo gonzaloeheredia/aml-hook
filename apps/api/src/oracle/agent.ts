@@ -1,9 +1,10 @@
 /**
  * Off-chain Compliance Officer / oracle agent runner.
  *
- * When live, Claude emits score, fee, Opinion, and skill findings. The keeper
- * publishes finalScore + recommendedFeeBps to ComplianceOracle. The hook and
- * FeeEscrow read that row. TypeScript does not precompute 65/42 or mock copy.
+ * A–D use the skill interpreter (hop + band). Claude is optional Opinion text.
+ * A live-COA miss (billing, 401, timeout) falls back to that skill score so
+ * GET /compliance cannot 500 the guided demo. Non-demo live subjects still
+ * call Claude; on failure they keep a cached row or the skill score.
  * Tick only stamps the last agent score (no Claude). Wallet E is never published.
  */
 
@@ -37,6 +38,7 @@ import {
   setOracleEvaluation,
 } from "./store.js";
 import type { OracleEvaluation, OracleOpinion, OracleTrigger, ScoreResult } from "./types.js";
+import { isMockDemoWallet } from "../demoMode.js";
 import { applyLiveOpinionIfNeeded, isLiveCoaEnabled } from "./liveOpinion.js";
 import {
   evaluateWithLiveAgent,
@@ -97,7 +99,10 @@ export async function reevaluateWallet(
 
   const skills = [...(useIncremental ? INCREMENTAL_FLOW : FULL_FLOW)];
   const flow = useIncremental ? "INCREMENTAL" : "FULL";
-  const live = isLiveCoaEnabled() && !wallet.neverScored;
+  const live =
+    isLiveCoaEnabled() &&
+    !wallet.neverScored &&
+    !isMockDemoWallet(wallet.id);
 
   const transfers = listTransfers();
   const events = listEvents();
@@ -132,6 +137,36 @@ export async function reevaluateWallet(
     ofac,
   };
 
+  async function evaluateWithSkill(): Promise<OracleEvaluation> {
+    const agentRun = await runVirtualAgentPipeline({
+      wallet,
+      trigger,
+      skills,
+      flow,
+      theater: trigger !== "seed",
+      ofac,
+    });
+    const facts = buildFacts(wallet, transfers, events, extraFacts);
+    const scoreResult = scoreFromFacts(
+      wallet,
+      facts,
+      trigger,
+      prior,
+      skills,
+      flow,
+    );
+    return persistEvaluation({
+      wallet,
+      scoreResult,
+      agentRun,
+      scoreSource: "skill",
+      opinionSource: "mock",
+      trigger,
+      prior,
+      ofac,
+    });
+  }
+
   if (live) {
     try {
       const scored = await evaluateWithRetry(evidence, trigger, skills, flow);
@@ -148,40 +183,14 @@ export async function reevaluateWallet(
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error("live COA failed; not substituting a TypeScript score:", message);
+      console.error("live COA failed; falling back to skill score:", message);
       const cached = getOracleEvaluation(walletId);
       if (cached) return cached;
-      throw err;
+      return evaluateWithSkill();
     }
   }
 
-  const agentRun = await runVirtualAgentPipeline({
-    wallet,
-    trigger,
-    skills,
-    flow,
-    theater: trigger !== "seed",
-    ofac,
-  });
-  const facts = buildFacts(wallet, transfers, events, extraFacts);
-  const scoreResult = scoreFromFacts(
-    wallet,
-    facts,
-    trigger,
-    prior,
-    skills,
-    flow,
-  );
-  return persistEvaluation({
-    wallet,
-    scoreResult,
-    agentRun,
-    scoreSource: "skill",
-    opinionSource: "mock",
-    trigger,
-    prior,
-    ofac,
-  });
+  return evaluateWithSkill();
 }
 
 async function evaluateWithRetry(
@@ -386,6 +395,7 @@ export async function ensureOracleEvaluation(
     isLiveCoaEnabled() &&
     wallet &&
     !wallet.neverScored &&
+    !isMockDemoWallet(walletId) &&
     cached?.scoreSource !== "anthropic"
   ) {
     cached = await reevaluateWallet(walletId, "manual");
