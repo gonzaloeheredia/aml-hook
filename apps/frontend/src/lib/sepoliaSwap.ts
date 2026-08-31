@@ -64,6 +64,9 @@ const POOL_KEY = {
 const MAX_UINT160 = (BigInt(1) << BigInt(160)) - BigInt(1);
 const MAX_UINT256 = (BigInt(1) << BigInt(256)) - BigInt(1);
 const PERMIT_TTL_SEC = 30 * 24 * 60 * 60;
+/** Infura Sepolia rejects eth_sendRawTransaction above 2^24 (16_777_216). */
+const GAS_CAP = BigInt(8_000_000);
+const APPROVE_GAS = BigInt(80_000);
 
 function encodeExactIn(amountIn: bigint): Hex {
   return encodeAbiParameters(
@@ -153,6 +156,9 @@ function decodeHookRevert(err: unknown): string {
   if (/user rejected|denied|rejected/i.test(raw)) {
     return "Wallet rejected the transaction.";
   }
+  if (/gas limit too high|16777216|20999980/i.test(raw)) {
+    return "Sepolia RPC rejected the gas limit. Retry the swap — the app now caps gas under Infura’s 16.7M ceiling.";
+  }
   return raw;
 }
 
@@ -177,6 +183,7 @@ async function ensurePermit2Allowance(
       args: [PERMIT2, MAX_UINT256],
       account,
       chain: wallet.chain,
+      gas: APPROVE_GAS,
     });
     await publicClient.waitForTransactionReceipt({ hash });
   }
@@ -201,6 +208,7 @@ async function ensurePermit2Allowance(
       ],
       account,
       chain: wallet.chain,
+      gas: APPROVE_GAS,
     });
     await publicClient.waitForTransactionReceipt({ hash });
   }
@@ -237,14 +245,44 @@ export async function swapUsdcForWeth(account: Address, usdc: number): Promise<H
 
   const wallet = sepoliaWalletClient(account);
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 180);
+  const args = [V4_SWAP, [encodeV4Swap(amountIn)], deadline] as const;
+  try {
+    await publicClient.simulateContract({
+      address: SEPOLIA_UNIVERSAL_ROUTER,
+      abi: UR_ABI,
+      functionName: "execute",
+      args,
+      account,
+      gas: GAS_CAP,
+    });
+  } catch (err) {
+    throw new Error(decodeHookRevert(err));
+  }
+
+  let gas = GAS_CAP;
+  try {
+    const estimated = await publicClient.estimateContractGas({
+      address: SEPOLIA_UNIVERSAL_ROUTER,
+      abi: UR_ABI,
+      functionName: "execute",
+      args,
+      account,
+    });
+    const padded = estimated + estimated / BigInt(5);
+    gas = padded < GAS_CAP ? padded : GAS_CAP;
+  } catch {
+    gas = GAS_CAP;
+  }
+
   try {
     const hash = await wallet.writeContract({
       address: SEPOLIA_UNIVERSAL_ROUTER,
       abi: UR_ABI,
       functionName: "execute",
-      args: [V4_SWAP, [encodeV4Swap(amountIn)], deadline],
+      args,
       account,
       chain: wallet.chain,
+      gas,
     });
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
     if (receipt.status === "reverted") {
