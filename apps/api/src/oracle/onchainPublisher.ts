@@ -8,6 +8,7 @@
 import type { Address, Hex } from "viem";
 import { publishScore } from "../chain/attestor.js";
 import { requireChain } from "../chain/clients.js";
+import { isMockDemoWallet } from "../demoMode.js";
 import { getWallet } from "../store.js";
 import type { Wallet } from "../types.js";
 import type { ScorePublishResult, ScoreResult } from "./types.js";
@@ -69,6 +70,16 @@ export async function publishScoreToChain(
     feeBps,
     at: new Date().toISOString(),
   };
+
+  if (isMockDemoWallet(wallet.id)) {
+    const result: ScorePublishResult = {
+      ...base,
+      mode: "mock",
+      status: "skipped",
+    };
+    publishes.push(result);
+    return result;
+  }
 
   try {
     await requireChain();

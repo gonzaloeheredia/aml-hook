@@ -1,16 +1,16 @@
 # AML (Anti-Money Laundering) Hook · API (application programming interface) (keeper + COA (Compliance Officer Agent))
 
-TypeScript API that communicates with the configured chain. The API does not own the ledger. Balances, scores, quotes, and FeeEscrow rows live on-chain.
+TypeScript API. Wallets **A–D** are the in-memory guided ledger (`store.ts`): balances, hops, quotes, P2P, Restart. Those IDs never `eth_call` or send a tx. Wallet **E** is Sepolia: faucet, optional balance overlay, and `SwapObserved` logs. `/health` may still ping RPC.
 
-**Anvil (`ORACLE_CHAIN_ID` unset or `31337`).** Without `npm run deploy:local` every chain route returns `503` `{ error: "deploy_local" }`. Addresses come from `apps/api/.env.local` (written by `sync-deployment.mjs`) or Anvil defaults.
+**A–D (always).** `GET /wallets` reads the store (`scoreSource: "memory"`). Quotes use hop + band (`hopScore` / `decisionFromScore`). `POST /transfers` and `POST /swaps` mutate RAM. `POST /reset` is `resetStore` + in-memory oracle seed. No `seedBalances`, no `updateScore`.
 
-**Sepolia (`ORACLE_CHAIN_ID=11155111`).** Reads [`contracts/deployments/11155111.json`](../../contracts/deployments/11155111.json) (env overrides win). Requires `ORACLE_RPC_URL`, `KEEPER_PRIVATE_KEY`, and `ATTESTOR_PRIVATE_KEY`. There is no Anvil key fallback. Public address template: [`.env.sepolia.example`](.env.sepolia.example). Pool write-up: [`docs/Sepolia.md`](../../docs/Sepolia.md). `/demo/elapse` is Anvil-only.
+**Sepolia (`ORACLE_CHAIN_ID=11155111`).** Reads [`contracts/deployments/11155111.json`](../../contracts/deployments/11155111.json) (env overrides win). Used for Wallet E faucet (`POST /demo/mint` `{ address }`), `/health`, and chain events. Requires `ORACLE_RPC_URL` for those routes. A dead RPC must not fail A–D. Public address template: [`.env.sepolia.example`](.env.sepolia.example). Pool write-up: [`docs/Sepolia.md`](../../docs/Sepolia.md). `/demo/elapse` is the A–D demo clock.
 
-**Oracle COA:** with `ANTHROPIC_API_KEY` in `apps/api/.env`, Claude emits `finalScore`, `recommendedFeeBps`, and the Opinion (tools: `consult_skill` / `uhi10-use-case`, `search_regulations`, `screen_ofac`). The keeper writes `ComplianceOracle`. Quotes and swaps read `AmlHook.previewSwap`. On every evaluation the COA screens the subject against the live OFAC (Office of Foreign Assets Control) SDN (Specially Designated Nationals) ETH list and, on an exact match, writes `SanctionRegistry`. The swap still only reads that mapping. Tests and `OFAC_LIVE=0` skip Treasury. There are still **no** live calls to OpenSanctions, Etherscan, GoPlus, Chainalysis, or TRM. Seed waits on Claude when the key is set (A–D). E stays unpublished. The 3-minute keeper tick only stamps the last score (no Claude). If the agent is down, that tick still keeps `updatedAt` inside Floor B's 5-minute window. If both are down, Floor B applies.
+**Oracle COA:** with `ANTHROPIC_API_KEY` in `apps/api/.env`, Claude emits `finalScore`, `recommendedFeeBps`, and the Opinion (tools: `consult_skill` / `uhi10-use-case`, `search_regulations`, `screen_ofac`). For A–D that row stays in the API cache (publish to `ComplianceOracle` is skipped). On every evaluation the COA screens OFAC SDN ETH addresses; A–D skip the `SanctionRegistry` write. Tests and `OFAC_LIVE=0` skip Treasury. There are still **no** live calls to OpenSanctions, Etherscan, GoPlus, Chainalysis, or TRM. E stays unpublished unless an operator writes.
 
-**Quotes:** `GET /wallets/:id/quote` and swap settlement call `AmlHook.previewSwap`, the same L1 (Layer 1) → L3 (Layer 3) path `beforeSwap` uses. There is no TypeScript policy fallback.
+**Quotes:** A–D are TypeScript policy (same mapping as `RiskPolicy.decide`). Wallet E / live subjects use `AmlHook.previewSwap` only when a route still needs an on-chain preview.
 
-**FEE_OVERRIDE settlement:** the COA publishes `recommendedFeeBps` as total intended friction. A demo swap is `previewSwap` + `observeSwap` (activity / baseline / `SwapObserved`). On FEE_OVERRIDE the API mints the extra slice and calls `FeeEscrow.deposit` (`EscrowKind.RiskFee`). That path is a demo settlement, distinct from a live Uniswap `PoolManager` fill. A later clean risk-fee exit goes to `LpCompensationVault`. `POST /compensation/close-epoch` publishes a merkle root over `COMPENSATION_LPS`. `POST /compensation/claim` pays the LP (liquidity provider). A clean LP-principal row returns to the LP wallet. Checkpoint 2 reads the on-chain list and oracle (score ≥ 71). A confirmed-illicit row is recovered to ComplianceTreasury. `POST /treasury/propose` then `POST /treasury/:id/execute` (48h) pays an allowlisted destination (whitepaper §8.3).
+**FEE_OVERRIDE settlement:** A–D apply the fee in the store (`applyPoolSwap`). They do not call `observeSwap` or `FeeEscrow.deposit`. A live Uniswap fill on Sepolia is Wallet E (app.uniswap.org). Escrow / vault / treasury endpoints still exist for the on-chain funds stack.
 
 The keeper writes when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band changes, **or** on a 3-minute heartbeat (same score, new `updatedAt`), **or** when the last write is at least as old as Floor B (`STALENESS_MS` = 5 minutes). That freshness stamp prevents a stable clean wallet from being classified as stale. Floor B: stale + no swap yet this hour → 3%; stale + prior activity → pass / 3% / 8% by swap+window USD (United States dollar). `updateScore` is signed by Anvil **#9** (attestor) over `attestationHash`. An empty signature is rejected.
 
@@ -18,10 +18,10 @@ The keeper writes when the ALLOW / FEE / REVERT tier or the 3% / 8% fee band cha
 
 | Frontend today | API endpoint |
 |---|---|
-| `simWallets` / `initialSimWallets` | `GET /wallets`, `GET /wallets/:id` |
-| `applyTransfer` | `POST /transfers` (ERC-20 `transfer` on Anvil + oracle reevaluate) |
-| quote / swap | `GET /wallets/:id/quote`, `POST /swaps` (`previewSwap` + `observeSwap` + escrow deposit) |
-| agent opinion | `GET /wallets/:id/compliance` (oracle opinion) |
+| `simWallets` / `initialSimWallets` | `GET /wallets`, `GET /wallets/:id` (A–D memory; E may overlay Sepolia) |
+| `applyTransfer` | `POST /transfers` (A–D store hop + balances) |
+| quote / swap | `GET /wallets/:id/quote`, `POST /swaps` (A–D `applyPoolSwap`). E uses Uniswap, not this settle |
+| agent opinion | `GET /wallets/:id/compliance` (cache for A–D) |
 
 ## Run
 
@@ -43,18 +43,18 @@ Restart the API after every `deploy:local` so it loads `.env.local`.
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/health` | `mode: "anvil"` or `"sepolia"`, `agent.score` / `agent.opinion`, `keeperTickMs`, `chain.ok` |
-| `GET` | `/wallets` | All wallets + live `previewSwap` quote |
+| `GET` | `/wallets` | All wallets + quote (A–D memory; E optional chain overlay) |
 | `GET` | `/wallets/:id` | One wallet (`A`–`E`) + quote |
 | `GET` | `/wallets/:id/compliance` | **Oracle opinion** for Opinion UI (user interface) |
-| `GET` | `/wallets/:id/quote` | USDC→ETH quote (`?amountUsd=1000`). Same policy as on-chain |
+| `GET` | `/wallets/:id/quote` | USDC→ETH quote (`?amountUsd=1000`). A–D: memory policy |
 | `GET` | `/oracle` | All cached ScoreResults |
 | `GET` | `/oracle/:id` | ScoreResult + opinion for one wallet |
 | `POST` | `/oracle/:id/catch-up` | Publish deferred keeper score (Wallet D latency path) |
 | `GET` | `/oracle/publishes` | Keeper `updateScore` trail (`txHash`) |
-| `POST` | `/transfers` | P2P (peer-to-peer) USDC on Anvil → wait for agent score → keeper publish (tainted inbound to D defers keeper) |
-| `POST` | `/swaps` | `previewSwap` + `observeSwap` + wait for agent + FeeEscrow deposit on FEE_OVERRIDE |
-| `POST` | `/demo/elapse` | `evm_increaseTime` + `evm_mine` (`{ seconds: 301 }` → Floor B) |
-| `POST` | `/demo/mint` | Demo: mint to A–E (`{ walletId, token, amount }`). Faucet: `{ address }` mints 1,000 MockUSDC + 1 MockWETH to that Sepolia EOA (externally owned account) (does not write a score). F / both fields rejected. |
+| `POST` | `/transfers` | P2P USDC in the store when A–D is involved. Hop contamination is memory-only |
+| `POST` | `/swaps` | A–D: quote + `applyPoolSwap` + demo event. No `observeSwap` / FeeEscrow |
+| `POST` | `/demo/elapse` | Advance the A–D demo clock (`{ seconds: 301 }` → Floor B) |
+| `POST` | `/demo/mint` | A–D `{ walletId, token, amount }` increments the store. Faucet `{ address }` mints 1,000 MockUSDC + 1 MockWETH on Sepolia (does not write a score) |
 | `POST` | `/demo/price-feed` | Bind / unbind USDC/USD (`{ bound: false }` → silent `lastFx` if quoted in the last 30 min; `PriceFallbackUsed` until 24h after that; else `MagnitudeQuoteFailed`) |
 | `GET` | `/escrow` | Live FeeEscrow rows |
 | `POST` | `/escrow/:id/checkpoint2` | Checkpoint 2 reads oracle/list (no keeper bool) |
@@ -70,7 +70,7 @@ Restart the API after every `deploy:local` so it loads `.env.local`.
 | `POST` | `/treasury/:id/cancel` | Release a pending payout reserve |
 | `GET` | `/transfers` | Transfer history |
 | `GET` | `/events` | Hook trail (`SwapObserved` / blocked) |
-| `POST` | `/reset` | Mint + `syncBaseline` + agent seed A–D (Claude wait when key set; E unpublished) |
+| `POST` | `/reset` | `resetStore` + in-memory oracle seed A–D (no Sepolia mint / `updateScore`; E unpublished) |
 
 ### Oracle flow
 
@@ -89,7 +89,7 @@ P2P transfer or afterSwap / WalletBlocked
               keeper = Anvil #0 · attestor = Anvil #9
         │
         ▼
-  quote / swap → AmlHook.previewSwap  (L1 reads the mapping only)
+  A–D quote / swap → memory hop + band (no ComplianceOracle write)
   opinion → GET /compliance → Opinion stage (includes live SDN result)
 ```
 
@@ -127,7 +127,7 @@ curl http://localhost:4000/wallets/D/quote
 curl -X POST http://localhost:4000/swaps ^
   -H "Content-Type: application/json" ^
   -d "{\"walletId\":\"D\",\"amountUsd\":1000}"
-# → observeSwap + FeeEscrow.deposit; D stays score 0 (no hop to publish)
+# → store applyPoolSwap; D stays score 0 (no hop to publish)
 ```
 
 ## Use-case baseline
@@ -140,7 +140,7 @@ curl -X POST http://localhost:4000/swaps ^
 
 Clean **C → D** (or B while clean) is not a hop: ~10k → **FEE_OVERRIDE 3%** (inflow); ≥ $15,000 → **FEE_OVERRIDE 8%**.
 
-**Wallet E** has no oracle row and starts empty. Fund it from **C** (no hop). Floor A is this swap. Floor D is the bag C sent. The stricter fee wins. C→E $500 → 3%. $10k then $1k swap → 8% (A mid). $15k bag → 8% on a small swap (D). This swap ≥ $15,000 → `UnscoredMagnitudeBlocked`. 24h sum → `DailyAggregationBlocked`. No live feed uses `lastFx` (silent under 30 min; `PriceFallbackUsed` until 24h after that). Never quoted or cache > 24h → `MagnitudeQuoteFailed`.
+**Wallet E** has no oracle row. Hosted: faucet `{ address }` + Uniswap. Simulator C→E is RAM only and does not fund that EOA. Floor A is this swap. Floor D is the unpublished bag. The stricter fee wins. Bag under $1,000 → 3%. $10k then $1k swap → 8% (A mid). $15k bag → 8% on a small swap (D). This swap ≥ $15,000 → `UnscoredMagnitudeBlocked`. 24h sum → `DailyAggregationBlocked`.
 
 **1 ETH = 1,000 USDC** on Anvil only (`MockUsdFeed` at local deploy). Demo ETH is mintable `MockWETH` (18 decimals). It is not native Anvil ETH. Live Deploy binds official Chainlink ETH/USD and USDC/USD. On-chain floors are USD-8 (`1_000e8` / `15_000e8`), not native ether. `_COMPLIANCE_OFFICER` can retune those floors after a 48h confirm.
 

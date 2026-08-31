@@ -1,8 +1,8 @@
 /**
  * HTTP routes for the AML Hook demo API.
  *
- * Front talks only here. Privileged txs (updateScore, observeSwap, recover)
- * leave from this process. Decision truth is AmlHook.previewSwap on Anvil.
+ * Front talks only here. Wallets A–D are an in-memory guided demo.
+ * Wallet E is the Sepolia / Uniswap path (faucet, pool, chain events).
  */
 
 import type { FastifyInstance, FastifyReply } from "fastify";
@@ -19,7 +19,6 @@ import {
   mintUsdc,
   readPolicyKnobs,
   recoverBlocked,
-  requireChain,
   compensationOverview,
   accrueFromEscrow,
   closeCompensationEpoch,
@@ -30,14 +29,17 @@ import {
   executeTreasuryPayout,
   cancelTreasuryPayout,
   resolveCheckpoint2,
-  seedBalances,
   setPriceFeedBound,
   settleObservedSwap,
   transferUsdc,
   warpSeconds,
+  DEFAULT_POLICY_KNOBS,
+  getPolicyKnobsSync,
+  isLocalAnvil,
 } from "./chain/index.js";
 import { buildCompliancePack, buildSwapQuote } from "./compliance.js";
-import { applyHopContamination } from "./ledger.js";
+import { isMockDemoWallet, withDeadline } from "./demoMode.js";
+import { applyP2pTransfer, applyPoolSwap } from "./ledger.js";
 import {
   catchUpKeeper,
   ensureOracleEvaluation,
@@ -58,11 +60,15 @@ import { isWalletId, walletScore } from "./scoring.js";
 import {
   appendEvent,
   appendTransfer,
+  elapseDemo,
   getStore,
   getWallet,
   listEvents,
   listTransfers,
+  listWallets,
+  recordAfterSwap,
   resetStore,
+  setLastKnownUsdc,
   setWallets,
 } from "./store.js";
 import type { WalletId } from "./types.js";
@@ -124,13 +130,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get("/policy", async (_req, reply) => {
-    try {
-      const policy = await readPolicyKnobs(true);
-      return { policy };
-    } catch (err) {
-      return sendChainError(reply, err);
-    }
+  app.get("/policy", async () => {
+    void readPolicyKnobs(true).catch(() => undefined);
+    return { policy: getPolicyKnobsSync() ?? DEFAULT_POLICY_KNOBS };
   });
 
   app.get("/wallets", async (_req, reply) => {
@@ -138,18 +140,35 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const wallets = await hydrateWallets();
       const decorated = await Promise.all(
         wallets.map(async (w) => {
-          const quote = await buildSwapQuote(w);
-          return {
-            ...w,
-            score: quote.score,
-            scoreSource: "onchain",
-            decision: quote.decision,
-            hookOutput: quote.hookOutput,
-            appliedFeeBps: quote.feeBps,
-            keeperPending: quote.keeperPending,
-            latencyMitigation: quote.latencyMitigation,
-            updatedAt: quote.isStale ? "stale" : "fresh",
-          };
+          try {
+            const quote = isMockDemoWallet(w.id)
+              ? await buildSwapQuote(w)
+              : await withDeadline(buildSwapQuote(w), 2_500);
+            return {
+              ...w,
+              score: quote.score,
+              scoreSource: isMockDemoWallet(w.id) ? "memory" : "onchain",
+              decision: quote.decision,
+              hookOutput: quote.hookOutput,
+              appliedFeeBps: quote.feeBps,
+              keeperPending: quote.keeperPending,
+              latencyMitigation: quote.latencyMitigation,
+              updatedAt: quote.isStale ? "stale" : "fresh",
+            };
+          } catch (err) {
+            if (isMockDemoWallet(w.id)) throw err;
+            return {
+              ...w,
+              score: 0,
+              scoreSource: "unscored",
+              decision: "fee_override" as const,
+              hookOutput: "FEE_OVERRIDE" as const,
+              appliedFeeBps: 300,
+              keeperPending: false,
+              latencyMitigation: "SCORE_NEVER_WRITTEN" as const,
+              updatedAt: "stale",
+            };
+          }
         }),
       );
       return { wallets: decorated };
@@ -164,7 +183,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: `Wallet id must be ${WALLET_IDS_HINT}` });
     }
     try {
-      await hydrateWallets();
+      if (!isMockDemoWallet(id)) await hydrateWallets();
       const wallet = getWallet(id);
       if (!wallet) return reply.code(404).send({ error: "Wallet not found" });
       const quote = await buildSwapQuote(wallet);
@@ -172,7 +191,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         wallet: {
           ...wallet,
           score: quote.score,
-          scoreSource: "onchain",
+          scoreSource: isMockDemoWallet(id) ? "memory" : "onchain",
           decision: quote.decision,
           hookOutput: quote.hookOutput,
           appliedFeeBps: quote.feeBps,
@@ -194,7 +213,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: `Wallet id must be ${WALLET_IDS_HINT}` });
       }
       try {
-        await hydrateWallets();
+        if (!isMockDemoWallet(id)) await hydrateWallets();
         const wallet = getWallet(id);
         if (!wallet) return reply.code(404).send({ error: "Wallet not found" });
         const amount = Number(req.query?.amountUsd);
@@ -214,7 +233,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: `Wallet id must be ${WALLET_IDS_HINT}` });
     }
     try {
-      await hydrateWallets();
+      if (!isMockDemoWallet(id)) await hydrateWallets();
       const wallet = getWallet(id);
       if (!wallet) return reply.code(404).send({ error: "Wallet not found" });
       const preferred = Number((req.query as { amountUsd?: string }).amountUsd ?? NaN);
@@ -244,11 +263,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: `Wallet id must be ${WALLET_IDS_HINT}` });
     }
     try {
-      await hydrateWallets();
+      if (!isMockDemoWallet(id)) await hydrateWallets();
       const wallet = getWallet(id);
       if (!wallet) return reply.code(404).send({ error: "Wallet not found" });
       const evaluation = await catchUpKeeper(id);
-      await hydrateWallets();
+      if (!isMockDemoWallet(id)) await hydrateWallets();
       return {
         ok: true,
         keeperPending: false,
@@ -285,7 +304,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     try {
-      await hydrateWallets();
+      const mockPath = isMockDemoWallet(fromRaw) || isMockDemoWallet(toRaw);
+      if (!mockPath) await hydrateWallets();
       const sender = getWallet(fromRaw);
       if (!sender || sender.usdc < amountUsd) {
         return reply.code(400).send({
@@ -293,10 +313,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         });
       }
 
-      const txHash = await transferUsdc(fromRaw, toRaw, amountUsd);
-      setWallets(applyHopContamination(getStore().wallets, fromRaw, toRaw));
+      let transferId: string;
+      if (mockPath) {
+        const next = applyP2pTransfer(getStore().wallets, fromRaw, toRaw, amountUsd);
+        if (!next) {
+          return reply.code(400).send({
+            error: "Transfer failed: insufficient USDC or invalid route",
+          });
+        }
+        setWallets(next);
+        transferId = `p2p-${Date.now()}-${fromRaw}${toRaw}`;
+      } else {
+        transferId = await transferUsdc(fromRaw, toRaw, amountUsd);
+      }
       const record = {
-        id: txHash,
+        id: transferId,
         from: fromRaw,
         to: toRaw,
         amountUsd: Math.round(amountUsd),
@@ -307,7 +338,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       appendTransfer(record);
 
       const oracle = await reevaluateAfterTransfer(fromRaw, toRaw);
-      const wallets = await hydrateWallets();
+      const wallets = mockPath ? listWallets() : await hydrateWallets();
 
       return {
         transfer: record,
@@ -361,7 +392,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     try {
-      await hydrateWallets();
+      if (!isMockDemoWallet(idRaw)) await hydrateWallets();
       const wallet = getWallet(idRaw);
       if (!wallet) return reply.code(404).send({ error: "Wallet not found" });
 
@@ -392,7 +423,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         });
         return {
           settled: false,
-          reason: quote.revertReason ?? "REVERT: previewSwap fail-closed",
+          reason: quote.revertReason ?? "REVERT: WalletBlocked",
           quote,
           wallet,
           event,
@@ -404,6 +435,63 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           error: "Insufficient USDC for swap",
           quote,
         });
+      }
+
+      if (isMockDemoWallet(idRaw)) {
+        const next = applyPoolSwap(
+          getStore().wallets,
+          idRaw,
+          quote.usdcIn,
+          quote.feeBps,
+          quote.decision,
+        );
+        if (!next) {
+          return reply.code(400).send({
+            error: "Insufficient USDC for swap",
+            quote,
+          });
+        }
+        setWallets(next);
+        setLastKnownUsdc(idRaw, next[idRaw].usdc);
+        recordAfterSwap(idRaw, quote.usdcIn);
+
+        const event = {
+          id: `ev-${Date.now()}`,
+          walletId: idRaw,
+          address: wallet.address,
+          score: quote.score,
+          decision: quote.hookOutput,
+          feeBps: quote.feeBps,
+          amountUsd: quote.usdcIn,
+          hopDistance: wallet.hopDistance,
+          origin: wallet.originId ?? "n/a",
+          at: new Date().toISOString(),
+          kind: "SwapObserved" as const,
+          source: "demo" as const,
+        };
+        appendEvent(event);
+
+        if (walletKeeperPending(idRaw)) {
+          void catchUpKeeper(idRaw).catch((err) => {
+            console.error("catchUpKeeper:", err);
+          });
+        } else {
+          void reevaluateAfterSwap(idRaw).catch((err) => {
+            console.error("reevaluateAfterSwap:", err);
+          });
+        }
+        const after = getWallet(idRaw)!;
+        return {
+          settled: true,
+          quote,
+          wallet: {
+            ...after,
+            score: walletScore(after),
+            keeperPending: walletKeeperPending(idRaw),
+          },
+          ethReceived: quote.ethOut,
+          event,
+        };
       }
 
       const settled = await settleObservedSwap({
@@ -461,14 +549,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.post<{ Body: { seconds?: number } }>("/demo/elapse", async (req, reply) => {
-    try {
-      const seconds = Number(req.body?.seconds ?? 301);
-      const now = await warpSeconds(Number.isFinite(seconds) ? seconds : 301);
-      return { ok: true, now, elapsedSeconds: Number.isFinite(seconds) ? seconds : 301 };
-    } catch (err) {
-      return sendChainError(reply, err);
+  app.post<{ Body: { seconds?: number } }>("/demo/elapse", async (req) => {
+    const seconds = Number(req.body?.seconds ?? 301);
+    const elapsed = Number.isFinite(seconds) ? Math.max(0, seconds) : 301;
+    const now = elapseDemo(elapsed * 1000);
+    if (isLocalAnvil()) {
+      try {
+        await warpSeconds(elapsed);
+      } catch {
+        /* memory clock still advanced */
+      }
     }
+    return { ok: true, now, elapsedSeconds: elapsed };
   });
 
   app.post<{
@@ -519,9 +611,30 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "amount must be a positive number" });
     }
     try {
-      await hydrateWallets();
       const wallet = getWallet(idRaw);
       if (!wallet) return reply.code(404).send({ error: "Wallet not found" });
+
+      if (isMockDemoWallet(idRaw)) {
+        const next = { ...getStore().wallets };
+        next[idRaw] = {
+          ...wallet,
+          usdc: token === "usdc" ? wallet.usdc + amount : wallet.usdc,
+          eth: token === "eth" ? wallet.eth + amount : wallet.eth,
+        };
+        setWallets(next);
+        return {
+          ok: true,
+          token,
+          amount,
+          txHash: `mem-mint-${Date.now()}`,
+          wallets: listWallets().map((w) => ({
+            ...w,
+            score: walletScore(w),
+          })),
+        };
+      }
+
+      await hydrateWallets();
       const txHash =
         token === "usdc"
           ? await mintUsdc(wallet.address as `0x${string}`, amount)
@@ -697,25 +810,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.post("/reset", async (_req, reply) => {
-    try {
-      await requireChain();
-      clearPolicyKnobsCache();
-      const store = resetStore();
-      await seedBalances();
-      await resetOracle();
-      const wallets = await hydrateWallets();
-      return {
-        ok: true,
-        wallets: wallets.map((w) => ({
-          ...w,
-          score: walletScore(w),
-        })),
-        transfers: store.transfers,
-        events: store.events,
-      };
-    } catch (err) {
-      return sendChainError(reply, err);
-    }
+  app.post("/reset", async () => {
+    clearPolicyKnobsCache();
+    const store = resetStore();
+    await resetOracle();
+    return {
+      ok: true,
+      wallets: listWallets().map((w) => ({
+        ...w,
+        score: walletScore(w),
+      })),
+      transfers: store.transfers,
+      events: store.events,
+    };
   });
 }

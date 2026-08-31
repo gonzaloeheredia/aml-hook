@@ -23,7 +23,7 @@ The officer wrote score 100; the pool path is `WalletBlocked`. Demo Wallet E
 starts empty and is funded by clean C (no hop); never-written bands are
 hook-local, not a COA (Compliance Officer Agent) score. A new Sepolia EOA
 (externally owned account) is the same unpublished path until a keeper writes
-(`uhi10-sepolia`). Do not apply Anvil hopDistance to Sepolia addresses. An
+(`uhi10-sepolia`). Do not apply A–D hopDistance to Sepolia addresses. An
 operator seed write of 0–30 on the untrusted `PoolModifyLiquidityTest` is not
 `EXPLOIT_PROTOCOL_FUNDS` and not hop 0.
 

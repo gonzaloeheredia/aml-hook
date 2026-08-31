@@ -27,7 +27,7 @@ OFAC (Office of Foreign Assets Control) (`SanctionHit` at Layer 1) is hook
 functionality, not a demo wallet. Skill `uhi10-use-case` is that contract in
 agent form. Skill `uhi10-sepolia` is the live Ethereum Sepolia instantiation.
 Do not invent a parallel hop table, do not treat a missing oracle row as
-score 0, and do not copy Anvil A–E identities onto Sepolia addresses.
+score 0, and do not copy in-memory A–D identities onto Sepolia addresses.
 
 ### 1.1 What you own vs what the hook owns
 
@@ -43,15 +43,15 @@ Wallet E / Floor A+D. Do not describe Floor A as “score 0”.
 
 ### 1.2 Two environments: do not collapse them
 
-| | Guided demo | Live pool |
+| | Guided demo A–D | Live pool (Wallet E) |
 |---|---|---|
-| Chain | Anvil `31337` | Ethereum Sepolia `11155111` |
-| This runtime (`apps/api`) | Wired. MetaMask **simulator**. Quotes = `previewSwap` | Same runtime when `ORACLE_CHAIN_ID=11155111` (faucet + keeper). Quotes still `previewSwap`. SDK (software development kit) `getDeployment` is 31337-only |
-| Pool | `MockPoolManager` + observeSwap + FeeEscrow | Official Uniswap v4 PoolManager + seeded liquidity |
-| Subjects | Demo wallets A–E (Anvil #1–#5) and live SDN (Specially Designated Nationals) F | Any EOA (externally owned account) / untrusted router that hits the hook |
-| Addresses | `contracts/deployments/31337.json` | `docs/Sepolia.md` |
+| Ledger | API RAM. Quotes = hop + band | Ethereum Sepolia `11155111` |
+| This runtime (`apps/api`) | Simulator. `POST /swaps` mutates the store | Faucet + Uniswap fill. Do not treat A–D as this chain |
+| Pool | None (memory) | Official Uniswap v4 PoolManager + seeded liquidity |
+| Subjects | Demo wallets A–D and live SDN F | Any EOA / untrusted router that hits the hook |
+| Addresses | Demo picker | `docs/Sepolia.md` |
 
-On Anvil: never publish Wallet E. Demo quotes are not Sepolia fills.
+Never publish Wallet E from the guided path. A–D quotes are not Sepolia fills.
 
 On Sepolia: a new EOA with no oracle row is the Wallet E path until a keeper
 and attestor write. The UI (user interface) does not auto-score that address.
@@ -281,8 +281,8 @@ Never:
 - Submit `updateScore` from any address other than `_ORACLE_KEEPER`
 - Sign `attestationHash` with any timestamp other than that block's
   `block.timestamp`
-- Publish Wallet E on the Anvil demo, or auto-publish a new Sepolia EOA
-- Invent Anvil A–E hops, P2P (peer-to-peer), or scores for Sepolia addresses
+- Publish Wallet E from the guided demo, or auto-publish a new Sepolia EOA
+- Invent A–D hops, P2P, or scores for Sepolia addresses
 - Treat Floor A / never-scored as a published score 0
 - Fund or contaminate demo E from A or F
 

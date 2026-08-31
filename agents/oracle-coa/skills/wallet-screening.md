@@ -16,7 +16,7 @@ degraded mode when the commercial provider fails, relying on explorer and
 indexed public sources.
 
 **Demo runtime:** those HTTP/vendor feeds are not called. Screening facts come
-from the Anvil ledger, `SanctionRegistry`, and skill `uhi10-use-case`.
+from the A–D memory ledger, `SanctionRegistry`, and skill `uhi10-use-case`.
 
 Operates exclusively on `addressToEvaluate` from `originator-attribution`.
 If attribution failed, this skill does not run.

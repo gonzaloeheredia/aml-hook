@@ -2,21 +2,18 @@
 
 This folder is **not** the Foundry suite. Solidity tests live in [`contracts/test/`](../contracts/test/).
 
-Scripts here exercise the same API (application programming interface) routes the frontend uses (`/swaps`, `/transfers`, `/compliance`, `/escrow`) without opening a browser. Those routes hit Anvil. Quotes are `previewSwap` (local `MockUsdFeed`: $1 USDC, $1,000 ETH). P2P (peer-to-peer) is ERC-20 `transfer`. FEE_OVERRIDE deposits into `FeeEscrow`. Need Anvil + API (`npm run deploy:local`, then `apps/api`). They do not touch the Sepolia pool ([`docs/Sepolia.md`](../docs/Sepolia.md)).
+Scripts here exercise the same API routes the frontend uses (`/swaps`, `/transfers`, `/compliance`) without opening a browser. A–D routes are in-memory (hop + `applyPoolSwap`). They do not need Anvil and they do not touch the Sepolia pool ([`docs/Sepolia.md`](../docs/Sepolia.md)). Wallet E is faucet + Uniswap, not these scripts.
 
 Foundry Solidity tests (mirroring `contracts/src/`) live in [`contracts/test/`](../contracts/test/). See that folder's README for the layout.
 
 ## Prerequisites
 
 ```bash
-# repo root
-npm run deploy:local
-
 cd apps/api
 npm run dev
 ```
 
-API default: `http://localhost:4000` (override with `API_BASE`). Without Anvil the API returns `503` `{ error: "deploy_local" }`.
+API default: `http://localhost:4000` (override with `API_BASE`). A–D do not need Anvil.
 
 ## Uniswap + MetaMask demo flow
 
@@ -25,7 +22,7 @@ API default: `http://localhost:4000` (override with `API_BASE`). Without Anvil t
 node test/flow-uniswap-metamask.mjs
 ```
 
-Risk is hop-based. Swap count does not drive the score. The agent applies skill `uhi10-use-case` (`score = 100 × 0.65^hops`). The keeper publishes. `POST /transfers` and `POST /swaps` wait for that write (plus Wallet D/E latency, activity, and magnitude paths in the API/UI (user interface)):
+Risk is hop-based. Swap count does not drive the score. The store applies `score = 100 × 0.65^hops`. `POST /transfers` and `POST /swaps` return after the memory update:
 
 | Event | Effect |
 |---|---|
@@ -39,7 +36,7 @@ Risk is hop-based. Swap count does not drive the score. The agent applies skill 
 | D after a swap + 301s | **STALE_WITH_POOL_ACTIVITY** · **3%** on a $1,000 swap (**8%** at $15,000) |
 | MetaMask **C → D** ~10k (C still clean) then D swap | Score **0** · no hop · inflow **FEE_OVERRIDE 3%** |
 | MetaMask **C → D** $15k (C still clean) | inflow **FEE_OVERRIDE 8%** |
-| Wallet E first swap (API or frontend) | Fund from **C** first. Bag under $1,000 → **3%**; bag $10k + $1k swap → **8%** (A mid); bag ≥ $15k + small swap → **8%** (D); this swap ≥ $15,000 → **REVERT**; 24h cross → **DailyAggregationBlocked**; unbound feed after a quote → last FX (silent under 30 min); never quoted or cache > 24h → **MagnitudeQuoteFailed** |
+| Wallet E | Hosted: faucet `{ address }` + Uniswap. Not this script |
 
 The script runs clean multi-swaps, then A `WalletBlocked`, then A→B, then B→A (still hop 1), then B→C (hop 2). After that B is at 8% and C is at 3%.
 

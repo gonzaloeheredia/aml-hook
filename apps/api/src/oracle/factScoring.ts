@@ -16,6 +16,7 @@ import {
   toHookOutput,
 } from "../scoring.js";
 import type { HookEvent, TransferRecord, Wallet, WalletId } from "../types.js";
+import { isMockDemoWallet } from "../demoMode.js";
 import { getWallet } from "../store.js";
 import {
   demoContractAddresses,
@@ -241,6 +242,7 @@ export async function collectSanctionFacts(
   transfers: TransferRecord[],
   events: HookEvent[],
 ): Promise<FactEvent[]> {
+  if (isMockDemoWallet(wallet.id)) return [];
   const facts: FactEvent[] = [];
   if (await isSanctionedAddress(wallet.address)) {
     facts.push(

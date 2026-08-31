@@ -3,7 +3,9 @@
  * The swap still only reads `isSanctioned`. This module is the writer.
  */
 
+import { idFromAddress } from "../chain/accounts.js";
 import { writeSanction, type SanctionWriteResult } from "../chain/sanctions.js";
+import { isMockDemoWallet } from "../demoMode.js";
 import {
   getOfacSdnStatus,
   loadOfacSdn,
@@ -36,6 +38,10 @@ async function screenAndWrite(address: string): Promise<OfacHit> {
   const hit = await screenOfacAddress(address);
   if (!hit.match) {
     return { address: hit.address, match: false, registry: null };
+  }
+  const demoId = idFromAddress(address);
+  if (demoId && isMockDemoWallet(demoId)) {
+    return { address: hit.address, match: true, registry: emptyWrite(true) };
   }
   const registry = await writeSanction(hit.address, true);
   if (!registry.ok) {

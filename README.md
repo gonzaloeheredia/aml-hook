@@ -11,15 +11,15 @@ The product thesis and the executable scenario live in `docs/`. Read those befor
 | Document | Contents |
 | --- | --- |
 | [`docs/Whitepaper.md`](docs/Whitepaper.md) | Problem, architecture, roles, FeeEscrow, latency floors, regulatory framing, and competitive map |
-| [`docs/Use_Case.md`](docs/Use_Case.md) | Six-wallet run of the whitepaper: exploit, N-hop, D floors (B, C, inflow, $15k), E bands plus window plus feed, Opinion |
-| [`docs/Sepolia.md`](docs/Sepolia.md) | Live Ethereum Sepolia pool and hook addresses (official PoolManager). The hosted API (application programming interface) can write that chain. SDK `getDeployment` stays on 31337 |
+| [`docs/Use_Case.md`](docs/Use_Case.md) | A–D in-memory walkthrough (exploit, N-hop, D floors) plus Wallet E on Sepolia (faucet + Uniswap) |
+| [`docs/Sepolia.md`](docs/Sepolia.md) | Live Ethereum Sepolia pool and hook addresses (official PoolManager). Wallet E only. SDK `getDeployment` stays on 31337 |
 
 Supporting notes:
 
 | Document | Contents |
 | --- | --- |
 | [`contracts/README.md`](contracts/README.md) | Foundry layout, call path, roles |
-| [`apps/api/README.md`](apps/api/README.md) | Keeper and COA (Anvil local; Sepolia when `ORACLE_CHAIN_ID=11155111`) |
+| [`apps/api/README.md`](apps/api/README.md) | A–D in-memory ledger; Wallet E / faucet / health on Sepolia when `ORACLE_CHAIN_ID=11155111` |
 | [`apps/frontend/README.md`](apps/frontend/README.md) | Guided user interface (UI) |
 | [`agents/oracle-coa/`](agents/oracle-coa/) | COA skill specifications |
 | [`corpus/README.md`](corpus/README.md) | Versioned FATF (Financial Action Task Force), FinCEN (Financial Crimes Enforcement Network), Treasury, and Wolfsberg corpus |
@@ -91,7 +91,7 @@ Writes are split so a score keeper cannot move escrow, and an escrow keeper cann
 
 ## Demo wallets
 
-The frontend talks to the API. Locally the API reads and writes the use-case ledger on Anvil (wallets A–E = accounts #1–#5). Hosted, the same UI can point at a Sepolia API (`NEXT_PUBLIC_API_URL`); the A–E picker stays a simulator. Named-address OFAC (`SanctionHit`) is hook Layer 1 (whitepaper §8.6). It is not a demo wallet.
+The frontend talks to the API. Wallets A–D are the in-memory guided ledger (hop, balances, Restart). Wallet E is a new Sepolia EOA: faucet + Uniswap. Hosted UI sets `NEXT_PUBLIC_API_URL` to that API. Named-address OFAC (`SanctionHit`) is hook Layer 1 (whitepaper §8.6). It is not a demo wallet.
 
 | Wallet | Starting state | What to try |
 | --- | --- | --- |
@@ -99,7 +99,7 @@ The frontend talks to the API. Locally the API reads and writes the use-case led
 | B | Clean, score 0 | Receive from A → ~65 / 8%. Receive from tainted C → ~42 / 3% |
 | C | Clean, score 0, 50,000 USDC | Fund E (unknown) or D (inflow). Receive from A → ~65 / 8% |
 | D | Published score 0, 5,000 USDC | Held funds → ALLOW. Clean C→D $10k → 3%; $15k → 8% (no hop). Advance 5 min after a swap → Floor B |
-| E | Never written, empty | Fund from C. C→E $500 → 3%; $10k then $1k swap → 8% (A mid); $15k bag + small swap → 8% (D); $15k this swap → revert |
+| E | Never written, empty Sepolia EOA | Faucet `{ address }` then Uniswap. Floor A/C/D by size. A–D P2P does not fund this EOA |
 
 ## Quick start
 
@@ -113,11 +113,11 @@ npm run dev:api        # http://localhost:4000
 npm run dev:frontend   # http://localhost:3000
 ```
 
-`NEXT_PUBLIC_API_URL` defaults to `http://localhost:4000`. After `deploy:local`, restart the API so it loads `apps/api/.env.local`. Without Anvil the API returns `503` `{ error: "deploy_local" }`.
+`NEXT_PUBLIC_API_URL` defaults to `http://localhost:4000`. A–D work without Anvil. Wallet E / `/health` chain overlay need `ORACLE_RPC_URL` when `ORACLE_CHAIN_ID=11155111`. After `deploy:local` (optional local hook stack), restart the API so it loads `apps/api/.env.local`.
 
 ```bash
 curl http://127.0.0.1:4000/health
-# mode: "anvil"  ·  scoreSource: "onchain"  ·  chain.ok: true
+# A–D: scoreSource memory. chain.ok is Wallet E / health only
 ```
 
 | Package | Path | Role |

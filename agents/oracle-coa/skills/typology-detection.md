@@ -17,7 +17,7 @@ Does not produce score or decide hook output. Produces classification and
 normative anchoring that `fact-scoring` incorporates into each triggering
 fact’s `regulatoryBasis`.
 
-**Demo runtime:** classify from the Anvil ledger plus skill `uhi10-use-case`.
+**Demo runtime:** classify from the A–D memory ledger plus skill `uhi10-use-case`.
 No live vendor typology labels.
 
 ---

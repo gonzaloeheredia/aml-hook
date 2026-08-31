@@ -8,14 +8,33 @@ import {
   dustExampleUsd,
   formatFeePct,
   formatUsdFloor,
+  getPolicyKnobsSync,
   midBandExampleUsd,
   previewSwap,
   readPolicyKnobs,
   usdcToWei,
 } from "./chain/index.js";
+import { isMockDemoWallet } from "./demoMode.js";
 import { ensureOracleEvaluation } from "./oracle/index.js";
-import { ethOutFromSwap, swapUsdcAmount } from "./scoring.js";
-import { isKeeperPending } from "./store.js";
+import { getOracleScore } from "./oracle/store.js";
+import {
+  decisionFromScore,
+  ethOutFromSwap,
+  feeBpsFromHop,
+  hopScore,
+  inflowDeltaBps,
+  INFLOW_THRESHOLD_BPS,
+  publishedUsdBandFee,
+  swapUsdcAmount,
+  toHookOutput,
+} from "./scoring.js";
+import {
+  getLastKnownUsdc,
+  isKeeperPending,
+  isPriceFeedBound,
+  isScoreStale,
+  opsInCurrentWindow,
+} from "./store.js";
 import type {
   CompliancePack,
   Decision,
@@ -35,9 +54,87 @@ export function displayDeltaBps(inflowUsd: number, walletUsdc: number): number {
 }
 
 /**
- * Resolves beforeSwap decision: unknown-wallet USD bands (E),
- * oracle score/fee, or §3.8 inflow floor (D).
+ * In-memory beforeSwap preview for wallets A–D. No hook eth_call.
+ * Score prefers memory COA, else hopScore. Floors stay on the store clock.
  */
+function resolveMockSwapDecision(
+  wallet: Wallet,
+  preferredUsdc?: number,
+): {
+  oracleScore: number;
+  score: number;
+  feeBps: number;
+  decision: Decision;
+  hookOutput: HookOutput;
+  source: string;
+  keeperPending: boolean;
+  latencyMitigation: LatencyMitigation;
+  revertReason: RevertReason;
+  hasSignificantInflow: boolean;
+  deltaBps: number;
+  assessedUsd: number;
+  inflowUsd: number;
+  opsInWindow: number;
+  isStale: boolean;
+  priceFeedBound: boolean;
+} {
+  const knobs = getPolicyKnobsSync();
+  const usdcIn = swapUsdcAmount(wallet, preferredUsdc);
+  const memoryScore = getOracleScore(wallet.id);
+  const score = memoryScore ?? hopScore(wallet);
+  let decision = decisionFromScore(score);
+  let feeBps = feeBpsFromHop(score, wallet.hopDistance, knobs);
+  let latencyMitigation: LatencyMitigation = null;
+  let revertReason: RevertReason = decision === "block" ? "WalletBlocked" : null;
+
+  const lastKnown = getLastKnownUsdc(wallet.id);
+  const inflowUsd = wallet.usdc > lastKnown ? wallet.usdc - lastKnown : 0;
+  const deltaBps = inflowDeltaBps(wallet.usdc, lastKnown);
+  const hasSignificantInflow = deltaBps > INFLOW_THRESHOLD_BPS;
+  const isStale = isScoreStale(wallet.id);
+  const opsInWindow = opsInCurrentWindow(wallet.id);
+  const priceFeedBound = isPriceFeedBound();
+
+  if (!priceFeedBound) {
+    decision = "block";
+    feeBps = 0;
+    latencyMitigation = "MAGNITUDE_QUOTE_FAILED";
+    revertReason = "MagnitudeQuoteFailed";
+  } else if (decision !== "block") {
+    if (isStale && opsInWindow > 0) {
+      const band = publishedUsdBandFee(usdcIn, knobs);
+      if (band > 0) {
+        decision = "fee_override";
+        feeBps = Math.max(feeBps, band);
+        latencyMitigation = "STALE_WITH_POOL_ACTIVITY";
+      }
+    } else if (hasSignificantInflow && decision === "allow") {
+      decision = "fee_override";
+      feeBps = knobs.punitiveFeeBps;
+      latencyMitigation = "INFLOW_HEURISTIC";
+    }
+  }
+
+  return {
+    oracleScore: score,
+    score,
+    feeBps,
+    decision,
+    hookOutput: toHookOutput(decision),
+    source: "memory",
+    keeperPending: isKeeperPending(wallet.id),
+    latencyMitigation,
+    revertReason,
+    hasSignificantInflow,
+    deltaBps,
+    assessedUsd: usdcIn,
+    inflowUsd,
+    opsInWindow,
+    isStale,
+    priceFeedBound,
+  };
+}
+
 export async function resolveSwapDecision(
   wallet: Wallet,
   preferredUsdc?: number,
@@ -59,6 +156,10 @@ export async function resolveSwapDecision(
   isStale: boolean;
   priceFeedBound: boolean;
 }> {
+  if (isMockDemoWallet(wallet.id)) {
+    return resolveMockSwapDecision(wallet, preferredUsdc);
+  }
+
   const usdcIn = swapUsdcAmount(wallet, preferredUsdc);
   const preview = await previewSwap(wallet.address as `0x${string}`, usdcToWei(usdcIn));
   // Display-only: denominator uses the demo wallet's nominal usdc balance, not the real
@@ -96,7 +197,9 @@ export async function buildCompliancePack(
 ): Promise<CompliancePack> {
   const oracle = await ensureOracleEvaluation(wallet.id);
   const resolved = await resolveSwapDecision(wallet, preferredUsdc);
-  const knobs = await readPolicyKnobs();
+  const knobs = isMockDemoWallet(wallet.id)
+    ? getPolicyKnobsSync()
+    : await readPolicyKnobs();
   const midPct = formatFeePct(knobs.proportionalFeeBps);
   const highPct = formatFeePct(knobs.punitiveFeeBps);
   const feeFloor = formatUsdFloor(knobs.unscoredFeeThresholdUsd);

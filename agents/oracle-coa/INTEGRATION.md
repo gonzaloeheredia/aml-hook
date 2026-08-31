@@ -9,12 +9,11 @@ The TypeScript runner lives in `apps/api/src/oracle/`. With `ANTHROPIC_API_KEY`,
 Claude emits score, fee, and Opinion (`liveScore.ts`). Tools:
 `consult_skill` (call `uhi10-use-case` before scoring A–E),
 `search_regulations`, `get_active_version_at`, `screen_ofac`. The keeper publishes
-`finalScore` + `recommendedFeeBps` to `ComplianceOracle`. Quotes use
-`AmlHook.previewSwap`. A 3-minute tick stamps `updatedAt` without calling
-Claude. Without a key, `COA_LIVE=0`, or `npm test`, `factScoring.ts`
+`finalScore` + `recommendedFeeBps` into the API cache for A–D (no chain write).
+A–D quotes use hop + band. A 3-minute tick is Sepolia-only freshness. Without a key, `COA_LIVE=0`, or `npm test`, `factScoring.ts`
 interprets the skills. Every evaluation (and every Opinion) screens the
-subject against the live OFAC (Office of Foreign Assets Control) SDN (Specially Designated Nationals) ETH list and writes `SanctionRegistry`
-on an exact match. The swap still only reads that mapping.
+subject against the live OFAC SDN ETH list. A–D skip the `SanctionRegistry` write.
+The live swap still only reads that mapping.
 
 | Module | Role |
 |---|---|
@@ -31,13 +30,11 @@ on an exact match. The swap still only reads that mapping.
 | `ofacSdn.ts` / `ofacScreen.ts` | Live OFAC SDN ETH set + `setSanctioned` writer |
 | `types.ts` | `ScoreResult` · `OracleOpinion` · `ScorePublishResult` |
 
-No live OpenSanctions / Etherscan / Chainalysis calls. Facts come from Anvil
-wallets, P2P (peer-to-peer) ERC-20 transfers, `SwapObserved` / `WalletBlocked`, live OFAC SDN
-(ETH addresses), and `SanctionRegistry`. N-hop decay (`100 × 0.65^hops`) is the A–E backbone in
-skill `uhi10-use-case`. The agent applies it. TypeScript does not precompute
-65/42 when live. This runner does not score Sepolia addresses. The live pool
-(`docs/Sepolia.md`) needs a separate keeper/attestor if a new wallet must leave
-the never-scored band.
+No live OpenSanctions / Etherscan / Chainalysis calls. Facts for A–D come from
+the API store (wallets, P2P, demo `SwapObserved` / `WalletBlocked`) plus live OFAC SDN.
+N-hop decay (`100 × 0.65^hops`) is the A–D backbone in skill `uhi10-use-case`.
+Do not import that ledger onto a Sepolia EOA. The live pool (`docs/Sepolia.md`)
+needs a keeper/attestor if a new wallet must leave the never-scored band.
 
 ## FEE_OVERRIDE vs FeeEscrow (aligned with contracts)
 
@@ -61,31 +58,18 @@ Opinion copy must describe **standard pool fee + escrowed differential**.
 ## Triggers
 
 ```
-POST /transfers  → wait for agent → reevaluate(from) + reevaluate(to)
-                 → exception: to=D defers keeper (stale score 0 for inflow demo)
-POST /swaps      → afterSwap SwapObserved → wait for agent → reevaluate(wallet)
-                 → or WalletBlocked → wait for agent → reevaluate(wallet)
-                 → if D keeperPending: catch-up publish (~65) after latency swap
-POST /oracle/:id/catch-up → manual deferred publish (Wallet D)
-POST /reset      → clear + seed oracle for A–D and F (Claude wait when key set; E unpublished)
-keeper tick 3m   → republish last agent score (no Claude). If the agent is down, this stamp still keeps Floor B (5 min) from arming.
+POST /transfers  → A–D store hop + balances; COA may refresh in background
+POST /swaps      → A–D applyPoolSwap + demo event; COA fire-and-forget
+POST /oracle/:id/catch-up → deferred D score in memory
+POST /reset      → resetStore + in-memory seed A–D (E unpublished)
+keeper tick 3m   → Sepolia freshness only (not A–D)
 ```
 
-Quotes and swaps call `AmlHook.previewSwap` (same L1 (Layer 1) → L3 (Layer 3) as `beforeSwap`). They
-do not apply TypeScript floors on the COA cache. The keeper writes when the
-decision tier or fee band changes, **or** on a 3-minute heartbeat (same score,
-new `updatedAt`), **or** when the last write is at least as old as Floor B
-(5 minutes). The publisher is signed RPC or it fails.
-That freshness stamp prevents a stable clean wallet from being classified as stale. Floor B
-charges 3% on the first stale swap of the hour, then pass / 3% / 8% by swap+window
-USD (United States dollar) if the keeper is late and the wallet already swapped in that hour.
-A wallet with `updatedAt == 0` is Mitigation A
-(unknown / Wallet E): the hook converts **this swap** to USD-8 (`lastFx` if
-younger than 30 minutes, else Chainlink; official ETH/USD + USDC/USD on a live Deploy; `MockUsdFeed` on Anvil), then
-Floor D on the unpublished bag. The stricter fee wins. Demo E starts empty.
-Clean C funds it (no hop). After C→E $500 a $500 swap is 3%. After C→E
-$10,000 a $1,000 swap is 8% (A mid). After C→E $15,000 a small swap is 8%.
-Floor C may still REVERT if prior 24h USD + this swap crosses $15,000.
+A–D quotes and swaps use TypeScript hop + band (same mapping as `RiskPolicy.decide`).
+They do not call `AmlHook.previewSwap`. Floor B on A–D uses the demo clock
+(`POST /demo/elapse`). A wallet with no oracle row is Mitigation A (Wallet E):
+live `beforeSwap` on Sepolia applies Floor A/C/D by USD size. The faucet does
+not publish a score. Simulator C→E does not fund that EOA.
 
 | Assessed USD-8 | Hook output |
 |---|---|

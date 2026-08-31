@@ -14,6 +14,7 @@ import {
   getPolicyKnobsSync,
   type PolicyKnobs,
 } from "./chain/policy.js";
+import { isMockDemoWallet } from "./demoMode.js";
 import {
   preferOnChainScore,
   readRiskFromChain,
@@ -104,7 +105,7 @@ export async function resolveWalletRisk(wallet: Wallet): Promise<{
   if (wallet.neverScored) {
     return { score: 0, feeBps: 0, source: "unscored" };
   }
-  if (preferOnChainScore()) {
+  if (preferOnChainScore() && !isMockDemoWallet(wallet.id)) {
     const risk = await readRiskFromChain(wallet.address);
     if (risk != null && risk.updatedAt > 0) {
       const score = risk.score;

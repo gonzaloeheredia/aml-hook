@@ -2,8 +2,8 @@
 
 Institutional six-stage demo of the AML Hook use case: **exploit `WalletBlocked` (Wallet A, score 100, not listed)**, **N-hop decay**, **oracle-latency / inflow (Wallet D)**, **never-scored USD bands (Wallet E, funded by C)**, and ternary **ALLOW / FEE_OVERRIDE / REVERT**. Named-address OFAC (Office of Foreign Assets Control) (`SanctionHit`) is hook Layer 1 (whitepaper). It is not a demo wallet. Newsreader + Inter, ink/cream surfaces, Uniswap logo kept. Dark is the default. The round control in the navbar toggles light.
 
-Scores come from the API (application programming interface) chain: the COA (Compliance Officer Agent) emits `finalScore` / fee, the keeper publishes `ComplianceOracle`, and `AmlHook.previewSwap` reads that row. Opinion is `GET /compliance` (Claude when the API has a key). Live OFAC SDN (Specially Designated Nationals) is screened by the API COA (writer → `SanctionRegistry`). This UI (user interface) makes no OpenSanctions, Etherscan, or GoPlus HTTP calls.
-The UI sends requests only to the API at `NEXT_PUBLIC_API_URL` (default `http://localhost:4000`). Local Anvil mode returns `503` `{ error: "deploy_local" }` if the chain is down. There is no offline `withHopOverlay` policy. Hosted Sepolia: set `NEXT_PUBLIC_API_URL` to that API.
+Scores for A–D come from the API in-memory ledger (hop + band). The COA may draft Opinion in the background; it does not publish `ComplianceOracle` for those IDs. Wallet E leaves the simulator: faucet + **Open pool on Uniswap**. Opinion is `GET /compliance` (Claude when the API has a key). This UI makes no OpenSanctions, Etherscan, or GoPlus HTTP calls.
+The UI sends requests only to the API at `NEXT_PUBLIC_API_URL` (default `http://localhost:4000`). A–D work if Sepolia RPC is down. Hosted: set `NEXT_PUBLIC_API_URL` to that API.
 
 ## Guided stages
 
@@ -13,12 +13,12 @@ On-screen titles (serif, same size on every stage): **Swap**, **Hook execution**
 |---|---|---|---|
 | 1 | **Swap** | Swap | Connect wallet + `Get started` |
 | 2 | **Hook** | Hook execution | Hook lifecycle (`beforeSwap`) |
-| 3 | **Fees** | Fee summary | Pool standard fee + FeeEscrow · **EscrowPanel** (checkpoint 2 / recover) · **FundsPanel** (close epoch / LP (liquidity provider) claim / treasury propose-execute) · **Sold (USDC)** / **Bought (ETH)** |
+| 3 | **Fees** | Fee summary | Pool standard fee + risk differential (`FeeSummary` only) |
 | 4 | **Stats** | AML stats | Score gauge, report overview, detection data |
 | 5 | **Opinion** | AML Analysis | Legal / technical opinion (A–E) from **oracle COA** via `/compliance` |
-| 6 | **Event** | Event | `afterSwap` pool-chain payload only |
+| 6 | **Event** | Event | A–D: API demo trail. E: on-chain `SwapObserved` |
 
-Auto navigation moves Swap → Hook on simulate. Hook stage indicators fill to each layer's `stepTimesSec`, then hold 3s and advance to Fees. Fees holds 3s after its slide, then Stats. Opinion waits 15s (plus its slide) before Event.
+Auto navigation moves Swap → Hook on **Get started**. After the Hook animation, A–D open Fees immediately. Later stages still wait for a click (hint under the rail).
 
 All stages accept a click on the left half of the screen for previous and the right half for next. Wheel scrolls content first and changes stage at scroll edges. Desktop also shows chevrons on the sides of the current module. The stage rail jumps to any unlocked step.
 
@@ -28,7 +28,7 @@ On the first visit from Opinion → Event, Event stays locked for the Opinion sl
 
 **Restart data** (fixed control, bottom-right) calls `POST /reset`, clears local swap/event state, and returns to Swap.
 
-**Event** shows the use-case `afterSwap` record:
+**Event** shows the use-case after-swap record (API `source=demo` for A–D; chain logs for E):
 
 ```
 { address, score, decision, fee, amount_usdc, hop_distance?, origin?, timestamp }
@@ -48,18 +48,15 @@ REVERT is `beforeSwap` only. That attempt emits no `afterSwap`.
 
 **Wallet D (score 0)** starts with 5,000 USDC published clean. Held funds → ALLOW 0.30%. Advance 5 min after a $1,000 swap (no intervening write) → 3% (B mid). Clean C→D ~10k → inflow 3% (no hop). Clean C→D $15k → inflow 8%.
 
-**Wallet E (unknown)** starts empty. Fund from clean **C** (no hop). C→E $500 → 3%; $10k then $1k swap → 8% (A mid); $15k bag + $500 swap → 8% (D); this swap $15k → revert. $10k then $5k → Floor C. Unbind the feed via `POST /demo/price-feed` after a quote → last FX (silent under 30 min; `PriceFallbackUsed` until 24h after that). `MagnitudeQuoteFailed` only if never quoted or cache > 24h.
+**Wallet E (unknown)** is a new Sepolia EOA. Faucet `POST /demo/mint` `{ address }` then **Open pool on Uniswap**. A–D P2P does not fund that EOA. Never-scored floors apply on the live hook (3% / 8% / revert by size).
 
-N-hop formula (agent applies skill `uhi10-use-case`; keeper publishes): `score = 100 × 0.65^hops` (`exposed_proportion` is 1.0 in this demo).
-The UI waits on `POST /transfers` and `POST /swaps` until that publish lands. Closer hop wins if a wallet is contaminated more than once. Never-scored magnitude is **USD-8**, not native token units. Local Anvil uses `MockUsdFeed` ($1 USDC, $1,000 ETH). A live Deploy binds official Chainlink ETH/USD and USDC/USD.
+N-hop formula (A–D store + skill `uhi10-use-case`): `score = 100 × 0.65^hops` (`exposed_proportion` is 1.0 in this demo).
+`POST /transfers` and `POST /swaps` on A–D return as soon as the store updates. Closer hop wins if a wallet is contaminated more than once.
 
 ## Run locally
 
 ```bash
-# repo root: required. Starts Anvil, deploys the stack, writes apps/api/.env.local
-npm run deploy:local
-
-# Terminal 1: API (local Anvil)
+# Terminal 1: API (A–D are in-memory; Sepolia env is only for Wallet E / health)
 cd apps/api
 npm install
 npm run dev
@@ -70,7 +67,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000/health](http://localhost:4000/health) (`mode: "anvil"`, `chain.ok`). Restart the API after every `deploy:local`.
+Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000/health](http://localhost:4000/health). A–D do not need `chain.ok`.
 
 ## Demo walkthrough
 
@@ -80,19 +77,19 @@ Open [http://localhost:3000](http://localhost:3000). API: [http://localhost:4000
 4. Swap with **B** → FEE_OVERRIDE 8%; with **C** → FEE_OVERRIDE 3%
 5. On **D**, swap $1,000, then **Advance 5 min** with no keeper write → 3% on a $1,000 swap (Floor B mid). An operating keeper stamps `updatedAt` every **3 minutes** without calling the agent. Floor B only arms at **5 minutes** if that stamp is late.
 6. Restart. Send **10,000** C→D (C still clean) → D swap → 3% (inflow, no hop). Restart. Send **15,000** C→D → D swap → 8%
-7. MetaMask **C → E** ($500 / $10k / $15k). Swap $500 after $500 bag → 3%; $1k after $10k bag → 8% (A mid); $500 after $15k bag → 8% (D). This swap $15k → revert. Then $10,000 + $5,000 → Floor C revert. Unbind the feed with `POST /demo/price-feed` after a quote → last FX (silent under 30 min). `MagnitudeQuoteFailed` only if that token was never quoted or the cache is older than 24h
-8. From **Fees**, advance → **AML stats** → **Opinion** → **Event**
+7. Wallet **E**: faucet `{ address }` → **Open pool on Uniswap** (never-scored floors on the live hook)
+8. From **Fees**, click forward → **AML stats** → **Opinion** → **Event**
 
 ## Data source
 
-Static case templates live in `src/data/cases.ts`. Live ledger, compliance, and escrow data flow through `src/lib/api.ts` → `apps/api` → Anvil (local) or Sepolia (`ORACLE_CHAIN_ID=11155111`). Keys stay on the API. The browser never sees keeper or attestor keys.
+Static case templates live in `src/data/cases.ts`. A–D ledger and compliance flow through `src/lib/api.ts` → `apps/api` store. Wallet E uses the faucet + Uniswap; Event can read Sepolia `SwapObserved`. Keys stay on the API. The browser never sees keeper or attestor keys.
 
 ## Related docs (repo root)
 
 - `docs/Whitepaper.md`: product + AccessManager roles (§3.5)
 - `docs/Use_Case.md`: A–E demo narrative. Sepolia pool: `docs/Sepolia.md`
 - `contracts/README.md`: Foundry layout (`src/contracts/…`, `script/Deploy.sol`, `CreatePool.s.sol`)
-- `apps/api/README.md`: COA + signed `updateScore` (Anvil or Sepolia)
+- `apps/api/README.md`: A–D memory ledger; E / faucet on Sepolia
 
 This UI never communicates with a live MetaMask extension. **Connect** picks demo wallets A–E. The faucet only mints MockUSDC / MockWETH to an address via `POST /demo/mint`.
 

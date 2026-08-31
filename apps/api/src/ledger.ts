@@ -13,20 +13,31 @@ import {
 import type { Decision, Wallet, WalletId } from "./types.js";
 
 /**
- * Applies a P2P USDC transfer between two wallets.
- * Risk and score change only here. Pool swaps never raise behavioral score.
- *
- * Hop rules (B, C, D start clean / published score 0; E stays unknown):
- * - Receive from exploit A → hop 1 → score ≈ 65 → fee 8%
- * - Receive from a 1-hop peer (e.g. tainted B→C or C→B) → hop 2 → score ≈ 42 → fee 3%
- * - A second inbound from A keeps the closer hop (min); hop 1 wins over hop 2
- * - Clean→clean P2P does not contaminate
- * - Wallet D: ledger hop updates immediately; keeper publish may be deferred (API layer)
- *
- * Returns the next wallet map + transfer record, or null on failure.
+ * Debits sender USDC and credits recipient, then applies hop contamination.
+ * Used for A–D (and A–D→E) P2P so balances never leave the in-memory store.
  */
+export function applyP2pTransfer(
+  wallets: Record<WalletId, Wallet>,
+  from: WalletId,
+  to: WalletId,
+  amountUsd: number,
+): Record<WalletId, Wallet> | null {
+  const amount = Math.round(amountUsd);
+  const sender = wallets[from];
+  const recipient = wallets[to];
+  if (!sender || !recipient || from === to || amount <= 0) return null;
+  if (sender.usdc < amount) return null;
+  const withBalances: Record<WalletId, Wallet> = {
+    ...wallets,
+    [from]: { ...sender, usdc: sender.usdc - amount },
+    [to]: { ...recipient, usdc: recipient.usdc + amount },
+  };
+  return applyHopContamination(withBalances, from, to);
+}
+
 /**
- * Updates hop / origin only. Balances live on-chain; the keeper publishes this hop.
+ * Updates hop / origin. Receive from A → hop 1 (~65); from a 1-hop peer → hop 2 (~42).
+ * Clean→clean does not contaminate. E (neverScored) is unchanged.
  */
 export function applyHopContamination(
   wallets: Record<WalletId, Wallet>,

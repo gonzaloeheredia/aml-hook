@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { applyHopContamination, applyPoolSwap } from "../../src/ledger.js";
+import { applyHopContamination, applyP2pTransfer, applyPoolSwap } from "../../src/ledger.js";
 import { seedDemoWallets } from "../fixtures.js";
 
 describe("unit: ledger", () => {
@@ -28,6 +28,14 @@ describe("unit: ledger", () => {
   it("applyHopContamination: clean→clean does not add a hop", () => {
     const after = applyHopContamination(seedDemoWallets(), "B", "C");
     assert.equal(after.C.hopDistance, null);
+  });
+
+  it("applyP2pTransfer: debits sender, credits recipient, and hops A→B", () => {
+    const next = applyP2pTransfer(seedDemoWallets(), "A", "B", 1_000);
+    assert.ok(next);
+    assert.equal(next.A.usdc, 9_999_000);
+    assert.equal(next.B.usdc, 26_000);
+    assert.equal(next.B.hopDistance, 1);
   });
 
   it("applyPoolSwap: ALLOW settles without changing hops; REVERT is a no-op", () => {

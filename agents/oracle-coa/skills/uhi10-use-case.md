@@ -23,15 +23,15 @@ is an add/remove caller.
 
 ## 0. Environments (do not collapse)
 
-| | Guided demo (`Use_Case.md`) | Live pool (`uhi10-sepolia`) |
+| | Guided demo A–D (`Use_Case.md`) | Live pool (`uhi10-sepolia`) |
 |---|---|---|
-| Chain | Anvil `31337` | Ethereum Sepolia `11155111` |
-| This API (application programming interface) / UI (user interface) | Wired. Simulator. Quotes = `previewSwap` | Same API when `ORACLE_CHAIN_ID=11155111` (faucet + keeper). Quotes still `previewSwap`. SDK (software development kit) `getDeployment` is 31337-only |
-| Pool | `MockPoolManager` | Official Uniswap v4 PoolManager |
-| A–E keys | Anvil #1–#5 | Do **not** map these EOAs (externally owned accounts) onto Sepolia |
-| New unscoped EOA | Out of demo | Wallet **E** until a keeper writes |
+| Ledger | API RAM. Quotes = hop + band. No Sepolia RPC | Ethereum Sepolia `11155111` |
+| This API / UI | Simulator A–D. `POST /swaps` mutates the store | Faucet + Uniswap fill. Do not `previewSwap` that fill |
+| Pool | None (memory `applyPoolSwap`) | Official Uniswap v4 PoolManager |
+| A–D keys | Demo picker only | Do **not** map these hops onto a Sepolia EOA |
+| New unscoped EOA | Out of A–D | Wallet **E** until a keeper writes |
 
-On Anvil: never publish E. Do not fund E from A.
+Never publish E from the guided path. Do not fund a Sepolia EOA from A.
 
 On Sepolia: a new EOA vs the live pool is Floor A/C/D until
 `_ORACLE_KEEPER` + attestor write. You do not auto-publish that address.
@@ -46,7 +46,7 @@ On Sepolia: a new EOA vs the live pool is Floor A/C/D until
 | **B** | Starts published-clean (score 0) | Published | After inbound from A (or 1-hop peer): hop 1 → **~65 / 800 bps**. After inbound from a 1-hop peer: hop 2 → **~42 / 300 bps**. Closer hop wins. |
 | **C** | Same hop rules as B. Funds E (no hop) and D (inflow) | Published | Symmetric with B. Clean C → E does **not** write a hop on E. |
 | **D** | Published clean (score 0), starts with 5,000 USDC | Published | Tainted inbound (A or hopped peer): **defer** `updateScore` so the next swap can show Floor D on stale 0. Catch-up then writes ~65 / 800. Clean C→D does **not** add a hop. Already-held funds ALLOW at 30 bps while the row is fresh 0. |
-| **E** | Unknown. Starts empty. Funded by clean C | **Never written** | Do **not** publish a score. Hook-local Floor A (this swap) + Floor D (bag). Not a COA (Compliance Officer Agent) 0. Any new Sepolia EOA against the live pool is this path until a keeper writes. |
+| **E** | Unknown. Hosted: new Sepolia EOA (faucet + Uniswap). Simulator C→E is RAM only | **Never written** | Do **not** publish a score. Hook-local Floor A (this swap) + Floor D (bag). Not a COA 0. Do not import A–D hops onto that EOA. |
 
 B and C are hop-symmetric: A→B→C and A→C→B use the same math.
 

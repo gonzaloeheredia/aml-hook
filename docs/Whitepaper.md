@@ -305,15 +305,15 @@ business case are sections 1–7. Numeric floors and FATF cites are §8.4.
 
 Two environments. Reviewers should grade each on its own terms.
 
-| | Guided demo | Live pool |
+| | Guided demo A–D | Live pool (Wallet E) |
 | --- | --- | --- |
-| Chain | Anvil `31337` (local default) | Ethereum Sepolia `11155111` |
-| UI / API | Next.js + `apps/api` (simulator, not the MetaMask extension). Swap card: **Advance 5 min**. Mint in the panel is 1,000 USDC / 1 ETH. Hosted API can set `ORACLE_CHAIN_ID=11155111` | Same API: faucet is `POST /demo/mint` `{ address }` (not a panel control) + keeper/COA write this chain. SDK `getDeployment` is still 31337-only |
-| PoolManager | `MockPoolManager` | Official Uniswap v4 PoolManager |
-| Quotes | `AmlHook.previewSwap` (demo swap card, either chain) | Real `PoolManager` fill (e.g. app.uniswap.org) |
-| Addresses | `contracts/deployments/31337.json` | [`docs/Sepolia.md`](Sepolia.md) |
+| Ledger | API in-memory store (hop, balances, Restart). No Sepolia `eth_call` / txs | Ethereum Sepolia `11155111` |
+| UI / API | Next.js + `apps/api`. **Get started** → `POST /swaps` (memory). **Advance 5 min** is the demo clock | Same UI: faucet `POST /demo/mint` `{ address }` + **Open pool on Uniswap**. SDK `getDeployment` is still 31337-only |
+| PoolManager | None (store `applyPoolSwap`) | Official Uniswap v4 PoolManager |
+| Quotes | TypeScript hop + band (same mapping as `RiskPolicy.decide`) | Real `beforeSwap` on the fill |
+| Addresses | Demo picker A–D | [`docs/Sepolia.md`](Sepolia.md) |
 
-A new EOA against the Sepolia pool is Wallet E (no oracle row → Floor A/C/D). The demo leaves that address unpublished until an operator writes it.
+A new EOA against the Sepolia pool is Wallet E (no oracle row → Floor A/C/D). The demo leaves that address unpublished until an operator writes it. A–D hops never overlay that EOA.
 
 ### 8.1 Contract architecture
 

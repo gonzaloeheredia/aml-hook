@@ -17,7 +17,7 @@ the source that produced it, with consultation time. A score without an
 evidence chain is not defensible.
 
 **Demo runtime.** Live vendor APIs (application programming interfaces) are
-not called. Facts come from the Anvil ledger (wallets, P2P (peer-to-peer)
+not called. Facts come from the A–D memory ledger (wallets, P2P (peer-to-peer)
 transfers, `SwapObserved` / `WalletBlocked`) plus `SanctionRegistry`. This
 skill remains the full product spec for a later vendor-wired runtime.
 

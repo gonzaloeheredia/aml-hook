@@ -3,10 +3,10 @@
 Uniswap v4 pool on **chain 11155111** with the AML (Anti-Money Laundering) hook attached to the official
 PoolManager. Tokens are the mintable MockUSDC / MockWETH from this repo. They are not
 canonical Circle USDC / WETH. Reviewers open this pool on Sepolia (for example
-app.uniswap.org). The hosted API (application programming interface) (`ORACLE_CHAIN_ID=11155111`) reads
+app.uniswap.org) as **Wallet E**. The hosted API (`ORACLE_CHAIN_ID=11155111`) reads
 [`contracts/deployments/11155111.json`](../contracts/deployments/11155111.json)
-and can publish scores / mint the faucet here. The guided UI (user interface) is still the
-A–E **simulator** (`previewSwap`, distinct from a live Uniswap fill).
+and can mint the faucet here. It does **not** settle A–D on this chain: those wallets
+are the in-memory guided demo (`docs/Use_Case.md`). SDK `getDeployment` stays on 31337.
 
 Addresses are also written by `script/Deploy.sol` to
 [`contracts/deployments/11155111.json`](../contracts/deployments/11155111.json)
@@ -125,19 +125,20 @@ Any new address that swaps or mints on this pool without an oracle row hits
 Floor A/C/D (use-case Wallet E). Swaps under $1,000 take 3%. Swaps of $1,000–$14,999
 take 8% (or revert if the ticket is more than 20% of pool liquidity). Swaps ≥ $15,000
 revert. That is the designed never-scored path. The demo faucet (`POST /demo/mint` with `{ address }`) only mints 1,000 MockUSDC + 1 MockWETH. It is not in the MetaMask panel. It
-does not call `updateScore`. Unless `_ORACLE_KEEPER` later publishes a clean
+does not call `updateScore`. Simulator A–D transfers do not move these tokens.
+Unless `_ORACLE_KEEPER` later publishes a clean
 row for that EOA (externally owned account), app.uniswap.org will treat the wallet as never-scored: elevated
 fee or revert by size. See [`Use_Case.md`](Use_Case.md) §
 environments.
 
 After `_ORACLE_KEEPER` publishes a score for that EOA, Floors A/C no longer
-treat it as never-scored. **Floor D** applies on a later inbound (mint or
-P2P, then swap) the same way Steps 8–9 treat Wallet D. **Floor B** applies
+treat it as never-scored. **Floor D** applies on a later inbound (mint,
+then swap) the same way Steps 8–9 treat Wallet D. **Floor B** applies
 if the row goes stale: five real minutes with no `updateScore`. The swap-card
-**Advance 5 min** button and `POST /demo/elapse` are Anvil-only. A healthy
-3-minute keeper tick stamps `updatedAt` and keeps Floor B quiet. **Hop
-scoring** from Wallet A cannot be shown here: A is an Anvil demo key, not a
-Sepolia EOA. The administrative score unlocks Floor B/D. It does not create
+**Advance 5 min** button and `POST /demo/elapse` move the A–D demo clock only.
+A healthy 3-minute keeper tick stamps `updatedAt` and keeps Floor B quiet. **Hop
+scoring** from Wallet A cannot be shown here: A–D hops live in API memory, not
+on this EOA. An administrative score unlocks Floor B/D. It does not create
 a hop.
 
 ## What is not a live Uniswap fill
@@ -149,6 +150,6 @@ env overrides) when `ORACLE_CHAIN_ID=11155111`. See
 public addresses. RPC (remote procedure call) and keys stay in the host panel.
 
 Running `npm run deploy:local` is on MockPoolManager + MockUsdFeed,
-not this pool. The Next.js swap card is still `previewSwap` + `observeSwap`
-+ FeeEscrow even when the API points here. A real swap is app.uniswap.org
-against this PoolManager. `/demo/elapse` is Anvil-only.
+not this pool. The Next.js A–D path is the in-memory store (`POST /swaps`).
+Wallet E leaves the simulator: faucet + app.uniswap.org against this
+PoolManager. `/demo/elapse` is the A–D demo clock.

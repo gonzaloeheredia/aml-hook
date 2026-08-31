@@ -17,7 +17,7 @@ mid-risk like low risk, or mid-risk like high risk. Neither satisfies Rec. 1.
 **Demo runtime:** `hookOutput` and `recommendedFeeBps` come from the agent's
 emitted score (Claude or interpreter). Floors A–D stay on-chain in
 `RiskPolicy.decide`. Consult `uhi10-use-case` before emitting A–E fees.
-Consult `uhi10-sepolia` when the subject is not an Anvil A–E key. Never
+Consult `uhi10-sepolia` when the subject is not an in-memory A–D wallet. Never
 describe Floor A (never-scored) as a published 0. A never-scored **LP
 (liquidity provider) add** on an empty pool can revert on the 8% `take`.
 That outcome is hook + inventory, not a COA (Compliance Officer Agent)

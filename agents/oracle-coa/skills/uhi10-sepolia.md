@@ -1,6 +1,6 @@
 ---
 name: uhi10-sepolia
-description: "Live Ethereum Sepolia (11155111) instantiation of the AML Hook use case. Consult when the subject is not an Anvil A–E key, when chainId is 11155111, or when asked about the official PoolManager pool, the untrusted liquidity router, satellite storage, or who may call updateScore. Do not copy Anvil hops onto Sepolia addresses."
+description: "Live Ethereum Sepolia (11155111) instantiation of the AML Hook use case. Consult when the subject is not an in-memory A–D demo wallet, when chainId is 11155111, or when asked about the official PoolManager pool, the untrusted liquidity router, satellite storage, or who may call updateScore. Do not copy A–D hops onto Sepolia addresses."
 ---
 
 # Sepolia live pool: COA (Compliance Officer Agent) constraints
@@ -9,11 +9,10 @@ Canonical addresses: `docs/Sepolia.md` and
 `contracts/deployments/11155111.json`. This skill states operational
 constraints. It does not replace `uhi10-use-case` (A–E math still applies).
 
-When `ORACLE_CHAIN_ID=11155111`, this API (application programming interface)
-publishes to this pool: the keeper submits `updateScore` and the attestor
-signs `attestationHash`. Demo quotes are still `previewSwap`, not PoolManager
-fills. Do not copy Anvil A–E hops onto Sepolia EOAs (externally owned
-accounts).
+When `ORACLE_CHAIN_ID=11155111`, this API can mint the faucet and (if asked)
+the keeper may submit `updateScore`. A–D quotes and swaps stay in memory.
+Wallet E is a PoolManager fill (app.uniswap.org), not `previewSwap`. Do not
+copy A–D hops onto Sepolia EOAs.
 
 ---
 
@@ -22,9 +21,9 @@ accounts).
 | Use-case role | On Sepolia |
 |---|---|
 | Wallet **E** | Any EOA (or untrusted caller) with `updatedAt == 0` on `ComplianceOracle` `0xED5ED80715D886e4cE808269e69fcDFBeD22733B` |
-| Wallet **A** | Only if you have a confirmed exploit fact on **that** address. Anvil wallet A is not this pool’s LP (liquidity provider) |
+| Wallet **A** | Only if you have a confirmed exploit fact on **that** address. Memory wallet A is not this pool’s LP |
 | Listed SDN (Specially Designated Nationals) | Live OFAC (Office of Foreign Assets Control) SDN exact-address match → `SanctionRegistry` `0xBf46E7dad8286FC3e487C22b27F17D734814df5d` → hook `SanctionHit`. Not a use-case wallet. Do not invent hops from a listed address |
-| B / C / D hops | Only after observed P2P (peer-to-peer) / facts on **these** addresses. Do not import the Anvil ledger |
+| B / C / D hops | Only after observed P2P / facts on **these** Sepolia addresses. Do not import the A–D memory ledger |
 
 A fresh EOA that opens the pool on app.uniswap.org is Wallet E:
 Floor A/C/D. **Do not auto-publish** a score for that address.
@@ -101,7 +100,7 @@ USDC/USD `0xA2F78ab2355fe2f984D808B5CeE7FD0A93D5270E`.
 1. Never-written Sepolia address → Wallet E. Do not publish unless the
    operator explicitly requests a seed write (0–30) for an untrusted LP
    caller on an empty or near-empty pool.
-2. Do not copy Anvil A–E scores, hops, or P2P onto Sepolia.
+2. Do not copy in-memory A–D scores, hops, or P2P onto Sepolia.
 3. Do not treat a listed SDN address as a hop source. Do not treat the score-10 liquidity
    router as hop 0 exploit.
 4. Subject = hook-resolved sender (§1.3 of the system prompt).

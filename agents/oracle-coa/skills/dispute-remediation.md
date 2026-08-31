@@ -16,7 +16,7 @@ decisions on participants with no correction path.
 
 **Demo runtime:** no live LP (liquidity provider)-report challenge UI (user
 interface). This skill is the product spec for a later operator loop. Score
-changes in UHI10 come from new Anvil facts (P2P (peer-to-peer),
+changes in UHI10 come from new A–D store facts (P2P (peer-to-peer),
 `SwapObserved`, `WalletBlocked`), not from a dispute ticket.
 
 ---

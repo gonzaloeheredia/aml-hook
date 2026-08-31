@@ -18,8 +18,8 @@ requirements that controls be proportionate and founded.
 Also the material used to answer due diligence from a protocol evaluating hook
 integration.
 
-**Demo runtime:** no accredited backtest pack is produced. Limitations: Anvil
-ledger facts + git corpus + live OFAC (Office of Foreign Assets Control) SDN
+**Demo runtime:** no accredited backtest pack is produced. Limitations: A–D
+memory-ledger facts + git corpus + live OFAC (Office of Foreign Assets Control) SDN
 (Specially Designated Nationals) exact-address screen; Claude or interpreter;
 no Chainalysis / TRM / Elliptic HTTP.
 
@@ -130,7 +130,7 @@ Never publish effective secret threshold values in public materials; ranges of
   "driftFlags": [],
   "sensitivityFindings": [],
   "limitations": [
-    "Demo uses Anvil ledger facts + git corpus + live OFAC SDN; no Chainalysis / TRM HTTP"
+    "Demo uses A–D memory ledger facts + git corpus + live OFAC SDN; no Chainalysis / TRM HTTP"
   ],
   "auditHash": "...",
   "recommendation": "retain | recalibrate | escalate"

@@ -18,7 +18,7 @@ distribution. Evaluates deviation from expected behavior, not identity.
 
 **Demo runtime:** incremental path after `SwapObserved` re-runs this skill with
 `uhi10-use-case` then `fact-scoring`. Clean paths may emit mitigants;
-hop-contaminated wallets carry NW facts from the Anvil ledger graph.
+hop-contaminated wallets carry NW facts from the A–D memory ledger graph.
 
 ---
 

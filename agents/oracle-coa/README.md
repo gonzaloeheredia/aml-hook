@@ -24,7 +24,7 @@ apps/api/src/oracle/           # Runtime (live Claude if key set)
 ├── skills.ts                 # Load agents/oracle-coa/skills/*.md
 ├── factScoring.ts            # Skill interpreter (tests / COA_LIVE=0)
 ├── report.ts                 # Opinion schema skeleton
-├── store.ts                  # Cache. Quotes use AmlHook.previewSwap
+├── store.ts                  # Cache. A–D quotes use memory hop + band
 ├── types.ts                  # ScoreResult · OracleOpinion schemas
 └── index.ts
 ```
@@ -42,10 +42,9 @@ Run the full pipeline on an address: resolve originator attribution, screen
 sanctions, gather on-chain evidence, apply domain skills, run `fact-scoring`,
 and produce a 0–100 score with ternary hook output.
 
-The signed score is written to `ComplianceOracle` on the chain the API (application programming interface) is
-wired to (Anvil in the UHI10 demo). `AMLHook.beforeSwap` reads it with no extra
-latency. Sepolia uses the same `updateScore` split (`_ORACLE_KEEPER` + attestor).
-This pack is not pointed at `11155111`. See `docs/Sepolia.md`.
+For A–D the signed score stays in the API cache (no `ComplianceOracle` write).
+`AMLHook.beforeSwap` on Sepolia reads a published row only for live subjects
+(Wallet E). See `docs/Sepolia.md`.
 
 Entry point: `reevaluateWallet()` in `apps/api/src/oracle/agent.ts`.
 
