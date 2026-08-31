@@ -16,7 +16,7 @@ import { StageContinueFab } from "@/components/StageContinueFab";
 import { StageSideNav } from "@/components/StageSideNav";
 import { SwapWidget } from "@/components/SwapWidget";
 import { walletTone } from "@/components/WalletTag";
-import { DEMO_CASES, type DemoCaseId } from "@/data/cases";
+import { DEMO_CASES, type DemoCase, type DemoCaseId } from "@/data/cases";
 import {
   ApiError,
   fetchCompliance,
@@ -69,6 +69,12 @@ import {
   type HookChainEvent,
 } from "@/lib/hookEvents";
 import { applyLiveCaseCopy } from "@/lib/liveCaseCopy";
+import {
+  hookEventFromSepolia,
+  listSepoliaSwapObserved,
+  swapObservedFromReceipt,
+  swapObservedFromTx,
+} from "@/lib/sepoliaSwapObserved";
 import { connectSepoliaAccount, readSepoliaBalances } from "@/lib/sepoliaWallet";
 import { swapUsdcForWeth } from "@/lib/sepoliaSwap";
 import { withComplianceOverlay } from "@/lib/withComplianceOverlay";
@@ -92,6 +98,60 @@ function nextStageLabel(stage: DemoStage): string | null {
   const next = STAGE_ORDER[STAGE_ORDER.indexOf(stage) + 1];
   if (!next) return null;
   return DEMO_STAGES.find((s) => s.id === next)?.label ?? next;
+}
+
+function eventsForWallet(
+  events: HookChainEvent[],
+  walletId: DemoCaseId,
+  liveAddress: string | null,
+): HookChainEvent[] {
+  if (walletId === "E" && liveAddress) {
+    const addr = liveAddress.toLowerCase();
+    return events.filter((e) => e.address.toLowerCase() === addr);
+  }
+  return events.filter((e) => e.walletId === walletId);
+}
+
+/**
+ * Hook / Fees / Opinion for E follow the last Sepolia SwapObserved, not the static template.
+ */
+function overlayFromSepoliaEvent(
+  demoCase: DemoCase,
+  event: HookChainEvent,
+): DemoCase {
+  const decision: DemoCase["decision"] =
+    event.decision === "REVERT"
+      ? "block"
+      : event.decision === "FEE_OVERRIDE"
+        ? "fee_override"
+        : "allow";
+  const flowPath = decision;
+  const decisionLabel =
+    decision === "block"
+      ? "Block"
+      : decision === "fee_override"
+        ? "Fee override"
+        : "Allow";
+  return {
+    ...demoCase,
+    score: event.score,
+    decision,
+    decisionLabel,
+    appliedFeeBps: event.feeBps,
+    feeMultiplier:
+      demoCase.baseFeeBps > 0 ? event.feeBps / demoCase.baseFeeBps : 0,
+    flowPath,
+    activity: {
+      ...demoCase.activity,
+      hopDistance: event.hopDistance,
+      origin: event.origin,
+      txCount: Math.max(demoCase.activity.txCount, 1),
+    },
+    agent: {
+      ...demoCase.agent,
+      hookOutput: event.decision,
+    },
+  };
 }
 
 function statsFromEvents(
@@ -201,20 +261,10 @@ export default function HomePage() {
     stage,
   };
 
+  const trailEvents = eventsForWallet(chainEvents, caseId, liveEAddress);
   const liveStats =
     caseId === "E"
-      ? mergeStats(
-          swapStats.E,
-          statsFromEvents(
-            liveEAddress
-              ? chainEvents.filter(
-                  (e) =>
-                    e.address.toLowerCase() === liveEAddress.toLowerCase(),
-                )
-              : chainEvents,
-            "E",
-          ),
-        )
+      ? mergeStats(swapStats.E, statsFromEvents(trailEvents, "E"))
       : swapStats[caseId];
 
   const writeSession = useCallback((patch?: Partial<DemoSessionSnapshot>) => {
@@ -314,8 +364,16 @@ export default function HomePage() {
       compliance && compliance.walletId === caseId
         ? withComplianceOverlay(baseCase, compliance)
         : baseCase;
-    return applyLiveCaseCopy(overlaid);
-  }, [baseCase, caseId, compliance, demoTick]);
+    const withCopy = applyLiveCaseCopy(overlaid);
+    if (caseId !== "E") return withCopy;
+    const last = [...trailEvents]
+      .reverse()
+      .find(
+        (e) =>
+          e.eventName === "SwapObserved" || e.eventName === "WalletBlocked",
+      );
+    return last ? overlayFromSepoliaEvent(withCopy, last) : withCopy;
+  }, [baseCase, caseId, compliance, demoTick, trailEvents]);
 
   /**
    * Sets the slide direction from the current stage, then changes stage.
@@ -407,6 +465,19 @@ export default function HomePage() {
     });
     return nextWallets;
   }, [caseId, writeSession]);
+
+  /**
+   * Wallet E Event trail from Sepolia SwapObserved, not Railway Anvil/demo memory.
+   */
+  const refreshSepoliaEvents = useCallback(async (wallet?: string | null) => {
+    const addr = wallet ?? liveEAddressRef.current;
+    if (!addr) return;
+    const rows = await listSepoliaSwapObserved(addr as Address);
+    const incoming = rows.map(hookEventFromSepolia);
+    const merged = mergeHookEvents(sessionRef.current.chainEvents, incoming);
+    setChainEvents(merged);
+    writeSession({ chainEvents: merged });
+  }, [writeSession]);
 
   /**
    * Pulls live opinion for a wallet. Cached pack wins when Railway reseeds.
@@ -844,18 +915,28 @@ export default function HomePage() {
   }, [apiStatus, caseId, refreshCompliance]);
 
   useEffect(() => {
-    if (stage !== "event" || apiStatus !== "online") return;
+    if (stage !== "event") return;
+    if (caseId === "E") {
+      void refreshSepoliaEvents().catch(() => {
+        /* keep local trail */
+      });
+      const tick = window.setInterval(() => {
+        void refreshSepoliaEvents().catch(() => {
+          /* keep local trail */
+        });
+      }, 8_000);
+      return () => window.clearInterval(tick);
+    }
+    if (apiStatus !== "online") return;
     void refreshLedger().catch(() => {
       /* keep local trail */
     });
-    if (caseId !== "E") return;
-    const tick = window.setInterval(() => {
-      void refreshLedger().catch(() => {
-        /* keep local trail */
-      });
-    }, 12_000);
-    return () => window.clearInterval(tick);
-  }, [apiStatus, caseId, refreshLedger, stage]);
+  }, [apiStatus, caseId, refreshLedger, refreshSepoliaEvents, stage]);
+
+  useEffect(() => {
+    if (caseId !== "E" || !liveEAddress) return;
+    void refreshSepoliaEvents(liveEAddress).catch(() => undefined);
+  }, [caseId, liveEAddress, refreshSepoliaEvents]);
 
   const settleDemoSwap = useCallback(async () => {
     if (caseId === "E" || apiStatus !== "online") return;
@@ -1004,14 +1085,25 @@ export default function HomePage() {
     setSwapBusy(true);
     setSwapError(null);
     try {
-      await swapUsdcForWeth(eoa as Address, amount);
-      bumpUnlock("event", "E");
-      bumpUnlock("fees", "E");
-      goToStage("event", "E");
-      if (apiStatus === "online") {
-        await refreshLedger();
-        await refreshCompliance("E", amount);
+      const { receipt } = await swapUsdcForWeth(eoa as Address, amount);
+      let rows = swapObservedFromReceipt(receipt, amount);
+      if (rows.length === 0) {
+        rows = await swapObservedFromTx(receipt.transactionHash, amount);
       }
+      const incoming = rows.map(hookEventFromSepolia);
+      const nextEvents = mergeHookEvents(
+        sessionRef.current.chainEvents,
+        incoming,
+      );
+      setChainEvents(nextEvents);
+      writeSession({ chainEvents: nextEvents });
+      goToStage("hook");
+      setRunning(true);
+      if (apiStatus === "online") {
+        void refreshLedger().catch(() => undefined);
+        void refreshCompliance("E", amount).catch(() => undefined);
+      }
+      void refreshSepoliaEvents(eoa).catch(() => undefined);
     } catch (err) {
       setSwapError(err instanceof Error ? err.message : "Swap failed");
     } finally {
@@ -1059,9 +1151,7 @@ export default function HomePage() {
 
   const handleFlowComplete = useCallback(() => {
     setRunning(false);
-    if (caseId !== "E") {
-      bumpUnlock("fees", caseId);
-    }
+    bumpUnlock("fees", caseId);
   }, [bumpUnlock, caseId]);
 
   const handleStageSelect = (next: DemoStage) => {
@@ -1363,7 +1453,7 @@ export default function HomePage() {
               {stage === "event" && (
                   <div data-stage-module className="relative mx-auto w-full max-w-[1000px] px-2 pb-24 sm:px-3">
                     <OnChainAccumulator
-                      events={chainEvents.filter((e) => e.walletId === caseId)}
+                      events={trailEvents}
                       showTitle={false}
                       trail={caseId === "E" ? "chain" : "demo"}
                     />

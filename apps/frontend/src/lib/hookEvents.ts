@@ -124,14 +124,27 @@ export function hookEventFromApi(
 
 /**
  * Union by id so a later empty GET /events does not wipe a swap just recorded.
+ * A chain row with amountUsd 0 must not overwrite a notional already known locally.
  */
 export function mergeHookEvents(
   prev: HookChainEvent[],
   incoming: HookChainEvent[],
 ): HookChainEvent[] {
   const byId = new Map(prev.map((e) => [e.id, e]));
-  for (const e of incoming) byId.set(e.id, e);
-  return [...byId.values()];
+  for (const e of incoming) {
+    const existing = byId.get(e.id);
+    if (!existing) {
+      byId.set(e.id, e);
+      continue;
+    }
+    const amountUsd =
+      e.amountUsd > 0 ? e.amountUsd : existing.amountUsd;
+    byId.set(e.id, { ...existing, ...e, amountUsd });
+  }
+  return [...byId.values()].sort((a, b) => {
+    if (a.blockNumber !== b.blockNumber) return a.blockNumber - b.blockNumber;
+    return a.timestamp.localeCompare(b.timestamp);
+  });
 }
 
 /**

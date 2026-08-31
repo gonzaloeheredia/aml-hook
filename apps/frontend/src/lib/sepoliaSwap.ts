@@ -12,6 +12,7 @@ import {
   parseUnits,
   type Address,
   type Hex,
+  type TransactionReceipt,
 } from "viem";
 import {
   PERMIT2,
@@ -236,7 +237,10 @@ async function ensurePermit2Allowance(
   }
 }
 
-export async function swapUsdcForWeth(account: Address, usdc: number): Promise<Hex> {
+export async function swapUsdcForWeth(
+  account: Address,
+  usdc: number,
+): Promise<{ hash: Hex; receipt: TransactionReceipt }> {
   if (!Number.isFinite(usdc) || usdc <= 0) {
     throw new Error("Enter a USDC amount greater than 0.");
   }
@@ -311,7 +315,7 @@ export async function swapUsdcForWeth(account: Address, usdc: number): Promise<H
     if (receipt.status === "reverted") {
       throw new Error("Swap transaction reverted.");
     }
-    return hash;
+    return { hash, receipt };
   } catch (err) {
     throw new Error(decodeHookRevert(err));
   }
