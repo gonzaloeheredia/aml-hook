@@ -156,8 +156,8 @@ export function StageContinueFab({
 
     measure();
     const ro = new ResizeObserver(measure);
-    const module = document.querySelector("[data-stage-module]");
-    if (module) ro.observe(module);
+    const stageModule = document.querySelector("[data-stage-module]");
+    if (stageModule) ro.observe(stageModule);
     const root = document.querySelector("main");
     if (root) ro.observe(root);
 
