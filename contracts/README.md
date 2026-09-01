@@ -67,7 +67,7 @@ LP actions reuse the same `msgSender()` when the caller is a trusted router. A d
 `MockTrustedRouter`. `TRUSTED_ROUTER` adds another router on top. Sepolia Deploy seeds the
 canonical Universal Router. `CreatePool` still adds via `PoolModifyLiquidityTest`, which is
 not trusted. Publish a 0–30 score for that address before the first mint on an empty pool
-(100% impact otherwise takes 8% and `take` reverts). Live addresses: [`docs/Sepolia.md`](../docs/Sepolia.md).
+(100% impact otherwise takes 8% and `take` reverts). Live addresses: [`docs/Whitepaper.md`](../docs/Whitepaper.md#stack).
 
 ### Ternary bands (§3.3)
 
@@ -216,7 +216,7 @@ forge script script/Deploy.sol:Deploy --rpc-url $SEPOLIA_RPC_URL --broadcast --s
 forge script script/CreatePool.s.sol:CreatePool --rpc-url $SEPOLIA_RPC_URL --broadcast --slow
 ```
 
-`CreatePool` initializes MockWETH/MockUSDC, `DYNAMIC_FEE_FLAG`, tick spacing 60, mints to the LP, and deposits 0.1 WETH + 100 USDC. Addresses and txs: [`docs/Sepolia.md`](../docs/Sepolia.md).
+`CreatePool` initializes MockWETH/MockUSDC, `DYNAMIC_FEE_FLAG`, tick spacing 60, mints to the LP, and deposits 0.1 WETH + 100 USDC. Addresses: [`docs/Whitepaper.md`](../docs/Whitepaper.md#stack).
 
 Foundry loads `contracts/.env`. If `FEE_TOKEN` / `WETH_TOKEN` / `TOKEN_USD_FEED` are set, `UnitDeployTest` cases that expect Anvil to deploy fresh mocks (or leave the mainnet MockUSDC feed unbound) fail. Unset those three for a clean `forge test`.
 

@@ -10,9 +10,8 @@ The product thesis and the executable scenario live in `docs/`. Read those befor
 
 | Document | Contents |
 | --- | --- |
-| [`docs/Whitepaper.md`](docs/Whitepaper.md) | Problem, architecture, roles, FeeEscrow, latency floors, regulatory framing, and competitive map |
+| [`docs/Whitepaper.md`](docs/Whitepaper.md) | Problem, architecture, roles, FeeEscrow, latency floors, regulatory framing, competitive map, and live Sepolia stack (official PoolManager). Wallet E only. SDK `getDeployment` stays on 31337 |
 | [`docs/Use_Case.md`](docs/Use_Case.md) | A–D in-memory walkthrough (exploit, N-hop, D floors) plus Wallet E on Sepolia (faucet + Uniswap) |
-| [`docs/Sepolia.md`](docs/Sepolia.md) | Live Ethereum Sepolia pool and hook addresses (official PoolManager). Wallet E only. SDK `getDeployment` stays on 31337 |
 
 Supporting notes:
 
@@ -69,7 +68,7 @@ User → trusted router → PoolManager → AmlHook
 `AmlHook` is a thin CREATE2 shell (EIP-170). Evaluation lives in `AmlHookSatellite`.
 The hook must inherit Activity / Governance **before** Settlement so satellite
 storage slots match (`UnitAmlHookStorageLayoutTest`). Live Sepolia addresses:
-[`docs/Sepolia.md`](docs/Sepolia.md).
+[`docs/Whitepaper.md`](docs/Whitepaper.md#stack).
 
 | Contract | Responsibility |
 | --- | --- |
@@ -136,8 +135,8 @@ curl http://127.0.0.1:4000/health
 | --- | --- |
 | AccessManager, SanctionRegistry, ComplianceOracle, RiskPolicy, AmlHook, FeeEscrow | Deployed contracts |
 | Liquidity sanctions gate | On-chain for add **and** remove. Pause blocks add and swaps, not a clean LP exit. Demo UI is still swap-only |
-| PoolManager | Anvil: `MockPoolManager` unless `POOL_MANAGER` is set. Sepolia: official Uniswap v4 `0xE03A1074…3543`. Live initialize + liquidity (`docs/Sepolia.md`). The guided demo swap is still `previewSwap` + `observeSwap` + FeeEscrow on either chain |
-| `updateScore` | Signed tx. Local: keeper #0 + attestor #9. Sepolia: `_ORACLE_KEEPER` + attestor in [`docs/Sepolia.md`](docs/Sepolia.md) |
+| PoolManager | Anvil: `MockPoolManager` unless `POOL_MANAGER` is set. Sepolia: official Uniswap v4 `0xE03A1074…3543`. Live initialize + liquidity ([`docs/Whitepaper.md`](docs/Whitepaper.md#stack)). The guided demo swap is still `previewSwap` + `observeSwap` + FeeEscrow on either chain |
+| `updateScore` | Signed tx. Local: keeper #0 + attestor #9. Sepolia: `_ORACLE_KEEPER` + attestor in [`contracts/deployments/11155111.json`](contracts/deployments/11155111.json) |
 | Demo balances, P2P, quotes, escrow rows | Anvil for the A–E walkthrough. P2P is ERC-20 `transfer`. Sepolia faucet: `POST /demo/mint` `{ address }` |
 | USD quotes | `lastFx` if younger than 30 minutes; else one Chainlink round per token (`lastFx` until 24h if the live round is missing). Anvil: `MockUsdFeed` ($1 fee token, $1000 ETH). Live chain: official Chainlink ETH/USD + USDC/USD. Extra tokens: governor `setPriceFeed` |
 | Policy knobs (USD floors, floor fees, pool-impact) | `_COMPLIANCE_OFFICER` propose → 48h confirm. Score cuts 31 / 55 / 71 stay fixed |

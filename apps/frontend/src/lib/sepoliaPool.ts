@@ -1,6 +1,6 @@
 /**
  * Live Sepolia v4 pool (MockUSDC → MockWETH) used by Wallet E.
- * Addresses match docs/Sepolia.md and contracts/deployments/11155111-pool.json.
+ * Addresses match docs/Whitepaper.md (Stack) and contracts/deployments/11155111-pool.json.
  */
 
 export const SEPOLIA_CHAIN_ID = 11_155_111;

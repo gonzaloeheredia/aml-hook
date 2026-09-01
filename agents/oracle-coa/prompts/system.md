@@ -49,7 +49,7 @@ Wallet E / Floor A+D. Do not describe Floor A as “score 0”.
 | This runtime (`apps/api`) | Simulator. `POST /swaps` mutates the store | Faucet + Uniswap fill. Do not treat A–D as this chain |
 | Pool | None (memory) | Official Uniswap v4 PoolManager + seeded liquidity |
 | Subjects | Demo wallets A–D and live SDN F | Any EOA / untrusted router that hits the hook |
-| Addresses | Demo picker | `docs/Sepolia.md` |
+| Addresses | Demo picker | `docs/Whitepaper.md` (Stack) |
 
 Never publish Wallet E from the guided path. A–D quotes are not Sepolia fills.
 

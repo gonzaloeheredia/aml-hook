@@ -2,7 +2,7 @@
 
 This folder is **not** the Foundry suite. Solidity tests live in [`contracts/test/`](../contracts/test/).
 
-Scripts here exercise the same API routes the frontend uses (`/swaps`, `/transfers`, `/compliance`) without opening a browser. A–D routes are in-memory (hop + `applyPoolSwap`). They do not need Anvil and they do not touch the Sepolia pool ([`docs/Sepolia.md`](../docs/Sepolia.md)). Wallet E is faucet + Uniswap, not these scripts.
+Scripts here exercise the same API routes the frontend uses (`/swaps`, `/transfers`, `/compliance`) without opening a browser. A–D routes are in-memory (hop + `applyPoolSwap`). They do not need Anvil and they do not touch the Sepolia pool ([`docs/Whitepaper.md`](../docs/Whitepaper.md#stack)). Wallet E is faucet + Uniswap, not these scripts.
 
 Foundry Solidity tests (mirroring `contracts/src/`) live in [`contracts/test/`](../contracts/test/). See that folder's README for the layout.
 

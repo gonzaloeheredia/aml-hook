@@ -10,7 +10,7 @@ Two environments:
 | Quotes / swaps | TypeScript hop + band (`hopScore` / `decisionFromScore`). `POST /swaps` mutates the store | Official Uniswap v4 PoolManager. UI **Open pool on Uniswap**. Hook `beforeSwap` on that fill |
 | P2P / Restart | `POST /transfers` and `POST /reset` are memory-only. Restart does not mint or `updateScore` on Sepolia | Faucet `POST /demo/mint` `{ address }` (1,000 MockUSDC + 1 MockWETH). Faucet does not write a score; the keeper publishes after bind / after-swap |
 | Event | `GET /events?source=demo` | `GET /events?walletId=E&source=chain` (`SwapObserved` logs) |
-| Addresses | Demo picker A–D (same Anvil #1–#4 keys as labels only) | [`Sepolia.md`](Sepolia.md). A new EOA is Wallet E |
+| Addresses | Demo picker A–D (same Anvil #1–#4 keys as labels only) | [`Whitepaper.md`](Whitepaper.md#stack). A new EOA is Wallet E |
 
 A **new** EOA that opens the Sepolia pool (app.uniswap.org) is Wallet E: no oracle row → Floor A/C/D. The faucet is API-only (`POST /demo/mint` `{ address }`). The MetaMask panel omits it. Simulator C→E credits stay in RAM and do not fund that Sepolia EOA. The first swap (or connect) while `updatedAt == 0` still hits Floor A/C/D. After that, `_ORACLE_KEEPER` publishes a clean 0–30 row (`POST /oracle/E/after-swap` or the 3-minute tick) and later swaps use that score. The first Sepolia mint used Uniswap's `PoolModifyLiquidityTest` as the subject (untrusted router). It needed a published 0–30 score before add. A never-scored mint on an empty pool is 100% impact and the 8% `take` reverts.
 

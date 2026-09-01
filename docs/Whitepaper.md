@@ -311,9 +311,30 @@ Two environments. Reviewers should grade each on its own terms.
 | UI / API | Next.js + `apps/api`. **Get started** → `POST /swaps` (memory). **Advance 5 min** is the demo clock | Same UI: faucet `POST /demo/mint` `{ address }` + **Open pool on Uniswap**. SDK `getDeployment` is still 31337-only |
 | PoolManager | None (store `applyPoolSwap`) | Official Uniswap v4 PoolManager |
 | Quotes | TypeScript hop + band (same mapping as `RiskPolicy.decide`) | Real `beforeSwap` on the fill |
-| Addresses | Demo picker A–D | [`docs/Sepolia.md`](Sepolia.md) |
+| Addresses | Demo picker A–D | Stack below |
 
 A new EOA against the Sepolia pool is Wallet E (no oracle row → Floor A/C/D on the first fill). The keeper then publishes a clean 0–30 row so later swaps read that score. A–D hops never overlay that EOA.
+
+### Stack
+
+Ethereum Sepolia `11155111`. The hook in the pool key is
+`0x943Af5f4aC70869b1F794FE3C8277de0f4AecfC7`. Canonical JSON:
+[`contracts/deployments/11155111.json`](../contracts/deployments/11155111.json).
+
+| Contract | Address |
+| --- | --- |
+| AmlHookSatellite | `0x6e14cf005697e20a7Dc52bea5F1AD927609d53E4` |
+| AccessManager | `0x52C589cE6140F482795897D0b11852203a6403fC` |
+| SanctionRegistry | `0xBf46E7dad8286FC3e487C22b27F17D734814df5d` |
+| ComplianceOracle | `0xED5ED80715D886e4cE808269e69fcDFBeD22733B` |
+| RiskPolicy | `0x4427FD537B0c7486fCaE7128a406FcD941723aD8` |
+| FeeEscrow | [`0xB8487ea37DF8576d6219ae1C61FF72D17F445925`](https://sepolia.etherscan.io/address/0xB8487ea37DF8576d6219ae1C61FF72D17F445925) |
+| LpCompensationVault | [`0x2e24716c2D99b960185E0ED85E30696EA9921974`](https://sepolia.etherscan.io/address/0x2e24716c2D99b960185E0ED85E30696EA9921974): clean RiskFee destination |
+| ComplianceTreasury | [`0x6a971F7EaB0e1CA8Bd85BFD7A21a1639841f86d7`](https://sepolia.etherscan.io/address/0x6a971F7EaB0e1CA8Bd85BFD7A21a1639841f86d7): illicit recover + delayed payout |
+| ComplianceTreasury (genesis, unused) | `0x0281A79ce8234C9601472118a45C343a53C06650` |
+| Trusted router (Universal Router) | `0x3A9D48AB9751398BbFa63ad67599Bb04e4BdF98b` |
+| ETH/USD (United States dollar) | `0x694AA1769357215DE4FAC081bf1f309aDC325306` |
+| USDC/USD (`TOKEN_USD_FEED` on MockUSDC) | `0xA2F78ab2355fe2f984D808B5CeE7FD0A93D5270E` |
 
 ### 8.1 Contract architecture
 
@@ -355,7 +376,7 @@ The satellite's first slots are AccessManaged / Pausable, then
 Governance → Settlement last**. A reversed list put `complianceTreasury` in
 the `sanctionRegistry` slot. Every guard then called `isSanctioned` on the
 treasury and reverted. That happened on an earlier Sepolia hook (`0xf558…`).
-The live hook is in `docs/Sepolia.md`. The unit test
+The live hook is `0x943Af5f4aC70869b1F794FE3C8277de0f4AecfC7` (Stack). The unit test
 `AmlHook.StorageLayout.t.sol` locks slot 1 = `sanctionRegistry`.
 
 **What runs on each Uniswap callback**

@@ -121,7 +121,7 @@ const SKILL_CATALOG: Record<
               : "Use-case: published-clean path; Floors A–D stay on the hook.",
   },
   "uhi10-sepolia": {
-    sources: ["Sepolia live-pool skill", "docs/Sepolia.md"],
+    sources: ["Sepolia live-pool skill", "docs/Whitepaper.md"],
     finding: () =>
       "This API is Anvil 31337. Do not copy A–E hops onto Sepolia; a never-written EOA there is Wallet E.",
   },

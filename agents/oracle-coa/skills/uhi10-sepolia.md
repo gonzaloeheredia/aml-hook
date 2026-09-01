@@ -5,7 +5,7 @@ description: "Live Ethereum Sepolia (11155111) instantiation of the AML Hook use
 
 # Sepolia live pool: COA (Compliance Officer Agent) constraints
 
-Canonical addresses: `docs/Sepolia.md` and
+Canonical addresses: `docs/Whitepaper.md` (Stack) and
 `contracts/deployments/11155111.json`. This skill states operational
 constraints. It does not replace `uhi10-use-case` (A–E math still applies).
 
@@ -82,7 +82,7 @@ from this runtime.
 | AmlHook | `0x943Af5f4aC70869b1F794FE3C8277de0f4AecfC7` | CREATE2 flags; DELEGATECALL into satellite |
 | AmlHookSatellite | `0x6e14cf005697e20a7Dc52bea5F1AD927609d53E4` | Logic; storage prefix is the hook’s |
 | MockWETH / MockUSDC | `0x51f63B…` / `0xa95c60…` | Demo tokens, not canonical WETH/USDC |
-| RiskPolicy / FeeEscrow / treasury | see `docs/Sepolia.md` | Policy and escrow |
+| RiskPolicy / FeeEscrow / treasury | see `docs/Whitepaper.md` (Stack) | Policy and escrow |
 
 Obsolete hooks (do not analyze as the live pool): `0xc1a2…cFc7` (immutable
 MockPoolManager) and `0xf558…CFC7` (official PM, **misaligned** satellite

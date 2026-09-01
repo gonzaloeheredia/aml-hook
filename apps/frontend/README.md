@@ -87,7 +87,7 @@ Static case templates live in `src/data/cases.ts`. A–D ledger and compliance f
 ## Related docs (repo root)
 
 - `docs/Whitepaper.md`: product + AccessManager roles (§3.5)
-- `docs/Use_Case.md`: A–E demo narrative. Sepolia pool: `docs/Sepolia.md`
+- `docs/Use_Case.md`: A–E demo narrative. Sepolia stack: `docs/Whitepaper.md` (Stack)
 - `contracts/README.md`: Foundry layout (`src/contracts/…`, `script/Deploy.sol`, `CreatePool.s.sol`)
 - `apps/api/README.md`: A–D memory ledger; E / faucet on Sepolia
 

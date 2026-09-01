@@ -33,7 +33,7 @@ The live swap still only reads that mapping.
 No live OpenSanctions / Etherscan / Chainalysis calls. Facts for A–D come from
 the API store (wallets, P2P, demo `SwapObserved` / `WalletBlocked`) plus live OFAC SDN.
 N-hop decay (`100 × 0.65^hops`) is the A–D backbone in skill `uhi10-use-case`.
-Do not import that ledger onto a Sepolia EOA. The live pool (`docs/Sepolia.md`)
+Do not import that ledger onto a Sepolia EOA. The live pool (`docs/Whitepaper.md` Stack)
 needs a keeper/attestor if a new wallet must leave the never-scored band.
 
 ## FEE_OVERRIDE vs FeeEscrow (aligned with contracts)

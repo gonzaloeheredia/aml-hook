@@ -44,7 +44,7 @@ and produce a 0–100 score with ternary hook output.
 
 For A–D the signed score stays in the API cache (no `ComplianceOracle` write).
 `AMLHook.beforeSwap` on Sepolia reads a published row only for live subjects
-(Wallet E). See `docs/Sepolia.md`.
+(Wallet E). See `docs/Whitepaper.md` (Stack).
 
 Entry point: `reevaluateWallet()` in `apps/api/src/oracle/agent.ts`.
 

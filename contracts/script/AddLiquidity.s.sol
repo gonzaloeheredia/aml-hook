@@ -27,7 +27,7 @@ interface IPoolModifyLiquidityTest {
 
 /// @notice Adds more MockWETH/MockUSDC liquidity to the already-initialized Sepolia pool.
 /// @dev The first add was 0.1 WETH + 100 USDC — too thin for $500 / $1,000 Wallet E fills.
-///      LIQ_ROUTER already has a published 0–30 score (docs/Sepolia.md).
+///      LIQ_ROUTER already has a published 0–30 score (docs/Whitepaper.md Stack).
 ///
 ///      Usage (from `contracts/`, `.env` loaded by Foundry):
 ///        forge script script/AddLiquidity.s.sol:AddLiquidity --rpc-url $SEPOLIA_RPC_URL --broadcast --slow

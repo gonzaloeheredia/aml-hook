@@ -41,7 +41,7 @@ interface IPoolModifyLiquidityTest {
 ///      hook scores that address as the LP. A never-scored first mint on an
 ///      empty pool is 100% impact → 8% take while the manager holds 0 of the
 ///      new token → revert. Publish a 0–30 oracle row for `LIQ_ROUTER` first
-///      (`docs/Sepolia.md`).
+///      (`docs/Whitepaper.md` Stack).
 ///
 ///      Usage (from `contracts/`, `.env` loaded by Foundry):
 ///        forge script script/CreatePool.s.sol:CreatePool --rpc-url $SEPOLIA_RPC_URL --broadcast --slow

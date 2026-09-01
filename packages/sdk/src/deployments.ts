@@ -52,7 +52,7 @@ export function getOracleKeeperAddress(d: ChainDeployment): Address {
 /**
  * Returns checked-in deployment addresses for a chain.
  * Refresh via `node scripts/deploy-local.mjs` (writes 31337.json).
- * Sepolia is not bundled. See `contracts/deployments/11155111.json` / docs/Sepolia.md.
+ * Sepolia is not bundled. See `contracts/deployments/11155111.json` / docs/Whitepaper.md (Stack).
  */
 export function getDeployment(chainId: number): ChainDeployment | null {
   if (chainId === 31337) {

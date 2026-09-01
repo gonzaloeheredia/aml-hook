@@ -13,7 +13,7 @@ node scripts/deploy-local.mjs
 Writes:
 
 - `packages/sdk/deployments/31337.json`: AccessManager, L1 (Layer 1) / L2 (Layer 2) / L3 (Layer 3), AmlHook, FeeEscrow, LpCompensationVault, ComplianceTreasury, `feeToken` (MockUSDC), `wethToken` (MockWETH), `usdFeed` / `ethUsdFeed`, demo wallets A–E (Anvil #1–#5), attestor, role holders (`hookGovernor`, `complianceOfficer`, keepers), poolManager.
-- Sepolia (`11155111`) is **not** in this package. `getDeployment(11155111)` returns `null`. Use [`contracts/deployments/11155111.json`](../../contracts/deployments/11155111.json) and [`docs/Sepolia.md`](../../docs/Sepolia.md).
+- Sepolia (`11155111`) is **not** in this package. `getDeployment(11155111)` returns `null`. Use [`contracts/deployments/11155111.json`](../../contracts/deployments/11155111.json) and [`docs/Whitepaper.md`](../../docs/Whitepaper.md#stack).
 - `apps/api/.env.local`: RPC (remote procedure call), hook, oracle, escrow, fee token, `WETH_TOKEN_ADDRESS`, feeds, `COMPLIANCE_TREASURY_ADDRESS` / `COMPLIANCE_RESERVE` / `LP_COMPENSATION_FUND` / `LP_COMPENSATION_VAULT` / `COMPENSATION_LPS`, keeper (Anvil #0), attestor (Anvil #9)
 
 ```ts

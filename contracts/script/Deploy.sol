@@ -47,7 +47,7 @@ import {MockUsdFeed} from "./mocks/MockUsdFeed.sol";
 ///        nothing in-tx: principal and feesAccrued sit in FeeEscrow 48h (clean principal
 ///        returns to the LP; illicit recover books treasury `LP_PRINCIPAL` vs `ILLICIT_RISK_FEE`).
 ///      - MOCK: PoolManager defaults to MockPoolManager (no live Uniswap swaps).
-///        Sepolia: set POOL_MANAGER to the official manager (docs/Sepolia.md).
+///        Sepolia: set POOL_MANAGER to the official manager (docs/Whitepaper.md Stack).
 ///      - REAL: AmlHookSatellite (DELEGATECALL). AmlHook must inherit Activity /
 ///        Governance before Settlement or satellite slot 1 is complianceTreasury.
 ///      - MOCK: MockTrustedRouter only when the chain has no canonical Universal Router
