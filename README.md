@@ -4,6 +4,13 @@ Uniswap v4 hook that evaluates the swap subject at execution and returns a terna
 
 The hook does not compute risk on-chain. The Compliance Officer Agent (COA) emits a score; an off-chain keeper writes it into `ComplianceOracle`. `beforeSwap` reads that row, applies sanctions and latency floors, and either lets the swap through, takes a risk differential into `FeeEscrow`, or reverts. Liquidity add and remove resolve the liquidity provider (LP) via a trusted router’s `msgSender()` (or the direct sender). A listed wallet or a score of 71 or above cannot add. A known score of 31–70 pays a 3% or 8% mint fee. Never-scored adds reuse Floor A, C, and D. On a blocked remove the LP receives nothing in that transaction: principal and fees wait 48 hours in `FeeEscrow` (clean principal returns to the LP). Pause stops swaps. A clean mint or exit still proceeds.
 
+## Partner integrations
+
+- **Uniswap v4** — hook interface (`BaseHook` / `IHooks`), official Sepolia PoolManager, and the guided swap demo.
+- **Anthropic Claude** — Compliance Officer Agent: live score, fee, and Opinion when `ANTHROPIC_API_KEY` is set. Without a key, the skill interpreter fills the same schema.
+
+No other partner integrations (no Chainalysis, TRM, or similar KYT vendors).
+
 ## Documentation
 
 The product thesis and the executable scenario live in `docs/`. Read those before the contracts.
