@@ -1,8 +1,26 @@
 # AML Hook
 
-Uniswap v4 hook that evaluates the swap subject at execution and returns a ternary decision: **ALLOW**, **FEE_OVERRIDE**, or **REVERT**.
+**AML Hook** is a Uniswap v4 hook that screens every swap — and every deposit or withdrawal of liquidity — at the moment it executes.
 
-The hook does not compute risk on-chain. The Compliance Officer Agent (COA) emits a score; an off-chain keeper writes it into `ComplianceOracle`. `beforeSwap` reads that row, applies sanctions and latency floors, and either lets the swap through, takes a risk differential into `FeeEscrow`, or reverts. Liquidity add and remove resolve the liquidity provider (LP) via a trusted router’s `msgSender()` (or the direct sender). A listed wallet or a score of 71 or above cannot add. A known score of 31–70 pays a 3% or 8% mint fee. Never-scored adds reuse Floor A, C, and D. On a blocked remove the LP receives nothing in that transaction: principal and fees wait 48 hours in `FeeEscrow` (clean principal returns to the LP). Pause stops swaps. A clean mint or exit still proceeds.
+It does not open or close the pool with a yes/no gate. It returns one of three outcomes:
+
+- **Allow** — the wallet is clean; the swap pays the normal 0.30% pool fee.
+- **Fee override** — the wallet is atypical but not confirmed illicit; the swap goes through, and an extra 3% or 8% risk fee is held for 48 hours.
+- **Revert** — the wallet is sanctioned or high-risk (score 71+); the trade does not execute.
+
+Risk is scored off-chain by a Compliance Officer Agent. A keeper publishes that score on-chain. The hook only reads the published row, applies sanctions and size/freshness rules, and enforces the decision. The chain never runs the model, so the swap settles in the same block it would have without the hook.
+
+The decision logic is built to the FATF (Financial Action Task Force) risk-based approach for virtual assets (ongoing monitoring, sanctions screening, and a record of the action taken). FATF is the international baseline. The legal overlay on top of that logic — OFAC (Office of Foreign Assets Control), MiCA (Markets in Crypto-Assets Regulation), FinCEN (Financial Crimes Enforcement Network), or a local list — can be turned on, retuned, or swapped without changing how the contracts decide. Operators adapt the framework to their jurisdiction; the hook’s three outcomes stay the same.
+
+**Providing liquidity.** The same three outcomes apply when someone deposits tokens into the pool or takes them out — not only when they trade.
+
+- A sanctioned wallet, or a wallet scored 71 or above, cannot deposit.
+- A wallet already scored 31–70 can deposit, but pays an extra 3% or 8% on that deposit.
+- A wallet that has never been scored is treated as unknown: a small deposit pays a risk fee; a very large one is blocked.
+
+If a high-risk or sanctioned LP (liquidity provider) tries to withdraw, they do not receive their tokens in that transaction. Principal and fees are held for 48 hours. If the LP is later confirmed clean, the principal is returned. If they are confirmed illicit, those funds do not go back to them.
+
+**Pause** stops swaps. A clean deposit or withdrawal of liquidity still proceeds.
 
 ## Partner integrations
 
