@@ -6,6 +6,13 @@ The hook does not compute risk on-chain. The Compliance Officer Agent emits a sc
 
 Built for UHI10.
 
+## Partner integrations
+
+- **Uniswap v4** — hook interface (`BaseHook` / `IHooks`), official Sepolia PoolManager, and the guided swap demo.
+- **Anthropic Claude** — Compliance Officer Agent: live score, fee, and Opinion when `ANTHROPIC_API_KEY` is set. Without a key, the skill interpreter fills the same schema.
+
+No other partner integrations (no Chainalysis, TRM, or similar KYT vendors).
+
 ## Documentation
 
 The product thesis and the executable scenario live in `docs/`. Read those before the contracts.
